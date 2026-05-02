@@ -12,13 +12,13 @@ echo Pronto.
 echo.
 
 echo [2/4] Iniciando WDO Backend (FastAPI porta 8080)...
-cd /d "%~dp0\.."
+cd /d "%~dp0"
 start "WDO Backend (FastAPI)" cmd /k ".venv\Scripts\python.exe server.py"
 echo Pronto.
 echo.
 
 echo [3/4] Iniciando WDO Frontend (Vite porta 5174)...
-cd /d "%~dp0"
+cd /d "%~dp0regime-dashboard"
 start "WDO Frontend (Vite)" cmd /k "npm run dev"
 echo Pronto.
 echo.
