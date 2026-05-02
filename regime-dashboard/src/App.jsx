@@ -96,6 +96,8 @@ export default function App() {
     const flashTimerRef = useRef(null);
     const audioCtxRef = useRef(null);
 
+    const isViewingHistory = selectedDate !== "";
+
     // RelÃ³gio
     useEffect(() => {
         const t = setInterval(() => setClock(new Date().toLocaleTimeString("pt-BR")), 1000);
@@ -257,7 +259,7 @@ export default function App() {
 
     useEffect(() => { fetchDayData(selectedDate); }, [selectedDate, fetchDayData]);
 
-    const isViewingHistory = selectedDate !== "";
+    // (isViewingHistory foi movido para cima)
 
     // â”€â”€ Derived state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const currentZ = data ? data.current_z : (history.length > 0 ? history[history.length - 1].z : 0);
