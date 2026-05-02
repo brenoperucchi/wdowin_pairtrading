@@ -1,0 +1,18 @@
+# Generated data
+data/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime state
+trades.db
+beta_ultimo.json
+
+# Environment
+.venv/
+.env
+.env.local
+.env.*
+.gemini/

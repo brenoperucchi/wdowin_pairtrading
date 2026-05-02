@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "updated_at": "2026-05-02T12:22:00-03:00"
+  },
+  "roles": [
+    {
+      "pattern": "server.py",
+      "role": "API backend exposing pair trading signals and data via FastAPI"
+    },
+    {
+      "pattern": "trade_engine.py",
+      "role": "Setup Matador specific trading logic, signal evaluation, and ensemble aggregation"
+    },
+    {
+      "pattern": "regime-dashboard/src/App.jsx",
+      "role": "Main React entrypoint rendering the signal dashboard charts and logic"
+    },
+    {
+      "pattern": "research/*.py",
+      "role": "Quantitative Walk-Forward Analysis and model backtesting pipelines"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "updated_at": "2026-05-02T12:22:00-03:00"
+  },
+  "endpoints": [
+    {
+      "path": "/api/regime",
+      "method": "GET",
+      "description": "Returns the latest real-time pair trading signals, NWE bands, Z-scores, and Consensus heatmap",
+      "source_file": "server.py"
+    },
+    {
+      "path": "/api/history",
+      "method": "GET",
+      "description": "Returns historical regime data for rendering the charts upon initial load",
+      "source_file": "server.py"
+    }
+  ]
+}

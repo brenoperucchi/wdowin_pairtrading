@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "updated_at": "2026-05-02T12:22:00-03:00"
+  },
+  "decisions": [
+    {
+      "id": "ADR-001",
+      "title": "Use of PM2 for process orchestration",
+      "status": "Accepted",
+      "context": "Need to keep the Python backend and Vite frontend running simultaneously 24/7 on a Windows environment for trade monitoring.",
+      "decision": "Use PM2 via ecosystem.config.js to manage both the Uvicorn FastAPI server and the `npm run dev` Vite process."
+    },
+    {
+      "id": "ADR-002",
+      "title": "Frontend Polling instead of WebSockets",
+      "status": "Accepted",
+      "context": "We need to reflect the Matador Setup signal changes in near real-time.",
+      "decision": "The React Dashboard uses a `setInterval` loop polling `/api/regime` every 2.5 seconds to handle reconnections and reduce state complexities over WebSocket."
+    },
+    {
+      "id": "ADR-003",
+      "title": "Lookback-only NWE (Nadaraya-Watson Envelope)",
+      "status": "Accepted",
+      "context": "Trading algorithms using NWE are susceptible to lookahead bias if the filter uses future data points.",
+      "decision": "Implement a strictly causal NWE algorithm that filters using only historical points up to time T."
+    }
+  ]
+}

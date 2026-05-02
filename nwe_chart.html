@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>NWE — Nadaraya-Watson Envelope</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; }
+
+  #header {
+    padding: 12px 20px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  }
+  #header h1 { font-size: 15px; color: #58a6ff; font-weight: 600; white-space: nowrap; }
+
+  .ctrl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b949e; }
+  .ctrl label { white-space: nowrap; }
+  .ctrl input[type=range] { width: 90px; accent-color: #58a6ff; }
+  .ctrl span { color: #e6edf3; font-weight: 600; min-width: 30px; }
+
+  #stats {
+    display: flex; gap: 20px; margin-left: auto; flex-wrap: wrap;
+  }
+  .stat { display: flex; flex-direction: column; align-items: center; font-size: 11px; }
+  .stat-label { color: #8b949e; }
+  .stat-val { font-size: 13px; font-weight: 700; }
+
+  #chart-container { flex: 1; position: relative; }
+  #chart { width: 100%; height: 100%; }
+
+  #legend {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(22,27,34,0.85);
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+    pointer-events: none;
+  }
+  .leg-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .leg-dot { width: 10px; height: 3px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>📈 Nadaraya-Watson Envelope</h1>
+
+  <div class="ctrl">
+    <label>Bandwidth</label>
+    <input type="range" id="bw" min="2" max="30" step="0.5" value="8">
+    <span id="bw-val">8.0</span>
+  </div>
+  <div class="ctrl">
+    <label>MultMAE</label>
+    <input type="range" id="mult" min="0.5" max="6" step="0.1" value="3">
+    <span id="mult-val">3.0</span>
+  </div>
+  <div class="ctrl">
+    <label>Lookback</label>
+    <input type="range" id="lb" min="50" max="499" step="10" value="200">
+    <span id="lb-val">200</span>
+  </div>
+
+  <div id="stats">
+    <div class="stat"><span class="stat-label">NWE</span><span class="stat-val" id="s-nwe">—</span></div>
+    <div class="stat"><span class="stat-label">Upper</span><span class="stat-val" id="s-up" style="color:#26a641">—</span></div>
+    <div class="stat"><span class="stat-label">Lower</span><span class="stat-val" id="s-lo" style="color:#f85149">—</span></div>
+    <div class="stat"><span class="stat-label">MAE</span><span class="stat-val" id="s-mae">—</span></div>
+  </div>
+</div>
+
+<div id="chart-container">
+  <div id="chart"></div>
+  <div id="legend">
+    <div class="leg-row"><div class="leg-dot" style="background:#58a6ff"></div> NWE (linha central)</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#26a641"></div> Upper Band (+MAE)</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#f85149"></div> Lower Band (−MAE)</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#3fb950;height:8px;width:8px;border-radius:50%"></div> Sinal Buy</div>
+    <div class="leg-row"><div class="leg-dot" style="background:#f85149;height:8px;width:8px;border-radius:50%"></div> Sinal Short</div>
+  </div>
+</div>
+
+<script>
+// ─── Gera dados OHLCV sintéticos realistas (estilo WDO) ─────────────────────
+function generateOHLCV(n = 600) {
+  const bars = [];
+  let close = 5900 + Math.random() * 200;
+  let ts = Math.floor(Date.now() / 1000) - n * 300;
+
+  for (let i = 0; i < n; i++) {
+    const drift  = (Math.random() - 0.48) * 8;
+    const noise  = (Math.random() - 0.5) * 40;
+    const trend  = Math.sin(i / 80) * 60 + Math.sin(i / 25) * 20;
+    close = Math.max(5400, Math.min(6400, close + drift + noise * 0.3 + trend * 0.05));
+
+    const range = 10 + Math.random() * 40;
+    const open  = close + (Math.random() - 0.5) * range * 0.6;
+    const high  = Math.max(open, close) + Math.random() * range * 0.6;
+    const low   = Math.min(open, close) - Math.random() * range * 0.6;
+
+    bars.push({ time: ts + i * 300, open, high, low, close });
+  }
+  return bars;
+}
+
+// ─── NWE Kernel Gaussiano ────────────────────────────────────────────────────
+function calcNWE(bars, bandwidth, lookback, multMAE) {
+  const n = bars.length;
+  const closes = bars.map(b => b.close);
+  const fOut   = new Array(n).fill(null);
+
+  for (let t = lookback; t < n; t++) {
+    let fSum = 0, fSumW = 0;
+    for (let i = 0; i < lookback; i++) {
+      const w = Math.exp(-(i * i) / (2 * bandwidth * bandwidth));
+      fSum  += closes[t - i] * w;
+      fSumW += w;
+    }
+    fOut[t] = fSumW > 0 ? fSum / fSumW : closes[t];
+  }
+
+  const upper = new Array(n).fill(null);
+  const lower = new Array(n).fill(null);
+  const mae   = new Array(n).fill(null);
+
+  for (let t = lookback * 2; t < n; t++) {
+    let fSumErr = 0;
+    for (let i = 0; i < lookback; i++) {
+      if (fOut[t - i] !== null) fSumErr += Math.abs(closes[t - i] - fOut[t - i]);
+    }
+    const m = (fSumErr / lookback) * multMAE;
+    upper[t] = fOut[t] + m;
+    lower[t] = fOut[t] - m;
+    mae[t]   = m;
+  }
+
+  return { fOut, upper, lower, mae };
+}
+
+// ─── Detecta sinais buy/short ────────────────────────────────────────────────
+function calcSignals(bars, lower, upper, lookback) {
+  const buys = [], shorts = [];
+  for (let t = lookback * 2 + 1; t < bars.length; t++) {
+    if (lower[t] === null) continue;
+    const c  = bars[t].close,   c1 = bars[t-1].close;
+    const lo = lower[t],        lo1 = lower[t-1];
+    const up = upper[t],        up1 = upper[t-1];
+
+    if (c <= lo && c1 > lo1)
+      buys.push({ time: bars[t].time, position: 'belowBar', color: '#3fb950', shape: 'arrowUp', text: 'BUY' });
+    if (c >= up && c1 < up1)
+      shorts.push({ time: bars[t].time, position: 'aboveBar', color: '#f85149', shape: 'arrowDown', text: 'SHORT' });
+  }
+  return { buys, shorts };
+}
+
+// ─── Monta dados para séries ─────────────────────────────────────────────────
+function toSeries(bars, arr) {
+  return bars.map((b, i) => ({ time: b.time, value: arr[i] })).filter(d => d.value !== null);
+}
+
+// ─── Chart setup ─────────────────────────────────────────────────────────────
+const container = document.getElementById('chart');
+const chart = LightweightCharts.createChart(container, {
+  layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
+  grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+  crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  rightPriceScale: { borderColor: '#30363d' },
+  timeScale: { borderColor: '#30363d', timeVisible: true },
+  width:  container.offsetWidth,
+  height: container.offsetHeight,
+});
+
+const candleSeries = chart.addCandlestickSeries({
+  upColor: '#26a641', downColor: '#f85149',
+  borderUpColor: '#26a641', borderDownColor: '#f85149',
+  wickUpColor: '#26a641', wickDownColor: '#f85149',
+});
+
+const nweSeries   = chart.addLineSeries({ color: '#58a6ff', lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+const upperSeries = chart.addLineSeries({ color: '#26a641', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
+const lowerSeries = chart.addLineSeries({ color: '#f85149', lineWidth: 1, lineStyle: 2, lastValueVisible: false, priceLineVisible: false });
+
+// ─── Estado ──────────────────────────────────────────────────────────────────
+const BARS = generateOHLCV(600);
+let markers = [];
+
+function update() {
+  const bw   = parseFloat(document.getElementById('bw').value);
+  const mult = parseFloat(document.getElementById('mult').value);
+  const lb   = parseInt(document.getElementById('lb').value);
+
+  document.getElementById('bw-val').textContent   = bw.toFixed(1);
+  document.getElementById('mult-val').textContent = mult.toFixed(1);
+  document.getElementById('lb-val').textContent   = lb;
+
+  const { fOut, upper, lower, mae } = calcNWE(BARS, bw, lb, mult);
+  const { buys, shorts } = calcSignals(BARS, lower, upper, lb);
+
+  candleSeries.setData(BARS);
+  nweSeries.setData(toSeries(BARS, fOut));
+  upperSeries.setData(toSeries(BARS, upper));
+  lowerSeries.setData(toSeries(BARS, lower));
+
+  markers = [...buys, ...shorts].sort((a, b) => a.time - b.time);
+  candleSeries.setMarkers(markers);
+
+  // Stats da última barra válida
+  const last = BARS.length - 1;
+  const fmt = v => v !== null ? v.toFixed(2) : '—';
+  document.getElementById('s-nwe').textContent = fmt(fOut[last]);
+  document.getElementById('s-up').textContent  = fmt(upper[last]);
+  document.getElementById('s-lo').textContent  = fmt(lower[last]);
+  document.getElementById('s-mae').textContent = mae[last] !== null ? mae[last].toFixed(2) : '—';
+
+  // Cor NWE por inclinação
+  const slope = fOut[last] > fOut[last - 1];
+  nweSeries.applyOptions({ color: slope ? '#26a641' : '#f85149' });
+}
+
+// ─── Crosshair tooltip nos stats ─────────────────────────────────────────────
+chart.subscribeCrosshairMove(param => {
+  if (!param || !param.time) return;
+  const idx = BARS.findIndex(b => b.time === param.time);
+  if (idx < 0) return;
+  const { fOut, upper, lower, mae } = calcNWE(BARS,
+    parseFloat(document.getElementById('bw').value),
+    parseInt(document.getElementById('lb').value),
+    parseFloat(document.getElementById('mult').value)
+  );
+  const fmt = v => v !== null ? v.toFixed(2) : '—';
+  document.getElementById('s-nwe').textContent = fmt(fOut[idx]);
+  document.getElementById('s-up').textContent  = fmt(upper[idx]);
+  document.getElementById('s-lo').textContent  = fmt(lower[idx]);
+  document.getElementById('s-mae').textContent = mae[idx] !== null ? mae[idx].toFixed(2) : '—';
+});
+
+// ─── Controles ───────────────────────────────────────────────────────────────
+['bw','mult','lb'].forEach(id => document.getElementById(id).addEventListener('input', update));
+
+// ─── Resize ──────────────────────────────────────────────────────────────────
+new ResizeObserver(() => {
+  chart.applyOptions({ width: container.offsetWidth, height: container.offsetHeight });
+}).observe(container);
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+update();
+chart.timeScale().fitContent();
+</script>
+</body>
+</html>

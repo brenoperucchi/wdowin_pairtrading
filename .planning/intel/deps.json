@@ -1,0 +1,44 @@
+{
+  "_meta": {
+    "updated_at": "2026-05-02T12:22:00-03:00"
+  },
+  "nodes": [
+    {
+      "id": "server.py",
+      "type": "file",
+      "layer": "backend"
+    },
+    {
+      "id": "trade_engine.py",
+      "type": "file",
+      "layer": "backend"
+    },
+    {
+      "id": "App.jsx",
+      "type": "file",
+      "layer": "frontend"
+    },
+    {
+      "id": "MetaTrader5",
+      "type": "external",
+      "layer": "data_source"
+    }
+  ],
+  "edges": [
+    {
+      "source": "server.py",
+      "target": "MetaTrader5",
+      "relationship": "fetches_market_data"
+    },
+    {
+      "source": "server.py",
+      "target": "trade_engine.py",
+      "relationship": "imports_trading_logic"
+    },
+    {
+      "source": "App.jsx",
+      "target": "server.py",
+      "relationship": "fetches_api_data"
+    }
+  ]
+}

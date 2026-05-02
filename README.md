@@ -1,0 +1,175 @@
+# WIN × WDO — Advanced Regime Monitor
+
+Um dashboard profissional em tempo real para operações de **Statistical Arbitrage (Long/Short)** focado no par Mini Índice (WIN) e Mini Dólar (WDO) da B3. Esta versão avançada introduz **Cálculo Dinâmico de Beta (OLS)** e monitoramento rigoroso de **Saúde da Relação (Regime Health)** para evitar armadilhas de cointegração quebrada.
+
+![Dashboard Preview](./regime-dashboard/public/preview.png) *(Coloque um screenshot do painel aqui)*
+
+---
+
+## 🚀 Principais Novidades (Versão Atual)
+
+A arquitetura foi inteiramente reescrita para resolver as deficiências de parâmetros estáticos (como o Beta fixo) e para adicionar proteção algorítmica aos sinais de Z-Score.
+
+### 1. Beta Dinâmico via OLS (Ordinary Least Squares)
+O *hedge ratio* (Beta) não é mais preenchido manualmente. O servidor Python coleta dados ao vivo via MetaTrader 5 (MT5) e utiliza Regressão Linear Simples via `numpy.linalg.lstsq` para calcular:
+- **`β OLS` (Curto Prazo)**: O beta da janela atual (padrão 40 barras de 5 minutos).
+- **`β ref 20d` (Longo Prazo)**: O beta extraído de uma janela expansiva de aproximadamente 20 dias úteis (~2240 barras de M5).
+
+### 2. Painel de Saúde da Relação (Regime Health) Multi-Pilar
+O *Z-score* só tem utilidade se a relação matemática entre as duas pontas (WIN e WDO) for estacionária. O dashboard agora implementa classificações severas baseadas na saúde dessa relação e no consenso de múltiplos modelos:
+- **Correlação de Pearson (ρ)**: O indicador mais rápido de quebra. Classificado em *Forte (≤ -0.70)*, *Atenção*, *Fraca* e *Quebrada (> -0.40)*.
+- **Delta Beta (Δβ)**: Mede o desvio (em %) do beta de curto prazo em relação ao referencial de 20 dias. Classificado como *Estável (< 5%)*, *Derivando*, *Instável* e *Breakdown (> 25%)*.
+- **Múltiplos Motores de Sinal (Kalman, OLS, DI)**: O sistema analisa o Z-Score utilizando Filtro de Kalman, Regressão OLS Clássica e prêmio de risco do DI1, gerando um mapa de calor de Consenso de Sinais.
+
+**`safe_to_trade`**: O sinal de entrada só é valido e visualmente liberado se tanto a correlação quanto a derivação do beta estiverem dentro das margens seguras (bandas verde ou amarela), e houver consenso entre os motores de sinal.
+
+### 3. Sincronização Inteligente de Histórico e Fuso Horário
+- O gráfico visual "limpa" automaticamente os resquícios do último pregão **todos os dias a partir das 08:50 (hora de Brasília)**.
+- Implementação de offset de fuso horário (+3 horas) para acomodar os servidores MetaTrader 5 internacionais com o horário oficial da B3, garantindo que as marcações do gráfico e da sessão ocorram corretamente.
+
+### 4. Gestão de Risco e Sinais Sonoros (Novo)
+- **Position Sizing Dinâmico:** O sistema deixou de ser estático. Com base na volatilidade momentânea do desvio padrão do Spread (σ), o `server.py` determina e te sugere lotes matematicamente escalonados de Índice x Dólar buscando financeiro alvo.
+- **Engle-Granger Cointegração:** Teste estatístico rigoroso (`statsmodels`) rodado ao vivo todo pregão as `08:45` que valida (p-value < 0.05) se os ativos continuam engrenados ou se a cointegração diária espalhou. 
+- **Meia-Vida (Half-Life AR1):** Cálculo automático da taxa de reversão para você saber quanto tempo o trade pode ou não demorar em barras.
+- **Alertas Auditivos:** Via Web Audio API, um sintetizador avisa o trader com um *beep* direto no navegador assim que um sinal for triggado verde/seguro, dispensando ficar colado na tela.
+
+### 5. Banco de Dados e Dashboard de Performance Acumulada (Novo)
+- O motor de trading agora loga as entradas, desvios, betas e preços da cotação B3 direto num arquivo `trades.db` (SQLite3).
+- O robô auto-calcula os pontos baseando-se nas réguas de mercado (WDO = R$10 / WIN = R$0,20).
+- O Frontend importa o endpoint e re-renderiza sob demanda um **Dashboard Estático Operacional** incluindo **Win Rate**, Tempo Médio até ser Target, **Histórico de Sinais em Tabela** expansível com motivo da saída e **Resultado Acumulado PnL BRL**.
+
+---
+## 🔄 O que Mudou da Versão Inicial para a Nova (Changelog Final)
+A *versão inicial* era um projeto estático em que o Beta precisava ser colocado pelo usuário e sua única utilidade era cuspir z-score sem nenhum contexto em memória, exigindo vigilância ininterrupta. As entregas construíram um verdadeiro assistente quantitativo: 
+
+- [x] O **Beta agora é dinâmico (OLS)** e acompanhado pela velocidade de deriva referencial (Desvio Curto x Longo de 20 dias). Em vez de chutar o Beta, o servidor absorve ele.
+- [x] Correlação (ρ) em tempo real adicionada, prevendo quebras antes delas doerem no bolso.
+- [x] Sizing sugestivo e inteligente (Baseado na Volatilidade). Em vez de operar tamanho fixo em regimes turbulentos, ele adapta os lotes da operação de acordo com a febre do desvio padrão e o Beta local.
+- [x] Auto-avaliação do Sistema (Half-Life e Cointegration Test de manhã).
+- [x] Um banco de dados nativo (Engine DB). Você não precisa escrever o diário! Cada click do *spread*, o robô anota os tickets (`sqlite`), carimba os Betas e joga a pontuação/estatística na sua cara pelo Browser local na tabela Performance Board.
+- [x] Efeitos visuais polidos, Alertas de Som integrados em JavaScript e Fallback de Simulador otimizado no UI UX.
+- [x] **HUD Unificado e Perfeitamente Alinhado**: Gráficos de Z-Score, Consenso de Motores (Kalman, OLS, DI) e Movimentação do Índice compartilhando a mesma régua de tempo com um tooltip unificado.
+- [x] **Estratégia Avançada NWE (Nadaraya-Watson Envelope)**: Suporte nativo à geometria não-paramétrica para sinais de grid dinâmico.
+- [x] **Fechamento em Cascata (Cascade Closing)**: Liquidação inteligente do ciclo de grid trading no momento em que a primeira entrada atinge TP/SL.
+
+---
+
+## 🛠 Arquitetura e Estrutura
+
+O projeto é dividido em um Backend rápido em Python e um Frontend imersivo em React.
+
+```text
+/
+├── server.py                   # Backend: FastAPI, MetaTrader 5 Bridge, Numpy, Math
+├── README.md                   # Documentação técnica
+└── regime-dashboard/           # Frontend
+    ├── package.json            # Dependências NPM (React, Recharts, Vite)
+    └── src/
+        └── App.jsx             # Motor de UI, Polling Server-Side e Fallback Simulado
+```
+
+### O Backend (`server.py`)
+Atua como um adaptador *Headless*. A cada chamada para `/api/regime`, o Python comunica-se através de memória compartilhada com o processo do MT5 do Windows, puxa centenas de barras de M5 (OHLC), executa a matemática vetorial usando `numpy`, formata em um objeto JSON enriquecido (incluindo timestamps locais calculados com precisão) e armazena o resultado em *cache* local por 2 segundos.
+
+### O Frontend (`App.jsx`)
+Usa `React` puro com `Recharts` sem dependência de complexas *store libraries* (ex: Redux). Realiza polling de HTTP Long-polling a cada **2.5 segundos** (frequência ideal para setups gráficos sem sobrecarregar a bridge do MT5). Possui também um gerador de série temporal Gaussiana (Simulador Fallback) autônomo, ativado quando o servidor ou mercado está fechado, perfeito para testar layouts.
+
+---
+
+## ⚙️ Configuração e Inicialização
+
+### Pré-requisitos
+1. **Windows OS** (Necessário para a biblioteca oficial do `MetaTrader5`).
+2. **MetaTrader 5** devidamente instalado e **Ativo/Logado na conta da Corretora B3**.
+3. **Python 3.10+**.
+4. **Node.js 18+**.
+
+### 1. Instalação do Python (Backend)
+
+No diretório raiz do projeto:
+
+```bash
+pip install fastapi uvicorn MetaTrader5 numpy pandas statsmodels
+```
+
+*Verifique se o seu terminal MT5 está em execução. Se ele foi instalado em um local não padrão, atualize a variável `MT5_PATH` na linha 32 do arquivo `server.py`.*
+
+Rodando o servidor:
+
+```bash
+python server.py
+```
+
+O Uvicorn iniciará e o console exibirá `[REGIME] Dia selecionado para o gráfico...` e informações de sync do pregão.
+
+### 2. Inicialização do React (Dashboard)
+
+Em um segundo terminal, entre na pasta do front-end e instale:
+
+```bash
+cd regime-dashboard
+npm install
+npm install recharts
+```
+
+Rodando o sistema via **PM2** (Recomendado para 24/7):
+
+```bash
+# Iniciar backend e frontend e monitorar falhas
+pm2 start ecosystem.config.js
+pm2 save
+
+# Para ver os logs:
+pm2 logs
+```
+
+Alternativamente (Modo Dev Manual):
+
+```bash
+# Terminal 1 (Backend)
+uvicorn server:app --host 0.0.0.0 --port 8080 --reload
+
+# Terminal 2 (Frontend)
+npm run dev
+```
+Acesse `http://localhost:5174` (A porta pode variar).
+
+---
+
+## 🧠 Guia Operacional Baseado no Painel
+
+O dashboard cruza sinais probabilísticos com regras duras de regime estacionário. Veja como interpretar a leitura gráfica:
+
+1. **Aguarde a Saúde do Regime (Regime Health)**:
+   - Certifique-se de que a `Correlação ρ` não seja listada como *Fraca* / *Quebrada*.
+   - A barra `Δ BETA (20d)` informa o quão anormal é o comportamento elástico da relação hoje frente ao comum. Se estiver categorizado em *Instável* / *Breakdown*, o sistema emitirá um alerta banner 🚨 pulsante se instruindo a ignorar a entrada.
+2. **Ponto de Entrada**:
+   - As entradas ideais (Compra WIN/Vende WDO ou Compra WDO/Vende WIN) surgem quando o `Z-Score` cruza **+/- 2.0σ**.
+   - O gráfico de área ajudará a vizualizar a anomalia do desvio padrão antes e no ato da formação das velas.
+3. **Trajetória e Targets**:
+   - Retornos à média (Z=0.5σ ou zero). O Target recomendado em caso de arbitragens de volatilidade intraday (não carry-over posições do par para o overnight caso não tenha garantias na corretora).
+4. **Anomalias Extremas**: 
+   - Se os ativos desviarem além de `|z| > 4.5σ`, a cointegração falhou fatalmente perante uma notícia atípica, por favor zere as posições preventivamente.
+
+---
+
+## 🚨 Troubleshooting Frequente
+
+| Sintoma Visualizado | Causa Comum e Solução |
+| :--- | :--- |
+| **Gráfico exibe "Simulado" ou Status Amarelo** | O FastAPI não conectou com o Terminal MT5 no Desktop. |
+| **Erro "No data for WIN$N"** | Ticker WIN expirado (Data Rollover). Mude de `WIN$N` pelo ticker correspondente do mês atual (Ex: `WINM25`) no inicio do `server.py`. |
+| **Linha do tempo (Eixo X) vazia ou com uma linha reta** | O horário do computador difere massivamente da timezone da sua corretora no MT5. Acesse `server.py`, verifique a variável constante `TIME_OFFSET = 3 * 3600`. Altere para o offset correspondente (positivos ou negativos) testando. |
+| **Falha no NPM Install Recharts** | Se existirem arquivos legados bloqueando, apague a folha `package-lock.json` ou use `--force`. |
+
+---
+
+## 📚 Documentação Adicional
+Consulte a pasta `.planning/` para documentação extensa:
+- [Estrutura do Projeto](.planning/codebase/STRUCTURE.md)
+- [Regras de Arquitetura](.planning/codebase/ARCHITECTURE.md)
+- [Log de Decisões](.planning/docs/DECISIONS.md)
+- [Especificações do Sistema](.planning/docs/SPEC.md)
+
+---
+**Build:** v2.4.0 · **Stack:** FastAPI, React, Recharts, MT5 API, PM2
