@@ -43,7 +43,7 @@
 
 ---
 
-## ✅ Fase 4: Engenharia — Reorganização (Concluída)
+## ✅ Fase 4: Engenharia & Deploy (Concluída)
 
 > *"Código de produção não pode ser monolítico"*
 
@@ -53,6 +53,10 @@
 - [x] Suite de 24 testes automatizados
 - [x] Organização: root limpo, `research/`, `data/`, `docs/`
 - [x] Documentação: PRD, SPEC, Roadmap, Decision Log
+- [x] **Milestone v1.0.0 Architecture & Deploy:**
+  - [x] Limpeza profunda de resíduos legados (`.superpowers`, `.agents`)
+  - [x] Configuração e integração do Firebase Realtime Database
+  - [x] Deploy público do Dashboard Web via Firebase Hosting
 
 ---
 
