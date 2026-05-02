@@ -30,6 +30,7 @@ wdo win pair trading/
 ├── regime-dashboard/   # Frontend React
 ├── tests/              # Testes automatizados
 ├── server.py           # Thin controller FastAPI (~480 linhas)
+├── start.bat           # Script unificado para iniciar Backend e Frontend
 └── trades.db           # Database SQLite
 ```
 
