@@ -28,9 +28,9 @@ try:
             'databaseURL': 'https://wdo-win-dashboard-default-rtdb.firebaseio.com'
         })
         firebase_initialized = True
-        print("✅ Firebase Admin SDK inicializado.")
+        print("[OK] Firebase Admin SDK inicializado.")
 except Exception as e:
-    print(f"❌ Erro ao inicializar Firebase: {e}")
+    print(f"[ERRO] Erro ao inicializar Firebase: {e}")
 
 from core.config import (
     SYMBOL_A, SYMBOL_B, TIMEFRAME, WINDOW, BARS, KALMAN_BURN_IN,
@@ -78,7 +78,7 @@ app.add_middleware(
 )
 
 async def firebase_push_loop():
-    print("📡 Firebase Sync Loop iniciado.")
+    print("[INFO] Firebase Sync Loop iniciado.")
     while True:
         try:
             if firebase_initialized:
@@ -97,7 +97,7 @@ async def firebase_push_loop():
                     'history': hist.get("history", [])
                 })
         except Exception as e:
-            print(f"⚠️ Erro no sync do Firebase: {e}")
+            print(f"[AVISO] Erro no sync do Firebase: {e}")
         await asyncio.sleep(2.5)  # Envia a cada 2.5s
 
 _trade_engine = TradeEngine(db_path="trades.db")
