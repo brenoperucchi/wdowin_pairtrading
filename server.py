@@ -14,6 +14,24 @@ import math
 from statsmodels.tsa.stattools import coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
+import os
+import asyncio
+import firebase_admin
+from firebase_admin import credentials, db as fdb
+
+# ─── Firebase Init ───────────────────────────────────────────────────────────
+firebase_initialized = False
+try:
+    if os.path.exists("serviceAccountKey.json"):
+        cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': 'https://wdo-win-dashboard-default-rtdb.firebaseio.com'
+        })
+        firebase_initialized = True
+        print("✅ Firebase Admin SDK inicializado.")
+except Exception as e:
+    print(f"❌ Erro ao inicializar Firebase: {e}")
+
 from core.config import (
     SYMBOL_A, SYMBOL_B, TIMEFRAME, WINDOW, BARS, KALMAN_BURN_IN,
     BETA_INITIAL, BETA_REF_BARS, BETA_REF_5D_BARS,
@@ -41,13 +59,46 @@ import core.hmm_background as hmm
 
 
 # ─── App setup ───────────────────────────────────────────────────────────────
-app = FastAPI(title="WIN×WDO Regime Monitor")
+import contextlib
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    if firebase_initialized:
+        asyncio.create_task(firebase_push_loop())
+    yield
+    # Shutdown
+
+app = FastAPI(title="WIN×WDO Regime Monitor", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+async def firebase_push_loop():
+    print("📡 Firebase Sync Loop iniciado.")
+    while True:
+        try:
+            if firebase_initialized:
+                # Chama as funções nativamente (cuidado com MT5: executado na main thread de evento)
+                r_v2 = regime_v2()
+                r_di = di_regime()
+                perf = get_performance()
+                hist = history_endpoint(days=30)
+                
+                # Push para RTDB
+                ref = fdb.reference('dashboard')
+                ref.set({
+                    'regime': r_v2,
+                    'di_regime': r_di,
+                    'performance': perf,
+                    'history': hist.get("history", [])
+                })
+        except Exception as e:
+            print(f"⚠️ Erro no sync do Firebase: {e}")
+        await asyncio.sleep(2.5)  # Envia a cada 2.5s
 
 _trade_engine = TradeEngine(db_path="trades.db")
 _cache: dict = {}

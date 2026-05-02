@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { ref, onValue } from "firebase/database";
+import { db } from "./firebase";
 import ZScoreChart from "./components/ZScoreChart";
 import RegimeHealthPanel from "./components/RegimeHealthPanel";
 import PerformancePanel from "./components/PerformancePanel";
@@ -106,50 +108,88 @@ export default function App() {
         return () => clearInterval(t);
     }, []);
 
-    // Polling da API
+    // Polling da API (Local) ou Listener (Firebase ProduÃ§Ã£o)
     useEffect(() => {
         let active = true;
-        async function poll() {
-            try {
-                const currentApiUrl = API_URL;
-                const [res, resPerf, resDi] = await Promise.all([
-                    fetch(currentApiUrl).catch(() => null),
-                    fetch(API_PERF_URL).catch(() => null),
-                    fetch(API_DI_URL).catch(() => null),
-                ]);
-                if (!res || !res.ok) throw new Error(`HTTP ${res?.status}`);
-                const json = await res.json();
-                const jsonPerf = resPerf && resPerf.ok ? await resPerf.json() : null;
+
+        if (import.meta.env.PROD && !isViewingHistory) {
+            // Em produÃ§Ã£o (Firebase Hosting), ouvir o Realtime Database
+            const dashboardRef = ref(db, 'dashboard');
+            const unsub = onValue(dashboardRef, (snapshot) => {
                 if (!active) return;
-                if (json.error) {
-                    setError(json.error);
-                    setStatus("fallback");
-                } else {
-                    setData(json);
-                    setHistory(json.history || []);
-                    if (jsonPerf && !jsonPerf.error) setPerf(jsonPerf);
-                    // DI data
-                    const jsonDi = resDi && resDi.ok ? await resDi.json() : null;
-                    if (jsonDi && !jsonDi.error) setDiData(jsonDi);
-                    setStatus("live");
-                    setError(null);
-                    if (json.last_update) {
-                        setLastUpdate(json.last_update);
-                        setFlash(true);
-                        if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-                        flashTimerRef.current = setTimeout(() => setFlash(false), 600);
+                const val = snapshot.val();
+                if (val) {
+                    if (val.error) {
+                        setError(val.error);
+                        setStatus("fallback");
+                    } else {
+                        setData(val.regime);
+                        setHistory(val.history || []);
+                        if (val.performance && !val.performance.error) setPerf(val.performance);
+                        if (val.di_regime && !val.di_regime.error) setDiData(val.di_regime);
+                        setStatus("live");
+                        setError(null);
+                        if (val.regime?.last_update) {
+                            setLastUpdate(val.regime.last_update);
+                            setFlash(true);
+                            if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+                            flashTimerRef.current = setTimeout(() => setFlash(false), 600);
+                        }
                     }
+                } else {
+                    setStatus("fallback");
+                    setError("Aguardando dados do Firebase...");
                 }
-            } catch (e) {
+            }, (err) => {
                 if (!active) return;
                 setStatus("fallback");
-                setError("Servidor Python nÃ£o encontrado em localhost:8080. Mostrando dados simulados.");
+                setError("Erro ao conectar no Firebase.");
+            });
+            return () => { active = false; unsub(); };
+        } else {
+            // Em localhost ou modo histÃ³rico, fazer polling da API
+            async function poll() {
+                try {
+                    const currentApiUrl = API_URL;
+                    const [res, resPerf, resDi] = await Promise.all([
+                        fetch(currentApiUrl).catch(() => null),
+                        fetch(API_PERF_URL).catch(() => null),
+                        fetch(API_DI_URL).catch(() => null),
+                    ]);
+                    if (!res || !res.ok) throw new Error(`HTTP ${res?.status}`);
+                    const json = await res.json();
+                    const jsonPerf = resPerf && resPerf.ok ? await resPerf.json() : null;
+                    if (!active) return;
+                    if (json.error) {
+                        setError(json.error);
+                        setStatus("fallback");
+                    } else {
+                        setData(json);
+                        setHistory(json.history || []);
+                        if (jsonPerf && !jsonPerf.error) setPerf(jsonPerf);
+                        // DI data
+                        const jsonDi = resDi && resDi.ok ? await resDi.json() : null;
+                        if (jsonDi && !jsonDi.error) setDiData(jsonDi);
+                        setStatus("live");
+                        setError(null);
+                        if (json.last_update) {
+                            setLastUpdate(json.last_update);
+                            setFlash(true);
+                            if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+                            flashTimerRef.current = setTimeout(() => setFlash(false), 600);
+                        }
+                    }
+                } catch (e) {
+                    if (!active) return;
+                    setStatus("fallback");
+                    setError("Servidor Python nÃ£o encontrado em localhost:8080. Mostrando dados simulados.");
+                }
             }
+            poll();
+            const t = setInterval(poll, POLL_MS);
+            return () => { active = false; clearInterval(t); };
         }
-        poll();
-        const t = setInterval(poll, POLL_MS);
-        return () => { active = false; clearInterval(t); };
-    }, [selectedDate]);
+    }, [selectedDate, isViewingHistory]);
 
     // SimulaÃ§Ã£o quando offline
     useEffect(() => {
