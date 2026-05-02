@@ -24,9 +24,10 @@ firebase_initialized = False
 try:
     if os.path.exists("serviceAccountKey.json"):
         cred = credentials.Certificate("serviceAccountKey.json")
-        firebase_admin.initialize_app(cred, {
-            'databaseURL': 'https://wdo-win-dashboard-default-rtdb.firebaseio.com'
-        })
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred, {
+                'databaseURL': 'https://wdo-win-dashboard-default-rtdb.firebaseio.com'
+            })
         firebase_initialized = True
         print("[OK] Firebase Admin SDK inicializado.")
 except Exception as e:
