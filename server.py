@@ -629,6 +629,8 @@ def regime_v2():
 
     # History — Statefully loaded from DB to prevent repainting
     db_hist = load_bar_history(days=2) # Load last 2 days is enough for dashboard
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    db_hist = [h for h in db_hist if h.get("date") == today_str]  # Only today for live view
     live_history = _build_history(tc[-20:], z_scores[-20:], spreads[-20:], win_prices=ac[-20:])
     
     if db_hist and live_history:
