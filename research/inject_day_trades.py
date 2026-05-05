@@ -10,7 +10,7 @@ from core.config import SYMBOL_A, SYMBOL_B, DI_SYMBOL, TIMEFRAME, MT5_PATH, BETA
 
 TARGET_DATES = [
     "2026-04-22", "2026-04-23", "2026-04-24", "2026-04-25",
-    "2026-04-28", "2026-04-29",
+    "2026-04-28", "2026-04-29", "2026-04-30", "2026-05-04"
 ]
 DB_PATH = "trades.db"
 
@@ -25,25 +25,6 @@ ENTRY_START_MIN = 9 * 60
 ENTRY_END_MIN = 15 * 60
 TIME_OFFSET = 0
 
-def get_base_zscores(win, wdo, di):
-    n = len(win)
-    # WDO Kalman z-score
-    kf = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=K_Q, obs_cov=K_R)
-    spreads = []
-    for y, x in zip(win, wdo):
-        _, spread, _ = kf.update(float(y), float(x))
-        spreads.append(spread)
-    k_z = np.array(KalmanBetaFilter.rolling_zscore(spreads, window=K_W))
-
-    # DI Kalman z-score
-    kf_di = KalmanBetaFilter(initial_beta=-10000.0, trans_cov=DI_KQ, obs_cov=DI_KR)
-    spreads_di = []
-    for y, x in zip(win, di):
-        _, spread, _ = kf_di.update(float(y), float(x))
-        spreads_di.append(spread)
-    di_z = np.array(KalmanBetaFilter.rolling_zscore(spreads_di, window=DI_KW))
-
-    return k_z, di_z
 
 def calc_nwe_with_bands(prices, bandwidth, lookback, mult_mae=3.0):
     n = len(prices)
@@ -213,10 +194,44 @@ def main():
     di  = np.array([r[4] for r in rates_di], dtype=float)
     times = np.array([r[0] for r in rates_w], dtype=np.int64)
 
-    n = min(len(win), len(wdo), len(di))
-    win, wdo, di, times = win[:n], wdo[:n], di[:n], times[:n]
+    # Align WIN and WDO by taking the newest N bars (matching server.py logic)
+    n_wdo = min(len(win), len(wdo))
+    win = win[-n_wdo:]
+    wdo = wdo[-n_wdo:]
+    times = times[-n_wdo:]
 
-    k_z, di_z = get_base_zscores(win, wdo, di)
+    # Calculate WDO Kalman Z-Score
+    kf = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=K_Q, obs_cov=K_R)
+    spreads = []
+    for y, x in zip(win, wdo):
+        _, spread, _ = kf.update(float(y), float(x))
+        spreads.append(spread)
+    k_z = np.array(KalmanBetaFilter.rolling_zscore(spreads, window=K_W))
+
+    # Align WIN and DI for the DI Kalman filter (matching server.py logic)
+    n_di = min(len(win), len(di))
+    win_for_di = win[-n_di:]
+    di_c = di[-n_di:]
+    times_di = np.array([r[0] for r in rates_di], dtype=np.int64)[-n_di:]
+
+    # Calculate DI Kalman Z-Score
+    kf_di = KalmanBetaFilter(initial_beta=-10000.0, trans_cov=DI_KQ, obs_cov=DI_KR)
+    spreads_di = []
+    for y, x in zip(win_for_di, di_c):
+        _, spread, _ = kf_di.update(float(y), float(x))
+        spreads_di.append(spread)
+    z_di_arr = np.array(KalmanBetaFilter.rolling_zscore(spreads_di, window=DI_KW))
+
+    # Map DI z-scores by exact timestamp
+    z_di_map = {}
+    for i, t in enumerate(times_di):
+        z_di_map[t] = float(z_di_arr[i]) if i < len(z_di_arr) else 0.0
+
+    # Align DI z-scores to the WIN timeline
+    di_z = np.zeros(n_wdo)
+    for i, t in enumerate(times):
+        val = z_di_map.get(t)
+        di_z[i] = val if val is not None else 0.0
     nwe, upper, lower = calc_nwe_with_bands(win, 8, 95, 3.0)
     is_up = np.zeros(len(nwe), dtype=bool)
     is_up[1:] = nwe[1:] >= nwe[:-1]

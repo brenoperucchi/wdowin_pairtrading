@@ -150,3 +150,14 @@ A implementação original do `calcNWE()` no frontend (`IndexChart.jsx`) usava *
 Botões de toggle (Filtro NWE, Filtro Estatístico) no dashboard permitiam o usuário ligar/desligar filtros que já estavam embutidos na definição de cada setup. Isso criava confusão: o histograma mostrava sinais que não existiam no trade engine, ou escondia sinais válidos.
 
 **Decisão:** Cada row do histograma agora representa *exatamente* um setup com suas regras fixas. "WDO NWE" sempre aplica NWE, "DI NWE" sempre aplica NWE, e "WDO DI" (Consenso) nunca aplica NWE. Os toggles foram removidos.
+
+
+## Arquitetura: Sincronização via Firebase RTDB
+- **Decisão:** Substituir endpoints de pooling do dashboard por sincronização via Firebase Realtime Database.
+- **Motivo:** O Node/React precisava consumir dados em tempo real; em vez de onerar o backend Python local com websockets pesados ou requests a cada segundo, o server.py empurra o estado de saúde, regime e history_30d pro Firebase. O dashboard web escuta o Firebase direto na nuvem, permitindo escalabilidade gratuita (Spark Plan) e acesso de qualquer lugar.
+- **Aprendizado:** Datas (datetime.date) falham silenciosamente na serialização do irebase-admin, devendo ser convertidas para string antes do envio.
+
+## Algoritmo: Timestamp Alignment Correto (MT5)
+- **Decisão:** Realizar alinhamento de arrays multivariados baseados nos timestamps da barra e não por posição do array.
+- **Motivo:** O contrato futuro DI possui menos liquidez que o WIN/WDO, resultando em buracos (ausência de ticks). Zippar arrays linearmente causava dessincronização temporal gravíssima, injetando trades fantasmas no Filtro de Kalman durante backtests.
+- **Aprendizado:** Sempre garantir um inner-join temporal ou dicionário de mapeamento ao processar sinais multivariados.

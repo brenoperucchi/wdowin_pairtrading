@@ -4,11 +4,10 @@ wdo win pair trading/
 │
 ├── ecosystem.config.js                # PM2 process manager config for backend/frontend
 │
-├── server.py                          # FastAPI app — thin controller (483 lines)
-│                                      #   GET /api/regime (V1 OLS)
-│                                      #   GET /api/v2/regime (V2 Kalman)
+├── server.py                          # FastAPI app — thin controller (~500 lines)
+│                                      #   GET /api/v2/regime (V5 Kalman + Johansen)
 │                                      #   GET /api/performance
-│                                      #   GET /health
+│                                      #   firebase_push_loop() (RTDB Sync)
 │
 ├── core/                              # Production runtime modules
 │   ├── __init__.py                    # Package init
@@ -21,9 +20,6 @@ wdo win pair trading/
 │   │                                  #   get_rho_status(), get_beta_status()
 │   ├── kalman_filter.py               # Kalman beta/spread filter (68 lines)
 │   │                                  #   KalmanBetaFilter class + rolling_zscore()
-│   ├── hmm_background.py             # HMM regime detection thread (153 lines)
-│   │                                  #   3-state GaussianHMM on M30 WIN data
-│   │                                  #   Runs every 15 minutes, sets global regime
 │   └── trade_engine.py               # Trade lifecycle manager (265 lines)
 │                                      #   TradeEngine class: evaluate(), SL/TP/BE logic
 │
@@ -68,8 +64,8 @@ wdo win pair trading/
 │   ├── index.html
 │   ├── src/
 │   │   ├── main.jsx                   # React entry point
-│   │   ├── App.jsx                    # Main application (464 lines)
-│   │   │                              #   Polling, state, signal routing, fallback
+│   │   ├── App.jsx                    # Main application (~464 lines)
+│   │   │                              #   Firebase RTDB connection, state, signal routing
 │   │   ├── App.css                    # Global styles (dark financial theme)
 │   │   ├── index.css                  # Base CSS
 │   │   └── components/
@@ -125,10 +121,9 @@ wdo win pair trading/
 
 | File | Lines | Role | Complexity |
 |---|---|---|---|
-| `server.py` | 483 | Thin API controller | Medium — orchestrates all core modules |
-| `core/trade_engine.py` | 265 | Trade lifecycle | Medium — state machine with SL/TP/BE |
+| `server.py` | 500 | Thin API controller | Medium — orchestrates core modules + Firebase RTDB sync |
+| `core/trade_engine.py` | 330 | Trade lifecycle | Medium — state machine with SL/TP/BE + DI rules |
 | `core/signals.py` | 147 | Pure math | Low — stateless functions |
-| `core/hmm_background.py` | 153 | Background thread | Medium — daemon + HMM fitting |
 | `research/models/features.py` | 210 | Feature engineering | High — 17+ features with technical indicators |
 | `research/models/lstm_direction.py` | 210 | LSTM model | High — PyTorch training loop |
 | `research/wfa_runner.py` | 236 | WFA orchestrator | Medium — manages train/test windows |
@@ -144,7 +139,6 @@ server.py → core/config.py (parameters)
           → core/signals.py (computation)
           → core/kalman_filter.py (V2 estimation)
           → core/trade_engine.py (trade management)
-          → core/hmm_background.py (regime thread)
 
 research/wfa_runner.py → research/models/features.py
                        → research/models/hmm_direction.py

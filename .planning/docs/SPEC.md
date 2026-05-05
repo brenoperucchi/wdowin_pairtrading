@@ -11,8 +11,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  MetaTrader 5 Terminal (broker)                              │
-│  ├─ WIN$N M5 bars (live)                                     │
-│  └─ WIN$N M30 bars (HMM thread)                             │
+│  ├─ WIN$N, WDO$N, DI1$N M5 bars (live)                       │
 └──────────────────┬───────────────────────────────────────────┘
                    │ copy_rates_from_pos()
                    ▼
@@ -20,10 +19,12 @@
 │  Backend (Python 3.10+ · FastAPI · port 8080)                │
 │                                                              │
 │  server.py (thin controller)                                 │
-│  ├─ GET /api/v2/regime   → Kalman + OLS dual z-score         │
+│  ├─ GET /api/v2/regime   → Kalman WDO, DI, Johansen Cointeg  │
 │  ├─ GET /api/regime      → V1 OLS (legado)                   │
 │  ├─ GET /api/performance → métricas de trades                │
 │  └─ GET /health          → status MT5                        │
+│                                                              │
+│  firebase_push_loop()    → Syncs live state to Firebase RTDB │
 │                                                              │
 │  core/                                                       │
 │  ├─ config.py           → parâmetros centralizados           │
@@ -32,8 +33,7 @@
 │  ├─ mt5_client.py       → connect_mt5, fetch_bars,           │
 │  │                        beta state machine                 │
 │  ├─ kalman_filter.py    → KalmanBetaFilter (beta adaptativo) │
-│  ├─ trade_engine.py     → TradeEngine (Setup Matador)        │
-│  └─ hmm_background.py  → thread HMM M30 (15 min cycle)      │
+│  └─ trade_engine.py     → TradeEngine (Setup Matador)        │
 │                                                              │
 │  trades.db (SQLite)                                          │
 └──────────────────┬───────────────────────────────────────────┘
@@ -58,15 +58,16 @@
 
 ## 2. Pipeline de Dados
 
-### 2.1 Fluxo V2 (Kalman) — `/api/v2/regime`
+### 2.1 Fluxo V5 (Kalman + Johansen) — `/api/v2/regime`
 
 ```
-MT5 → 250 barras M5 (WIN+WDO)
-  ├─ KalmanBetaFilter.update() iterativo → spreads[] + betas[]
-  ├─ rolling_zscore(spreads, w=40) → z_kalman (BUY decisions)
-  ├─ calc_zscore(closes_a, closes_b, beta_ols) → z_ols (SELL decisions)
-  ├─ TradeEngine.evaluate(z_buy=z_kalman, z_sell=z_ols)
-  └─ Response JSON com dual z-scores + history
+MT5 → N barras M5 (WIN, WDO, DI)
+  ├─ KalmanBetaFilter.update() iterativo (WINxWDO) → k_z
+  ├─ KalmanBetaFilter.update() iterativo (WINxDI) → di_z
+  ├─ calc_nwe_with_bands(WIN) → NWE Bounds
+  ├─ Johansen Cointegration Test (WINxWDO) → johansen_gate
+  ├─ TradeEngine.evaluate(k_z, di_z, nwe, johansen_gate)
+  └─ Response JSON com dual z-scores + history + health
 ```
 
 ### 2.2 Filtro de Kalman (Beta Adaptativo)
@@ -93,22 +94,7 @@ Hora em hora (09:30, 10:30, ..., 17:30):
   └─ Teste de cointegração Engle-Granger (1x por cálculo)
 ```
 
-### 2.4 HMM Background Thread
 
-```
-A cada 15 minutos:
-  ├─ Puxa 1500 barras M30 do WIN$N
-  ├─ Calcula features: trend_position, log_returns, norm_vol, ADX
-  ├─ Z-score normaliza features (rolling w=50)
-  ├─ Treina GaussianHMM(n_components=3, cov=full)
-  ├─ Classifica por média de trend_position:
-  │   ├─ BULL → max(means[:, 0])   → bloqueia entradas
-  │   ├─ BEAR → min(means[:, 0])   → opera normalmente
-  │   └─ CHOP → restante           → opera normalmente
-  └─ Publica current_hmm_regime (global thread-safe)
-```
-
----
 
 ## 3. Setup Matador — Parâmetros Validados
 
@@ -116,12 +102,10 @@ A cada 15 minutos:
 
 | Condição | BUY (Compra WIN) | SELL (Vende WIN) |
 |---|---|---|
-| Z-Score trigger | Kalman z ≤ -1.8 | OLS z ≥ +1.8 |
-| Fonte do z-score | V2 Kalman | V1 OLS |
-| Correlação mínima | ρ ≤ -0.40 | ρ ≤ -0.40 |
-| Beta estável | Δβ(20d) < 15% | Δβ(20d) < 15% |
-| HMM regime | ≠ BULL | ≠ BULL |
-| Cointegração | EG p-value < 0.10 | EG p-value < 0.10 |
+| Z-Score WDO trigger | Kalman z ≤ -1.4 | Kalman z ≥ +1.2 |
+| Z-Score DI trigger | Kalman z DI ≤ -1.4 | Kalman z DI ≥ +1.4 |
+| NWE Bounds | WIN Close < Lower Band | N/A |
+| Cointegração | Johansen Eigen Statistic > 90% | Johansen Eigen Statistic > 90% |
 | Horário | 10:00 - 16:00 | 10:00 - 16:00 |
 
 ### 3.2 Saída
@@ -159,13 +143,12 @@ CREATE TABLE matador_ops (
     price_win_in REAL,
     price_wdo_in REAL,
     timestamp_out DATETIME,
-    exit_reason TEXT,         -- 'TARGET'|'STOP_LOSS'|'BE_STOP'|'FORCE_CLOSE'|'STOP_Z'|'STOP_RHO'
+    exit_reason TEXT,         -- 'TARGET'|'STOP_LOSS'|'BE_STOP'|'FORCE_CLOSE'|'STOP_Z'
     price_win_out REAL,
     price_wdo_out REAL,
     pnl_brl REAL,
     max_pts_favor REAL DEFAULT 0.0,
-    be_active INTEGER DEFAULT 0,
-    hmm_state TEXT
+    be_active INTEGER DEFAULT 0
 );
 ```
 
@@ -209,7 +192,7 @@ wdo win pair trading/
 | Suite | Count | Cobertura |
 |---|---|---|
 | `test_config.py` | 3 | Parâmetros Setup Matador, BE, sizing |
-| `test_signals.py` | 10 | Beta OLS, half-life, rho/beta status, signals, HMM block |
+| `test_signals.py` | 10 | Beta OLS, half-life, rho/beta status, signals |
 | `test_kalman_filter.py` | 1 | Convergência do filtro Kalman |
 | `test_trade_engine.py` | 10 | Entry/exit logic, session, anomaly, BE, performance |
 | **Total** | **24** | Engine + Signals + Config |

@@ -145,7 +145,7 @@ class TradeEngine:
                 results[strat] = self._result("WAIT", strat)
                 continue
 
-            if rho > RHO_MIN or not beta_safe:
+            if not beta_safe:
                 results[strat] = self._result("WAIT", strat)
                 continue
 

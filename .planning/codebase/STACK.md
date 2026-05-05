@@ -17,6 +17,7 @@
 | `statsmodels` | latest | Cointegration test (Engle-Granger) |
 | `hmmlearn` | latest | GaussianHMM regime detection (3-state) |
 | `ta` | latest | Technical indicators (ATR, ADX, WMA, RSI) |
+| `firebase-admin` | latest | RTDB state synchronization to cloud |
 
 ### ML / Research Dependencies
 | Package | Version | Purpose |
@@ -34,6 +35,7 @@
 - **Charting**: Recharts 3.8
 - **Styling**: Inline CSS (dark theme, financial UI aesthetic)
 - **Port**: 5174 (Vite dev server)
+- **Hosting**: Firebase Hosting (`wdo-win-dashboard.web.app`)
 
 ### Frontend Dependencies
 | Package | Version | Purpose |
@@ -49,6 +51,7 @@
 |---|---|---|
 | OS | Windows (required) | MT5 uses Windows shared memory |
 | Process Manager | **PM2** | Manages FastAPI and Vite via `ecosystem.config.js` |
+| Cloud State | Firebase RTDB | Syncs live data for public dashboard (`dashboard`, `history_30d`) |
 | Data Persistence | SQLite3 (trades.db) | Single-file DB, local only |
 | Data Serialization | JSON (API), Parquet (research) | JSON for live data, Parquet for offline analysis |
 | Beta State | File-based (beta_ultimo.json) | Persists last daily beta across restarts |

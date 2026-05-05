@@ -67,6 +67,11 @@ async def lifespan(app: FastAPI):
     # Startup
     if firebase_initialized:
         asyncio.create_task(firebase_push_loop())
+    
+    # Run backfill async
+    import threading
+    threading.Thread(target=do_backfill_if_empty, daemon=True).start()
+    
     yield
     # Shutdown
 
@@ -80,6 +85,8 @@ app.add_middleware(
 
 async def firebase_push_loop():
     print("[INFO] Firebase Sync Loop iniciado.")
+    last_hist_update = 0
+    last_dash_update = 0
     while True:
         try:
             if firebase_initialized:
@@ -87,19 +94,33 @@ async def firebase_push_loop():
                 r_v2 = regime_v2()
                 r_di = di_regime()
                 perf = get_performance()
-                hist = history_endpoint(days=30)
                 
-                # Push para RTDB
-                ref = fdb.reference('dashboard')
-                ref.set({
-                    'regime': r_v2,
-                    'di_regime': r_di,
-                    'performance': perf,
-                    'history': hist.get("history", [])
-                })
+                current_time = time.time()
+                
+                # Check for immediate push condition
+                action_v2 = r_v2.get("trade_engine", {}).get("action", "WAIT")
+                push_immediate = action_v2 not in ("WAIT", "HOLDING", "ANOMALY")
+                
+                # Push para RTDB (dashboard live) a cada 15 segundos ou imediatamente se houver trade
+                if push_immediate or current_time - last_dash_update >= 15:
+                    ref = fdb.reference('dashboard')
+                    ref.set({
+                        'regime': r_v2,
+                        'di_regime': r_di,
+                        'performance': perf,
+                    })
+                    last_dash_update = current_time
+
+                # Push history_30d a cada 5 minutos (300 segundos) para economizar banda
+                if current_time - last_hist_update > 300:
+                    hist = history_endpoint(days=30)
+                    ref_hist = fdb.reference('history_30d')
+                    ref_hist.set(hist.get("history", []))
+                    last_hist_update = current_time
+
         except Exception as e:
             print(f"[AVISO] Erro no sync do Firebase: {e}")
-        await asyncio.sleep(2.5)  # Envia a cada 2.5s
+        await asyncio.sleep(2.5)  # Envia live a cada 2.5s
 
 _trade_engine = TradeEngine(db_path="trades.db")
 _cache: dict = {}
@@ -220,6 +241,67 @@ TF_NAMES = {
     mt5.TIMEFRAME_H1: "H1", mt5.TIMEFRAME_H4: "H4",
 }
 
+
+def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up):
+    try:
+        conn = sqlite3.connect("trades.db", timeout=10.0)
+        c = conn.cursor()
+        c.execute('''
+            INSERT OR IGNORE INTO bar_history 
+            (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, int(nwe_is_up)))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[ERRO DB] falha ao salvar bar_history: {e}")
+
+def load_bar_history(days=30):
+    try:
+        conn = sqlite3.connect("trades.db", timeout=10.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        ts_limit = int(time.time()) - days * 86400
+        c.execute("SELECT * FROM bar_history WHERE timestamp >= ? ORDER BY timestamp ASC", (ts_limit,))
+        rows = c.fetchall()
+        conn.close()
+        
+        from datetime import datetime
+        history = []
+        for r in rows:
+            dt_time = datetime.strptime(r["bar_time"], "%H:%M")
+            history.append({
+                "z": r["z_wdo"],
+                "z_di": r["z_di"],
+                "spread": r["spread_wdo"],
+                "bar_time": r["bar_time"],
+                "date": r["date_str"],
+                "t_min": dt_time.hour * 60 + dt_time.minute,
+                "win_price": r["win_price"]
+            })
+        return history
+    except Exception as e:
+        print(f"[ERRO DB] falha ao carregar bar_history: {e}")
+        return []
+
+def do_backfill_if_empty():
+    try:
+        conn = sqlite3.connect("trades.db", timeout=10.0)
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM bar_history")
+        count = c.fetchone()[0]
+        conn.close()
+        if count > 0:
+            print(f"[OK] bar_history possui {count} registros.")
+            return
+            
+        print("[INFO] bar_history vazio. Iniciando backfill de 30 dias...")
+        import urllib.request
+        urllib.request.urlopen("http://localhost:8080/api/history?days=30")
+        print("[OK] Backfill concluido via chamada ao endpoint local.")
+    except Exception as e:
+        print(f"[ERRO] Falha no backfill: {e}")
+
 def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None):
     """Build filtered session history from bar data."""
     n = len(z_arr)
@@ -235,7 +317,7 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None)
             "z": round(float(z_arr[i]), 3),
             "spread": round(float(spread_arr[i]), 2),
             "bar_time": dt.strftime("%H:%M"),
-            "date": dt.date(),
+            "date": dt.strftime("%Y-%m-%d"),
             "t_min": t_min,
         }
         if z_v1_arr is not None:
@@ -247,13 +329,14 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None)
         bar_info.append(entry)
 
     today = datetime.now().date()
-    target_day = today
+    today_str = today.strftime("%Y-%m-%d")
+    target_day = today_str
 
     history = []
     if target_day:
         for b in bar_info:
             if b["date"] == target_day and SESSION_START <= b["t_min"] <= SESSION_END:
-                entry = {"i": len(history), "z": b["z"], "spread": b["spread"], "bar_time": b["bar_time"]}
+                entry = {"i": len(history), "z": b["z"], "spread": b["spread"], "bar_time": b["bar_time"], "date": b["date"], "t_min": b["t_min"]}
                 if "z_v1" in b:
                     entry["z_v1"] = b["z_v1"]
                 if "win_price" in b:
@@ -544,8 +627,21 @@ def regime_v2():
         bar_close_confirmed=bar_close_confirmed,
     )
 
-    # History — no longer include OLS z_v1 (consensus is WDO+DI only)
-    history = _build_history(tc, z_scores, spreads, win_prices=ac)
+    # History — Statefully loaded from DB to prevent repainting
+    db_hist = load_bar_history(days=2) # Load last 2 days is enough for dashboard
+    live_history = _build_history(tc[-20:], z_scores[-20:], spreads[-20:], win_prices=ac[-20:])
+    
+    if db_hist and live_history:
+        # Append the current open bar (and any missing bars not yet in DB)
+        last_db_ts = db_hist[-1]["date"] + " " + db_hist[-1]["bar_time"]
+        for lh in live_history:
+            lh_ts = lh["date"] + " " + lh["bar_time"]
+            if lh_ts > last_db_ts:
+                db_hist.append(lh)
+        history = db_hist
+    else:
+        history = _build_history(tc, z_scores, spreads, win_prices=ac)
+    
 
     sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
 

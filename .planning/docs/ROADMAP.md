@@ -60,24 +60,21 @@
 
 ---
 
-## 🔄 Fase 5: Reavaliação Estratégica (Próxima)
+## ✅ Fase 5: Validação Robusta & Evolução V5 (Concluída)
 
-> *"O Setup Matador continua performando ou existe algo melhor?"*
+> *"Incorporar Johansen, Taxa DI e NWE para maximizar o alpha"*
 
-- [ ] Atualizar CSVs históricos com dados recentes (Abr 2026+)
-- [ ] Re-rodar backtests com janela atualizada
-- [ ] Comparar performance Setup Matador vs novas variantes:
-  - [ ] Z-Score threshold sensitivity (1.5 vs 1.8 vs 2.0)
-  - [ ] Janela de z-score (30 vs 40 vs 50)
-  - [ ] Asymmetric vs symmetric SL/TP
-  - [ ] HMM filter vs sem filtro (quantificar alpha)
-- [ ] Walk-Forward Analysis (WFA) para robustez temporal
-- [ ] Relatório comparativo final
-- [ ] Decisão: manter, ajustar ou substituir Setup Matador
+- [x] Implementação de Cointegração Dinâmica (Johansen) para WDO×WIN
+- [x] Monitoramento do contrato futuro de DI (Taxa de Juros)
+- [x] Filtro Nadaraya-Watson Envelope (NWE) 100% causal e sem lookahead
+- [x] Sincronização impecável via timestamps do MT5 para backend e Firebase
+- [x] Correção de anomalias visuais e trades "fantasmas" no dashboard
+- [x] Relatórios analíticos de Performance V5 comparando com e sem DI
+- [x] Decisão: Setup Matador V5 estabelecido como padrão ouro de produção
 
 ---
 
-## 📋 Fase 6: Automação (Futuro)
+## 🔄 Fase 6: Automação & Alertas (Próxima)
 
 > *"Tirar o humano do loop"*
 

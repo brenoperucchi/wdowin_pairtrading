@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, get } from "firebase/database";
 import { db } from "./firebase";
 import ZScoreChart from "./components/ZScoreChart";
 import RegimeHealthPanel from "./components/RegimeHealthPanel";
@@ -20,7 +20,7 @@ const API_DI_URL = "http://localhost:8080/api/di-regime";
 const API_HISTORY_URL = "http://localhost:8080/api/history";
 const POLL_MS = 2500;
 
-// â”€â”€ Fallback: gera dados simulados se a API nÃ£o responder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Fallback: gera dados simulados se a API não responder ────────────────────
 function marketBarTimes(n, barMinutes = 5) {
     const SESSION_START = 9 * 60;
     const SESSION_END = 18 * 60 + 20;
@@ -63,16 +63,16 @@ function genFallback(n = 120) {
 
 function getSignal(z) {
     const az = Math.abs(z);
-    if (az >= 4) return { id: "anomalia", label: "ANOMALIA", sub: "Nao operar â€” possivel breakdown", wdo: null, win: null, color: "#ff3860" };
-    if (z >= 1.4) return { id: "compraWdo", label: "VENDE WIN", sub: "Z-Score positivo â€” spread revertendo", wdo: "IGNORAR", win: "VENDER", color: "#ff3860" };
-    if (z <= -1.4) return { id: "compraWin", label: "COMPRA WIN", sub: "Z-Score negativo â€” spread revertendo", wdo: "IGNORAR", win: "COMPRAR", color: "#00e87a" };
+    if (az >= 4) return { id: "anomalia", label: "ANOMALIA", sub: "Não operar — possível breakdown", wdo: null, win: null, color: "#ff3860" };
+    if (z >= 1.4) return { id: "compraWdo", label: "VENDE WIN", sub: "Z-Score positivo — spread revertendo", wdo: "IGNORAR", win: "VENDER", color: "#ff3860" };
+    if (z <= -1.4) return { id: "compraWin", label: "COMPRA WIN", sub: "Z-Score negativo — spread revertendo", wdo: "IGNORAR", win: "COMPRAR", color: "#00e87a" };
     if (az >= 1.2) return { id: "atencao", label: "ZONA DE DIVERGENCIA", sub: "Aguardar Z atingir +/-1.4 para entrar", wdo: null, win: null, color: "#f5a623" };
-    return { id: "neutro", label: "AGUARDAR", sub: "Spread em equilibrio â€” sem setup no momento", wdo: null, win: null, color: "#445560" };
+    return { id: "neutro", label: "AGUARDAR", sub: "Spread em equilibrio — sem setup no momento", wdo: null, win: null, color: "#445560" };
 }
 
-// â”€â”€ Main App â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main App ────────────────────────────────────────────────────────────────
 
-// Limite mÃ¡ximo de barras no histÃ³rico completo para evitar OOM
+// Limite máximo de barras no histórico completo para evitar OOM
 const MAX_FULL_HISTORY = 3000;
 
 export default function App() {
@@ -98,7 +98,7 @@ export default function App() {
 
     const isViewingHistory = selectedDate !== "";
 
-    // RelÃ³gio
+    // Relógio
     useEffect(() => {
         const t = setInterval(() => setClock(new Date().toLocaleTimeString("pt-BR")), 1000);
         return () => clearInterval(t);
@@ -110,7 +110,7 @@ export default function App() {
         return () => clearInterval(t);
     }, []);
 
-    // Polling da API (Local) ou Listener (Firebase ProduÃ§Ã£o)
+    // Polling da API (Local) ou Listener (Firebase Produção)
     useEffect(() => {
         let active = true;
 
@@ -126,7 +126,10 @@ export default function App() {
                         setStatus("fallback");
                     } else {
                         setData(val.regime);
-                        setHistory(val.history || []);
+                        // FIXED: Firebase dashboard now no longer contains a massive 30-day history array.
+                        // Instead we use val.regime.history which has the current day's bars, 
+                        // exactly like localhost endpoint behavior.
+                        setHistory(val.regime?.history || []);
                         if (val.performance && !val.performance.error) setPerf(val.performance);
                         if (val.di_regime && !val.di_regime.error) setDiData(val.di_regime);
                         setStatus("live");
@@ -149,7 +152,7 @@ export default function App() {
             });
             return () => { active = false; unsub(); };
         } else {
-            // Em localhost ou modo histÃ³rico, fazer polling da API
+            // Em localhost ou modo histórico, fazer polling da API
             async function poll() {
                 try {
                     const currentApiUrl = API_URL;
@@ -184,7 +187,7 @@ export default function App() {
                 } catch (e) {
                     if (!active) return;
                     setStatus("fallback");
-                    setError("Servidor Python nÃ£o encontrado em localhost:8080. Mostrando dados simulados.");
+                    setError("Servidor Python não encontrado em localhost:8080. Mostrando dados simulados.");
                 }
             }
             poll();
@@ -193,7 +196,7 @@ export default function App() {
         }
     }, [selectedDate, isViewingHistory]);
 
-    // SimulaÃ§Ã£o quando offline
+    // Simulação quando offline
     useEffect(() => {
         if (status !== "fallback") return;
         const t = setInterval(() => {
@@ -217,17 +220,26 @@ export default function App() {
         return () => clearInterval(t);
     }, [status]);
 
-    // â”€â”€ Fetch available dates on mount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Fetch available dates on mount ───────────────────────────────────
     useEffect(() => {
         async function loadDates() {
             try {
-                const res = await fetch(`${API_HISTORY_URL}?days=30`);
-                const json = await res.json();
-                if (json.history?.length) {
-                    // Limitar tamanho do histÃ³rico para evitar OOM
-                    const trimmed = json.history.length > MAX_FULL_HISTORY
-                        ? json.history.slice(-MAX_FULL_HISTORY)
-                        : json.history;
+                let jsonHistory = [];
+                if (import.meta.env.PROD) {
+                    const histRef = ref(db, 'history_30d');
+                    const snapshot = await get(histRef);
+                    jsonHistory = snapshot.val() || [];
+                } else {
+                    const res = await fetch(`${API_HISTORY_URL}?days=30`);
+                    const json = await res.json();
+                    jsonHistory = json.history || [];
+                }
+
+                if (jsonHistory.length) {
+                    // Limitar tamanho do histórico para evitar OOM
+                    const trimmed = jsonHistory.length > MAX_FULL_HISTORY
+                        ? jsonHistory.slice(-MAX_FULL_HISTORY)
+                        : jsonHistory;
                     setFullHistory(trimmed);
                     const dates = [...new Set(trimmed.map(h => h.date))].sort().reverse();
                     const today = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -238,15 +250,24 @@ export default function App() {
         loadDates();
     }, []);
 
-    // â”€â”€ Fetch data for selected historical date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Fetch data for selected historical date ──────────────────────────
     const fetchDayData = useCallback(async (date) => {
         if (!date) { setHistDayData(null); return; }
         setHistLoading(true);
         try {
-            const res = await fetch(`${API_HISTORY_URL}?days=30`);
-            const json = await res.json();
-            if (json.history?.length) {
-                const dayBars = json.history.filter(h => h.date === date).map(h => ({
+            let jsonHistory = [];
+            if (import.meta.env.PROD) {
+                const histRef = ref(db, 'history_30d');
+                const snapshot = await get(histRef);
+                jsonHistory = snapshot.val() || [];
+            } else {
+                const res = await fetch(`${API_HISTORY_URL}?days=30`);
+                const json = await res.json();
+                jsonHistory = json.history || [];
+            }
+
+            if (jsonHistory.length) {
+                const dayBars = jsonHistory.filter(h => h.date === date).map(h => ({
                     ...h,
                     z_raw_wdo: h.z,
                     z_raw_di: h.z_di ?? 0,
@@ -261,7 +282,7 @@ export default function App() {
 
     // (isViewingHistory foi movido para cima)
 
-    // â”€â”€ Derived state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Derived state ──────────────────────────────────────────────────────────
     const currentZ = data ? data.current_z : (history.length > 0 ? history[history.length - 1].z : 0);
     const currentRho = data ? data.current_rho : -0.67;
     const sig = data ? data.signal : getSignal(currentZ);
@@ -273,11 +294,11 @@ export default function App() {
     const betaDeltaPct = data ? data.beta_delta_pct : 0;
     const rh = data ? data.regime_health : null;
     const safeToTrade = rh ? rh.safe_to_trade : true;
-    const rhoStatus = rh ? rh.rho : { value: currentRho, status: "â€”", action: "", color: "#3a5060", level: 0 };
-    const betaHealth = rh ? rh.beta : { current: betaOls, ref_20d: betaRef20d, delta_pct: betaDeltaPct, status: "â€”", action: "", color: "#3a5060", level: 0 };
+    const rhoStatus = rh ? rh.rho : { value: currentRho, status: "—", action: "", color: "#3a5060", level: 0 };
+    const betaHealth = rh ? rh.beta : { current: betaOls, ref_20d: betaRef20d, delta_pct: betaDeltaPct, status: "—", action: "", color: "#3a5060", level: 0 };
     const cointEg = data ? data.coint_eg : { is_coint: false, pvalue: 1.0 };
 
-    // â”€â”€ Merged signal data for histogram â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Merged signal data for histogram ───────────────────────────────────────
     const mergedSignals = useMemo(() => {
         const sourceData = isViewingHistory && histDayData ? histDayData : (isViewingHistory ? [] : history);
         const diMap = new Map((diData?.history || []).map(h => [h.bar_time, h.z]));
@@ -296,7 +317,7 @@ export default function App() {
             }
         }
 
-        // Build prices array â€” forward-fill missing values to keep NWE index-aligned with sourceData
+        // Build prices array — forward-fill missing values to keep NWE index-aligned with sourceData
         const rawPrices = sourceData.map(h => h.win_price);
         const prices = [];
         let lastValid = prependedPrices.length > 0 ? prependedPrices[prependedPrices.length - 1] : null;
@@ -321,7 +342,7 @@ export default function App() {
         const nweData = nweDataRaw.slice(prependedPrices.length);
 
         return sourceData.map((h, i) => {
-            // Para histÃ³rico, z_di jÃ¡ vem da API (h.z_di), para live pegamos do diMap
+            // Para histórico, z_di já vem da API (h.z_di), para live pegamos do diMap
             const zDi = h.z_di ?? diMap.get(h.bar_time) ?? null;
             const nweObj = nweData[i] || {};
 
@@ -427,7 +448,7 @@ export default function App() {
         return unique;
     }, [mergedSignals]);
 
-    // Alerta Sonoro â€” reutiliza um Ãºnico AudioContext para evitar memory leak
+    // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
         if (sig && sig.id !== lastSignalId) {
             if ((sig.id === "compraWdo" || sig.id === "compraWin") && safeToTrade) {
@@ -473,7 +494,7 @@ export default function App() {
     };
     const cointInfo = getCointStatus(cointEg.pvalue);
 
-    // â”€â”€ Count active signals for consensus badge (WDO + DI) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Count active signals for consensus badge (WDO + DI) ────────────────────
     const lastBar = mergedSignals.length > 0 ? mergedSignals[mergedSignals.length - 1] : {};
     const buyCount = [lastBar.cons_wdo_sig, lastBar.cons_di_sig].filter(v => v < 0).length;
     const sellCount = [lastBar.cons_wdo_sig, lastBar.cons_di_sig].filter(v => v > 0).length;
@@ -481,7 +502,7 @@ export default function App() {
     const consensusDir = buyCount > sellCount ? "COMPRA" : sellCount > buyCount ? "VENDA" : null;
     const consensusColor = consensusDir === "COMPRA" ? "#00e87a" : consensusDir === "VENDA" ? "#ff3860" : "#3a5060";
 
-    // â”€â”€ Johansen gate data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Johansen gate data ─────────────────────────────────────────────────────
     const johWdoGate = data?.johansen_gate || null;
     const johDiGate = diData?.johansen_gate || null;
 
@@ -495,13 +516,13 @@ export default function App() {
             )}
         <div style={{ background: "#0d1117", minHeight: "100vh", color: "#c9d1d9", fontFamily: "monospace", display: "flex", flexDirection: "column" }}>
 
-            {/* â”€â”€ Topbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── Topbar ──────────────────────────────────────────────────────────── */}
             <div className="topbar">
                 <div className="topbar-left">
                     <span className="text-sm text-highlight font-bold" style={{ letterSpacing: 4 }}>PAIR TRADING</span>
                     <span style={{ display: "inline-block", width: 1, height: 14, background: "#1c2e3a" }} />
                     <span className="text-xs text-muted" style={{ letterSpacing: 2 }}>
-                        {meta.symbol_a} x {meta.symbol_b}  Â·  STAT ARB  Â·  {meta.timeframe}
+                        {meta.symbol_a} x {meta.symbol_b}  ·  STAT ARB  ·  {meta.timeframe}
                     </span>
                     <span className="text-xxs text-highlight font-bold" style={{ background: "rgba(200,164,68,0.15)", border: "1px solid #c8a44455", borderRadius: 4, padding: "3px 8px", marginLeft: 15, letterSpacing: 1 }}>MATADOR</span>
                 </div>
@@ -558,7 +579,7 @@ export default function App() {
                             borderRadius: 4, padding: "3px 10px",
                         }}>
                             <span style={{ fontSize: 8, fontWeight: "bold", color: data.nwe.is_up ? "#00e87a" : "#ff3860", letterSpacing: 1 }}>
-                                NWE {data.nwe.is_up ? "â–²" : "â–¼"}
+                                NWE {data.nwe.is_up ? "▲" : "▼"}
                             </span>
                         </div>
                     )}
@@ -582,7 +603,7 @@ export default function App() {
                                     }}>
                                         <span style={{ fontSize: 7, color: info.color, fontWeight: "bold" }}>{info.label}</span>
                                         <span style={{ fontSize: 7, color: fg, fontWeight: "bold" }}>
-                                            {isHolding ? (val.open_trade?.direction === "BUY" ? "C" : "V") : isEntry ? (isBuy ? "C!" : "V!") : "â€”"}
+                                            {isHolding ? (val.open_trade?.direction === "BUY" ? "C" : "V") : isEntry ? (isBuy ? "C!" : "V!") : "—"}
                                         </span>
                                     </div>
                                 );
@@ -622,14 +643,14 @@ export default function App() {
                             fontSize: 9, letterSpacing: 2,
                             color: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060"
                         }}>
-                            {isViewingHistory ? "HISTÃ“RICO" : status === "live" ? "MT5 LIVE" : status === "fallback" ? "SIMULADO" : "CONECTANDO"}
+                            {isViewingHistory ? "HISTÓRICO" : status === "live" ? "MT5 LIVE" : status === "fallback" ? "SIMULADO" : "CONECTANDO"}
                         </span>
                     </div>
                     <span style={{ fontSize: 13, color: "#c8a444", minWidth: 70, textAlign: "right" }}>{clock}</span>
                 </div>
             </div>
 
-            {/* â”€â”€ Banners â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── Banners ─────────────────────────────────────────────────────────── */}
             {error && (
                 <div style={{ background: "rgba(245,166,35,0.08)", borderBottom: "1px solid rgba(245,166,35,0.3)", padding: "6px 20px", fontSize: 10, color: "#f5a623" }}>
                     {error}
@@ -711,10 +732,10 @@ export default function App() {
                         borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
                         opacity: blink ? 1 : 0.7, transition: "opacity 0.3s"
                     }}>
-                        <span style={{ fontSize: 18 }}>ðŸš¨</span>
+                        <span style={{ fontSize: 18 }}>🚨</span>
                         <div style={{ fontSize: 11, color: "#ff3860", lineHeight: 1.5 }}>
-                            <strong>Z-SCORE ALTO COM RELAÃ‡ÃƒO INSTÃVEL</strong> â€” Parece oportunidade mas Ã© ruÃ­do.
-                            Ï ou Î”Î² fora da zona verde invalida o sinal de z={currentZ > 0 ? `+${currentZ.toFixed(2)}` : currentZ.toFixed(2)}.
+                            <strong>Z-SCORE ALTO COM RELAÇÃO INSTÁVEL</strong> — Parece oportunidade mas é ruído.
+                            ρ ou Δβ fora da zona verde invalida o sinal de z={currentZ > 0 ? `+${currentZ.toFixed(2)}` : currentZ.toFixed(2)}.
                         </div>
                     </div>
                 )}
@@ -723,10 +744,10 @@ export default function App() {
                 <TradingGuide />
             </div>
 
-            {/* â”€â”€ Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            {/* ── Footer ──────────────────────────────────────────────────────────── */}
             <div style={{ borderTop: "1px solid #21262d", padding: "7px 20px", display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3d444d", background: "#161b22" }}>
-                <span>{status === "live" ? "DADOS REAIS MT5" : "DADOS SIMULADOS"} â€” NAO CONSTITUI RECOMENDACAO DE INVESTIMENTO Â· PAIR TRADING 2025</span>
-                <span>beta = {meta.beta}  Â·  janela {meta.window} barras  Â·  {meta.symbol_a} x {meta.symbol_b}  Â·  B3</span>
+                <span>{status === "live" ? "DADOS REAIS MT5" : "DADOS SIMULADOS"} — NÃO CONSTITUI RECOMENDAÇÃO DE INVESTIMENTO · PAIR TRADING 2025</span>
+                <span>beta = {meta.beta}  ·  janela {meta.window} barras  ·  {meta.symbol_a} x {meta.symbol_b}  ·  B3</span>
             </div>
         </div>
         </>

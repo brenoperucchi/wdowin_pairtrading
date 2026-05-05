@@ -25,7 +25,7 @@ SYMBOL_B = "WDO$N"
 TIMEFRAME = mt5.TIMEFRAME_M5
 WINDOW = 90
 BARS = 250
-KALMAN_BURN_IN = 2000
+KALMAN_BURN_IN = 15000
 BETA_INITIAL = -22.5
 
 # ─── WDO Pair Trading (WIN×WDO) — Kalman Filter ─────────────────────────────
