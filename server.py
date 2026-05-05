@@ -361,8 +361,6 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
     
     nwe_line, nwe_upper, nwe_lower, nwe_is_up = nwe_data if nwe_data else (None, None, None, None)
     nwe_len = len(nwe_line) if nwe_line is not None else 0
-    print(f"[DEBUG] _build_history: nwe_line type={type(nwe_line)}, is_none={nwe_line is None}, len={nwe_len}")
-
     bar_info = []
     for i in range(n):
         local_ts = int(bar_times[i]) + TIME_OFFSET
@@ -386,8 +384,6 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
             entry["win_price"] = win_val
             
         z_di_val = di_map.get(local_ts, 0.0) if di_map else 0.0
-        if di_map and list(di_map.keys())[:2] and i < 2:
-            print(f"[DEBUG] local_ts: {local_ts}, di_map_keys: {list(di_map.keys())[:2]}")
         entry["z_di"] = z_di_val
         
         z_wdo = round(float(z_arr[i]), 3)
