@@ -301,91 +301,21 @@ export default function App() {
     // ── Merged signal data for histogram ───────────────────────────────────────
     const mergedSignals = useMemo(() => {
         const sourceData = isViewingHistory && histDayData ? histDayData : (isViewingHistory ? [] : history);
-        const diMap = new Map((diData?.history || []).map(h => [h.bar_time, h.z]));
-
-        // Seed NWE with previous day data to avoid cone effect at start of day
-        let prependedPrices = [];
-        if (sourceData.length > 0 && fullHistory.length > 0) {
-            const firstDate = sourceData[0].date;
-            if (firstDate) {
-                const pastData = fullHistory.filter(h => h.date < firstDate);
-                prependedPrices = pastData.slice(-100).map(h => h.win_price).filter(v => v != null && isFinite(v));
-            } else {
-                const todayStr = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-                const pastData = fullHistory.filter(h => h.date < todayStr);
-                prependedPrices = pastData.slice(-100).map(h => h.win_price).filter(v => v != null && isFinite(v));
-            }
-        }
-
-        // Build prices array — forward-fill missing values to keep NWE index-aligned with sourceData
-        const rawPrices = sourceData.map(h => h.win_price);
-        const prices = [];
-        let lastValid = prependedPrices.length > 0 ? prependedPrices[prependedPrices.length - 1] : null;
-        for (const p of rawPrices) {
-            if (p != null && isFinite(p)) {
-                lastValid = p;
-                prices.push(p);
-            } else {
-                prices.push(lastValid); // forward-fill
-            }
-        }
-        // If no valid prices at all, return basic data without NWE
-        if (lastValid == null) {
-            return sourceData.map(h => ({ ...h, z_di: h.z_di ?? null, z_raw_wdo: h.z ?? 0, z_raw_di: h.z_di ?? 0, sig_wdo: 0, sig_di: 0 }));
-        }
-        // Back-fill any leading nulls
-        for (let i = 0; i < prices.length; i++) {
-            if (prices[i] == null) prices[i] = lastValid;
-            else break;
-        }
-        const nweDataRaw = calcNWE([...prependedPrices, ...prices], BANDWIDTH, MULT_MAE);
-        const nweData = nweDataRaw.slice(prependedPrices.length);
-
-        return sourceData.map((h, i) => {
-            // Para histórico, z_di já vem da API (h.z_di), para live pegamos do diMap
-            const zDi = h.z_di ?? diMap.get(h.bar_time) ?? null;
-            const nweObj = nweData[i] || {};
-
-                        const winPrice = h.win_price;
-
-            let consWdoSig = h.z <= -1.4 ? -1 : h.z >= 1.4 ? 1 : 0;
-            let consDiSig = (zDi ?? 0) <= -1.4 ? -1 : (zDi ?? 0) >= 1.4 ? 1 : 0;
-
-            let sW = consWdoSig;
-            let sD = consDiSig;
-
-            let rW = h.z;
-            let rD = zDi ?? 0;
-
-            if (nweObj.nwe !== null && winPrice != null) {
-                const isBuyBlocked = nweObj.isUp || winPrice > nweObj.nweProxLower;
-                const isSellBlocked = !nweObj.isUp || winPrice < nweObj.nweProxUpper;
-
-                if (isBuyBlocked) {
-                    if (rW < 0) { sW = 0; rW = 0; }
-                    if (rD < 0) { sD = 0; rD = 0; }
-                }
-                if (isSellBlocked) {
-                    if (rW > 0) { sW = 0; rW = 0; }
-                    if (rD > 0) { sD = 0; rD = 0; }
-                }
-            }
-
+        
+        return sourceData.map((h) => {
             return {
                 ...h,
-                ...nweObj,
-                z_di: zDi,
-                z_raw_wdo: rW,
-                z_raw_di: rD,
-                z_unfiltered_wdo: h.z,
-                z_unfiltered_di: zDi ?? 0,
-                sig_wdo: sW,
-                sig_di: sD,
-                cons_wdo_sig: consWdoSig,
-                cons_di_sig: consDiSig,
+                z_raw_wdo: h.z_raw_wdo ?? h.z,
+                z_raw_di: h.z_raw_di ?? h.z_di ?? 0,
+                z_unfiltered_wdo: h.z_unfiltered_wdo ?? h.z,
+                z_unfiltered_di: h.z_unfiltered_di ?? h.z_di ?? 0,
+                sig_wdo: h.sig_wdo ?? 0,
+                sig_di: h.sig_di ?? 0,
+                cons_wdo_sig: h.cons_wdo_sig ?? 0,
+                cons_di_sig: h.cons_di_sig ?? 0,
             };
         });
-    }, [history, histDayData, isViewingHistory, diData, fullHistory]);
+    }, [history, histDayData, isViewingHistory]);
 
     const paddedSignals = useMemo(() => {
         if (!mergedSignals || mergedSignals.length === 0) return mergedSignals;

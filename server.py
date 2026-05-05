@@ -268,16 +268,67 @@ def load_bar_history(days=30):
         
         from datetime import datetime
         history = []
-        for r in rows:
+        for i, r in enumerate(rows):
             dt_time = datetime.strptime(r["bar_time"], "%H:%M")
+            z_wdo = r["z_wdo"]
+            z_di = r["z_di"] or 0.0
+            win_price = r["win_price"]
+            
+            nv = r["nwe_center"]
+            nu = r["nwe_upper"]
+            nl = r["nwe_lower"]
+            n_up = bool(r["nwe_is_up"]) if "nwe_is_up" in r.keys() else None
+            
+            npu = npl = None
+            if nv is not None and nu is not None and nl is not None:
+                envW = nu - nv
+                PROX_PCT = 0.10
+                npu = nu - (2 * envW) * PROX_PCT
+                npl = nl + (2 * envW) * PROX_PCT
+                
+            cons_wdo_sig = -1 if z_wdo <= -1.4 else (1 if z_wdo >= 1.4 else 0)
+            cons_di_sig = -1 if z_di <= -1.4 else (1 if z_di >= 1.4 else 0)
+            
+            sig_wdo = cons_wdo_sig
+            sig_di = cons_di_sig
+            
+            if win_price is not None and n_up is not None and npu is not None:
+                isBuyBlocked = n_up or (win_price > npl)
+                isSellBlocked = not n_up or (win_price < npu)
+                
+                if isBuyBlocked:
+                    if z_wdo < 0: sig_wdo, z_wdo = 0, 0
+                    if z_di < 0: sig_di, z_di = 0, 0
+                if isSellBlocked:
+                    if z_wdo > 0: sig_wdo, z_wdo = 0, 0
+                    if z_di > 0: sig_di, z_di = 0, 0
+            
             history.append({
+                "i": i,
                 "z": r["z_wdo"],
                 "z_di": r["z_di"],
                 "spread": r["spread_wdo"],
                 "bar_time": r["bar_time"],
                 "date": r["date_str"],
                 "t_min": dt_time.hour * 60 + dt_time.minute,
-                "win_price": r["win_price"]
+                "win_price": win_price,
+                
+                "nwe": nv,
+                "nweUpper": nu,
+                "nweLower": nl,
+                "nweProxUpper": npu,
+                "nweProxLower": npl,
+                "isUp": n_up,
+                "is_up": n_up,
+                
+                "z_raw_wdo": z_wdo,
+                "z_raw_di": z_di,
+                "z_unfiltered_wdo": r["z_wdo"],
+                "z_unfiltered_di": r["z_di"],
+                "sig_wdo": sig_wdo,
+                "sig_di": sig_di,
+                "cons_wdo_sig": cons_wdo_sig,
+                "cons_di_sig": cons_di_sig,
             })
         return history
     except Exception as e:
@@ -302,11 +353,15 @@ def do_backfill_if_empty():
     except Exception as e:
         print(f"[ERRO] Falha no backfill: {e}")
 
-def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None):
-    """Build filtered session history from bar data."""
+def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None, nwe_data=None, di_map=None):
+    """Build filtered session history from bar data, including NWE and DI."""
     n = len(z_arr)
     v1_len = len(z_v1_arr) if z_v1_arr is not None else 0
     win_len = len(win_prices) if win_prices is not None else 0
+    
+    nwe_line, nwe_upper, nwe_lower, nwe_is_up = nwe_data if nwe_data else (None, None, None, None)
+    nwe_len = len(nwe_line) if nwe_line is not None else 0
+    print(f"[DEBUG] _build_history: nwe_line type={type(nwe_line)}, is_none={nwe_line is None}, len={nwe_len}")
 
     bar_info = []
     for i in range(n):
@@ -323,26 +378,80 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None)
         if z_v1_arr is not None:
             v1_idx = i - (n - v1_len)
             entry["z_v1"] = round(float(z_v1_arr[v1_idx]), 3) if 0 <= v1_idx < v1_len else 0.0
+            
+        win_val = None
         if win_prices is not None:
             win_idx = i - (n - win_len)
-            entry["win_price"] = float(win_prices[win_idx]) if 0 <= win_idx < win_len else 0.0
+            win_val = float(win_prices[win_idx]) if 0 <= win_idx < win_len else 0.0
+            entry["win_price"] = win_val
+            
+        z_di_val = di_map.get(local_ts, 0.0) if di_map else 0.0
+        if di_map and list(di_map.keys())[:2] and i < 2:
+            print(f"[DEBUG] local_ts: {local_ts}, di_map_keys: {list(di_map.keys())[:2]}")
+        entry["z_di"] = z_di_val
+        
+        z_wdo = round(float(z_arr[i]), 3)
+        orig_z_wdo = z_wdo
+        orig_z_di_val = z_di_val
+        
+        cons_wdo_sig = -1 if orig_z_wdo <= -1.4 else (1 if orig_z_wdo >= 1.4 else 0)
+        cons_di_sig = -1 if orig_z_di_val <= -1.4 else (1 if orig_z_di_val >= 1.4 else 0)
+        
+        sig_wdo = cons_wdo_sig
+        sig_di = cons_di_sig
+        
+        if nwe_line is not None:
+            nwe_idx = i - (n - nwe_len)
+            if 0 <= nwe_idx < nwe_len:
+                nv = float(nwe_line[nwe_idx])
+                nu = float(nwe_upper[nwe_idx])
+                nl = float(nwe_lower[nwe_idx])
+                n_is_up = bool(nwe_is_up[nwe_idx])
+                
+                envW = nu - nv
+                PROX_PCT = 0.10
+                npu = nu - (2 * envW) * PROX_PCT
+                npl = nl + (2 * envW) * PROX_PCT
+                
+                entry["nwe"] = round(nv, 2)
+                entry["nweUpper"] = round(nu, 2)
+                entry["nweLower"] = round(nl, 2)
+                entry["nweProxUpper"] = round(npu, 2)
+                entry["nweProxLower"] = round(npl, 2)
+                entry["isUp"] = n_is_up
+                entry["is_up"] = n_is_up
+                
+                if win_val is not None:
+                    isBuyBlocked = n_is_up or (win_val > npl)
+                    isSellBlocked = not n_is_up or (win_val < npu)
+                    
+                    if isBuyBlocked:
+                        if z_wdo < 0: sig_wdo, z_wdo = 0, 0
+                        if z_di_val < 0: sig_di, z_di_val = 0, 0
+                    if isSellBlocked:
+                        if z_wdo > 0: sig_wdo, z_wdo = 0, 0
+                        if z_di_val > 0: sig_di, z_di_val = 0, 0
+                        
+        entry["z_raw_wdo"] = z_wdo
+        entry["z_raw_di"] = z_di_val
+        entry["z_unfiltered_wdo"] = orig_z_wdo
+        entry["z_unfiltered_di"] = orig_z_di_val
+        entry["sig_wdo"] = sig_wdo
+        entry["sig_di"] = sig_di
+        entry["cons_wdo_sig"] = cons_wdo_sig
+        entry["cons_di_sig"] = cons_di_sig
+
         bar_info.append(entry)
 
     today = datetime.now().date()
     today_str = today.strftime("%Y-%m-%d")
-    target_day = today_str
 
     history = []
-    if target_day:
-        for b in bar_info:
-            if b["date"] == target_day and SESSION_START <= b["t_min"] <= SESSION_END:
-                entry = {"i": len(history), "z": b["z"], "spread": b["spread"], "bar_time": b["bar_time"], "date": b["date"], "t_min": b["t_min"]}
-                if "z_v1" in b:
-                    entry["z_v1"] = b["z_v1"]
-                if "win_price" in b:
-                    entry["win_price"] = b["win_price"]
-                history.append(entry)
-
+    for b in bar_info:
+        if b["date"] == today_str and SESSION_START <= b["t_min"] <= SESSION_END:
+            entry = {k: v for k, v in b.items()}
+            entry["i"] = len(history)
+            history.append(entry)
 
     return history
 
@@ -564,14 +673,30 @@ def regime_v2():
 
     z_scores_full = KalmanBetaFilter.rolling_zscore(spreads, window=WDO_KALMAN_W)
     
+    # ── NWE computation BEFORE slicing ───────────────────────────────────
+    # Compute on the last 200 bars to prevent cone effect
+    nwe_lookback_bars = min(len(ac), BARS + 200)
+    ac_nwe = ac[-nwe_lookback_bars:]
+    nwe_line_full, nwe_upper_full, nwe_lower_full, nwe_is_up_full = calc_nwe_with_bands(
+        ac_nwe, bandwidth=NWE_BANDWIDTH, lookback=NWE_LOOKBACK, mult_mae=NWE_MULT_MAE
+    )
+
     # ── Slice after burn-in to keep payload and NWE/OLS fast ────────────
     if len(ac) > BARS:
         ac, bc, tc = ac[-BARS:], bc[-BARS:], tc[-BARS:]
         spreads = spreads[-BARS:]
         kf_betas = kf_betas[-BARS:]
         z_scores = z_scores_full[-BARS:]
+        nwe_line = nwe_line_full[-BARS:]
+        nwe_upper = nwe_upper_full[-BARS:]
+        nwe_lower = nwe_lower_full[-BARS:]
+        nwe_is_up_arr = nwe_is_up_full[-BARS:]
     else:
         z_scores = z_scores_full
+        nwe_line = nwe_line_full
+        nwe_upper = nwe_upper_full
+        nwe_lower = nwe_lower_full
+        nwe_is_up_arr = nwe_is_up_full
 
     current_z = float(z_scores[-1])
     current_spread_sd = np.std(spreads[-40:]) if len(spreads) >= 40 else 1.0
@@ -592,11 +717,6 @@ def regime_v2():
     beta_delta_pct = ((beta_current - beta_ref_20d) / abs(beta_ref_20d) * 100) if beta_ref_20d != 0 else 0
     beta_status_d = get_beta_status(beta_delta_pct)
     safe_to_trade = bool(rho_status["level"] < 2 and beta_status_d["level"] < 2)
-
-    # ── NWE computation ─────────────────────────────────────────────────
-    nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr = calc_nwe_with_bands(
-        ac, bandwidth=NWE_BANDWIDTH, lookback=NWE_LOOKBACK, mult_mae=NWE_MULT_MAE
-    )
     nwe_is_up_now = bool(nwe_is_up_arr[-1])
     nwe_upper_now = float(nwe_upper[-1])
     nwe_lower_now = float(nwe_lower[-1])
@@ -631,7 +751,22 @@ def regime_v2():
     db_hist = load_bar_history(days=2) # Load last 2 days is enough for dashboard
     today_str = datetime.now().strftime("%Y-%m-%d")
     db_hist = [h for h in db_hist if h.get("date") == today_str]  # Only today for live view
-    live_history = _build_history(tc[-20:], z_scores[-20:], spreads[-20:], win_prices=ac[-20:])
+    
+    di_map = {}
+    if _di_cache and "history" in _di_cache:
+        for dh in _di_cache["history"]:
+            dt_str = dh.get("date", "") + " " + dh.get("bar_time", "")
+            try:
+                local_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+                di_map[int(local_dt.timestamp())] = dh.get("z", 0.0)
+            except Exception:
+                pass
+
+    live_history = _build_history(
+        tc[-20:], z_scores[-20:], spreads[-20:], win_prices=ac[-20:],
+        nwe_data=(nwe_line[-20:], nwe_upper[-20:], nwe_lower[-20:], nwe_is_up_arr[-20:]),
+        di_map=di_map
+    )
     
     if db_hist and live_history:
         # Append the current open bar (and any missing bars not yet in DB)
@@ -642,7 +777,11 @@ def regime_v2():
                 db_hist.append(lh)
         history = db_hist
     else:
-        history = _build_history(tc, z_scores, spreads, win_prices=ac)
+        history = _build_history(
+            tc, z_scores, spreads, win_prices=ac,
+            nwe_data=(nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr),
+            di_map=di_map
+        )
     
 
     sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
@@ -733,26 +872,23 @@ def di_regime():
         closes_win, closes_di, _joh_di_state, len(closes_win)
     )
 
-    # ── DI Kalman z-score ───────────────────────────────────────────
-    # Stateless Kalman to prevent duplicate bar updates on every poll
-    kf = KalmanBetaFilter(
-        initial_beta=DI_BETA_INITIAL,
-        trans_cov=DI_KALMAN_Q,
-        obs_cov=DI_KALMAN_R,
+    # ── DI OLS z-score (Kalman fails here due to inverse correlation forcing positive beta) ──
+    ref_window = min(DI_BETA_REF_BARS, len(closes_win))
+    beta_ref_20d = calc_beta_ols(closes_win[-ref_window:], closes_di[-ref_window:], window=ref_window)
+    
+    # We must use the OLS beta which correctly finds the negative correlation
+    beta_current = beta_ref_20d
+    spread_arr_full, z_arr_full, rho_arr_full = calc_zscore(
+        closes_win, closes_di, beta=beta_current, window=DI_KALMAN_W, max_bars=len(closes_win)
     )
-    spreads = []
-    beta_current = DI_BETA_INITIAL
-    for y, x in zip(closes_win, closes_di):
-        beta, spread, _ = kf.update(float(y), float(x))
-        spreads.append(spread)
-        beta_current = beta
-
-    z_arr = np.array(KalmanBetaFilter.rolling_zscore(spreads, window=DI_KALMAN_W))
+    
+    spreads = spread_arr_full.tolist()
+    z_arr = z_arr_full
     current_z = float(z_arr[-1]) if len(z_arr) > 0 else 0.0
 
-    # NaN protection: If Kalman filter gets poisoned by bad data, reset it
+    # NaN protection
     if math.isnan(beta_current) or math.isnan(current_z):
-        return {"error": "Kalman filter NaN", "current_z": 0, "signal": _get_di_signal(0), "history": []}
+        return {"error": "OLS NaN", "current_z": 0, "signal": _get_di_signal(0), "history": []}
 
     method_label = "kalman"
 
@@ -959,9 +1095,15 @@ def history_endpoint(days: int = 30):
                 local_ts = int(t) + TIME_OFFSET
                 z_di_map[local_ts] = round(float(z_di_arr[i]), 3) if i < len(z_di_arr) else 0.0
 
+        # --- NWE for history ---
+        nwe_line, nwe_u, nwe_l, nwe_is_up = calc_nwe_with_bands(
+            ac, bandwidth=NWE_BANDWIDTH, lookback=NWE_LOOKBACK, mult_mae=NWE_MULT_MAE
+        )
+
         # --- Build history with session filter ---
         n = len(z_kalman)
         ols_offset = len(z_ols) - n  # align arrays
+        nwe_offset = len(nwe_line) - n
 
         entries = []
         for i in range(n):
@@ -979,7 +1121,7 @@ def history_endpoint(days: int = 30):
             win_idx = i + (len(tc) - n)
             win_val = float(ac[win_idx]) if 0 <= win_idx < len(ac) else 0.0
 
-            entries.append({
+            entry = {
                 "date": dt.strftime("%Y-%m-%d"),
                 "bar_time": dt.strftime("%H:%M"),
                 "datetime": dt.strftime("%Y-%m-%d %H:%M"),
@@ -987,7 +1129,29 @@ def history_endpoint(days: int = 30):
                 "z_v1": z_ols_val,
                 "z_di": z_di_val,
                 "win_price": win_val,
-            })
+            }
+            
+            nwe_idx = i + nwe_offset
+            if 0 <= nwe_idx < len(nwe_line):
+                nv = float(nwe_line[nwe_idx])
+                nu = float(nwe_u[nwe_idx])
+                nl = float(nwe_l[nwe_idx])
+                n_up = bool(nwe_is_up[nwe_idx])
+                
+                envW = nu - nv
+                PROX_PCT = 0.10
+                npu = nu - (2 * envW) * PROX_PCT
+                npl = nl + (2 * envW) * PROX_PCT
+                
+                entry["nwe"] = round(nv, 2)
+                entry["nweUpper"] = round(nu, 2)
+                entry["nweLower"] = round(nl, 2)
+                entry["nweProxUpper"] = round(npu, 2)
+                entry["nweProxLower"] = round(npl, 2)
+                entry["isUp"] = n_up
+                entry["is_up"] = n_up
+
+            entries.append(entry)
 
         # Get unique trading days
         trading_days = sorted(set(e["date"] for e in entries))
