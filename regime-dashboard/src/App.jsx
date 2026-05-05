@@ -6,7 +6,7 @@ import RegimeHealthPanel from "./components/RegimeHealthPanel";
 import PerformancePanel from "./components/PerformancePanel";
 import TradingGuide from "./components/TradingGuide";
 import SignalHistogram from "./components/SignalHistogram";
-import IndexChart, { calcNWE, BANDWIDTH, MULT_MAE } from "./components/IndexChart";
+import IndexChart from "./components/IndexChart";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
