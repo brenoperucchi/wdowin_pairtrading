@@ -70,6 +70,35 @@ function getSignal(z) {
     return { id: "neutro", label: "AGUARDAR", sub: "Spread em equilibrio — sem setup no momento", wdo: null, win: null, color: "#445560" };
 }
 
+// ── Trade alignment helper ───────────────────────────────────────────────────
+
+function toBarMinutes(timeStr) {
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + m;
+}
+
+export function alignTradesToBars(trades, history) {
+    if (!trades?.length || !history?.length) return [];
+    const barTimes = history.map(b => b.bar_time).filter(Boolean);
+
+    function findBar(timeHHMMSS) {
+        if (!timeHHMMSS) return null;
+        const tMin = toBarMinutes(timeHHMMSS); // HH:MM:SS → uses first two parts
+        let best = null;
+        for (const bt of barTimes) {
+            if (toBarMinutes(bt) <= tMin) best = bt;
+            else break;
+        }
+        return best; // null if trade is before first available bar
+    }
+
+    return trades.map(t => ({
+        ...t,
+        bar_time_in: findBar(t.time_in),
+        bar_time_out: t.time_out ? findBar(t.time_out) : null,
+    }));
+}
+
 // ── Main App ────────────────────────────────────────────────────────────────
 
 // Limite máximo de barras no histórico completo para evitar OOM
@@ -93,6 +122,7 @@ export default function App() {
     const [histDayData, setHistDayData] = useState(null);
     const [histLoading, setHistLoading] = useState(false);
     const [fullHistory, setFullHistory] = useState([]);
+    const [todayTrades, setTodayTrades] = useState([]);
     const flashTimerRef = useRef(null);
     const audioCtxRef = useRef(null);
 
@@ -127,9 +157,10 @@ export default function App() {
                     } else {
                         setData(val.regime);
                         // FIXED: Firebase dashboard now no longer contains a massive 30-day history array.
-                        // Instead we use val.regime.history which has the current day's bars, 
+                        // Instead we use val.regime.history which has the current day's bars,
                         // exactly like localhost endpoint behavior.
                         setHistory(val.regime?.history || []);
+                        setTodayTrades(val.regime?.trades_today ?? []);
                         if (val.performance && !val.performance.error) setPerf(val.performance);
                         if (val.di_regime && !val.di_regime.error) setDiData(val.di_regime);
                         setStatus("live");
@@ -171,6 +202,7 @@ export default function App() {
                     } else {
                         setData(json);
                         setHistory(json.history || []);
+                        setTodayTrades(json.trades_today ?? []);
                         if (jsonPerf && !jsonPerf.error) setPerf(jsonPerf);
                         // DI data
                         const jsonDi = resDi && resDi.ok ? await resDi.json() : null;
@@ -377,6 +409,11 @@ export default function App() {
 
         return unique;
     }, [mergedSignals]);
+
+    const alignedTrades = useMemo(
+        () => alignTradesToBars(todayTrades, paddedSignals),
+        [todayTrades, paddedSignals]
+    );
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -631,10 +668,15 @@ export default function App() {
                         currentZ={isViewingHistory ? 0 : currentZ}
                         useV2={true}
                         hideXAxis={true}
+                        trades={isViewingHistory ? [] : alignedTrades}
                     />
-                    <SignalHistogram data={paddedSignals} />
+                    <SignalHistogram
+                        data={paddedSignals}
+                        trades={isViewingHistory ? [] : alignedTrades}
+                    />
                     <IndexChart
                         history={paddedSignals}
+                        trades={isViewingHistory ? [] : alignedTrades}
                     />
                 </div>
 

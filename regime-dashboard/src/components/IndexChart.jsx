@@ -1,11 +1,17 @@
 import { useMemo, useState } from "react";
-import { ResponsiveContainer, ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { ResponsiveContainer, ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceDot } from "recharts";
+
+const STRAT_COLORS = {
+    CONS_BASE: "#00d4ff",
+    WDO_NWE: "#c8a444",
+    DI_NWE: "#8a6dff",
+};
 
 // ── Shared margins — MUST match ZScoreChart and SignalHistogram ─────────────
 const CHART_MARGIN = { top: 4, right: 12, bottom: 0, left: 0 };
 const Y_AXIS_WIDTH = 38;
 
-export default function IndexChart({ history }) {
+export default function IndexChart({ history, trades }) {
     const [showCenterLine, setShowCenterLine] = useState(true);
 
     const chartData = useMemo(() => {
@@ -36,6 +42,12 @@ export default function IndexChart({ history }) {
             };
         });
     }, [history]);
+
+    const priceByBarTime = useMemo(() => {
+        const m = new Map();
+        chartData.forEach(d => { if (d.bar_time && d.win_price != null) m.set(d.bar_time, d.win_price); });
+        return m;
+    }, [chartData]);
 
     // Compute domain from actual data — filter out any non-finite values
     const prices = chartData.filter(d => d.win_price != null).map(d => d.win_price);
@@ -139,6 +151,21 @@ export default function IndexChart({ history }) {
 
                         {/* WIN price — always on top */}
                         <Line type="monotone" dataKey="win_price" stroke="#ffffff" strokeWidth={1.8} dot={false} connectNulls={false} isAnimationActive={false} />
+
+                        {/* Trade entry/exit dots */}
+                        {trades?.map((t, i) => {
+                            const color = STRAT_COLORS[t.strategy] ?? "#888";
+                            const yIn = t.price_win_in;
+                            const yOut = t.price_win_out ?? (t.bar_time_out ? priceByBarTime.get(t.bar_time_out) : null);
+                            return [
+                                t.bar_time_in && yIn != null && (
+                                    <ReferenceDot key={`pe-${i}`} x={t.bar_time_in} y={yIn} r={4} fill={color} stroke="#0c1218" strokeWidth={1} ifOverflow="hidden" />
+                                ),
+                                t.bar_time_out && yOut != null && (
+                                    <ReferenceDot key={`px-${i}`} x={t.bar_time_out} y={yOut} r={4} fill="none" stroke={color} strokeWidth={1.5} ifOverflow="hidden" />
+                                ),
+                            ];
+                        })}
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>

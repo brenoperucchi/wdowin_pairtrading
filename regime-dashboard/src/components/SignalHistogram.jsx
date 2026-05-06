@@ -1,5 +1,57 @@
 import { useMemo } from "react";
-import { ResponsiveContainer, ComposedChart, Bar, Cell, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
+import { ResponsiveContainer, ComposedChart, Bar, Cell, XAxis, YAxis, Tooltip, ReferenceLine, Customized } from "recharts";
+
+const STRAT_COLORS = {
+    CONS_BASE: "#00d4ff",
+    WDO_NWE: "#c8a444",
+    DI_NWE: "#8a6dff",
+};
+
+function TradeMarkersLayer({ xAxisMap, yAxisMap, bars, trades }) {
+    if (!trades?.length || !xAxisMap?.[0] || !yAxisMap?.[0]) return null;
+
+    const xScale = xAxisMap[0].scale;
+    const yAxis = yAxisMap[0];
+    const yBottom = yAxis.y + yAxis.height;
+    const bw = xScale.bandwidth ? xScale.bandwidth() : 0;
+
+    const elements = [];
+
+    trades.forEach((trade, i) => {
+        const color = STRAT_COLORS[trade.strategy] ?? "#888";
+        const isBuy = trade.direction === "BUY";
+
+        if (trade.bar_time_in) {
+            const xRaw = xScale(trade.bar_time_in);
+            if (xRaw != null && !isNaN(xRaw)) {
+                const cx = xRaw + bw / 2;
+                const label = `${trade.strategy} ${trade.direction} · Z: ${trade.z_in != null ? trade.z_in.toFixed(2) : "—"} · Entrada`;
+                elements.push(
+                    <text key={`entry-${i}`} x={cx} y={yBottom - 3} textAnchor="middle" fontSize={8} fill={color}>
+                        {isBuy ? "▲" : "▼"}
+                        <title>{label}</title>
+                    </text>
+                );
+            }
+        }
+
+        if (trade.bar_time_out) {
+            const xRaw = xScale(trade.bar_time_out);
+            if (xRaw != null && !isNaN(xRaw)) {
+                const cx = xRaw + bw / 2;
+                const pnl = trade.pnl_brl != null ? ` · PnL: R$${Number(trade.pnl_brl).toFixed(0)}` : "";
+                const label = `${trade.strategy} ${trade.direction} · Saída: ${trade.exit_reason ?? "—"}${pnl}`;
+                elements.push(
+                    <rect key={`exit-${i}`} x={cx - 3} y={yBottom - 10} width={6} height={6} fill={color}>
+                        <title>{label}</title>
+                    </rect>
+                );
+            }
+        }
+    });
+
+    return <g>{elements}</g>;
+}
 
 // Shared margins to align X-axis with other charts
 const CHART_MARGIN = { top: 0, right: 12, bottom: 0, left: 0 };
@@ -29,7 +81,7 @@ function getConsensusColor(zw, zd) {
     return "#1e2a36";
 }
 
-export default function SignalHistogram({ data }) {
+export default function SignalHistogram({ data, trades }) {
     const bars = useMemo(() => {
         if (!data || data.length === 0) return [];
         return data.map(d => {
@@ -152,6 +204,7 @@ export default function SignalHistogram({ data }) {
                             <Cell key={`wdo-${index}`} fill={getBarColor(entry.wdo_z)} />
                         ))}
                     </Bar>
+                    <Customized component={TradeMarkersLayer} bars={bars} trades={trades} />
                 </ComposedChart>
             </ResponsiveContainer>
         </div>

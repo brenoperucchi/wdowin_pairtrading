@@ -1,12 +1,18 @@
 import { useMemo } from "react";
-import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, ReferenceLine, Tooltip } from "recharts";
+import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, ReferenceLine, ReferenceDot, Tooltip } from "recharts";
+
+const STRAT_COLORS = {
+    CONS_BASE: "#00d4ff",
+    WDO_NWE: "#c8a444",
+    DI_NWE: "#8a6dff",
+};
 
 // Shared chart margins for X-axis alignment across all 3 charts
 const CHART_MARGIN = { top: 8, right: 12, bottom: 0, left: 0 };
 const Y_AXIS_WIDTH = 38;
 const Z_CLAMP = 5; // Truncate Z values beyond ±5
 
-export default function ZScoreChart({ history, sigColor = "#00e87a", currentZ = 0, useV2 = false, hideXAxis = false }) {
+export default function ZScoreChart({ history, sigColor = "#00e87a", currentZ = 0, useV2 = false, hideXAxis = false, trades }) {
     const chartData = useMemo(() => {
         if (!history || history.length === 0) return [];
         return history.map(d => {
@@ -20,6 +26,12 @@ export default function ZScoreChart({ history, sigColor = "#00e87a", currentZ = 
             return { bar_time: d.bar_time, z, z_di };
         });
     }, [history]);
+
+    const zByBarTime = useMemo(() => {
+        const m = new Map();
+        chartData.forEach(d => { if (d.bar_time && d.z != null) m.set(d.bar_time, d.z); });
+        return m;
+    }, [chartData]);
 
     if (chartData.length === 0) {
         return (
@@ -106,6 +118,21 @@ export default function ZScoreChart({ history, sigColor = "#00e87a", currentZ = 
                         {useV2 && (
                             <Line type="monotone" dataKey="z_di" name="z_di" stroke="#8a6dff" strokeWidth={1.2} dot={false} connectNulls={false} isAnimationActive={false} strokeDasharray="4 2" />
                         )}
+
+                        {/* Trade entry/exit dots */}
+                        {trades?.map((t, i) => {
+                            const color = STRAT_COLORS[t.strategy] ?? "#888";
+                            const zIn = t.z_in != null ? Math.max(-Z_CLAMP, Math.min(Z_CLAMP, t.z_in)) : null;
+                            const zOut = t.bar_time_out ? zByBarTime.get(t.bar_time_out) : null;
+                            return [
+                                t.bar_time_in && zIn != null && (
+                                    <ReferenceDot key={`ze-${i}`} x={t.bar_time_in} y={zIn} r={4} fill={color} stroke="#0c1218" strokeWidth={1} ifOverflow="hidden" />
+                                ),
+                                t.bar_time_out && zOut != null && (
+                                    <ReferenceDot key={`zx-${i}`} x={t.bar_time_out} y={zOut} r={4} fill="none" stroke={color} strokeWidth={1.5} ifOverflow="hidden" />
+                                ),
+                            ];
+                        })}
                     </ComposedChart>
                 </ResponsiveContainer>
             </div>
