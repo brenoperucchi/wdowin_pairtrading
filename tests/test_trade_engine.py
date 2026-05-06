@@ -179,29 +179,38 @@ def test_get_trades_for_date_banco_vazio(engine):
 
 
 def test_get_trades_for_date_retorna_open_e_closed(engine):
-    """Should return both OPEN and CLOSED trades for the requested date."""
-    # Open a trade (OPEN)
+    """Should return OPEN and CLOSED trades together for the requested date."""
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Open and immediately close a BUY trade (CONS_BASE)
     engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,
         win_price=130000, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=0
     )
-    today = datetime.now().strftime("%Y-%m-%d")
-    trades = engine.get_trades_for_date(today)
-    assert len(trades) == 1
-    assert trades[0]["status"] == "OPEN"
-
-    # Close the trade (TARGET)
     engine.evaluate(
         z_wdo=0.0, z_di=0.0,
         win_price=130000 + BUY_TP, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=5
     )
+
+    # Open a second BUY trade (WDO_NWE) — leave it OPEN
+    # Use nwe_is_up=False + win_price near lower band to pass NWE filter
+    engine.evaluate(
+        z_wdo=-2.1, z_di=0.0,
+        win_price=100000, wdo_price=5800,
+        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        hour=12, minute=0,
+        nwe_is_up=False, nwe_upper=120000, nwe_lower=99000,
+    )
+
     trades = engine.get_trades_for_date(today)
-    assert len(trades) == 1
-    assert trades[0]["status"] == "CLOSED"
+    statuses = {t["status"] for t in trades}
+    assert "CLOSED" in statuses
+    assert "OPEN" in statuses
+    assert len(trades) >= 2
 
 
 def test_get_trades_for_date_filtra_outra_data(engine):

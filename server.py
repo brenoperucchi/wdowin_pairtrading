@@ -646,13 +646,13 @@ def regime():
 def regime_v2():
     """V2 endpoint — Kalman-based regime monitoring + Johansen gate."""
     if not connect_mt5():
-        return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
+        return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": [], "trades_today": []}
 
     closes_a, times_a = fetch_bars(SYMBOL_A, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
     closes_b, times_b = fetch_bars(SYMBOL_B, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
 
     if closes_a is None or closes_b is None:
-        return {"error": "Sem dados.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
+        return {"error": "Sem dados.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": [], "trades_today": []}
 
     min_len = min(len(closes_a), len(closes_b))
     ac, bc, tc = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
