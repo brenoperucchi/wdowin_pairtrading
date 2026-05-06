@@ -1,9 +1,10 @@
 ---
 id: TASK-1.1
 title: Fase 0 — Corrigir suite de testes da TradeEngine (assinatura z_wdo/z_di)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-06 17:57'
+updated_date: '2026-05-06 20:13'
 labels:
   - test
   - bug

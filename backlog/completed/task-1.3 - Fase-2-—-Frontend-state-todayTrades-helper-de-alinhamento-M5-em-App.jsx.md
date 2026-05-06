@@ -1,10 +1,10 @@
 ---
 id: TASK-1.3
 title: 'Fase 2 — Frontend: state todayTrades + helper de alinhamento M5 em App.jsx'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-06 17:59'
-updated_date: '2026-05-06 18:05'
+updated_date: '2026-05-06 20:13'
 labels:
   - frontend
   - feature

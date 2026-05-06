@@ -1,10 +1,10 @@
 ---
 id: TASK-1.2
 title: 'Fase 1 — Backend: get_trades_for_date() + trades_today na API + testes'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-06 17:58'
-updated_date: '2026-05-06 18:04'
+updated_date: '2026-05-06 20:13'
 labels:
   - backend
   - feature

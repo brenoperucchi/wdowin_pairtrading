@@ -1,10 +1,10 @@
 ---
 id: TASK-1.5
 title: 'Fase 3b — Frontend: marcadores de trade no ZScoreChart e IndexChart'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-06 17:59'
-updated_date: '2026-05-06 18:05'
+updated_date: '2026-05-06 20:13'
 labels:
   - frontend
   - feature
