@@ -803,6 +803,9 @@ def regime_v2():
         "lower": round(nwe_lower_now, 2),
         "center": round(float(nwe_line[-1]), 2),
     }
+    res["trades_today"] = _trade_engine.get_trades_for_date(
+        datetime.now().strftime("%Y-%m-%d")
+    )
     return res
 
 

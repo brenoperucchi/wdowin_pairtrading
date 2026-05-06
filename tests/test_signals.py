@@ -64,6 +64,8 @@ def test_get_signal_attention_zone():
     assert sig["id"] == "atencao"
 
 
-def test_get_signal_hmm_bull_blocks():
+def test_get_signal_hmm_bull_no_block():
+    """HMM BULL is no longer a block gate in get_signal() — signal passes through."""
     sig = get_signal(2.0, hmm_state="BULL")
-    assert sig["id"] == "bloqueioHMM"
+    assert sig["id"] != "bloqueioHMM"
+    assert sig["id"] in ("compraWdo", "compraWin", "vendeWdo", "vendeWin", "atencao", "anomalia", "neutro")

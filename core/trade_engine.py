@@ -378,6 +378,27 @@ class TradeEngine:
             "strategies": results,
         }
 
+    # ── Trades for date ─────────────────────────────────────────────────────
+
+    def get_trades_for_date(self, date_str: str) -> list:
+        """Return all trades (OPEN and CLOSED) for the given date (YYYY-MM-DD)."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, strategy, direction, "
+            "timestamp_in, "
+            "strftime('%H:%M:%S', timestamp_in) as time_in, "
+            "timestamp_out, "
+            "strftime('%H:%M:%S', timestamp_out) as time_out, "
+            "z_in, price_win_in, price_win_out, pnl_brl, exit_reason, status "
+            "FROM matador_ops "
+            "WHERE date(timestamp_in) = ? "
+            "ORDER BY timestamp_in",
+            (date_str,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
     # ── Performance API ─────────────────────────────────────────────────────
 
     @staticmethod

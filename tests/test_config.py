@@ -6,19 +6,19 @@ from core.config import (
 
 
 def test_setup_matador_params():
-    """Verify the validated backtest params are correctly configured."""
-    assert Z_ENTRY == 1.8
-    assert BUY_SL == 350
-    assert BUY_TP == 500
+    """Verify the validated backtest params are correctly configured (Setup Matador v4)."""
+    assert Z_ENTRY == 1.4
+    assert BUY_SL == 300
+    assert BUY_TP == 800
     assert SELL_SL == 300
-    assert SELL_TP == 1400
+    assert SELL_TP == 800
 
 
 def test_be_params():
-    assert BUY_BE_ACT == 400
-    assert BUY_BE_LOCK == 50
-    assert SELL_BE_ACT == 800
-    assert SELL_BE_LOCK == 200
+    assert BUY_BE_ACT == 300
+    assert BUY_BE_LOCK == 0
+    assert SELL_BE_ACT == 300
+    assert SELL_BE_LOCK == 0
 
 
 def test_sizing():
