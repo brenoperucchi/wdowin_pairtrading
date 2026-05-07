@@ -47,6 +47,8 @@ REQUIRED_IN_MANIFEST = [
     "SELL_SL", "SELL_TP", "SELL_BE_ACT", "SELL_BE_LOCK",
     # Sizing
     "WIN_CONTRACTS", "WIN_PV",
+    # Execution costs (validation backtest)
+    "WIN_SLIPPAGE_PTS", "B3_COST_PER_CONTRACT_RT",
     # Regime
     "BETA_INITIAL", "RHO_MIN", "BETA_DELTA_MAX", "KALMAN_BURN_IN",
     # Session

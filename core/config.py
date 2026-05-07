@@ -62,6 +62,20 @@ SELL_BE_LOCK = 0
 WIN_CONTRACTS = 2
 WIN_PV = 0.20          # R$/point/contract
 
+# ─── Execution costs (TASK-3 AC #15) ────────────────────────────────────────
+# Used by validation-grade backtests (research/run_matador_v5_johansen.py)
+# to convert gross point P&L into realized BRL P&L. The live engine does not
+# read these — actual fills come back from MT5 already net of slippage and
+# B3 charges them to the account separately.
+#   - WIN_SLIPPAGE_PTS: applied on EACH side (entry + exit). Conservative
+#     default of 1 tick (5 pts on WIN). Higher than typical fills but safer
+#     to underestimate live P&L than overestimate.
+#   - B3_COST_PER_CONTRACT_RT: round-trip B3 emolumentos + XP corretagem
+#     per contract, in BRL. Default placeholder — confirmar com XP for the
+#     live account before using this number for paridade decisions.
+WIN_SLIPPAGE_PTS = 5
+B3_COST_PER_CONTRACT_RT = 1.00
+
 # ─── Session ────────────────────────────────────────────────────────────────
 ENTRY_START_H = 9
 ENTRY_START_M = 0

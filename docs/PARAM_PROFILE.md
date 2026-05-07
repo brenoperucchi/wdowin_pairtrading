@@ -85,6 +85,17 @@ the same signal as live.
 | `WIN_CONTRACTS` | 2     | WIN-only — no WDO leg |
 | `WIN_PV`        | 0.20  | R$/point/contract |
 
+### Execution costs (validation backtest only)
+
+Live engine does not consume these — MT5 fills already net of slippage and
+B3 charges separately. Used by `research/run_matador_v5_johansen.py` to
+convert gross point P&L into realized BRL P&L.
+
+| Constant                  | Value | Notes |
+|---------------------------|-------|-------|
+| `WIN_SLIPPAGE_PTS`        | 5     | per side (entry + exit) — conservative |
+| `B3_COST_PER_CONTRACT_RT` | 1.0   | BRL, round-trip per contract — confirmar com XP |
+
 ### Regime / hedge ratio
 
 | Constant         | Value  | Notes |

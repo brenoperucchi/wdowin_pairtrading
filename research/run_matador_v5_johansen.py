@@ -1,8 +1,19 @@
 """
-Matador V5 Backtest — Bateria Dupla (Sem/Com Johansen Gate)
+Matador V5 Backtest — VALIDATION CANDIDATE (TASK-3 AC #15)
 ============================================================
-Replicação fiel da lógica do plot_portfolio_v4.py (V4 validado)
-acrescida do Gate de Cointegração de Johansen + Estabilidade de Beta.
+Production-validation backtest reconciliado com core/config.py + o motor
+em core/trade_engine.py. Hardened em slice 6b (TASK-3) com:
+
+  - Slippage WIN: cfg.WIN_SLIPPAGE_PTS por lado (entrada + saída).
+  - Custos B3: cfg.B3_COST_PER_CONTRACT_RT × cfg.WIN_CONTRACTS por trade.
+  - Rollover gap: trades que cruzam barra com retorno > 5σ recente são
+    descartados (heurística — runbook docs/RUNBOOK_ROLLOVER.md cobre
+    detecção manual via calendário B3).
+
+Diferente dos demais scripts em research/ (todos carimbados como
+"research exploratório" — ver docs/PARAM_PROFILE.md §2), este consome
+core/config.py como fonte única de verdade. Qualquer constante de
+trade aqui vem de cfg; nada é hardcoded.
 
 Período: 35.000 barras M5 (~1.2 anos)
 """
@@ -17,20 +28,26 @@ import MetaTrader5 as mt5
 from datetime import datetime
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 from core.kalman_filter import KalmanBetaFilter
-from core.config import (SYMBOL_A, SYMBOL_B, DI_SYMBOL, TIMEFRAME, MT5_PATH,
-                          BETA_INITIAL, DI_BETA_INITIAL)
+from core import config as cfg
 
-# ─── Parâmetros idênticos ao plot_portfolio_v4.py ────────────────────────────
-Z_ENT, Z_ATT = 1.4, 1.2
-SL, TP, BE = 300, 800, 300
-WIN_PV = 0.20
-FC = 17*60+40; SM = 9*60; EM = 15*60
-NWE_BW, NWE_LB, NWE_MAE, NWE_BM = 8, 95, 3.0, 0.10
+# ─── Parâmetros canônicos (todos vindos de core/config.py) ───────────────────
+SYMBOL_A, SYMBOL_B, DI_SYMBOL = cfg.SYMBOL_A, cfg.SYMBOL_B, cfg.DI_SYMBOL
+TIMEFRAME, MT5_PATH = cfg.TIMEFRAME, cfg.MT5_PATH
+BETA_INITIAL, DI_BETA_INITIAL = cfg.BETA_INITIAL, cfg.DI_BETA_INITIAL
 
-# ─── Johansen Gate ───────────────────────────────────────────────────────────
-JOH_WINDOW = 250
-JOH_RECHECK = 12
-BETA_TOLERANCE = 0.30
+Z_ENT, Z_ATT = cfg.Z_ENTRY, cfg.Z_ATTENTION
+# Live engine has separate BUY/SELL sides; this backtest uses BUY values
+# symmetrically (matches the actual cfg.BUY_* == cfg.SELL_* equality today).
+SL, TP, BE = cfg.BUY_SL, cfg.BUY_TP, cfg.BUY_BE_ACT
+FC = cfg.FORCE_CLOSE_H * 60 + cfg.FORCE_CLOSE_M
+SM = cfg.ENTRY_START_H * 60 + cfg.ENTRY_START_M
+EM = cfg.ENTRY_END_H * 60 + cfg.ENTRY_END_M
+NWE_BW, NWE_LB = cfg.NWE_BANDWIDTH, cfg.NWE_LOOKBACK
+NWE_MAE, NWE_BM = cfg.NWE_MULT_MAE, cfg.NWE_BAND_MULT
+
+JOH_WINDOW = cfg.JOH_WINDOW
+JOH_RECHECK = cfg.JOH_RECHECK_BARS
+BETA_TOLERANCE = cfg.JOH_BETA_TOLERANCE
 
 def bmn(ts):
     dt = datetime.utcfromtimestamp(ts)
@@ -50,19 +67,66 @@ def calc_nwe(p, bw, lb, mm):
         mae[t] = np.mean(np.abs(p[t-l:t+1] - nw[t-l:t+1])) * mm
     return nw, nw+mae, nw-mae
 
+# ─── Cost model + rollover gap detection (TASK-3 AC #15) ────────────────────
+
+def _pnl_brl_close(pts_gross):
+    """Convert gross point P&L of a closed trade to realized BRL.
+
+    Applies cfg.WIN_SLIPPAGE_PTS on each side (2× total) and round-trip
+    cfg.B3_COST_PER_CONTRACT_RT × cfg.WIN_CONTRACTS.
+
+    A favorable trade gives positive `pts_gross`; a stop gives negative.
+    Both pay slippage and costs, so the helper handles both sides.
+    """
+    pts_net = pts_gross - 2 * cfg.WIN_SLIPPAGE_PTS
+    gross_brl = pts_net * cfg.WIN_PV * cfg.WIN_CONTRACTS
+    cost_brl = cfg.B3_COST_PER_CONTRACT_RT * cfg.WIN_CONTRACTS
+    return gross_brl - cost_brl
+
+def _detect_rollover_bars(prices, sigma_window=500, sigma_mult=5.0):
+    """Heuristic rollover detector for continuous symbols (WIN$N/WDO$N/DI1$N).
+
+    On a continuous symbol, MT5 stitches the new front-month onto the old
+    series at expiry. The resulting bar shows a synthetic gap that does not
+    correspond to a fill in the account. We flag any bar whose absolute
+    return exceeds `sigma_mult` × the rolling stdev of returns over the
+    prior `sigma_window` bars. The simulator discards trades crossing
+    these bars (returns 0 P&L for that trade — see AC #15).
+
+    Limitations: this is a price heuristic, not a calendar lookup. It
+    will catch most rollover gaps and very large news moves alike. The
+    runbook (docs/RUNBOOK_ROLLOVER.md) documents the manual calendar
+    process; a calendar-aware detector is future work.
+    """
+    n = len(prices)
+    rollover = np.zeros(n, dtype=bool)
+    if n < 2:
+        return rollover
+    rets = np.zeros(n)
+    rets[1:] = np.abs(np.diff(prices)) / np.maximum(np.abs(prices[:-1]), 1e-9)
+    for i in range(sigma_window, n):
+        sigma = np.std(rets[i - sigma_window:i]) + 1e-12
+        if rets[i] > sigma_mult * sigma:
+            rollover[i] = True
+    return rollover
+
 # ─── Simulações (réplica exata do V4) ───────────────────────────────────────
 
 def simulate_with_nwe(z, win_c, bar_mins, is_up, upper, lower,
+                      rollover_mask,
                       kalman_betas=None, joh_gates=None, joh_betas=None,
                       use_johansen=False):
-    """WDO/DI isolado — COM filtro NWE. Lógica idêntica ao plot_portfolio_v4."""
+    """WDO/DI isolado — COM filtro NWE. Lógica do plot_portfolio_v4 +
+    custos (slippage + B3) e descarte de trades cruzando rollover."""
     n = len(win_c); pnl = np.zeros(n)
     pos = 0; ep = 0.0; bh = False
     for i in range(1000, n):
         p = win_c[i]; tm = bar_mins[i]
+        if pos != 0 and rollover_mask[i]:
+            pos = 0; continue  # AC #15: discard trade crossing rollover
         if pos != 0 and tm >= FC:
             d = (p-ep) if pos == 1 else (ep-p)
-            pnl[i] = d * WIN_PV; pos = 0; continue
+            pnl[i] = _pnl_brl_close(d); pos = 0; continue
         sb = (z[i] <= -Z_ENT); ss = (z[i] >= Z_ENT)
         bww = upper[i] - lower[i]
         if bww < 1e-10: bww = 1.0
@@ -91,23 +155,26 @@ def simulate_with_nwe(z, win_c, bar_mins, is_up, upper, lower,
         else:
             d = (p-ep) if pos == 1 else (ep-p)
             if not bh and d >= BE: bh = True
-            if d >= TP: pnl[i] = TP * WIN_PV; pos = 0
-            elif bh and d <= 0: pnl[i] = 0; pos = 0
-            elif not bh and d <= -SL: pnl[i] = -SL * WIN_PV; pos = 0
+            if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
+            elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
+            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
     return pnl
 
-def simulate_consensus_no_nwe(z_wdo, z_di, win_c, bar_mins,
+def simulate_consensus_no_nwe(z_wdo, z_di, win_c, bar_mins, rollover_mask,
                                kb_wdo=None, jg_wdo=None, jb_wdo=None,
                                kb_di=None, jg_di=None, jb_di=None,
                                use_johansen=False):
-    """Consenso PURO — SEM filtro NWE, só z-scores alinhados."""
+    """Consenso PURO — SEM filtro NWE, só z-scores alinhados.
+    Inclui custos + descarte por rollover (AC #15)."""
     n = len(win_c); pnl = np.zeros(n)
     pos = 0; ep = 0.0; bh = False
     for i in range(1000, n):
         p = win_c[i]; tm = bar_mins[i]
+        if pos != 0 and rollover_mask[i]:
+            pos = 0; continue
         if pos != 0 and tm >= FC:
             d = (p-ep) if pos == 1 else (ep-p)
-            pnl[i] = d * WIN_PV; pos = 0; continue
+            pnl[i] = _pnl_brl_close(d); pos = 0; continue
 
         zw, zd = z_wdo[i], z_di[i]
         sb = (zw <= -Z_ENT and zd <= -Z_ATT) or (zw <= -Z_ATT and zd <= -Z_ENT)
@@ -137,23 +204,26 @@ def simulate_consensus_no_nwe(z_wdo, z_di, win_c, bar_mins,
         else:
             d = (p-ep) if pos == 1 else (ep-p)
             if not bh and d >= BE: bh = True
-            if d >= TP: pnl[i] = TP * WIN_PV; pos = 0
-            elif bh and d <= 0: pnl[i] = 0; pos = 0
-            elif not bh and d <= -SL: pnl[i] = -SL * WIN_PV; pos = 0
+            if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
+            elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
+            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
     return pnl
 
 def simulate_consensus_with_nwe(z_wdo, z_di, win_c, bar_mins, is_up, upper, lower,
+                                 rollover_mask,
                                  kb_wdo=None, jg_wdo=None, jb_wdo=None,
                                  kb_di=None, jg_di=None, jb_di=None,
                                  use_johansen=False):
-    """Consenso COM filtro NWE."""
+    """Consenso COM filtro NWE. Inclui custos + descarte por rollover."""
     n = len(win_c); pnl = np.zeros(n)
     pos = 0; ep = 0.0; bh = False
     for i in range(1000, n):
         p = win_c[i]; tm = bar_mins[i]
+        if pos != 0 and rollover_mask[i]:
+            pos = 0; continue
         if pos != 0 and tm >= FC:
             d = (p-ep) if pos == 1 else (ep-p)
-            pnl[i] = d * WIN_PV; pos = 0; continue
+            pnl[i] = _pnl_brl_close(d); pos = 0; continue
 
         zw, zd = z_wdo[i], z_di[i]
         sb = (zw <= -Z_ENT and zd <= -Z_ATT) or (zw <= -Z_ATT and zd <= -Z_ENT)
@@ -193,9 +263,9 @@ def simulate_consensus_with_nwe(z_wdo, z_di, win_c, bar_mins, is_up, upper, lowe
         else:
             d = (p-ep) if pos == 1 else (ep-p)
             if not bh and d >= BE: bh = True
-            if d >= TP: pnl[i] = TP * WIN_PV; pos = 0
-            elif bh and d <= 0: pnl[i] = 0; pos = 0
-            elif not bh and d <= -SL: pnl[i] = -SL * WIN_PV; pos = 0
+            if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
+            elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
+            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
     return pnl
 
 # ─── Johansen rolling ───────────────────────────────────────────────────────
@@ -262,25 +332,40 @@ def main():
     is_up[1:] = nwe[1:] >= nwe[:-1]
     is_up[0] = True
 
-    # ── Z-Scores WDO (Kalman idêntico ao V4) ──
+    # ── Z-Scores WDO (Kalman ← cfg.WDO_KALMAN_*) ──
     print("Processando Kalman WDO...")
-    kf_wdo = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=1e-4, obs_cov=1e2)
+    kf_wdo = KalmanBetaFilter(initial_beta=BETA_INITIAL,
+                              trans_cov=cfg.WDO_KALMAN_Q,
+                              obs_cov=cfg.WDO_KALMAN_R)
     sp_wdo = []; kb_wdo = []
     for y, x in zip(win, wdo):
         beta, s, _ = kf_wdo.update(float(y), float(x))
         sp_wdo.append(s); kb_wdo.append(beta)
-    z_wdo = np.array(KalmanBetaFilter.rolling_zscore(sp_wdo, window=40))
+    z_wdo = np.array(KalmanBetaFilter.rolling_zscore(sp_wdo, window=cfg.WDO_KALMAN_W))
     kb_wdo = np.array(kb_wdo)
 
-    # ── Z-Scores DI (Kalman idêntico ao V4) ──
+    # ── Z-Scores DI (Kalman ← cfg.DI_KALMAN_*) ──
     print("Processando Kalman DI...")
-    kf_di = KalmanBetaFilter(initial_beta=DI_BETA_INITIAL, trans_cov=1e-3, obs_cov=1e1)
+    kf_di = KalmanBetaFilter(initial_beta=DI_BETA_INITIAL,
+                             trans_cov=cfg.DI_KALMAN_Q,
+                             obs_cov=cfg.DI_KALMAN_R)
     sp_di = []; kb_di = []
     for y, x in zip(win, di):
         beta, s, _ = kf_di.update(float(y), float(x))
         sp_di.append(s); kb_di.append(beta)
-    z_di = np.array(KalmanBetaFilter.rolling_zscore(sp_di, window=60))
+    z_di = np.array(KalmanBetaFilter.rolling_zscore(sp_di, window=cfg.DI_KALMAN_W))
     kb_di = np.array(kb_di)
+
+    # ── Rollover gap detection (TASK-3 AC #15) ──
+    # Mark bars where any of the three continuous symbols shows a return
+    # > 5σ vs the rolling stdev. Trades crossing such bars are discarded.
+    rollover_mask = (
+        _detect_rollover_bars(win)
+        | _detect_rollover_bars(wdo)
+        | _detect_rollover_bars(di)
+    )
+    n_rollover = int(rollover_mask.sum())
+    print(f"Rollover bars flagged: {n_rollover} ({100.0 * n_rollover / n:.2f}% of {n})")
 
     # ── Johansen rolling ──
     print("Processando Johansen WDO...")
@@ -295,23 +380,23 @@ def main():
     #  BATERIA 1: V4 PURO (sem Johansen)
     # ══════════════════════════════════════════════════════════════════════════
     print("\nExecutando Bateria 1 (V4 Puro)...")
-    pnl_wdo1 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower)
-    pnl_di1  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower)
-    pnl_cn1  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower)
-    pnl_cp1  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins)
+    pnl_wdo1 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower, rollover_mask)
+    pnl_di1  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower, rollover_mask)
+    pnl_cn1  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower, rollover_mask)
+    pnl_cp1  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins, rollover_mask)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  BATERIA 2: V4 + Johansen Gate
     # ══════════════════════════════════════════════════════════════════════════
     print("Executando Bateria 2 (V4 + Johansen Gate)...")
-    pnl_wdo2 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower,
+    pnl_wdo2 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower, rollover_mask,
                                   kb_wdo, jg_wdo, jb_wdo, use_johansen=True)
-    pnl_di2  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower,
+    pnl_di2  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower, rollover_mask,
                                   kb_di, jg_di, jb_di, use_johansen=True)
-    pnl_cn2  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower,
+    pnl_cn2  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower, rollover_mask,
                                             kb_wdo, jg_wdo, jb_wdo,
                                             kb_di, jg_di, jb_di, use_johansen=True)
-    pnl_cp2  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins,
+    pnl_cp2  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins, rollover_mask,
                                           kb_wdo, jg_wdo, jb_wdo,
                                           kb_di, jg_di, jb_di, use_johansen=True)
 
@@ -398,10 +483,12 @@ def main():
                          ("Consenso COM NWE+JOH", s_cn2), ("Consenso SEM NWE+JOH", s_cp2)]:
             f.write(f"| {name} | R${s['pnl']:.0f} | R${s['dd']:.0f} | {s['ret_dd']:.2f}x | {s['pf']:.2f} | {s['trades']} | {s['wr']:.1f}% |\n")
 
-        f.write(f"\n## 4. Conclusão\n\n")
-        f.write(f"O Johansen Gate **sufoca** o setup, reduzindo de {sp1['trades']} trades para {sp2['trades']} ")
-        f.write(f"e o PnL de R${sp1['pnl']:.0f} para R${sp2['pnl']:.0f}. ")
-        f.write(f"A configuração V4 Pura (Kalman + NWE) continua sendo a melhor abordagem.\n\n")
+        f.write(f"\n## 4. Comparativo Bateria 1 × Bateria 2\n\n")
+        f.write(f"O Johansen Gate reduz de {sp1['trades']} para {sp2['trades']} trades ")
+        f.write(f"e o PnL realizado de R${sp1['pnl']:.0f} para R${sp2['pnl']:.0f}. ")
+        f.write(f"P&L está líquido de slippage ({cfg.WIN_SLIPPAGE_PTS} pts/lado) e ")
+        f.write(f"custos B3 (R${cfg.B3_COST_PER_CONTRACT_RT:.2f}/contrato/RT). ")
+        f.write(f"Rollover: {n_rollover} barras descartadas ({100.0 * n_rollover / n:.2f}%).\n\n")
         f.write("## 5. Curva de Capital (Equity Curve)\n\n")
         f.write("![Equity Curve V5](./portfolio_v5_advanced.png)\n")
 
