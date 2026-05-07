@@ -662,6 +662,10 @@ def regime_v2():
     beta_ref_20d = float(np.mean(kf_betas[-80:-40]) if len(kf_betas) > 80 else kf_betas[0])
     beta_delta_pct = ((beta_current - beta_ref_20d) / abs(beta_ref_20d) * 100) if beta_ref_20d != 0 else 0
     beta_status_d = get_beta_status(beta_delta_pct)
+    # `safe_to_trade` here is rho+beta sanity ONLY — it powers the dashboard's
+    # "ρ ou Δβ fora da zona verde" banner (App.jsx:707). It does NOT include
+    # EG/session/anomaly/bar-close — those live in `risk_gate.allowed` (also
+    # surfaced as `regime_health.gate_allowed` below).
     safe_to_trade = bool(rho_status["level"] < 2 and beta_status_d["level"] < 2)
     nwe_is_up_now = bool(nwe_is_up_arr[-1])
     nwe_upper_now = float(nwe_upper[-1])
@@ -672,24 +676,65 @@ def regime_v2():
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
 
     # ── Bar-close gate: entries only on confirmed bar close ──────────
-    # Detect if the last bar timestamp changed since last poll
-    last_bar_ts = int(tc[-1])
+    # `copy_rates_from_pos(symbol, TF, 0, count)` returns the in-formation bar
+    # at index [-1]. Entry decisions must use the last *closed* bar (index
+    # [-2]) — both for the transition detector AND for the inputs fed to
+    # risk_gate/evaluate. Otherwise we'd judge entries on a bar that has only
+    # ~1 tick of life and break backtest parity.
+    closed_bar_ts = int(tc[-2]) if len(tc) >= 2 else None
     bar_close_confirmed = False
-    if not hasattr(regime_v2, "_last_bar_ts") or regime_v2._last_bar_ts != last_bar_ts:
-        bar_close_confirmed = True
-        regime_v2._last_bar_ts = last_bar_ts
-        # Force DI cache update on bar close to prevent race conditions in consensus logic
-        di_regime()
+    if closed_bar_ts is not None:
+        last_known_closed = getattr(regime_v2, "_last_closed_bar_ts", None)
+        if last_known_closed is None:
+            # Cold start: capture the current closed bar but don't fire entry
+            # this poll — wait for the NEXT confirmed close. Otherwise a
+            # restart mid-session would fire entries at an arbitrary moment.
+            regime_v2._last_closed_bar_ts = closed_bar_ts
+        elif last_known_closed != closed_bar_ts:
+            bar_close_confirmed = True
+            regime_v2._last_closed_bar_ts = closed_bar_ts
+            # Force DI cache refresh on confirmed close (prevents race in consensus)
+            di_regime()
 
-    # Re-fetch DI cache after forced update
+    # Re-fetch DI cache after possible forced update
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
 
-    # ── Centralized risk gate (replaces scattered safe_to_trade flags) ──
-    eg_pvalue = compute_engle_granger_pvalue(ac, bc, last_bar_ts)
+    # ── Closed-bar values fed to the gate and the engine ──
+    # Dashboard payload below keeps live ([-1]) values for display; only entry
+    # decisions read from [-2]. Exit checks still see live prices (win_price /
+    # wdo_price below) so intra-bar SL/TP fires correctly.
+    if len(z_scores) >= 2 and len(rho_arr) >= 2 and len(kf_betas) >= 2:
+        z_wdo_closed = float(z_scores[-2])
+        rho_closed = float(rho_arr[-2])
+        rho_level_closed = get_rho_status(rho_closed)["level"]
+        beta_closed = float(kf_betas[-2])
+        beta_delta_pct_closed = (
+            (beta_closed - beta_ref_20d) / abs(beta_ref_20d) * 100
+            if beta_ref_20d != 0 else 0.0
+        )
+        nwe_is_up_closed = bool(nwe_is_up_arr[-2])
+        nwe_upper_closed = float(nwe_upper[-2])
+        nwe_lower_closed = float(nwe_lower[-2])
+        eg_input_a, eg_input_b = ac[:-1], bc[:-1]
+    else:
+        # Insufficient history for closed-bar slice — fall back to live values
+        # but bar_close_confirmed will be False so no entries fire anyway.
+        z_wdo_closed = current_z
+        rho_closed = current_rho
+        rho_level_closed = rho_status["level"]
+        beta_closed = beta_current
+        beta_delta_pct_closed = beta_delta_pct
+        nwe_is_up_closed = nwe_is_up_now
+        nwe_upper_closed = nwe_upper_now
+        nwe_lower_closed = nwe_lower_now
+        eg_input_a, eg_input_b = ac, bc
+
+    # ── Centralized risk gate ──
+    eg_pvalue = compute_engle_granger_pvalue(eg_input_a, eg_input_b, closed_bar_ts)
     gate = risk_gate(
-        z_wdo=current_z, z_di=float(z_di),
-        rho_level=rho_status["level"],
-        beta_delta_pct=beta_delta_pct,
+        z_wdo=z_wdo_closed, z_di=float(z_di),
+        rho_level=rho_level_closed,
+        beta_delta_pct=beta_delta_pct_closed,
         eg_pvalue=eg_pvalue,
         hour=now_dt.hour, minute=now_dt.minute,
         bar_close_confirmed=bar_close_confirmed,
@@ -698,11 +743,11 @@ def regime_v2():
     )
 
     trade_result = _trade_engine.evaluate(
-        z_wdo=current_z, z_di=float(z_di),
-        win_price=float(ac[-1]), wdo_price=float(bc[-1]),
-        rho=current_rho, gate=gate, hmm_state=hmm.current_hmm_regime,
-        hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_current,
-        nwe_is_up=nwe_is_up_now, nwe_upper=nwe_upper_now, nwe_lower=nwe_lower_now,
+        z_wdo=z_wdo_closed, z_di=float(z_di),
+        win_price=float(ac[-1]), wdo_price=float(bc[-1]),  # LIVE for exit checks
+        rho=rho_closed, gate=gate, hmm_state=hmm.current_hmm_regime,
+        hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_closed,
+        nwe_is_up=nwe_is_up_closed, nwe_upper=nwe_upper_closed, nwe_lower=nwe_lower_closed,
     )
 
     # History — Statefully loaded from DB to prevent repainting
@@ -777,6 +822,12 @@ def regime_v2():
         datetime.now().strftime("%Y-%m-%d")
     )
     res["risk_gate"] = gate
+    # Mirror the full gate decision inside regime_health so the dashboard has
+    # one obvious place to read it. `safe_to_trade` is intentionally kept as
+    # the rho+beta-only flag (its banner depends on that semantic).
+    if "regime_health" in res:
+        res["regime_health"]["gate_allowed"] = gate["allowed"]
+        res["regime_health"]["gate_reasons"] = list(gate["reasons"])
     return res
 
 
