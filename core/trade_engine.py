@@ -101,29 +101,34 @@ class TradeEngine:
 
     def evaluate(self, z_wdo: float, z_di: float,
                  win_price: float, wdo_price: float,
-                 rho: float, beta_safe: bool, hmm_state: str,
+                 rho: float, gate: dict, hmm_state: str,
                  hour: int, minute: int,
                  beta_value: float = 0.0,
                  nwe_is_up: bool = True,
                  nwe_upper: float = 0.0,
-                 nwe_lower: float = 0.0,
-                 bar_close_confirmed: bool = True) -> dict:
+                 nwe_lower: float = 0.0) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
 
-        bar_close_confirmed: True only when the M5 bar has just closed.
-            - Entries are ONLY evaluated on bar close (backtest parity).
-            - Exits (SL/TP/BE/MeanReversion) are checked every poll tick.
+        ``gate`` is the dict returned by ``core.risk_gate.risk_gate(...)``. It
+        consolidates bar-close, session, rho, beta-drift, z-anomaly and
+        Engle-Granger checks. When ``gate['allowed']`` is False, no new
+        entries fire and ``gate['reasons']`` is propagated on each strategy
+        result for tracing. Exits are still evaluated every tick.
+
+        ``hmm_state`` is recorded on opened trades for postmortem; it does
+        not gate entries (informational only — TASK-3 AC #4 decision).
         """
         open_trades = self._get_open_trades()
         results = {}
+        gate_reasons = list(gate.get("reasons", []))
 
         for strat in STRATEGIES:
             trade = open_trades[strat]
 
             # ── Check exits for open trade (every tick) ──
-            # Per-strategy lock: if this strategy already has a position, 
+            # Per-strategy lock: if this strategy already has a position,
             # only check exits — never open a second trade for the same setup
             if trade is not None:
                 results[strat] = self._check_exits(
@@ -131,22 +136,12 @@ class TradeEngine:
                 )
                 continue
 
-            # ── New entries: ONLY on confirmed bar close ──
-            if not bar_close_confirmed:
-                results[strat] = self._result("WAIT", strat)
-                continue
-
-            # ── Common pre-entry checks ──
-            if abs(z_wdo) >= Z_ANOMALY or abs(z_di) >= Z_ANOMALY:
-                results[strat] = self._result("ANOMALY", strat)
-                continue
-
-            if not self._in_session(hour, minute):
-                results[strat] = self._result("WAIT", strat)
-                continue
-
-            if not beta_safe:
-                results[strat] = self._result("WAIT", strat)
+            # ── Centralized risk gate ──
+            if not gate.get("allowed", False):
+                # Preserve dashboard semantic: anomaly is a distinct status
+                # from generic WAIT so the operator can spot it quickly.
+                action = "ANOMALY" if "Z_ANOMALY" in gate_reasons else "WAIT"
+                results[strat] = self._result(action, strat, gate_reasons=gate_reasons)
                 continue
 
             # ── Strategy-specific entry logic ──
@@ -255,10 +250,11 @@ class TradeEngine:
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
-    def _result(self, action, strategy):
+    def _result(self, action, strategy, gate_reasons=None):
         return {
             "action": action, "strategy": strategy,
             "open_trade": None, "exit_reason": None, "pnl": None,
+            "gate_reasons": list(gate_reasons) if gate_reasons else [],
         }
 
     def _open_trade(self, direction, z_source, z_val,

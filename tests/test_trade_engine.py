@@ -12,6 +12,20 @@ def engine(tmp_path):
     return TradeEngine(db_path=db_path)
 
 
+def _gate(allowed=True, reasons=None):
+    """Construct a risk_gate-shaped dict for tests focused on strategy logic.
+
+    Real risk_gate composition is exercised in tests/test_risk_gate.py — here
+    we just need a dict with the keys evaluate() reads.
+    """
+    return {
+        "allowed": allowed,
+        "reasons": list(reasons) if reasons else [],
+        "checks": {},
+        "informational": {"joh_open": True, "hmm_state": None, "eg_pvalue": 0.02},
+    }
+
+
 # ── Entry conditions ─────────────────────────────────────────────────────────
 
 def test_no_entry_below_threshold(engine):
@@ -19,7 +33,7 @@ def test_no_entry_below_threshold(engine):
     result = engine.evaluate(
         z_wdo=1.3, z_di=1.1,       # both below Z_ENTRY=1.4 and Z_ATTENTION=1.2
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     assert result["action"] == "WAIT"
@@ -31,7 +45,7 @@ def test_buy_entry_consensus(engine):
     result = engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,     # z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     assert result["action"] == "BUY_WIN"
@@ -44,60 +58,62 @@ def test_sell_entry_consensus(engine):
     result = engine.evaluate(
         z_wdo=2.1, z_di=1.5,       # z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     assert result["action"] == "SELL_WIN"
     assert result["strategies"]["CONS_BASE"]["open_trade"]["direction"] == "SELL"
 
 
-def test_beta_unsafe_blocks_entry(engine):
-    """beta_safe=False should block all new entries."""
+def test_blocked_gate_blocks_entry(engine):
+    """gate.allowed=False (any reason) should block all new entries."""
     result = engine.evaluate(
         z_wdo=-2.5, z_di=-2.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=False, hmm_state="CHOP",
-        hour=11, minute=0
+        rho=-0.75, gate=_gate(allowed=False, reasons=["BETA_DRIFT"]),
+        hmm_state="CHOP", hour=11, minute=0
     )
     assert result["action"] == "WAIT"
+    # gate_reasons must propagate to the strategy result for traceability
+    for strat_result in result["strategies"].values():
+        assert "BETA_DRIFT" in strat_result["gate_reasons"]
 
 
-def test_anomaly_blocks_entry(engine):
-    """|z| >= Z_ANOMALY should return ANOMALY — no trade."""
+def test_anomaly_reason_surfaces_as_anomaly_action(engine):
+    """When Z_ANOMALY is the reason, the action label stays ANOMALY."""
     result = engine.evaluate(
         z_wdo=-4.5, z_di=4.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
-        hour=11, minute=0
+        rho=-0.75, gate=_gate(allowed=False, reasons=["Z_ANOMALY"]),
+        hmm_state="CHOP", hour=11, minute=0
     )
     assert result["action"] == "ANOMALY"
 
 
-def test_outside_session_no_entry(engine):
-    """Before ENTRY_START_H:ENTRY_START_M (9:00) should not open."""
+def test_blocked_gate_with_session_reason_returns_wait(engine):
     result = engine.evaluate(
         z_wdo=-2.5, z_di=-2.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
-        hour=8, minute=59        # 1 minute before session opens at 9:00
+        rho=-0.75, gate=_gate(allowed=False, reasons=["OUT_OF_SESSION"]),
+        hmm_state="CHOP", hour=8, minute=59
     )
     assert result["action"] == "WAIT"
 
 
-# ── Exit conditions ──────────────────────────────────────────────────────────
+# ── Exit conditions (gate is allowed; entries open then exits trigger) ───────
 
 def test_stop_loss_buy(engine):
     """BUY trade should close on SL when price drops BUY_SL points."""
     engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     result = engine.evaluate(
         z_wdo=-1.0, z_di=-0.5,
         win_price=130000 - BUY_SL, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=5
     )
     assert result["action"] == "CLOSE"
@@ -109,13 +125,13 @@ def test_take_profit_sell(engine):
     engine.evaluate(
         z_wdo=2.1, z_di=1.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     result = engine.evaluate(
         z_wdo=0.5, z_di=0.5,
         win_price=130000 - SELL_TP, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=5
     )
     assert result["action"] == "CLOSE"
@@ -127,14 +143,14 @@ def test_breakeven_activation_buy(engine):
     engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     # Price rises enough to activate BE
     result = engine.evaluate(
         z_wdo=-1.0, z_di=-0.5,
         win_price=130000 + 400, wdo_price=5800,   # 400 >= BUY_BE_ACT=300
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=5
     )
     assert result["action"] == "HOLDING"
@@ -143,11 +159,31 @@ def test_breakeven_activation_buy(engine):
     result = engine.evaluate(
         z_wdo=-0.5, z_di=-0.5,
         win_price=130000, wdo_price=5800,          # pts_favor=0 <= BUY_BE_LOCK=0
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=10
     )
     assert result["action"] == "CLOSE"
     assert result["exit_reason"] == "BE_STOP"
+
+
+def test_exits_run_even_when_gate_blocks_new_entries(engine):
+    """Exits must be evaluated every tick regardless of gate.allowed.
+    If the gate blocks while a position is open, SL/TP/BE still fire."""
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0
+    )
+    # Now the gate goes hostile (e.g., rho breakdown mid-trade) AND price hits SL
+    result = engine.evaluate(
+        z_wdo=-1.0, z_di=-0.5,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.30, gate=_gate(allowed=False, reasons=["RHO_BREAKDOWN"]),
+        hmm_state="CHOP", hour=11, minute=5
+    )
+    assert result["action"] == "CLOSE"
+    assert result["exit_reason"] == "STOP_LOSS"
 
 
 def test_performance_report(engine):
@@ -155,13 +191,13 @@ def test_performance_report(engine):
     engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     engine.evaluate(
         z_wdo=0.0, z_di=0.0,
         win_price=130000 + BUY_TP, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=5
     )
     perf = engine.get_performance()
@@ -186,13 +222,13 @@ def test_get_trades_for_date_retorna_open_e_closed(engine):
     engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     engine.evaluate(
         z_wdo=0.0, z_di=0.0,
         win_price=130000 + BUY_TP, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=5
     )
 
@@ -201,7 +237,7 @@ def test_get_trades_for_date_retorna_open_e_closed(engine):
     engine.evaluate(
         z_wdo=-2.1, z_di=0.0,
         win_price=100000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=12, minute=0,
         nwe_is_up=False, nwe_upper=120000, nwe_lower=99000,
     )
@@ -218,7 +254,7 @@ def test_get_trades_for_date_filtra_outra_data(engine):
     engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -231,7 +267,7 @@ def test_get_trades_for_date_preserva_campos(engine):
     engine.evaluate(
         z_wdo=-2.1, z_di=-1.5,
         win_price=130000, wdo_price=5800,
-        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
         hour=11, minute=0
     )
     today = datetime.now().strftime("%Y-%m-%d")

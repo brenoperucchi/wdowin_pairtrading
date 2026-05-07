@@ -1,56 +1,11 @@
 # core/mt5_client.py
-"""
-MT5 connection management, data fetching, and beta state machine.
+"""MT5 connection management and data fetching.
 
 Extracted from server.py — all MetaTrader 5 I/O lives here.
 """
-import os
-import json
 import numpy as np
 import MetaTrader5 as mt5
-from datetime import datetime
-from core.config import MT5_PATH, MT5_PORTABLE, TIMEFRAME, BETA_INITIAL
-
-
-# ─── Beta persistence (LEGACY V1 — unused after V1 endpoint removal) ────────
-# `beta_state`, `load_beta_ultimo`, `save_beta_ultimo` are dead at runtime: nothing
-# in `server.py` imports them anymore. Only the import-time read of beta_ultimo.json
-# (when computing `beta_state["current_beta"]` below) still touches disk.
-# Scheduled for deletion in the risk_gate slice (TASK-3 AC #3), which will own
-# OLS beta caching properly. Leaving in place to keep this slice strictly scoped to
-# AC #1 (V1 endpoint removal).
-
-
-def load_beta_ultimo() -> float:
-    """Load last computed beta from disk."""
-    try:
-        if os.path.exists("beta_ultimo.json"):
-            with open("beta_ultimo.json", "r") as f:
-                d = json.load(f)
-                return float(d.get("beta", BETA_INITIAL))
-    except Exception:
-        pass
-    return BETA_INITIAL
-
-
-def save_beta_ultimo(b_val: float) -> None:
-    """Persist current beta to disk."""
-    try:
-        with open("beta_ultimo.json", "w") as f:
-            json.dump({"beta": b_val, "ts": datetime.now().isoformat()}, f)
-    except Exception:
-        pass
-
-
-# ─── Beta state machine (module-level) ──────────────────────────────────────
-
-beta_state = {
-    "current_beta": load_beta_ultimo(),
-    "last_calc_date": None,
-    "last_calc_hour": None,
-    "previous_beta": BETA_INITIAL,
-    "unstable": False,
-}
+from core.config import MT5_PATH, MT5_PORTABLE, TIMEFRAME
 
 
 # ─── MT5 connection ─────────────────────────────────────────────────────────

@@ -53,6 +53,7 @@ from core.signals import (
     calc_nwe_with_bands,
 )
 from core.kalman_filter import KalmanBetaFilter
+from core.risk_gate import compute_engle_granger_pvalue, risk_gate
 from core.trade_engine import TradeEngine
 import core.hmm_background as hmm
 
@@ -669,7 +670,7 @@ def regime_v2():
     # Trade engine (Consenso WDO + DI + NWE filters)
     now_dt = datetime.now()
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
-    
+
     # ── Bar-close gate: entries only on confirmed bar close ──────────
     # Detect if the last bar timestamp changed since last poll
     last_bar_ts = int(tc[-1])
@@ -683,13 +684,25 @@ def regime_v2():
     # Re-fetch DI cache after forced update
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
 
+    # ── Centralized risk gate (replaces scattered safe_to_trade flags) ──
+    eg_pvalue = compute_engle_granger_pvalue(ac, bc, last_bar_ts)
+    gate = risk_gate(
+        z_wdo=current_z, z_di=float(z_di),
+        rho_level=rho_status["level"],
+        beta_delta_pct=beta_delta_pct,
+        eg_pvalue=eg_pvalue,
+        hour=now_dt.hour, minute=now_dt.minute,
+        bar_close_confirmed=bar_close_confirmed,
+        joh_open=joh_open,
+        hmm_state=hmm.current_hmm_regime,
+    )
+
     trade_result = _trade_engine.evaluate(
         z_wdo=current_z, z_di=float(z_di),
         win_price=float(ac[-1]), wdo_price=float(bc[-1]),
-        rho=current_rho, beta_safe=safe_to_trade, hmm_state=hmm.current_hmm_regime,
+        rho=current_rho, gate=gate, hmm_state=hmm.current_hmm_regime,
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_current,
         nwe_is_up=nwe_is_up_now, nwe_upper=nwe_upper_now, nwe_lower=nwe_lower_now,
-        bar_close_confirmed=bar_close_confirmed,
     )
 
     # History — Statefully loaded from DB to prevent repainting
@@ -763,6 +776,7 @@ def regime_v2():
     res["trades_today"] = _trade_engine.get_trades_for_date(
         datetime.now().strftime("%Y-%m-%d")
     )
+    res["risk_gate"] = gate
     return res
 
 
