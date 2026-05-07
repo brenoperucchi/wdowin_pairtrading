@@ -533,7 +533,16 @@ def main():
 
     def _daily_aggregate(pnl):
         """Bucket non-zero pnl entries by close-bar date.
-        Returns sorted list of {date, trades, pnl_brl_net, pnl_brl_gross}."""
+        Returns sorted list of {date, trades, pnl_brl_net, pnl_brl_gross}.
+
+        Per-leg only: each simulator holds at most one position at a
+        time, so within a leg every non-zero bar is exactly one trade
+        close. DO NOT call this on a vector-summed portfolio array —
+        when two legs close on the same M5 bar their pnl values add
+        into one non-zero entry and the trade count gets undercounted.
+        Use `_daily_sum_legs(...)` for portfolios instead (codex
+        round-11 finding).
+        """
         buckets = {}
         for i in range(1000, len(pnl)):
             v = pnl[i]
@@ -554,6 +563,30 @@ def main():
             })
         return out
 
+    def _daily_sum_legs(*leg_dailies):
+        """Sum daily aggregates across legs of a portfolio. Trade
+        counts and pnl add. This avoids the bar-collision undercount
+        that would occur if we re-ran `_daily_aggregate` on the
+        vector-summed `p1`/`p2` arrays (codex round-11 finding)."""
+        buckets = {}
+        for leg in leg_dailies:
+            for entry in leg:
+                d = entry["date"]
+                b = buckets.setdefault(d, [0, 0.0, 0.0])
+                b[0] += entry["trades"]
+                b[1] += entry["pnl_brl_net"]
+                b[2] += entry["pnl_brl_gross"]
+        out = []
+        for d in sorted(buckets):
+            t, net, gross = buckets[d]
+            out.append({
+                "date": d,
+                "trades": t,
+                "pnl_brl_net": float(net),
+                "pnl_brl_gross": float(gross),
+            })
+        return out
+
     def _summary_pair(s, discarded, pnl_array):
         return {
             "trades": int(s["trades"]),
@@ -563,6 +596,28 @@ def main():
             "max_dd_brl": float(s["dd"]),
             "rollover_discarded": int(discarded),
             "daily": _daily_aggregate(pnl_array),
+        }
+
+    def _summary_portfolio(stats_dict, discarded, *leg_dailies):
+        """Like `_summary_pair` but for portfolios: trade counts and
+        pnl come from leg-summed daily aggregates so the bar-collision
+        undercount in `stats(p1)` doesn't propagate (codex round-11).
+        win_rate and max_dd remain from `stats(...)` — those are the
+        existing report numbers; we accept the known limitation that
+        wr is computed on the bar-summed array. The daily[] block and
+        the totals derived from it are now internally consistent."""
+        daily = _daily_sum_legs(*leg_dailies)
+        total_trades = sum(d["trades"] for d in daily)
+        total_net = sum(d["pnl_brl_net"] for d in daily)
+        total_gross = sum(d["pnl_brl_gross"] for d in daily)
+        return {
+            "trades": int(total_trades),
+            "pnl_brl_net": float(total_net),
+            "pnl_brl_gross": float(total_gross),
+            "win_rate_pct": float(stats_dict["wr"]),
+            "max_dd_brl": float(stats_dict["dd"]),
+            "rollover_discarded": int(discarded),
+            "daily": daily,
         }
 
     summary = {
@@ -579,20 +634,30 @@ def main():
             "win_pv_brl_per_pt": cfg.WIN_PV,
             "per_trade_cost_brl": per_trade_cost_brl,
         },
-        "bateria_1_v4_puro": {
-            "wdo_nwe": _summary_pair(s_w1, dq_wdo1, pnl_wdo1),
-            "di_nwe": _summary_pair(s_d1, dq_di1, pnl_di1),
+        "bateria_1_v4_puro": (lambda: {
+            "wdo_nwe":      _summary_pair(s_w1, dq_wdo1, pnl_wdo1),
+            "di_nwe":       _summary_pair(s_d1, dq_di1, pnl_di1),
             "consenso_nwe": _summary_pair(s_cn1, dq_cn1, pnl_cn1),
             "consenso_puro": _summary_pair(s_cp1, dq_cp1, pnl_cp1),
-            "portfolio_wdo_di_cons_puro": _summary_pair(sp1, discarded_b1, p1),
-        },
-        "bateria_2_johansen_gate": {
-            "wdo_nwe": _summary_pair(s_w2, dq_wdo2, pnl_wdo2),
-            "di_nwe": _summary_pair(s_d2, dq_di2, pnl_di2),
+            "portfolio_wdo_di_cons_puro": _summary_portfolio(
+                sp1, discarded_b1,
+                _daily_aggregate(pnl_wdo1),
+                _daily_aggregate(pnl_di1),
+                _daily_aggregate(pnl_cp1),
+            ),
+        })(),
+        "bateria_2_johansen_gate": (lambda: {
+            "wdo_nwe":      _summary_pair(s_w2, dq_wdo2, pnl_wdo2),
+            "di_nwe":       _summary_pair(s_d2, dq_di2, pnl_di2),
             "consenso_nwe": _summary_pair(s_cn2, dq_cn2, pnl_cn2),
             "consenso_puro": _summary_pair(s_cp2, dq_cp2, pnl_cp2),
-            "portfolio_wdo_di_cons_puro": _summary_pair(sp2, discarded_b2, p2),
-        },
+            "portfolio_wdo_di_cons_puro": _summary_portfolio(
+                sp2, discarded_b2,
+                _daily_aggregate(pnl_wdo2),
+                _daily_aggregate(pnl_di2),
+                _daily_aggregate(pnl_cp2),
+            ),
+        })(),
     }
     summary_path = os.path.join(OUT, "portfolio_v5_summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:

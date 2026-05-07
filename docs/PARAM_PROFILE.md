@@ -266,17 +266,29 @@ paper-trading P&L (`matador_ops.pnl_brl`) and the validation backtest
   (not the threshold). Backtest pre-slice-6c hardcoded TP/-SL/0,
   which overstated winners and understated losers — fixed.
 
-**Window alignment** (codex round-10):
+**Window alignment** (codex round-10/11):
 
 The sidecar's `daily` array per leg/portfolio carries date-stamped bins
 (`{date, trades, pnl_brl_net, pnl_brl_gross}`). The reconciler filters
-both sides by the same business-day cutoff, so the comparison is
-window-aligned even though the full backtest covers ~1.2 years.
+both sides by the same INCLUSIVE business-day window `[cutoff, today]`,
+so the comparison is window-aligned even though the full backtest
+covers ~1.2 years. The upper bound matters for `--today` historical
+reconciliations: without it, future-dated paper rows would leak into
+older windows.
 
-`--days N` is **business days** (Mon–Fri). B3 holidays are NOT excluded
-— both sides see the same gap, so the bias cancels out as long as the
-cutoff is applied uniformly. Use `--today YYYY-MM-DD` to pin the
-lookback anchor when reconciling against historic paper data.
+`--days N` is **business days** (Mon–Fri), inclusive of `today`:
+`--days 1` covers only today, `--days 2` covers today + the previous
+pregão, etc. B3 holidays are NOT excluded — both sides see the same
+gap, so the bias cancels out as long as the cutoff is applied
+uniformly. Use `--today YYYY-MM-DD` to pin the lookback anchor when
+reconciling against historic paper data.
+
+For portfolio entries, the `daily` array is computed by **summing the
+per-leg `daily` arrays** (not by re-aggregating the bar-summed `p1`/
+`p2` series). The vector-sum approach undercounts: when two legs close
+on the same M5 bar, their pnl values combine into one non-zero entry
+and the trade count drops by one. Leg-summing keeps trade counts
+faithful and pnl exact (codex round-11).
 
 **Reconciliation states:**
 

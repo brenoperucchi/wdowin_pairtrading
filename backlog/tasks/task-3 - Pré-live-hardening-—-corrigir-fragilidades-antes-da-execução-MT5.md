@@ -121,6 +121,16 @@ Antes de mover para Done, pedir um review do Claude focado em:
 **LOW — TASK-3 hygiene**: codex sinalizou #1/#2/#3/#4/#11/#14 abertos mas já trabalhados. Verificado contra código: AC #1 (server.py só tem /api/v2/regime e /api/di-regime, V1 removido), AC #2 (server.py:196 init_bar_history idempotente + tests/test_bar_history.py), AC #3 (core/risk_gate.py existente), AC #4 (risk_gate.py linhas 9-10 documentam Johansen/HMM como INFORMATIONAL ONLY, com `informational` no return dict + reasons[] estruturado), AC #11 (config.py:138-141 + docs/RUNBOOK_ROLLOVER.md), AC #14 (18 scripts stamped slice 6a). Marcados done.
 
 Validado em Linux puro (sem MT5): 5 branches do reconciler verificadas (BLOCKED/PASS/FAIL/WINDOW_NOT_COVERED/MISSING_BACKTEST), 108/108 pytest verde via Windows runtime.
+
+2026-05-07 (slice 6c-fix-r11, codex round-11): três findings medium, todos corrigidos antes da slice 7.
+
+**MED — janela sem upper bound**: filtro era apenas `date >= cutoff` em ambos os lados. Com `--today` para reconciliação histórica, datas futuras (relativas ao anchor) vazavam para o cálculo. Fix: `load_paper_trades(db, cutoff, today)` agora aplica `date(timestamp_out) BETWEEN ? AND ?`; `aggregate_backtest_window(daily, cutoff, today)` aplica `cutoff_iso <= entry["date"] <= today_iso`. Verificado com fixture: --today=2026-05-07 com row de 2026-05-08 (R$999) é descartada em ambos os lados.
+
+**MED — business_days_ago off-by-one**: prior version retornava N-1 pregões antes de hoje; combinado com filtro inclusivo `>=`, `--days 1` cobria 2 pregões (hoje + ontem). Fix: counter inicia em 1 quando hoje é dia útil, então `--days 1` cobre só hoje, `--days 2` cobre hoje + pregão anterior, etc. Verificado: Thu N=1→Thu, Thu N=2→Wed, Mon N=2→Fri (skip do weekend).
+
+**MED — portfólio subcontava trades**: `p1 = pnl_wdo1 + pnl_di1 + pnl_cp1` somava arrays bar-a-bar; `_daily_aggregate(p1)` contava barras não-zero, então duas pernas fechando na mesma barra M5 viravam 1 trade (e cancelamento exato a + b = 0 sumia). Fix: novo helper `_daily_sum_legs(*leg_dailies)` soma os daily das pernas (counts e pnl agregam corretamente), e novo `_summary_portfolio` recomputa top-level trades/net/gross a partir desse sum. `_daily_aggregate` ganhou warning na docstring contra uso em portfolios. Verificado: 2 pernas mesma data → trades=2 (não 1); cancelamento exato → ainda trades=2 com pnl_net=0.
+
+Validação: 108/108 pytest, py_compile OK, 5 branches do reconciler re-verificadas com nova lógica window+inclusive, fixture de window upper bound passa.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

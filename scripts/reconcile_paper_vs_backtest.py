@@ -6,10 +6,13 @@ Compares CLOSED `matador_ops` trades over the last N business days against
 the same window inside the validation backtest summary written by
 `research/run_matador_v5_johansen.py` (`portfolio_v5_summary.json`).
 
-Window alignment (codex round-10 finding): the sidecar carries a `daily`
-array per leg and per battery — the reconciler filters both sides by the
-same business-day cutoff so the comparison stays apples-to-apples even
-though the backtest's full run covers ~1.2 years.
+Window alignment (codex round-10/11 findings): the sidecar carries a
+`daily` array per leg and per battery — the reconciler filters both
+sides by the same INCLUSIVE business-day window `[cutoff, today]` so
+the comparison stays apples-to-apples even though the backtest's full
+run covers ~1.2 years. The upper bound matters for `--today` historical
+reconciliations: without it future-dated paper rows would leak into
+older windows.
 
 Two reconciliations are performed independently:
   1. **Net vs net**  — backtest is already net (slippage + B3 baked in by
@@ -67,14 +70,22 @@ def per_trade_cost_brl():
 
 
 def business_days_ago(today, n):
-    """Return the date `n` business days before `today` (Mon–Fri only).
+    """Return the cutoff date such that the INCLUSIVE window
+    [cutoff, today] covers exactly N business days (Mon–Fri).
 
-    Holidays are NOT excluded — B3 holidays would require an external
-    calendar. Both sides of the comparison see the same gaps, so the
-    bias cancels out as long as the same window is applied uniformly.
+    `n=1` returns `today` itself (if a business day); `n=2` returns the
+    previous business day; etc. Holidays are NOT excluded — B3 holidays
+    would require an external calendar. Both sides of the comparison
+    see the same gaps, so the bias cancels out as long as the same
+    window is applied uniformly.
+
+    Codex round-11 finding: prior version returned N-1 business days
+    before today, which combined with the inclusive `>=` filter gave
+    `--days 1` a 2-pregão window. Fixed by counting today (when it is
+    a business day) toward the budget.
     """
     d = today
-    counted = 0
+    counted = 1 if d.weekday() < 5 else 0
     while counted < n:
         d = d - timedelta(days=1)
         if d.weekday() < 5:
@@ -82,22 +93,26 @@ def business_days_ago(today, n):
     return d
 
 
-def load_paper_trades(db_path, cutoff_date):
+def load_paper_trades(db_path, cutoff_date, today_date):
     """Return list of (timestamp_out, pnl_brl) for CLOSED trades whose
-    `timestamp_out` falls on or after `cutoff_date`. `pnl_brl` as stored
-    is gross — live engine does no cost adjustment."""
+    `timestamp_out` falls within `[cutoff_date, today_date]` (inclusive
+    on both sides). The upper bound matters for historical
+    reconciliations driven by `--today`: without it, future-dated rows
+    would leak into older windows. `pnl_brl` as stored is gross — live
+    engine does no cost adjustment."""
     if not os.path.exists(db_path):
         return None
     cutoff_iso = cutoff_date.isoformat()
+    today_iso = today_date.isoformat()
     conn = sqlite3.connect(db_path)
     try:
         c = conn.cursor()
         c.execute(
             "SELECT timestamp_out, pnl_brl FROM matador_ops "
             "WHERE status='CLOSED' AND pnl_brl IS NOT NULL "
-            "AND date(timestamp_out) >= ? "
+            "AND date(timestamp_out) >= ? AND date(timestamp_out) <= ? "
             "ORDER BY timestamp_out",
-            (cutoff_iso,),
+            (cutoff_iso, today_iso),
         )
         return c.fetchall()
     finally:
@@ -115,14 +130,18 @@ def summarize_paper(rows):
     return {"trades": n, "pnl_brl_gross": gross, "pnl_brl_net": net}
 
 
-def aggregate_backtest_window(daily, cutoff_date):
-    """Sum a backtest leg's `daily` array on or after `cutoff_date`."""
+def aggregate_backtest_window(daily, cutoff_date, today_date):
+    """Sum a backtest leg's `daily` array within the inclusive window
+    `[cutoff_date, today_date]`. The upper bound mirrors the paper-side
+    SQL filter so `--today` reconciliations don't pick up bars beyond
+    the chosen anchor (codex round-11 finding)."""
     cutoff_iso = cutoff_date.isoformat()
+    today_iso = today_date.isoformat()
     trades = 0
     net = 0.0
     gross = 0.0
     for entry in daily:
-        if entry["date"] >= cutoff_iso:
+        if cutoff_iso <= entry["date"] <= today_iso:
             trades += entry["trades"]
             net += entry["pnl_brl_net"]
             gross += entry["pnl_brl_gross"]
@@ -158,8 +177,10 @@ def main():
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--days", type=int, default=30,
                         help="Lookback window in BUSINESS days (default 30; "
-                             "matches AC #16 wording '30 dias úteis'). "
-                             "B3 holidays are not excluded.")
+                             "matches AC #16 wording '30 dias úteis'). The "
+                             "window is INCLUSIVE of `today`: --days 1 covers "
+                             "only today, --days 2 covers today + previous "
+                             "pregão, etc. B3 holidays are not excluded.")
     parser.add_argument("--summary", default=DEFAULT_SUMMARY,
                         help="Path to portfolio_v5_summary.json")
     parser.add_argument("--portfolio-key", default="portfolio_wdo_di_cons_puro",
@@ -180,13 +201,13 @@ def main():
     cutoff = business_days_ago(today, args.days)
 
     print(f"[reconcile] db={args.db}")
-    print(f"[reconcile] window={args.days} business days "
-          f"({cutoff.isoformat()} to {today.isoformat()})")
+    print(f"[reconcile] window={args.days} business days inclusive "
+          f"[{cutoff.isoformat()} .. {today.isoformat()}]")
     print(f"[reconcile] backtest summary={args.summary}")
     print(f"[reconcile] portfolio={args.bateria}/{args.portfolio_key}")
     print()
 
-    rows = load_paper_trades(args.db, cutoff)
+    rows = load_paper_trades(args.db, cutoff, today)
     if rows is None:
         print(f"[ERROR] DB not found at {args.db}")
         return 3
@@ -238,7 +259,7 @@ def main():
 
     bt_leg = backtest_full[args.bateria][args.portfolio_key]
     daily = bt_leg.get("daily", [])
-    bt = aggregate_backtest_window(daily, cutoff)
+    bt = aggregate_backtest_window(daily, cutoff, today)
 
     print(f"[backtest] generated_at:  {backtest_full['generated_at']}")
     print(f"[backtest] sidecar range: "
