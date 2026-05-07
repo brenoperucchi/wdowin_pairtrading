@@ -9,7 +9,17 @@ CONS: z-scores WDO+DI alinhados (SEM filtro NWE)
 
 Infrastructure constants (ports, paths, timeframes) merged from server.py.
 """
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    # Non-Windows hosts (CI, WSL, the reconcile tooling) can't install
+    # MetaTrader5. We only consume `mt5.TIMEFRAME_M5` here — anything that
+    # actually needs the API (mt5_client.py, server.py) imports MT5 itself
+    # and will raise loudly if missing. The stub keeps ImportError from
+    # surfacing for read-only consumers like docs/reconcile/test tooling.
+    class _MT5Stub:
+        TIMEFRAME_M5 = 5
+    mt5 = _MT5Stub()
 
 # ─── Infrastructure ─────────────────────────────────────────────────────────
 # Dedicated portable MT5 instance for pair trading (XP DEMO conta 52033102).

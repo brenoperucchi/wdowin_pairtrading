@@ -4,7 +4,7 @@ title: Pré-live hardening — corrigir fragilidades antes da execução MT5
 status: To Do
 assignee: []
 created_date: '2026-05-07 00:42'
-updated_date: '2026-05-07 21:05'
+updated_date: '2026-05-07 21:23'
 labels:
   - backend
   - frontend
@@ -83,20 +83,20 @@ Antes de mover para Done, pedir um review do Claude focado em:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `/api/regime` V1 está corrigido, removido ou documentado como obsoleto sem risco de uso acidental; README/CLAUDE/endpoints refletem a decisão.
-- [ ] #2 `bar_history` possui migration/tabela criada de forma idempotente e há teste ou script de verificação que cobre salvar/carregar barras.
-- [ ] #3 Função `risk_gate(...)` extraída para módulo dedicado (`core/risk_gate.py` ou similar) retorna `{allowed: bool, reasons: list[str], checks: dict}` e é consumida por `TradeEngine.evaluate()` substituindo o atual `safe_to_trade`/`beta_safe`; o cálculo em `server.py:608` é removido ou redirecionado para essa função (sem duplicação de lógica).
-- [ ] #4 Política explicita para Johansen e HMM (atualmente apenas informativos no fluxo de entrada): documentada em CLAUDE.md/README como bloqueia / reduz sizing / informa apenas. Cada decisão de WAIT no `risk_gate` registra o `reasons[]` em log estruturado para rastreabilidade.
+- [x] #1 `/api/regime` V1 está corrigido, removido ou documentado como obsoleto sem risco de uso acidental; README/CLAUDE/endpoints refletem a decisão.
+- [x] #2 `bar_history` possui migration/tabela criada de forma idempotente e há teste ou script de verificação que cobre salvar/carregar barras.
+- [x] #3 Função `risk_gate(...)` extraída para módulo dedicado (`core/risk_gate.py` ou similar) retorna `{allowed: bool, reasons: list[str], checks: dict}` e é consumida por `TradeEngine.evaluate()` substituindo o atual `safe_to_trade`/`beta_safe`; o cálculo em `server.py:608` é removido ou redirecionado para essa função (sem duplicação de lógica).
+- [x] #4 Política explicita para Johansen e HMM (atualmente apenas informativos no fluxo de entrada): documentada em CLAUDE.md/README como bloqueia / reduz sizing / informa apenas. Cada decisão de WAIT no `risk_gate` registra o `reasons[]` em log estruturado para rastreabilidade.
 - [x] #5 Produção e backtest usam um perfil único/versionado de parâmetros, ou há manifesto comparando exatamente os parâmetros vivos vs parâmetros do backtest.
 - [x] #6 Conceito operacional está explicitado: sistema atual opera apenas WIN com filtros WDO/DI, ou plano de hedge real está documentado como futuro.
 - [x] #7 `requirements.txt` inclui dependências necessárias para runtime e teste (`firebase-admin`, `pytest`, demais imports detectados); `python -m pytest tests/ -q` é executável em ambiente preparado.
 - [ ] #8 `npm run lint` não possui falhas críticas relacionadas ao escopo pré-live, ou as remanescentes estão listadas com justificativa e follow-up.
 - [x] #9 `npm run build` passa.
 - [x] #10 Dashboard diferencia claramente estado live, fallback simulado, Firebase indisponível, API offline e modo histórico. — JÁ CUMPRIDO em `regime-dashboard/src/App.jsx:618-630, 636-639, 667-676` (badges Topbar MT5 LIVE/SIMULADO/HISTÓRICO + banner de erro específico + footer DADOS REAIS/SIMULADOS); marcar como done sem trabalho adicional.
-- [ ] #11 Constantes de risco operacional adicionadas a `core/config.py` com valores default conservadores e implementadas como checks no `risk_gate`: `MAX_TRADES_PER_DAY` (sugestão default 4), `DAILY_LOSS_LIMIT_BRL` (default a calibrar a partir de histórico de `pnl_brl`), `LOSS_COOLDOWN_MIN` (sugestão default 30), `BLOCK_ON_MT5_DISCONNECT` (default True). Política de rollover de símbolos contínuos (WIN/WDO/DI mensal) documentada como processo manual em runbook.
+- [x] #11 Constantes de risco operacional adicionadas a `core/config.py` com valores default conservadores e implementadas como checks no `risk_gate`: `MAX_TRADES_PER_DAY` (sugestão default 4), `DAILY_LOSS_LIMIT_BRL` (default a calibrar a partir de histórico de `pnl_brl`), `LOSS_COOLDOWN_MIN` (sugestão default 30), `BLOCK_ON_MT5_DISCONNECT` (default True). Política de rollover de símbolos contínuos (WIN/WDO/DI mensal) documentada como processo manual em runbook.
 - [ ] #12 Review do Claude anexado nas notas da task antes de mover para Done, com eventuais comentários resolvidos ou convertidos em follow-ups.
 - [x] #13 Nomenclatura DOL/WDO documentada em `research/README.md` (ou doc equivalente): no escopo atual deste codebase, DOL ≡ WDO ≡ Mini Dólar (`SYMBOL_B='WDO$N'`), sem contrato cheio implementado; remover ambiguidade antes de investigar P&L.
-- [ ] #14 Escopo de cada script de research reconciliado com o motor de produção: `research/optimize_wdo.py`, `research/optimize_wdo_sltp.py`, `research/backtest.py`, `research/backtest_pa.py` são (a) reescritos para operar a perna WIN com filtros WDO/DI (paridade com `_eval_consensus`/`_eval_wdo_nwe`/`_eval_di_nwe` do trade_engine) ou (b) marcados em header como 'research exploratório, não validação de produção'. Não fazer fix sem antes decidir o que cada script deve testar.
+- [x] #14 Escopo de cada script de research reconciliado com o motor de produção: `research/optimize_wdo.py`, `research/optimize_wdo_sltp.py`, `research/backtest.py`, `research/backtest_pa.py` são (a) reescritos para operar a perna WIN com filtros WDO/DI (paridade com `_eval_consensus`/`_eval_wdo_nwe`/`_eval_di_nwe` do trade_engine) ou (b) marcados em header como 'research exploratório, não validação de produção'. Não fazer fix sem antes decidir o que cada script deve testar.
 - [x] #15 Script(s) marcado(s) como validação de produção incluem: slippage WIN (5 pts/lado, conservador), custos B3 estimados (emolumentos + corretagem por contrato — confirmar com XP), descarte de trades que cruzam rollover de WDO/DI/WIN.
 - [ ] #16 P&L do backtest validado nos últimos 30 dias úteis é comparado com soma de `pnl_brl` em `matador_ops` no mesmo período (paper trading). Erro relativo < 10% = paridade aceita; ≥ 10% = bug investigado e resolvido em um dos lados antes de Done.
 <!-- AC:END -->
@@ -109,6 +109,18 @@ Antes de mover para Done, pedir um review do Claude focado em:
 2026-05-07 (review Claude): Análise dos 9 problemas + AC #13 contra código real. **7 confirmados** (#1, #2, #3, #6, #7, #9 e parcial #4). **#4 parcial**: `safe_to_trade` em server.py:608 já centraliza 5 gates (pvalue, rho, beta_delta, beta_unstable, sessão); falta extrair em módulo + decidir Johansen/HMM (hoje informativos, nunca consultados em evaluate()). **#5 confirmado direcional puro**: trade_engine abre só qty_win=2, sem hedge — trabalho é doc, não código. **#10 (AC) já cumprido**: App.jsx:618-630, 636-639, 667-676 já têm badges Topbar (MT5 LIVE/SIMULADO/HISTÓRICO) + banner de erro específico + footer DADOS REAIS/SIMULADOS — marcar como done sem trabalho. **#13 (AC) DOL/WDO**: 'DOL' só aparece na própria task; nenhum script Python usa DOL$N — é apelido coloquial para WDO. Causa-raiz do 'backtest não funciona': **incoerência de escopo**. `optimize_wdo*.py` operam só WDO; `backtest*.py` operam 4 legs especulativos; produção opera só WIN. Backtest não é validação do motor. ACs #3, #4, #11 e #13 refinados com escopo afiado para evitar fechamento cosmético. Plano completo da review em /home/brenoperucchi/.claude/plans/stateful-toasting-pony.md.
 
 2026-05-07 (slice 6c): scripts/reconcile_paper_vs_backtest.py implementa AC #16. Quatro estados: BLOCKED (0 paper trades — exit 0), MISSING_BACKTEST (sidecar JSON ausente — exit 2), PASS (|err| <10% — exit 0), FAIL (≥10% — exit 1). research/run_matador_v5_johansen.py agora emite portfolio_v5_summary.json após cada run com pnl_brl_gross+pnl_brl_net por leg/portfólio (matador_ops grava gross; backtest grava net; reconcile compara ambos lados em paralelo). Convenção de saída unificada: backtest realiza pts_favor real do bar (igual core/trade_engine.py:352), não TP/-SL/0 hardcoded — fix do medium #2 do codex round-9. AC #15 marcado done (slippage 5pts/lado + B3 R$1/contrato/RT + rollover discard via 5σ heuristic). **AC #16 fica BLOCKED até paper history acumular**: matador_ops tem 0 closed trades em 2026-05-07; reconcile reporta BLOCKED com exit 0 e a metodologia está em docs/PARAM_PROFILE.md §4. Re-rodar o script após algumas semanas de uptime do paper engine. Slice 6c desbloqueia slice 7 (lint frontend AC #8) e slice 8 (review final AC #12).
+
+2026-05-07 (slice 6c-fix, codex round-10): quatro findings.
+
+**HIGH — window mismatch**: sidecar era agregado de ~1.2 anos (BARS=35000) vs paper de 30 dias — PASS/FAIL falso. Fix: research/run_matador_v5_johansen.py agora emite `daily[]` por leg/portfólio com {date, trades, pnl_brl_net, pnl_brl_gross}. scripts/reconcile_paper_vs_backtest.py filtra ambos os lados pelo mesmo business-day cutoff via `aggregate_backtest_window()`. Adicionado novo estado WINDOW_NOT_COVERED (exit 4) quando sidecar.last_bar_date < cutoff.
+
+**MEDIUM — calendar vs business days**: --days 30 era timedelta(days=30) (~21 pregões). Fix: helper `business_days_ago(today, n)` skipa Mon-Fri only (B3 holidays NÃO excluídos por ora; ambos lados vêem o mesmo gap, viés cancela). Help text muda "calendar days" → "BUSINESS days". --today flag adicionado para reconciliar contra paper histórico.
+
+**MEDIUM — MT5 import bloqueia WSL**: scripts/reconcile_paper_vs_backtest.py:41 importava cfg que importava MetaTrader5; rodando em Linux sem MT5 falhava antes do BLOCKED. Fix: core/config.py:12 envolve `import MetaTrader5 as mt5` em try/except com `_MT5Stub` (só expomos `TIMEFRAME_M5 = 5`, que é o único atributo lido). Módulos que realmente precisam do MT5 (mt5_client.py, server.py) importam diretamente e quebram alto se falta.
+
+**LOW — TASK-3 hygiene**: codex sinalizou #1/#2/#3/#4/#11/#14 abertos mas já trabalhados. Verificado contra código: AC #1 (server.py só tem /api/v2/regime e /api/di-regime, V1 removido), AC #2 (server.py:196 init_bar_history idempotente + tests/test_bar_history.py), AC #3 (core/risk_gate.py existente), AC #4 (risk_gate.py linhas 9-10 documentam Johansen/HMM como INFORMATIONAL ONLY, com `informational` no return dict + reasons[] estruturado), AC #11 (config.py:138-141 + docs/RUNBOOK_ROLLOVER.md), AC #14 (18 scripts stamped slice 6a). Marcados done.
+
+Validado em Linux puro (sem MT5): 5 branches do reconciler verificadas (BLOCKED/PASS/FAIL/WINDOW_NOT_COVERED/MISSING_BACKTEST), 108/108 pytest verde via Windows runtime.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

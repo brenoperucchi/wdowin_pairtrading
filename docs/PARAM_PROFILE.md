@@ -266,12 +266,25 @@ paper-trading P&L (`matador_ops.pnl_brl`) and the validation backtest
   (not the threshold). Backtest pre-slice-6c hardcoded TP/-SL/0,
   which overstated winners and understated losers — fixed.
 
+**Window alignment** (codex round-10):
+
+The sidecar's `daily` array per leg/portfolio carries date-stamped bins
+(`{date, trades, pnl_brl_net, pnl_brl_gross}`). The reconciler filters
+both sides by the same business-day cutoff, so the comparison is
+window-aligned even though the full backtest covers ~1.2 years.
+
+`--days N` is **business days** (Mon–Fri). B3 holidays are NOT excluded
+— both sides see the same gap, so the bias cancels out as long as the
+cutoff is applied uniformly. Use `--today YYYY-MM-DD` to pin the
+lookback anchor when reconciling against historic paper data.
+
 **Reconciliation states:**
 
 | State | Exit | Meaning |
 |-------|------|---------|
 | `BLOCKED` | 0 | `matador_ops` has 0 closed trades in lookback. AC #16 gated by data accumulation, not a code bug. |
 | `MISSING_BACKTEST` | 2 | paper data present, JSON sidecar absent — run backtest first. |
+| `WINDOW_NOT_COVERED` | 4 | sidecar's `last_bar_date` is older than the cutoff — regenerate the sidecar. |
 | `PASS` | 0 | both gross and net |relative error| < 10 %. |
 | `FAIL` | 1 | one or both reconciliations exceed 10 % — investigate. |
 

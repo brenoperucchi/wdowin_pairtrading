@@ -2,9 +2,14 @@
 """
 TASK-3 AC #16 — Paper trading × validated-backtest reconciliation tool.
 
-Compares the SUM(pnl_brl) of CLOSED `matador_ops` trades over the last N
-business days against the validation backtest summary written by
+Compares CLOSED `matador_ops` trades over the last N business days against
+the same window inside the validation backtest summary written by
 `research/run_matador_v5_johansen.py` (`portfolio_v5_summary.json`).
+
+Window alignment (codex round-10 finding): the sidecar carries a `daily`
+array per leg and per battery — the reconciler filters both sides by the
+same business-day cutoff so the comparison stays apples-to-apples even
+though the backtest's full run covers ~1.2 years.
 
 Two reconciliations are performed independently:
   1. **Net vs net**  — backtest is already net (slippage + B3 baked in by
@@ -17,11 +22,17 @@ Two reconciliations are performed independently:
 
 Verdict per AC #16: |relative error| < 10 % = PASS, ≥ 10 % = FAIL.
 
+Business days = Mon–Fri (B3 holidays are NOT excluded; both sides see the
+same gaps so the bias cancels out). The lookback counts business days
+backwards from "today" using `business_days_ago(today, N)`.
+
 States:
-  - `BLOCKED` — matador_ops has 0 closed trades in the period. Exit 0;
-    AC #16 is gated by data accumulation, not by a code bug.
+  - `BLOCKED` — matador_ops has 0 closed trades in the window. Exit 0;
+    AC #16 is gated by data accumulation, not a code bug.
   - `MISSING_BACKTEST` — JSON sidecar absent. Exit 2; user must run
     `python research/run_matador_v5_johansen.py` first.
+  - `WINDOW_NOT_COVERED` — backtest sidecar's `last_bar_date` is older
+    than the cutoff. Exit 4; user must regenerate the sidecar.
   - `PASS` / `FAIL` — both sides have data; verdict printed.
 
 Usage:
@@ -33,7 +44,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -55,21 +66,38 @@ def per_trade_cost_brl():
     )
 
 
-def load_paper_trades(db_path, days):
-    """Return list of (timestamp_in, pnl_brl) for CLOSED trades in last N days.
-    `pnl_brl` as stored is gross — live engine does no cost adjustment."""
+def business_days_ago(today, n):
+    """Return the date `n` business days before `today` (Mon–Fri only).
+
+    Holidays are NOT excluded — B3 holidays would require an external
+    calendar. Both sides of the comparison see the same gaps, so the
+    bias cancels out as long as the same window is applied uniformly.
+    """
+    d = today
+    counted = 0
+    while counted < n:
+        d = d - timedelta(days=1)
+        if d.weekday() < 5:
+            counted += 1
+    return d
+
+
+def load_paper_trades(db_path, cutoff_date):
+    """Return list of (timestamp_out, pnl_brl) for CLOSED trades whose
+    `timestamp_out` falls on or after `cutoff_date`. `pnl_brl` as stored
+    is gross — live engine does no cost adjustment."""
     if not os.path.exists(db_path):
-        return None  # signal missing DB
-    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        return None
+    cutoff_iso = cutoff_date.isoformat()
     conn = sqlite3.connect(db_path)
     try:
         c = conn.cursor()
         c.execute(
-            "SELECT timestamp_in, pnl_brl FROM matador_ops "
+            "SELECT timestamp_out, pnl_brl FROM matador_ops "
             "WHERE status='CLOSED' AND pnl_brl IS NOT NULL "
-            "AND timestamp_out >= ? "
+            "AND date(timestamp_out) >= ? "
             "ORDER BY timestamp_out",
-            (cutoff,),
+            (cutoff_iso,),
         )
         return c.fetchall()
     finally:
@@ -81,8 +109,24 @@ def summarize_paper(rows):
     Net subtracts `per_trade_cost_brl` × n_trades."""
     n = len(rows)
     gross = sum(r[1] for r in rows)
+    if n == 0:
+        return {"trades": 0, "pnl_brl_gross": 0.0, "pnl_brl_net": 0.0}
     net = gross - n * per_trade_cost_brl()
     return {"trades": n, "pnl_brl_gross": gross, "pnl_brl_net": net}
+
+
+def aggregate_backtest_window(daily, cutoff_date):
+    """Sum a backtest leg's `daily` array on or after `cutoff_date`."""
+    cutoff_iso = cutoff_date.isoformat()
+    trades = 0
+    net = 0.0
+    gross = 0.0
+    for entry in daily:
+        if entry["date"] >= cutoff_iso:
+            trades += entry["trades"]
+            net += entry["pnl_brl_net"]
+            gross += entry["pnl_brl_gross"]
+    return {"trades": trades, "pnl_brl_gross": gross, "pnl_brl_net": net}
 
 
 def load_backtest_summary(path):
@@ -113,7 +157,9 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--days", type=int, default=30,
-                        help="Lookback window in calendar days (default 30)")
+                        help="Lookback window in BUSINESS days (default 30; "
+                             "matches AC #16 wording '30 dias úteis'). "
+                             "B3 holidays are not excluded.")
     parser.add_argument("--summary", default=DEFAULT_SUMMARY,
                         help="Path to portfolio_v5_summary.json")
     parser.add_argument("--portfolio-key", default="portfolio_wdo_di_cons_puro",
@@ -124,21 +170,29 @@ def main():
     parser.add_argument("--bateria", default="bateria_1_v4_puro",
                         choices=["bateria_1_v4_puro", "bateria_2_johansen_gate"],
                         help="Which backtest battery (default: V4 Puro)")
+    parser.add_argument("--today", default=None,
+                        help="Override the lookback anchor (YYYY-MM-DD); useful "
+                             "when reconciling against historic paper data")
     args = parser.parse_args()
 
+    today = (date.fromisoformat(args.today)
+             if args.today else date.today())
+    cutoff = business_days_ago(today, args.days)
+
     print(f"[reconcile] db={args.db}")
-    print(f"[reconcile] window={args.days} days")
+    print(f"[reconcile] window={args.days} business days "
+          f"({cutoff.isoformat()} to {today.isoformat()})")
     print(f"[reconcile] backtest summary={args.summary}")
     print(f"[reconcile] portfolio={args.bateria}/{args.portfolio_key}")
     print()
 
-    rows = load_paper_trades(args.db, args.days)
+    rows = load_paper_trades(args.db, cutoff)
     if rows is None:
         print(f"[ERROR] DB not found at {args.db}")
         return 3
     paper = summarize_paper(rows)
 
-    print(f"[paper] closed trades in last {args.days}d: {paper['trades']}")
+    print(f"[paper] closed trades in window: {paper['trades']}")
 
     if paper["trades"] == 0:
         print()
@@ -170,12 +224,29 @@ def main():
         print(f"generate {args.summary}, then re-run this script.")
         return 2
 
-    bt = backtest_full[args.bateria][args.portfolio_key]
+    last_bar = backtest_full.get("last_bar_date")
+    if last_bar and last_bar < cutoff.isoformat():
+        print(f"[reconcile] backtest last bar = {last_bar}, cutoff = {cutoff}")
+        print()
+        print("=" * 70)
+        print("AC #16 WINDOW_NOT_COVERED: backtest sidecar is too old")
+        print("=" * 70)
+        print(f"The backtest summary stops at {last_bar}, before the lookback")
+        print(f"cutoff {cutoff.isoformat()}. Re-run run_matador_v5_johansen.py")
+        print("to refresh the sidecar over fresh bars before comparing.")
+        return 4
 
-    print(f"[backtest] generated_at: {backtest_full['generated_at']}")
-    print(f"[backtest] trades:        {bt['trades']}")
-    print(f"[backtest] gross P&L:     R${bt['pnl_brl_gross']:.2f}")
-    print(f"[backtest] net P&L:       R${bt['pnl_brl_net']:.2f}")
+    bt_leg = backtest_full[args.bateria][args.portfolio_key]
+    daily = bt_leg.get("daily", [])
+    bt = aggregate_backtest_window(daily, cutoff)
+
+    print(f"[backtest] generated_at:  {backtest_full['generated_at']}")
+    print(f"[backtest] sidecar range: "
+          f"{backtest_full.get('first_bar_date')} → "
+          f"{backtest_full.get('last_bar_date')}")
+    print(f"[backtest] trades in window: {bt['trades']}")
+    print(f"[backtest] gross P&L:        R${bt['pnl_brl_gross']:.2f}")
+    print(f"[backtest] net P&L:          R${bt['pnl_brl_net']:.2f}")
     print()
     print(f"[paper] gross P&L: R${paper['pnl_brl_gross']:.2f}")
     print(f"[paper] net P&L:   R${paper['pnl_brl_net']:.2f}  "
