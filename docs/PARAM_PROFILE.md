@@ -197,6 +197,10 @@ P&L until they are aligned.
 | `research/optimize_wdo_sltp.py`     | `BUY_ZMIN`   | 3.00              | 1.4 (`Z_ENTRY`) | +1.6, much harder entry |
 | `research/optimize_wdo_sltp.py`     | `SELL_ZMIN`  | 2.75              | 1.4 (`Z_ENTRY`) | +1.35 |
 | `research/optimize_wdo_sltp.py`     | session      | 10:00–16:00       | 09:00–15:00 | shifted/extended window |
+| `research/optimize_wdo.py`          | leg traded   | WDO only (1 ct, PV=10) | WIN only (2 ct, PV=0.20) | **structural mismatch** — different instrument |
+| `research/optimize_wdo.py`          | `SL_PTS/TP_PTS`    | 15 / 15 (WDO pts)  | 300 / 800 (WIN pts) | scales differ — WDO tick=0.5pt vs WIN tick=5pt; not directly comparable |
+| `research/optimize_wdo.py`          | Z range            | sweeps `Z_MIN ∈ [1.5, 3.5]`, `Z_MAX ∈ [3.0, 6.5]` | single `Z_ENTRY=1.4` | bounded entry zones, much harder than live |
+| `research/optimize_wdo.py`          | session      | 10:00–16:00       | 09:00–15:00 | shifted/extended window |
 
 ### Categorized but no hardcoded entry/exit override
 
