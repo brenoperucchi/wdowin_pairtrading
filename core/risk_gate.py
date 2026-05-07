@@ -90,6 +90,62 @@ def _in_session(hour: int, minute: int) -> bool:
     return start <= t <= end
 
 
+# ─── Operational checks (TASK-3 AC #11) ─────────────────────────────────────
+# Extracted as its own helper so both `risk_gate()` (called once per poll
+# from server.py with poll-start stats) AND `TradeEngine.evaluate()` (called
+# per-strategy entry attempt with this-poll-fresh stats) share one impl.
+# Avoids drift if defaults or thresholds move.
+
+# Reasons that the engine MUST recompute mid-poll because exits in slot A can
+# change them before slot B's entry attempt. MT5 connection doesn't change
+# within a poll, so it stays in the market-side gate built by server.py.
+WITHIN_POLL_OP_REASONS = frozenset(
+    {"MAX_TRADES_REACHED", "DAILY_LOSS_LIMIT", "LOSS_COOLDOWN"}
+)
+
+
+def operational_checks(
+    *,
+    trades_today_count: int,
+    daily_pnl_brl: float,
+    minutes_since_last_loss: Optional[float],
+    mt5_connected: bool,
+) -> tuple[list[str], dict[str, bool]]:
+    """Return (reasons, checks) for the four operational gates.
+
+    Returned reasons subset:
+      MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN, MT5_DISCONNECTED.
+    """
+    reasons: list[str] = []
+    checks: dict[str, bool] = {}
+
+    checks["max_trades"] = trades_today_count < MAX_TRADES_PER_DAY
+    if not checks["max_trades"]:
+        reasons.append("MAX_TRADES_REACHED")
+
+    # daily_pnl_brl is signed: negative = loss. Block when cumulative loss
+    # crosses the limit (i.e., pnl <= -LIMIT). A profitable day is unbounded.
+    checks["daily_loss"] = daily_pnl_brl > -DAILY_LOSS_LIMIT_BRL
+    if not checks["daily_loss"]:
+        reasons.append("DAILY_LOSS_LIMIT")
+
+    checks["loss_cooldown"] = (
+        minutes_since_last_loss is None
+        or minutes_since_last_loss >= LOSS_COOLDOWN_MIN
+    )
+    if not checks["loss_cooldown"]:
+        reasons.append("LOSS_COOLDOWN")
+
+    if BLOCK_ON_MT5_DISCONNECT:
+        checks["mt5_connection"] = bool(mt5_connected)
+        if not checks["mt5_connection"]:
+            reasons.append("MT5_DISCONNECTED")
+    else:
+        checks["mt5_connection"] = True
+
+    return reasons, checks
+
+
 # ─── Main gate ──────────────────────────────────────────────────────────────
 
 def risk_gate(
@@ -169,29 +225,14 @@ def risk_gate(
         checks["engle_granger"] = True
 
     # ── Operational gates (TASK-3 AC #11) ──
-    checks["max_trades"] = trades_today_count < MAX_TRADES_PER_DAY
-    if not checks["max_trades"]:
-        reasons.append("MAX_TRADES_REACHED")
-
-    # daily_pnl_brl is signed: negative = loss. Block when cumulative loss
-    # crosses the limit (i.e., pnl <= -LIMIT). A profitable day is unbounded.
-    checks["daily_loss"] = daily_pnl_brl > -DAILY_LOSS_LIMIT_BRL
-    if not checks["daily_loss"]:
-        reasons.append("DAILY_LOSS_LIMIT")
-
-    checks["loss_cooldown"] = (
-        minutes_since_last_loss is None
-        or minutes_since_last_loss >= LOSS_COOLDOWN_MIN
+    ops_reasons, ops_checks = operational_checks(
+        trades_today_count=trades_today_count,
+        daily_pnl_brl=daily_pnl_brl,
+        minutes_since_last_loss=minutes_since_last_loss,
+        mt5_connected=mt5_connected,
     )
-    if not checks["loss_cooldown"]:
-        reasons.append("LOSS_COOLDOWN")
-
-    if BLOCK_ON_MT5_DISCONNECT:
-        checks["mt5_connection"] = bool(mt5_connected)
-        if not checks["mt5_connection"]:
-            reasons.append("MT5_DISCONNECTED")
-    else:
-        checks["mt5_connection"] = True
+    reasons.extend(ops_reasons)
+    checks.update(ops_checks)
 
     return {
         "allowed": len(reasons) == 0,

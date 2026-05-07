@@ -22,6 +22,7 @@ from core.config import (
     RHO_MIN,
     NWE_BAND_MULT,
 )
+from core.risk_gate import operational_checks, WITHIN_POLL_OP_REASONS
 
 STRATEGIES = ["CONS_BASE", "WDO_NWE", "DI_NWE"]
 
@@ -113,52 +114,83 @@ class TradeEngine:
 
         ``gate`` is the dict returned by ``core.risk_gate.risk_gate(...)``. It
         consolidates bar-close, session, rho, beta-drift, z-anomaly and
-        Engle-Granger checks. When ``gate['allowed']`` is False, no new
-        entries fire and ``gate['reasons']`` is propagated on each strategy
-        result for tracing. Exits are still evaluated every tick.
+        Engle-Granger checks. Operational portions of the gate
+        (MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN) are
+        **recomputed inside this method** because exits processed during this
+        same poll change those stats — without recomputing, a STOP_LOSS in
+        slot A would leave slot B free to bypass LOSS_COOLDOWN within the
+        same evaluate() call. MT5_DISCONNECTED stays in the input gate (it
+        doesn't change mid-poll).
 
         ``hmm_state`` is recorded on opened trades for postmortem; it does
         not gate entries (informational only — TASK-3 AC #4 decision).
         """
         open_trades = self._get_open_trades()
-        results = {}
-        gate_reasons = list(gate.get("reasons", []))
+        results: dict = {}
+        # Market-side reasons that do NOT change within a single poll.
+        # Within-poll operational reasons get recomputed in phase 2 below.
+        market_reasons = [
+            r for r in gate.get("reasons", [])
+            if r not in WITHIN_POLL_OP_REASONS
+        ]
 
+        # ── Phase 1: exits for slots with open trades ─────────────────────
         for strat in STRATEGIES:
             trade = open_trades[strat]
-
-            # ── Check exits for open trade (every tick) ──
-            # Per-strategy lock: if this strategy already has a position,
-            # only check exits — never open a second trade for the same setup
             if trade is not None:
                 results[strat] = self._check_exits(
                     trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strat
                 )
-                continue
 
-            # ── Centralized risk gate ──
-            if not gate.get("allowed", False):
-                # Preserve dashboard semantic: anomaly is a distinct status
-                # from generic WAIT so the operator can spot it quickly.
-                action = "ANOMALY" if "Z_ANOMALY" in gate_reasons else "WAIT"
-                results[strat] = self._result(action, strat, gate_reasons=gate_reasons)
+        # ── Refresh operational stats post-exits (within-poll consistency) ─
+        # If phase 1 just stop-lossed a trade, the next slot's entry attempt
+        # MUST see LOSS_COOLDOWN active. count/pnl/cooldown are queried fresh
+        # against the just-committed db state.
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        trades_today_now = self.count_trades_today(today_str)
+        daily_pnl_now = self.pnl_today(today_str)
+        minutes_since_loss_now = self.minutes_since_last_loss()
+
+        # ── Phase 2: entries for slots without open trades ────────────────
+        # `opens_this_poll` decrements the trade budget per actual open so
+        # multiple slots firing in the same poll cannot bust MAX_TRADES.
+        opens_this_poll = 0
+        for strat in STRATEGIES:
+            if strat in results:
+                continue  # phase 1 already produced a result for this slot
+
+            ops_reasons, _ = operational_checks(
+                trades_today_count=trades_today_now + opens_this_poll,
+                daily_pnl_brl=daily_pnl_now,
+                minutes_since_last_loss=minutes_since_loss_now,
+                # MT5 connection doesn't change within a poll — its block,
+                # if any, is already in market_reasons via the input gate.
+                mt5_connected=True,
+            )
+            all_reasons = market_reasons + ops_reasons
+            if all_reasons:
+                action = "ANOMALY" if "Z_ANOMALY" in all_reasons else "WAIT"
+                results[strat] = self._result(action, strat, gate_reasons=all_reasons)
                 continue
 
             # ── Strategy-specific entry logic ──
             if strat == "CONS_BASE":
-                results[strat] = self._eval_consensus(
+                res = self._eval_consensus(
                     z_wdo, z_di, win_price, wdo_price, rho, beta_value, hmm_state
                 )
             elif strat == "WDO_NWE":
-                results[strat] = self._eval_wdo_nwe(
+                res = self._eval_wdo_nwe(
                     z_wdo, win_price, wdo_price, rho, beta_value, hmm_state,
                     nwe_is_up, nwe_upper, nwe_lower
                 )
             elif strat == "DI_NWE":
-                results[strat] = self._eval_di_nwe(
+                res = self._eval_di_nwe(
                     z_di, win_price, wdo_price, rho, beta_value, hmm_state,
                     nwe_is_up, nwe_upper, nwe_lower
                 )
+            results[strat] = res
+            if res.get("open_trade") is not None:
+                opens_this_poll += 1
 
         # Build combined response
         return self._build_portfolio_result(results)

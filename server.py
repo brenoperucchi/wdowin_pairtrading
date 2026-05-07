@@ -747,7 +747,10 @@ def regime_v2():
         trades_today_count=trades_today_count,
         daily_pnl_brl=daily_pnl_brl,
         minutes_since_last_loss=minutes_since_last_loss,
-        mt5_connected=True,  # connect_mt5() short-circuited at endpoint top
+        # Real check: connect_mt5() at endpoint top guarantees a connection
+        # was alive earlier in the poll, but the terminal can drop between
+        # there and here. terminal_info() returns None when disconnected.
+        mt5_connected=mt5.terminal_info() is not None,
         joh_open=joh_open,
         hmm_state=hmm.current_hmm_regime,
     )

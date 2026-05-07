@@ -387,6 +387,46 @@ def test_minutes_since_last_loss_uses_explicit_now(engine):
     assert 44.0 < mins < 46.0
 
 
+def test_stop_loss_in_one_slot_blocks_open_in_other_slot(engine):
+    """Codex round-4 regression: a STOP_LOSS firing in phase 1 must trip
+    LOSS_COOLDOWN for any other slot's entry attempt in the SAME evaluate()
+    call. Before the two-pass refactor, the gate computed once at
+    server.py:732 was reused stale across slots — letting WDO_NWE bypass
+    the cooldown that was just earned by CONS_BASE losing."""
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Open a CONS_BASE BUY at win_price=130000
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5, win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=0,
+    )
+
+    # Same poll: price drop triggers CONS_BASE STOP_LOSS in phase 1.
+    # WDO_NWE has no open trade and z_wdo well past entry, so phase 2 would
+    # otherwise open it. NWE bands set so the filter allows the BUY.
+    win_now = 130000 - BUY_SL
+    result = engine.evaluate(
+        z_wdo=-2.1, z_di=0.0,
+        win_price=win_now, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=5,
+        nwe_is_up=False, nwe_lower=win_now, nwe_upper=win_now + 500,
+    )
+
+    # Phase 1: CONS_BASE closed on stop
+    cb = result["strategies"]["CONS_BASE"]
+    assert cb["action"] == "CLOSE"
+    assert cb["exit_reason"] == "STOP_LOSS"
+
+    # Phase 2: WDO_NWE must be blocked by LOSS_COOLDOWN, NOT opened
+    wdo = result["strategies"]["WDO_NWE"]
+    assert wdo["open_trade"] is None, "WDO_NWE bypassed LOSS_COOLDOWN"
+    assert "LOSS_COOLDOWN" in wdo["gate_reasons"]
+    assert wdo["action"] == "WAIT"
+
+    # And no second trade was actually inserted
+    assert engine.count_trades_today(today) == 1
+
+
 def test_minutes_since_last_loss_ignores_target_exits(engine):
     """Only STOP_LOSS exits count for cooldown — TARGET wins shouldn't
     keep a fresh trade off the table."""

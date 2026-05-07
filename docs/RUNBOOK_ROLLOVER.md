@@ -42,9 +42,9 @@ The day before any expiry:
    underlying physical contract).
 3. **Backfill check**: `python scripts/probe_mt5.py --bars 200` and inspect
    the last bar before/after the rollover ts. If a > 5σ jump appears in the
-   spread, mark the rollover bar in the bar-history table so backtests can
-   skip it (manual SQL: `UPDATE bar_history SET status='ROLLOVER' WHERE
-   timestamp = ?`).
+   spread, note the rollover ts in your trade journal so post-mortem
+   reviews can flag the discontinuity (the `bar_history` table currently
+   has no per-bar status column; future improvement could add one).
 4. **Restart the engine fresh** so the Kalman filter re-burns its 15k bars
    on the post-rollover series:
    ```
