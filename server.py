@@ -728,10 +728,14 @@ def regime_v2():
             di_map=di_map
         )
 
-    # Persist closed bars so the next poll's `db_hist` carries them forward
-    # (non-repainting). The open bar is intentionally skipped — its z/NWE
-    # values will still mutate before close.
-    _persist_closed_bars(live_history)
+    # Persist closed bars from the FULL `history` (not just live_history).
+    # On a midday cold start db_hist is empty → fallback branch returns the
+    # full session in `history`; persisting only the last 20 (live_history)
+    # would leave older candles unwritten and the next poll's merge branch
+    # would shrink the dashboard. INSERT OR IGNORE makes re-persistence of
+    # already-stored rows a no-op. The trailing open bar is skipped inside
+    # _persist_closed_bars.
+    _persist_closed_bars(history)
 
     sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
 

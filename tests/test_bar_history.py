@@ -198,3 +198,53 @@ def test_persist_closed_bars_handles_short_history(db):
     saved = _persist_closed_bars(history, db_path=db)
     assert saved == 0
     assert load_bar_history(days=1, db_path=db) == []
+
+
+def test_midday_coldstart_does_not_shrink_history(db):
+    """Reproduce codex round-2 finding: cold-start midday with empty DB.
+
+    Before the fix, V2 fallback returned full history but persisted only
+    live_history's 20-bar slice, so the next poll's merge branch shrank the
+    dashboard. After the fix, persisting from the full `history` keeps the
+    session intact across polls.
+
+    This test exercises the V2 control flow inline (load_bar_history →
+    _build_history fallback → persist → re-load → re-merge).
+    """
+    # 30 closed bars from 10:00 to 12:25 (5-min cadence) + 1 open bar at 12:30.
+    today = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    bars = [today + timedelta(minutes=5 * i) for i in range(31)]
+    times = np.array([_utc_ts_for_local(dt) for dt in bars], dtype=np.int64)
+    z = np.linspace(-1.0, 1.0, 31)
+    spread = np.linspace(40.0, 50.0, 31)
+
+    # Poll 1: cold start, DB empty.
+    db_hist = load_bar_history(days=2, db_path=db)
+    assert db_hist == []  # cold start
+    live_history = _build_history(times[-20:], z[-20:], spread[-20:])
+    history_poll1 = _build_history(times, z, spread)  # fallback branch
+    assert len(history_poll1) == 31
+    # NEW behavior: persist the FULL history, not just live_history.
+    _persist_closed_bars(history_poll1, db_path=db)
+
+    # Poll 2: same bar arrays (no new bar yet). DB now populated.
+    db_hist2 = load_bar_history(days=2, db_path=db)
+    today_str = today.strftime("%Y-%m-%d")
+    db_hist2 = [h for h in db_hist2 if h.get("date") == today_str]
+    assert len(db_hist2) == 30  # 30 closed bars persisted, open bar skipped
+
+    live_history2 = _build_history(times[-20:], z[-20:], spread[-20:])
+    # Merge logic from V2:
+    last_db_ts = db_hist2[-1]["date"] + " " + db_hist2[-1]["bar_time"]
+    for lh in live_history2:
+        lh_ts = lh["date"] + " " + lh["bar_time"]
+        if lh_ts > last_db_ts:
+            db_hist2.append(lh)
+    history_poll2 = db_hist2
+
+    # Regression assertion: dashboard must NOT shrink.
+    assert len(history_poll2) == 31, (
+        f"history shrank from 31 to {len(history_poll2)} between polls"
+    )
+    assert history_poll2[0]["bar_time"] == "10:00"
+    assert history_poll2[-1]["bar_time"] == "12:30"
