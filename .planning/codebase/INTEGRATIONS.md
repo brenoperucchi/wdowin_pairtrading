@@ -42,6 +42,6 @@
 - **Known issue**: Disk thrashing from ~5 connect/disconnect cycles per 2.5s poll
 
 ## Beta Persistence (`beta_ultimo.json`)
-- File-based state: `{"beta": float, "ts": ISO8601}`
-- Written at 17:00 daily by `save_beta_ultimo()`
-- Read on startup by `load_beta_ultimo()` to seed beta state machine
+- Legacy artifact from the V1 OLS endpoint. `core/mt5_client.py` still defines `save_beta_ultimo()` / `load_beta_ultimo()` and seeds a `beta_state` dict, but no live code reads or updates it after the V1 removal.
+- V2 (`/api/v2/regime`) and `/api/history` recompute OLS beta inline on each call from the current window; there is no daily persistence step today.
+- File and helpers will be deleted (or replaced with a real cache) when the `risk_gate` slice lands.

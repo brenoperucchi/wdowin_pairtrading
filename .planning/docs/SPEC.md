@@ -20,7 +20,6 @@
 │                                                              │
 │  server.py (thin controller)                                 │
 │  ├─ GET /api/v2/regime   → Kalman WDO, DI, Johansen Cointeg  │
-│  ├─ GET /api/regime      → V1 OLS (legado)                   │
 │  ├─ GET /api/performance → métricas de trades                │
 │  └─ GET /health          → status MT5                        │
 │                                                              │
@@ -84,14 +83,16 @@ MT5 → N barras M5 (WIN, WDO, DI)
 #             P = (1 - K * x) * P_prior
 ```
 
-### 2.3 Beta State Machine
+### 2.3 Beta (legado: state machine V1, atualmente recomputado inline)
 
 ```
-Hora em hora (09:30, 10:30, ..., 17:30):
-  ├─ Recalcula beta OLS (janela completa)
-  ├─ Compara com leitura anterior → instável se Δ > 15%
-  ├─ Salva em beta_ultimo.json às 17h
-  └─ Teste de cointegração Engle-Granger (1x por cálculo)
+Antes (V1, removido):
+  Hora em hora 09:30..17:30 → recalcula OLS, compara com anterior, salva em beta_ultimo.json às 17h.
+
+Agora (V2):
+  A cada poll → calc_beta_ols(window=WINDOW) inline a partir das barras correntes.
+  beta_ultimo.json existe em disco mas não é mais lido nem escrito pelo runtime.
+  Será removido (ou substituído por cache real) quando o slice de risk_gate landar.
 ```
 
 
@@ -182,7 +183,7 @@ wdo win pair trading/
 ├── server.py                # Thin controller (~480 linhas)
 ├── ecosystem.config.js      # Configuração PM2 para processos
 ├── trades.db                # SQLite de operações
-└── beta_ultimo.json         # Beta persistido do dia anterior
+└── beta_ultimo.json         # Legado V1: arquivo presente em disco, não lido/escrito pelo runtime atual
 ```
 
 ---

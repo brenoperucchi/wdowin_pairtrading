@@ -15,7 +15,7 @@
       "title": "Frontend Polling instead of WebSockets",
       "status": "Accepted",
       "context": "We need to reflect the Matador Setup signal changes in near real-time.",
-      "decision": "The React Dashboard uses a `setInterval` loop polling `/api/regime` every 2.5 seconds to handle reconnections and reduce state complexities over WebSocket."
+      "decision": "The React Dashboard uses a `setInterval` loop polling `/api/v2/regime` every 2.5 seconds to handle reconnections and reduce state complexities over WebSocket."
     },
     {
       "id": "ADR-003",

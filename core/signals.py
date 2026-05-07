@@ -9,10 +9,6 @@ import numpy as np
 from core.config import WINDOW, BARS, Z_ENTRY, Z_ATTENTION
 
 
-# ─── Coint cache (module-level state, read by get_signal) ────────────────────
-_coint_cache = {"date": None, "is_coint": False, "pvalue": 1.0}
-
-
 def calc_beta_ols(closes_a: np.ndarray, closes_b: np.ndarray, window: int | None = None) -> float:
     """
     Calcula o hedge ratio β via OLS (mínimos quadrados).
@@ -83,7 +79,6 @@ def get_signal(z: float, spread_sd: float = 1.0, beta: float = 1.0, **kwargs) ->
     """
     Traduz o z-score transversal em ação de trading e size dinâmico.
     O target_risk é de ~R$ 1.500 projetando um retorno à média de 'Z' pontos de spread.
-    Aplica penalti se o P-Value indicar cointegração fraca.
     """
     target_risk = 1500.0
     pts = spread_sd * abs(z) if (spread_sd * abs(z)) != 0 else 1.0
@@ -91,14 +86,7 @@ def get_signal(z: float, spread_sd: float = 1.0, beta: float = 1.0, **kwargs) ->
     w_win = 0.20 * abs(beta)
     peso_total = w_wdo + w_win
     qty_base = max(1, int(target_risk / (pts * peso_total)))
-    
-    # Validações de P-value da Cointegração (Limiares Práticos)
-    pval = _coint_cache["pvalue"]
-    if pval >= 0.05 and pval < 0.10:
-        qty_base = max(1, qty_base // 2)  # Sizing reduzido, risco 50%
-    if pval >= 0.10:
-        qty_base = 0  # Não operar
-        
+
     qty_wdo = qty_base
     qty_win = int(qty_base * abs(beta))
 

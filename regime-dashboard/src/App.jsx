@@ -14,10 +14,13 @@ const STRAT_LABELS = {
     DI_NWE: { label: "DI", color: "#8a6dff" },
 };
 
-const API_URL = "http://localhost:8080/api/v2/regime";
-const API_PERF_URL = "http://localhost:8080/api/performance";
-const API_DI_URL = "http://localhost:8080/api/di-regime";
-const API_HISTORY_URL = "http://localhost:8080/api/history";
+// API base: same host as the page (lets LAN/127.0.0.1/localhost all work). Override with VITE_API_BASE_URL.
+const API_BASE = import.meta.env.VITE_API_BASE_URL
+    || (typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:8080` : "http://localhost:8080");
+const API_URL = `${API_BASE}/api/v2/regime`;
+const API_PERF_URL = `${API_BASE}/api/performance`;
+const API_DI_URL = `${API_BASE}/api/di-regime`;
+const API_HISTORY_URL = `${API_BASE}/api/history`;
 const POLL_MS = 2500;
 
 // ── Fallback: gera dados simulados se a API não responder ────────────────────
@@ -145,6 +148,13 @@ export default function App() {
         let active = true;
 
         if (import.meta.env.PROD && !isViewingHistory) {
+            if (!db) {
+                setStatus("fallback");
+                setError("Configuração do Firebase indisponível.");
+                setTodayTrades([]);
+                return () => { active = false; };
+            }
+
             // Em produÃ§Ã£o (Firebase Hosting), ouvir o Realtime Database
             const dashboardRef = ref(db, 'dashboard');
             const unsub = onValue(dashboardRef, (snapshot) => {
@@ -154,6 +164,7 @@ export default function App() {
                     if (val.error) {
                         setError(val.error);
                         setStatus("fallback");
+                        setTodayTrades([]);
                     } else {
                         setData(val.regime);
                         // FIXED: Firebase dashboard now no longer contains a massive 30-day history array.
@@ -175,11 +186,13 @@ export default function App() {
                 } else {
                     setStatus("fallback");
                     setError("Aguardando dados do Firebase...");
+                    setTodayTrades([]);
                 }
-            }, (err) => {
+            }, () => {
                 if (!active) return;
                 setStatus("fallback");
                 setError("Erro ao conectar no Firebase.");
+                setTodayTrades([]);
             });
             return () => { active = false; unsub(); };
         } else {
@@ -199,6 +212,7 @@ export default function App() {
                     if (json.error) {
                         setError(json.error);
                         setStatus("fallback");
+                        setTodayTrades([]);
                     } else {
                         setData(json);
                         setHistory(json.history || []);
@@ -216,10 +230,11 @@ export default function App() {
                             flashTimerRef.current = setTimeout(() => setFlash(false), 600);
                         }
                     }
-                } catch (e) {
+                } catch {
                     if (!active) return;
                     setStatus("fallback");
                     setError("Servidor Python não encontrado em localhost:8080. Mostrando dados simulados.");
+                    setTodayTrades([]);
                 }
             }
             poll();
@@ -328,7 +343,6 @@ export default function App() {
     const safeToTrade = rh ? rh.safe_to_trade : true;
     const rhoStatus = rh ? rh.rho : { value: currentRho, status: "—", action: "", color: "#3a5060", level: 0 };
     const betaHealth = rh ? rh.beta : { current: betaOls, ref_20d: betaRef20d, delta_pct: betaDeltaPct, status: "—", action: "", color: "#3a5060", level: 0 };
-    const cointEg = data ? data.coint_eg : { is_coint: false, pvalue: 1.0 };
 
     // ── Merged signal data for histogram ───────────────────────────────────────
     const mergedSignals = useMemo(() => {
@@ -452,14 +466,6 @@ export default function App() {
 
     const isActive = sig.id === "compraWdo" || sig.id === "compraWin";
     const isAnom = sig.id === "anomalia";
-
-    const getCointStatus = (p) => {
-        if (p < 0.01) return { label: "FORTE", color: "#00e87a" };
-        if (p < 0.05) return { label: "PRESENTE", color: "#c8a444" };
-        if (p < 0.10) return { label: "FRACA", color: "#f5a623" };
-        return { label: "QUEBRADA", color: "#ff3860" };
-    };
-    const cointInfo = getCointStatus(cointEg.pvalue);
 
     // ── Count active signals for consensus badge (WDO + DI) ────────────────────
     const lastBar = mergedSignals.length > 0 ? mergedSignals[mergedSignals.length - 1] : {};

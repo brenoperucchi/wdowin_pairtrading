@@ -35,8 +35,7 @@ except Exception as e:
 
 from core.config import (
     SYMBOL_A, SYMBOL_B, TIMEFRAME, WINDOW, BARS, KALMAN_BURN_IN,
-    BETA_INITIAL, BETA_REF_BARS, BETA_REF_5D_BARS,
-    BETA_ALERT_PCT, MT5_PATH,
+    BETA_INITIAL, MT5_PATH,
     TIME_OFFSET, CACHE_TTL,
     DI_SYMBOL, DI_KALMAN_Q, DI_KALMAN_R, DI_KALMAN_W,
     DI_BARS, DI_BETA_INITIAL,
@@ -46,13 +45,12 @@ from core.config import (
     WDO_KALMAN_Q, WDO_KALMAN_R, WDO_KALMAN_W,
 )
 from core.mt5_client import (
-    connect_mt5, fetch_bars, beta_state, save_beta_ultimo, load_beta_ultimo,
+    connect_mt5, fetch_bars,
 )
 from core.signals import (
     calc_beta_ols, calc_half_life, calc_zscore,
     get_signal, get_rho_status, get_beta_status,
     calc_nwe_with_bands,
-    _coint_cache,
 )
 from core.kalman_filter import KalmanBetaFilter
 from core.trade_engine import TradeEngine
@@ -123,8 +121,6 @@ async def firebase_push_loop():
         await asyncio.sleep(2.5)  # Envia live a cada 2.5s
 
 _trade_engine = TradeEngine(db_path="trades.db")
-_cache: dict = {}
-_cache_ts: float = 0.0
 
 # DI pair trading state
 _di_cache: dict = {}
@@ -196,8 +192,40 @@ def _compute_johansen_gate(closes_a, closes_b, state, bar_count):
 
 
 # ─── DB init ─────────────────────────────────────────────────────────────────
-def init_db():
-    conn = sqlite3.connect("trades.db")
+def init_bar_history(db_path: str = "trades.db") -> None:
+    """Idempotent migration for the bar_history table.
+
+    Schema mirrors the columns written by save_bar_history. timestamp is the
+    PRIMARY KEY so INSERT OR IGNORE dedups when MT5 reissues an old M5 bar.
+    """
+    conn = sqlite3.connect(db_path, timeout=10.0)
+    try:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS bar_history (
+                timestamp   INTEGER PRIMARY KEY,
+                date_str    TEXT NOT NULL,
+                bar_time    TEXT NOT NULL,
+                win_price   REAL,
+                wdo_price   REAL,
+                di_price    REAL,
+                spread_wdo  REAL,
+                spread_di   REAL,
+                z_wdo       REAL,
+                z_di        REAL,
+                nwe_center  REAL,
+                nwe_upper   REAL,
+                nwe_lower   REAL,
+                nwe_is_up   INTEGER
+            )
+        ''')
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def init_db(db_path: str = "trades.db"):
+    conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS operations (
@@ -227,6 +255,7 @@ def init_db():
         pass
     conn.commit()
     conn.close()
+    init_bar_history(db_path)
 
 init_db()
 
@@ -242,12 +271,12 @@ TF_NAMES = {
 }
 
 
-def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up):
+def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, db_path: str = "trades.db"):
     try:
-        conn = sqlite3.connect("trades.db", timeout=10.0)
+        conn = sqlite3.connect(db_path, timeout=10.0)
         c = conn.cursor()
         c.execute('''
-            INSERT OR IGNORE INTO bar_history 
+            INSERT OR IGNORE INTO bar_history
             (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, int(nwe_is_up)))
@@ -256,9 +285,9 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
     except Exception as e:
         print(f"[ERRO DB] falha ao salvar bar_history: {e}")
 
-def load_bar_history(days=30):
+def load_bar_history(days=30, db_path: str = "trades.db"):
     try:
-        conn = sqlite3.connect("trades.db", timeout=10.0)
+        conn = sqlite3.connect(db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         ts_limit = int(time.time()) - days * 86400
@@ -452,81 +481,29 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
     return history
 
 
-def _update_beta_state(closes_a, closes_b):
-    """Hourly beta state machine update. Returns (beta_ols, beta_ref_20d, delta_pct, change_pct, unstable)."""
-    today = datetime.now().date()
-    now_hour = datetime.now().hour
-    now_min = datetime.now().minute
-
-    ref_window = min(BETA_REF_BARS, len(closes_a))
-    beta_ref_20d = calc_beta_ols(closes_a[-ref_window:], closes_b[-ref_window:], window=ref_window)
-
-    beta_ols = beta_state["current_beta"]
-
-    is_calc_time = False
-    if beta_state["last_calc_date"] != today or beta_state["last_calc_hour"] != now_hour:
-        if now_min >= 30 and now_hour in [9, 10, 11, 12, 13, 14, 15, 16, 17]:
-            if not (now_hour == 17 and now_min >= 55):
-                is_calc_time = True
-
-    if is_calc_time:
-        new_b = calc_beta_ols(closes_a, closes_b, window=WINDOW)
-
-        if beta_state["last_calc_hour"] is not None and beta_state["last_calc_date"] == today:
-            delta_b = abs(new_b - beta_ols) / abs(beta_ols) * 100 if beta_ols != 0 else 0
-            beta_state["unstable"] = bool(delta_b > 15.0)
-        else:
-            beta_state["unstable"] = False
-
-        beta_state["previous_beta"] = beta_ols
-        beta_state["current_beta"] = new_b
-        beta_state["last_calc_date"] = today
-        beta_state["last_calc_hour"] = now_hour
-        beta_ols = new_b
-
-        if now_hour == 17:
-            save_beta_ultimo(beta_ols)
-
-    beta_delta_pct = (abs(beta_ols - beta_ref_20d) / abs(beta_ref_20d)) * 100 if beta_ref_20d != 0 else 0.0
-    beta_change_pct = ((beta_ols - beta_state["previous_beta"]) / abs(beta_state["previous_beta"])) * 100 if beta_state["previous_beta"] != 0 else 0.0
-
-    # Run daily cointegration test (once per calc time)
-    if is_calc_time and len(closes_a) >= BETA_REF_BARS:
-        try:
-            _, pval, _ = coint(closes_a[-BETA_REF_BARS:], closes_b[-BETA_REF_BARS:])
-            _coint_cache["date"] = today
-            _coint_cache["is_coint"] = bool(pval < 0.05)
-            _coint_cache["pvalue"] = pval
-        except Exception:
-            pass
-
-    return beta_ols, beta_ref_20d, beta_delta_pct, beta_change_pct, beta_state["unstable"]
-
-
 def _build_response(current_z, current_rho, half_life, strength,
                      beta_ols, beta_ref_20d, beta_delta_pct, beta_change_pct, beta_unstable,
                      rho_status, beta_status, safe_to_trade,
-                     trade_result, history, version="v1"):
-    """Build the common response dict for both V1 and V2 endpoints."""
+                     trade_result, history, signal, version="v2_kalman"):
+    """Build the common response dict for the V2 regime endpoint.
+
+    ``signal`` must be a dict produced by ``get_signal`` from the caller, so qty_*
+    fields are sized against the same spread_sd/beta used elsewhere in the request.
+    """
     now = datetime.now()
     return {
         "current_z":       round(current_z, 3),
         "current_rho":     round(current_rho, 3),
         "half_life":       round(half_life, 2) if half_life != float("inf") else 0.0,
-        "signal":          get_signal(current_z, hmm_state=hmm.current_hmm_regime),
+        "signal":          signal,
         "strength":        round(strength, 1),
         "beta_ols":        round(beta_ols, 4),
         "beta_ref_5d":     round(beta_ols, 4),
         "beta_drift_5d":   0.0,
         "beta_ref_20d":    round(beta_ref_20d, 4),
         "beta_delta_pct":  round(beta_delta_pct, 2),
-        "beta_prev":       round(beta_state["previous_beta"], 4),
         "beta_change_pct": round(beta_change_pct, 2),
         "beta_unstable":   beta_unstable,
-        "coint_eg": {
-            "is_coint": _coint_cache["is_coint"],
-            "pvalue":   round(_coint_cache["pvalue"], 4)
-        },
         "regime_health": {
             "rho": {
                 "value":  round(current_rho, 3),
@@ -554,7 +531,7 @@ def _build_response(current_z, current_rho, half_life, strength,
             "symbol_a":   SYMBOL_A,
             "symbol_b":   SYMBOL_B,
             "beta":       round(beta_ols, 4),
-            "window":     WINDOW if version == "v1" else "KALMAN",
+            "window":     "KALMAN",
             "timeframe":  TF_NAMES.get(TIMEFRAME, str(TIMEFRAME)),
             "hmm_regime": hmm.current_hmm_regime,
         },
@@ -570,77 +547,6 @@ def _build_response(current_z, current_rho, half_life, strength,
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
-
-@app.get("/api/regime")
-def regime():
-    """V1 endpoint — OLS-based regime monitoring."""
-    global _cache, _cache_ts
-
-    if time.time() - _cache_ts < CACHE_TTL and _cache:
-        return _cache
-
-    if not connect_mt5():
-        return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
-
-    needed = max(BARS, BETA_REF_BARS) + WINDOW + 10
-    closes_a, times_a = fetch_bars(SYMBOL_A, needed)
-    closes_b, times_b = fetch_bars(SYMBOL_B, needed)
-
-    if closes_a is None or closes_b is None:
-        return {"error": f"Sem dados para '{SYMBOL_A}'/'{SYMBOL_B}'.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
-
-    min_len = min(len(closes_a), len(closes_b))
-    closes_a, closes_b, times_a = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
-
-    # Beta state machine
-    beta_ols, beta_ref_20d, beta_delta_pct, beta_change_pct, beta_unstable = _update_beta_state(closes_a, closes_b)
-
-    # Z-score + regime health
-    spread_arr, z_arr, rho_arr = calc_zscore(closes_a, closes_b, beta=beta_ols)
-    half_life = calc_half_life(spread_arr)
-    current_spread_sd = np.std(spread_arr[-WINDOW:]) if len(spread_arr) >= WINDOW else 1.0
-    current_z = float(z_arr[-1])
-    current_rho = float(rho_arr[-1])
-    strength = min(100.0, abs(current_z) / 4.0 * 100.0)
-
-    rho_status = get_rho_status(current_rho)
-    beta_status_d = get_beta_status(beta_delta_pct)
-    safe_to_trade = bool(rho_status["level"] < 2 and beta_status_d["level"] < 2 and _coint_cache["pvalue"] < 0.10 and not beta_unstable)
-
-    # V2 Kalman z for BUY routing
-    kf_temp = KalmanBetaFilter(initial_beta=BETA_INITIAL)
-    for y, x in zip(closes_a, closes_b):
-        kf_temp.update(float(y), float(x))
-    z_kalman = float(KalmanBetaFilter.rolling_zscore([s for _, s, _ in [kf_temp.update(float(y), float(x)) for y, x in zip(closes_a, closes_b)]], window=WINDOW)[-1]) if False else 0.0
-
-    # Recalculate properly
-    kf_temp2 = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
-    kf_spreads = []
-    for y, x in zip(closes_a, closes_b):
-        _, spread_t, _ = kf_temp2.update(float(y), float(x))
-        kf_spreads.append(spread_t)
-    z_kalman = float(KalmanBetaFilter.rolling_zscore(kf_spreads, window=WDO_KALMAN_W)[-1])
-
-    # Trade engine
-    now_dt = datetime.now()
-    trade_result = _trade_engine.evaluate(
-        z_buy=z_kalman, z_sell=current_z,
-        win_price=float(closes_a[-1]), wdo_price=float(closes_b[-1]),
-        rho=current_rho, beta_safe=safe_to_trade, hmm_state=hmm.current_hmm_regime,
-        hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_ols,
-    )
-
-    history = _build_history(times_a[-BARS:], z_arr, spread_arr, win_prices=closes_a[-BARS:])
-
-    _cache = _build_response(
-        current_z, current_rho, half_life, strength,
-        beta_ols, beta_ref_20d, beta_delta_pct, beta_change_pct, beta_unstable,
-        rho_status, beta_status_d, safe_to_trade,
-        trade_result, history, version="v1_ols",
-    )
-    _cache_ts = time.time()
-    return _cache
-
 
 @app.get("/api/v2/regime")
 def regime_v2():
@@ -697,8 +603,9 @@ def regime_v2():
     current_z = float(z_scores[-1])
     current_spread_sd = np.std(spreads[-40:]) if len(spreads) >= 40 else 1.0
 
-    # V1 OLS z-scores + rho (keep for trade engine, not for display)
-    beta_ols_real = beta_state["current_beta"]
+    # OLS beta on the current window (rho computed here is beta-independent;
+    # z_v1 is the slow OLS-based z exposed to the dashboard alongside the fast Kalman z).
+    beta_ols_real = calc_beta_ols(ac, bc, window=WINDOW)
     spread_v1, z_v1_arr, rho_arr = calc_zscore(ac, bc, beta=beta_ols_real)
     current_rho = float(rho_arr[-1])
     rho_status = get_rho_status(current_rho)
@@ -786,7 +693,7 @@ def regime_v2():
         current_z, current_rho, 0, min(100.0, abs(current_z) / 4.0 * 100.0),
         beta_current, beta_ref_20d, beta_delta_pct, 0.0, beta_status_d["level"] >= 2,
         rho_status, beta_status_d, safe_to_trade,
-        trade_result, history, version="v2_kalman",
+        trade_result, history, signal=sig_data, version="v2_kalman",
     )
     res["beta_kalman"] = round(float(beta_current), 4)
     res["beta_ols_real"] = round(float(beta_ols_real), 4)
@@ -1066,8 +973,8 @@ def history_endpoint(days: int = 30):
             kf_spreads.append(spread_t)
         z_kalman = KalmanBetaFilter.rolling_zscore(kf_spreads, window=WDO_KALMAN_W)
 
-        # --- OLS z-scores ---
-        beta_ols_val = beta_state["current_beta"]
+        # --- OLS z-scores (inline beta on the current window) ---
+        beta_ols_val = calc_beta_ols(ac, bc, window=WINDOW)
         _, z_ols, _ = calc_zscore(ac, bc, beta=beta_ols_val, max_bars=min_len)
 
         # --- DI z-scores (Kalman) ---
@@ -1185,7 +1092,7 @@ if __name__ == "__main__":
     import uvicorn
     print("=" * 55)
     print("  WIN×WDO+DI Regime Monitor — Servidor local")
-    print("  WDO:    http://localhost:8080/api/regime")
+    print("  WDO:    http://localhost:8080/api/v2/regime")
     print("  DI:     http://localhost:8080/api/di-regime")
     print("  Saude:  http://localhost:8080/health")
     print("  Docs:   http://localhost:8080/docs")

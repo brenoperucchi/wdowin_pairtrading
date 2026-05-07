@@ -22,7 +22,7 @@ The core backend configuration is defined within the `server.py` script constant
 ### `.env` Files (Frontend)
 
 The `regime-dashboard` uses Vite environment variables:
-- `VITE_API_URL`: Points to the FastAPI backend (e.g., `http://localhost:8080/api/regime`).
+- `VITE_API_URL`: Points to the FastAPI backend (e.g., `http://localhost:8080/api/v2/regime`).
 
 ### PM2 Ecosystem File
 

@@ -1,12 +1,12 @@
 {
   "_meta": {
-    "updated_at": "2026-05-02T12:22:00-03:00"
+    "updated_at": "2026-05-07T00:00:00-03:00"
   },
   "endpoints": [
     {
-      "path": "/api/regime",
+      "path": "/api/v2/regime",
       "method": "GET",
-      "description": "Returns the latest real-time pair trading signals, NWE bands, Z-scores, and Consensus heatmap",
+      "description": "Returns the latest real-time pair trading signals (Kalman + Johansen + NWE), Z-scores, and trade engine state",
       "source_file": "server.py"
     },
     {

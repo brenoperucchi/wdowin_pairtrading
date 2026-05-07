@@ -46,7 +46,7 @@ O projeto é dividido em um Backend rápido em Python e um Frontend imersivo em 
 ```
 
 ### O Backend (`server.py`)
-Atua como um adaptador *Headless*. A cada chamada para `/api/regime`, o Python comunica-se através de memória compartilhada com o processo do MT5 do Windows, puxa centenas de barras de M5 (OHLC), executa a matemática vetorial usando `numpy`, formata em um objeto JSON enriquecido (incluindo timestamps locais calculados com precisão) e armazena o resultado em *cache* local por 2 segundos.
+Atua como um adaptador *Headless*. A cada chamada para `/api/v2/regime`, o Python comunica-se através de memória compartilhada com o processo do MT5 do Windows, puxa centenas de barras de M5 (OHLC), executa a matemática vetorial usando `numpy` (Filtro de Kalman + Johansen + NWE) e formata em um objeto JSON enriquecido (incluindo timestamps locais calculados com precisão).
 
 ### O Frontend (`App.jsx`)
 Usa `React` puro com `Recharts` sem dependência de complexas *store libraries* (ex: Redux). Realiza polling de HTTP Long-polling a cada **2.5 segundos** (frequência ideal para setups gráficos sem sobrecarregar a bridge do MT5). Possui também um gerador de série temporal Gaussiana (Simulador Fallback) autônomo, ativado quando o servidor ou mercado está fechado, perfeito para testar layouts.
@@ -142,6 +142,8 @@ O dashboard cruza sinais probabilísticos com regras duras de regime estacionár
 ---
 
 ## 📚 Documentação Adicional
+Consulte também [Motor de Compra/Venda e Fluxo de Dados](docs/MOTOR_E_FLUXO_DE_DADOS.md) para entender o funil operacional entre MT5, backend, `TradeEngine`, SQLite e dashboard.
+
 Consulte a pasta `.planning/` para documentação extensa:
 - [Estrutura do Projeto](.planning/codebase/STRUCTURE.md)
 - [Regras de Arquitetura](.planning/codebase/ARCHITECTURE.md)

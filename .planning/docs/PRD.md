@@ -76,7 +76,7 @@ O par WIN×WDO possui correlação negativa historicamente forte (ρ ≈ -0.70 a
 | Preços live M5 | MT5 `copy_rates_from_pos` | A cada 2.5s |
 | Histórico backtest M1 | CSVs em `data/historical/` | Estático (até Mar/2026) |
 | Trades executados | SQLite `trades.db` | Em tempo real |
-| Beta persistido | `beta_ultimo.json` | Salvo às 17h |
+| Beta OLS | recomputado inline a cada poll do V2 | A cada 2.5s (legado: `beta_ultimo.json`, não atualizado) |
 
 ---
 

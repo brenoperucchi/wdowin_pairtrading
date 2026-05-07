@@ -6,6 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **WIN×WDO Advanced Regime Monitor** — statistical arbitrage system for Brazilian futures (Mini Índice WIN$N × Mini Dólar WDO$N) on B3. Operates intraday on M5 bars, detecting cointegration breakdowns via Z-score and generating mean-reversion signals. Currently paper trading only — no real MT5 orders.
 
+## Trading Scope (read this before touching the trade engine)
+
+This is **directional WIN trading with a WDO/DI consensus filter** — not a market-neutral pair trade.
+
+- The trade engine (`core/trade_engine.py:_open_trade`) opens **only WIN contracts** (`WIN_CONTRACTS=2`). No simultaneous WDO leg, no hedge, no spread P&L. Action is always `BUY_WIN` or `SELL_WIN`.
+- WDO and DI are used **as filters / signal vectors**: cointegration health (`WIN×WDO`), Z-score on the spread, and `DI_NWE`/`WDO_NWE` envelope confirmations gate the WIN entry. They do not produce orders.
+- The WIN×WDO Engle-Granger / OLS / Kalman machinery exists to *qualify* the WIN entry (regime sanity check), not to generate a paired position.
+- "DOL" in conversation == `WDO$N` mini dólar. There is no full-size dollar contract (`DOL$F`) anywhere in this codebase.
+- Backtest scripts under `research/` test other configurations (single-leg WDO, 4-leg specs) and **do not match the production engine** — see `research/README.md` for which scripts are validation vs. exploratory.
+
+If a future change introduces a real WDO leg or hedge, update this section first.
+
+
 ## Commands
 
 ### Backend
@@ -44,7 +57,7 @@ pm2 save
 MT5 Terminal (Windows)
     │ shared memory / copy_rates_from_pos()
     ▼
-core/mt5_client.py  ←── fetches M5 bars, persists beta to beta_ultimo.json
+core/mt5_client.py  ←── fetches M5 bars (beta_ultimo.json is a legacy V1 artifact, not updated)
     │
     ▼
 server.py (FastAPI, port 8080)
@@ -98,7 +111,7 @@ All use inline `style={{}}` objects and Recharts for visualization. Dark financi
 
 - **Windows-only:** MT5 API (`MetaTrader5` package) requires Windows. The frontend and SQLite layer are portable, but `core/mt5_client.py` is not.
 - **Paper trading only:** `mt5.order_send()` is not called anywhere. `TradeEngine` simulates trades via SQLite only.
-- **No position persistence across crashes:** In-memory trade state in `TradeEngine` is lost on server restart. On-disk state is only in `matador_ops` (closed trades) and `beta_ultimo.json` (last beta).
+- **No position persistence across crashes:** In-memory trade state in `TradeEngine` is lost on server restart. On-disk state is only in `matador_ops` (closed trades). `beta_ultimo.json` exists on disk but is no longer read or written by V2 — beta is recomputed inline each poll.
 - **Symbol rollover:** `WIN$N`, `WDO$N`, `DI1$N` are continuous symbols requiring manual update each contract expiry.
 
 <!-- BACKLOG.MD MCP GUIDELINES START -->

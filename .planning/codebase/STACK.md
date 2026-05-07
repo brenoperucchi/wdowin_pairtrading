@@ -55,7 +55,7 @@
 | Process Manager | PM2 or `start.bat` (launches Backend + Vite) |
 | Cloud State | Firebase RTDB (push every 15s live, 5min history) |
 | Data Persistence | SQLite3 (`trades.db`) |
-| Beta State | File-based (`beta_ultimo.json`) |
+| Beta State | Recomputed inline per V2 poll (`calc_beta_ols`); legacy `beta_ultimo.json` kept on disk but unused |
 
 ## Ports & Endpoints
 | Service | Port | Key Endpoints |
