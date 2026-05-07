@@ -737,23 +737,30 @@ def regime_v2():
 
     # ── Centralized risk gate ──
     eg_pvalue = compute_engle_granger_pvalue(eg_input_a, eg_input_b, closed_bar_ts)
-    gate = risk_gate(
-        z_wdo=z_wdo_closed, z_di=float(z_di),
-        rho_level=rho_level_closed,
-        beta_delta_pct=beta_delta_pct_closed,
-        eg_pvalue=eg_pvalue,
-        hour=now_dt.hour, minute=now_dt.minute,
-        bar_close_confirmed=bar_close_confirmed,
-        trades_today_count=trades_today_count,
-        daily_pnl_brl=daily_pnl_brl,
-        minutes_since_last_loss=minutes_since_last_loss,
-        # Real check: connect_mt5() at endpoint top guarantees a connection
-        # was alive earlier in the poll, but the terminal can drop between
-        # there and here. terminal_info() returns None when disconnected.
-        mt5_connected=mt5.terminal_info() is not None,
-        joh_open=joh_open,
-        hmm_state=hmm.current_hmm_regime,
-    )
+
+    def _build_gate(trades_today, daily_pnl, mins_since_loss):
+        # Closure captures all market-side inputs, which don't change
+        # across the pre/post-evaluate boundary. Only the operational
+        # stats vary (when an exit fires inside evaluate).
+        return risk_gate(
+            z_wdo=z_wdo_closed, z_di=float(z_di),
+            rho_level=rho_level_closed,
+            beta_delta_pct=beta_delta_pct_closed,
+            eg_pvalue=eg_pvalue,
+            hour=now_dt.hour, minute=now_dt.minute,
+            bar_close_confirmed=bar_close_confirmed,
+            trades_today_count=trades_today,
+            daily_pnl_brl=daily_pnl,
+            minutes_since_last_loss=mins_since_loss,
+            # Real check: connect_mt5() at endpoint top guarantees a connection
+            # was alive earlier in the poll, but the terminal can drop between
+            # there and here. terminal_info() returns None when disconnected.
+            mt5_connected=mt5.terminal_info() is not None,
+            joh_open=joh_open,
+            hmm_state=hmm.current_hmm_regime,
+        )
+
+    gate = _build_gate(trades_today_count, daily_pnl_brl, minutes_since_last_loss)
 
     trade_result = _trade_engine.evaluate(
         z_wdo=z_wdo_closed, z_di=float(z_di),
@@ -761,6 +768,18 @@ def regime_v2():
         rho=rho_closed, gate=gate, hmm_state=hmm.current_hmm_regime,
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_closed,
         nwe_is_up=nwe_is_up_closed, nwe_upper=nwe_upper_closed, nwe_lower=nwe_lower_closed,
+    )
+
+    # Refresh the gate post-evaluate so the published payload reflects
+    # any STOP_LOSS / TARGET that fired during this poll. Without this,
+    # regime_health.gate_allowed could publish stale `true` while a
+    # strategy result correctly carries LOSS_COOLDOWN. Engine state is
+    # already committed to SQLite by _close_trade — subsequent queries
+    # see fresh values. (Codex round-5 medium.)
+    gate = _build_gate(
+        _trade_engine.count_trades_today(today_str),
+        _trade_engine.pnl_today(today_str),
+        _trade_engine.minutes_since_last_loss(now=now_dt),
     )
 
     # History — Statefully loaded from DB to prevent repainting

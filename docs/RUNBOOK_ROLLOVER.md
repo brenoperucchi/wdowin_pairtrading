@@ -40,11 +40,14 @@ The day before any expiry:
 2. In MT5 Market Watch, verify `WIN$N`, `WDO$N`, `DI1$N` are all enabled
    and pointing at the new front-month (the symbol's "Spec" tab shows the
    underlying physical contract).
-3. **Backfill check**: `python scripts/probe_mt5.py --bars 200` and inspect
-   the last bar before/after the rollover ts. If a > 5σ jump appears in the
-   spread, note the rollover ts in your trade journal so post-mortem
-   reviews can flag the discontinuity (the `bar_history` table currently
-   has no per-bar status column; future improvement could add one).
+3. **Symbol & bid/ask probe**: run
+   `py.exe scripts/probe_mt5.py` (or the WSL form documented in the
+   script header). It reports each symbol's `visible/bid/ask/digits`,
+   confirming MT5 is mapped to the new front-month contract. Then load
+   the dashboard chart and visually inspect the rollover bar — if a
+   > 5σ jump appears in the spread, note the rollover ts in your trade
+   journal so post-mortem reviews can flag the discontinuity (the
+   `bar_history` table has no per-bar status column today).
 4. **Restart the engine fresh** so the Kalman filter re-burns its 15k bars
    on the post-rollover series:
    ```
