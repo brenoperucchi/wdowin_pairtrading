@@ -1,6 +1,7 @@
 # Motor de Compra/Venda e Fluxo de Dados
 
-**Data:** 2026-05-07  
+**Data:** 2026-05-07
+
 **Escopo:** fluxo operacional do sistema em modo live/paper, fora dos scripts de backtest.
 
 Este documento explica como os dados entram no sistema, como os indicadores sao calculados, como o `TradeEngine` decide compra/venda e como o dashboard consome o resultado.
@@ -430,7 +431,7 @@ O diretorio `data/` esta no `.gitignore`, entao bases historicas nao ficam versi
 5. Johansen e HMM ainda nao sao gates fortes de entrada.
 6. A paridade entre `research/` e `TradeEngine` precisa ser reconciliada antes de live.
 7. O endpoint legado `/api/regime` V1 (OLS) foi removido; toda observacao do regime passa por `/api/v2/regime` (Kalman).
-8. A tabela `bar_history` e referenciada pelo backend, mas precisa de migration idempotente confiavel.
+8. A tabela `bar_history` tem migration idempotente (`init_bar_history`) e dedup por `INSERT OR IGNORE` no `timestamp` (PK). O caminho de escrita esta ativo: o V2 chama `_persist_closed_bars(live_history)` a cada poll, persistindo barras fechadas e pulando a barra aberta para evitar repaint.
 
 ## Fonte de Verdade Atual
 

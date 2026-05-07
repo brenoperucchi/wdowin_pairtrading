@@ -275,15 +275,57 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
     try:
         conn = sqlite3.connect(db_path, timeout=10.0)
         c = conn.cursor()
+        nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
         c.execute('''
             INSERT OR IGNORE INTO bar_history
             (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, int(nwe_is_up)))
+        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up_val))
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"[ERRO DB] falha ao salvar bar_history: {e}")
+
+
+def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
+    """Persist closed bars from a live history payload to bar_history.
+
+    Skips the last entry (it is the still-forming bar; saving it would freeze
+    a not-yet-final value into the non-repainting source-of-truth). Returns the
+    number of save attempts (independent of INSERT OR IGNORE outcome).
+
+    The function reads the unfiltered z values (z_unfiltered_*) so that
+    load_bar_history's NWE re-application is consistent across writes/reads.
+    """
+    if not history or len(history) < 2:
+        return 0
+    saved = 0
+    for entry in history[:-1]:
+        try:
+            local_ts = int(datetime.strptime(
+                f"{entry['date']} {entry['bar_time']}", "%Y-%m-%d %H:%M"
+            ).timestamp())
+            save_bar_history(
+                timestamp=local_ts,
+                date_str=entry["date"],
+                bar_time=entry["bar_time"],
+                win_price=entry.get("win_price"),
+                wdo_price=None,
+                di_price=None,
+                spread_wdo=entry.get("spread"),
+                spread_di=None,
+                z_wdo=entry.get("z_unfiltered_wdo", entry.get("z")),
+                z_di=entry.get("z_unfiltered_di", entry.get("z_di", 0.0)),
+                nwe_center=entry.get("nwe"),
+                nwe_upper=entry.get("nweUpper"),
+                nwe_lower=entry.get("nweLower"),
+                nwe_is_up=entry.get("isUp"),
+                db_path=db_path,
+            )
+            saved += 1
+        except Exception as exc:
+            print(f"[ERRO DB] persist bar_history skip: {exc}")
+    return saved
 
 def load_bar_history(days=30, db_path: str = "trades.db"):
     try:
@@ -685,7 +727,11 @@ def regime_v2():
             nwe_data=(nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr),
             di_map=di_map
         )
-    
+
+    # Persist closed bars so the next poll's `db_hist` carries them forward
+    # (non-repainting). The open bar is intentionally skipped — its z/NWE
+    # values will still mutate before close.
+    _persist_closed_bars(live_history)
 
     sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
 

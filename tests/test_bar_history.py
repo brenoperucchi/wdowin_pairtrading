@@ -1,14 +1,24 @@
 """Tests for bar_history migration and save/load roundtrip.
 
 Covers TASK-3 AC #2: idempotent CREATE TABLE, INSERT OR IGNORE dedup,
-and date-window filtering in load_bar_history.
+date-window filtering in load_bar_history, and the V2 persistence helper
+that activates the non-repainting write path.
 """
 import sqlite3
 import time
+from datetime import datetime, timedelta
 
+import numpy as np
 import pytest
 
-from server import init_bar_history, save_bar_history, load_bar_history
+from core.config import TIME_OFFSET
+from server import (
+    _build_history,
+    _persist_closed_bars,
+    init_bar_history,
+    load_bar_history,
+    save_bar_history,
+)
 
 
 @pytest.fixture
@@ -95,3 +105,96 @@ def test_nwe_blocking_in_load_zeros_buy_when_nwe_up(db):
     assert rows[0]["z_raw_wdo"] == 0  # z zeroed too
     # Original value preserved in z_unfiltered_wdo
     assert rows[0]["z_unfiltered_wdo"] == -2.0
+
+
+# ─── V2 persistence wiring (closes codex-flagged gap) ───────────────────────
+
+def _utc_ts_for_local(dt: datetime) -> int:
+    return int(dt.timestamp()) - TIME_OFFSET
+
+
+def test_persist_closed_bars_skips_open_bar(db):
+    """The last entry is the still-forming bar — must NOT be persisted."""
+    today = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    bars = [today + timedelta(minutes=5 * i) for i in range(3)]  # closed, closed, OPEN
+    times = np.array([_utc_ts_for_local(dt) for dt in bars], dtype=np.int64)
+    z = np.array([0.5, -0.3, 1.7])
+    spread = np.array([40.0, 41.0, 42.0])
+    win_prices = np.array([130000.0, 130100.0, 130200.0])
+    nwe_data = (
+        np.array([130050.0, 130150.0, 130250.0]),
+        np.array([130200.0, 130300.0, 130400.0]),
+        np.array([129900.0, 130000.0, 130100.0]),
+        np.array([True, True, True]),
+    )
+
+    history = _build_history(times, z, spread, win_prices=win_prices, nwe_data=nwe_data)
+    assert len(history) == 3  # all in session
+
+    saved = _persist_closed_bars(history, db_path=db)
+    assert saved == 2  # last bar skipped
+
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 2
+    assert {r["bar_time"] for r in rows} == {"10:00", "10:05"}
+    # Open bar at 10:10 must not be present
+    assert "10:10" not in {r["bar_time"] for r in rows}
+
+
+def test_persist_closed_bars_idempotent_across_polls(db):
+    """Two consecutive polls (V2 fires every 2.5s) must not duplicate rows."""
+    today = datetime.now().replace(hour=11, minute=0, second=0, microsecond=0)
+    bars = [today + timedelta(minutes=5 * i) for i in range(3)]
+    times = np.array([_utc_ts_for_local(dt) for dt in bars], dtype=np.int64)
+    z = np.array([0.1, 0.2, 0.3])
+    spread = np.array([40.0, 41.0, 42.0])
+
+    history = _build_history(times, z, spread)
+    _persist_closed_bars(history, db_path=db)
+    _persist_closed_bars(history, db_path=db)  # second poll, same bars
+
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 2  # INSERT OR IGNORE deduped
+
+
+def test_persist_closed_bars_writes_unfiltered_z(db):
+    """Persisted z_wdo must be the unfiltered value so load's NWE re-application
+    is the single source of truth (avoid double-filtering)."""
+    today = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    bars = [today + timedelta(minutes=5 * i) for i in range(2)]
+    times = np.array([_utc_ts_for_local(dt) for dt in bars], dtype=np.int64)
+    z = np.array([-2.0, 0.0])  # first bar is a buy signal
+    spread = np.array([42.0, 43.0])
+    win_prices = np.array([130000.0, 130000.0])
+    nwe_data = (
+        np.array([130100.0, 130100.0]),
+        np.array([130250.0, 130250.0]),
+        np.array([129950.0, 129950.0]),
+        np.array([True, True]),  # is_up → buy blocked in _build_history output
+    )
+
+    history = _build_history(times, z, spread, win_prices=win_prices, nwe_data=nwe_data)
+    # In live history, the closed bar's filtered z is 0 but z_unfiltered_wdo is -2.0
+    assert history[0]["z_raw_wdo"] == 0
+    assert history[0]["z_unfiltered_wdo"] == -2.0
+
+    _persist_closed_bars(history, db_path=db)
+
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    # load_bar_history re-applies NWE block; if we'd written 0, z_unfiltered would be 0 too.
+    assert rows[0]["z_unfiltered_wdo"] == -2.0  # unfiltered preserved
+    assert rows[0]["sig_wdo"] == 0  # filter still applied on read
+
+
+def test_persist_closed_bars_handles_short_history(db):
+    """Single-element history (only the open bar) must not write anything."""
+    today = datetime.now().replace(hour=10, minute=30, second=0, microsecond=0)
+    times = np.array([_utc_ts_for_local(today)], dtype=np.int64)
+    z = np.array([0.5])
+    spread = np.array([40.0])
+
+    history = _build_history(times, z, spread)
+    saved = _persist_closed_bars(history, db_path=db)
+    assert saved == 0
+    assert load_bar_history(days=1, db_path=db) == []
