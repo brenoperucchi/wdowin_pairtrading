@@ -117,13 +117,16 @@ def simulate_with_nwe(z, win_c, bar_mins, is_up, upper, lower,
                       kalman_betas=None, joh_gates=None, joh_betas=None,
                       use_johansen=False):
     """WDO/DI isolado — COM filtro NWE. Lógica do plot_portfolio_v4 +
-    custos (slippage + B3) e descarte de trades cruzando rollover."""
+    custos (slippage + B3) e descarte de trades cruzando rollover.
+
+    Returns (pnl, n_discarded). n_discarded counts open trades that were
+    closed flat by a rollover bar (AC #15 transparency)."""
     n = len(win_c); pnl = np.zeros(n)
-    pos = 0; ep = 0.0; bh = False
+    pos = 0; ep = 0.0; bh = False; n_discarded = 0
     for i in range(1000, n):
         p = win_c[i]; tm = bar_mins[i]
         if pos != 0 and rollover_mask[i]:
-            pos = 0; continue  # AC #15: discard trade crossing rollover
+            pos = 0; n_discarded += 1; continue  # AC #15: discard trade crossing rollover
         if pos != 0 and tm >= FC:
             d = (p-ep) if pos == 1 else (ep-p)
             pnl[i] = _pnl_brl_close(d); pos = 0; continue
@@ -158,20 +161,22 @@ def simulate_with_nwe(z, win_c, bar_mins, is_up, upper, lower,
             if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
             elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
             elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
-    return pnl
+    return pnl, n_discarded
 
 def simulate_consensus_no_nwe(z_wdo, z_di, win_c, bar_mins, rollover_mask,
                                kb_wdo=None, jg_wdo=None, jb_wdo=None,
                                kb_di=None, jg_di=None, jb_di=None,
                                use_johansen=False):
     """Consenso PURO — SEM filtro NWE, só z-scores alinhados.
-    Inclui custos + descarte por rollover (AC #15)."""
+    Inclui custos + descarte por rollover (AC #15).
+
+    Returns (pnl, n_discarded)."""
     n = len(win_c); pnl = np.zeros(n)
-    pos = 0; ep = 0.0; bh = False
+    pos = 0; ep = 0.0; bh = False; n_discarded = 0
     for i in range(1000, n):
         p = win_c[i]; tm = bar_mins[i]
         if pos != 0 and rollover_mask[i]:
-            pos = 0; continue
+            pos = 0; n_discarded += 1; continue
         if pos != 0 and tm >= FC:
             d = (p-ep) if pos == 1 else (ep-p)
             pnl[i] = _pnl_brl_close(d); pos = 0; continue
@@ -207,20 +212,22 @@ def simulate_consensus_no_nwe(z_wdo, z_di, win_c, bar_mins, rollover_mask,
             if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
             elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
             elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
-    return pnl
+    return pnl, n_discarded
 
 def simulate_consensus_with_nwe(z_wdo, z_di, win_c, bar_mins, is_up, upper, lower,
                                  rollover_mask,
                                  kb_wdo=None, jg_wdo=None, jb_wdo=None,
                                  kb_di=None, jg_di=None, jb_di=None,
                                  use_johansen=False):
-    """Consenso COM filtro NWE. Inclui custos + descarte por rollover."""
+    """Consenso COM filtro NWE. Inclui custos + descarte por rollover.
+
+    Returns (pnl, n_discarded)."""
     n = len(win_c); pnl = np.zeros(n)
-    pos = 0; ep = 0.0; bh = False
+    pos = 0; ep = 0.0; bh = False; n_discarded = 0
     for i in range(1000, n):
         p = win_c[i]; tm = bar_mins[i]
         if pos != 0 and rollover_mask[i]:
-            pos = 0; continue
+            pos = 0; n_discarded += 1; continue
         if pos != 0 and tm >= FC:
             d = (p-ep) if pos == 1 else (ep-p)
             pnl[i] = _pnl_brl_close(d); pos = 0; continue
@@ -266,7 +273,7 @@ def simulate_consensus_with_nwe(z_wdo, z_di, win_c, bar_mins, is_up, upper, lowe
             if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
             elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
             elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
-    return pnl
+    return pnl, n_discarded
 
 # ─── Johansen rolling ───────────────────────────────────────────────────────
 
@@ -380,25 +387,29 @@ def main():
     #  BATERIA 1: V4 PURO (sem Johansen)
     # ══════════════════════════════════════════════════════════════════════════
     print("\nExecutando Bateria 1 (V4 Puro)...")
-    pnl_wdo1 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower, rollover_mask)
-    pnl_di1  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower, rollover_mask)
-    pnl_cn1  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower, rollover_mask)
-    pnl_cp1  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins, rollover_mask)
+    pnl_wdo1, dq_wdo1 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower, rollover_mask)
+    pnl_di1,  dq_di1  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower, rollover_mask)
+    pnl_cn1,  dq_cn1  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower, rollover_mask)
+    pnl_cp1,  dq_cp1  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins, rollover_mask)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  BATERIA 2: V4 + Johansen Gate
     # ══════════════════════════════════════════════════════════════════════════
     print("Executando Bateria 2 (V4 + Johansen Gate)...")
-    pnl_wdo2 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower, rollover_mask,
-                                  kb_wdo, jg_wdo, jb_wdo, use_johansen=True)
-    pnl_di2  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower, rollover_mask,
-                                  kb_di, jg_di, jb_di, use_johansen=True)
-    pnl_cn2  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower, rollover_mask,
-                                            kb_wdo, jg_wdo, jb_wdo,
-                                            kb_di, jg_di, jb_di, use_johansen=True)
-    pnl_cp2  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins, rollover_mask,
-                                          kb_wdo, jg_wdo, jb_wdo,
+    pnl_wdo2, dq_wdo2 = simulate_with_nwe(z_wdo, win, bar_mins, is_up, upper, lower, rollover_mask,
+                                          kb_wdo, jg_wdo, jb_wdo, use_johansen=True)
+    pnl_di2,  dq_di2  = simulate_with_nwe(z_di,  win, bar_mins, is_up, upper, lower, rollover_mask,
                                           kb_di, jg_di, jb_di, use_johansen=True)
+    pnl_cn2,  dq_cn2  = simulate_consensus_with_nwe(z_wdo, z_di, win, bar_mins, is_up, upper, lower, rollover_mask,
+                                                    kb_wdo, jg_wdo, jb_wdo,
+                                                    kb_di, jg_di, jb_di, use_johansen=True)
+    pnl_cp2,  dq_cp2  = simulate_consensus_no_nwe(z_wdo, z_di, win, bar_mins, rollover_mask,
+                                                  kb_wdo, jg_wdo, jb_wdo,
+                                                  kb_di, jg_di, jb_di, use_johansen=True)
+
+    discarded_b1 = dq_wdo1 + dq_di1 + dq_cn1 + dq_cp1
+    discarded_b2 = dq_wdo2 + dq_di2 + dq_cn2 + dq_cp2
+    print(f"Trades discarded by rollover — Bateria 1: {discarded_b1} | Bateria 2: {discarded_b2}")
 
     # ── Stats ──
     s_w1, s_d1, s_cn1, s_cp1 = stats(pnl_wdo1), stats(pnl_di1), stats(pnl_cn1), stats(pnl_cp1)
@@ -488,7 +499,8 @@ def main():
         f.write(f"e o PnL realizado de R${sp1['pnl']:.0f} para R${sp2['pnl']:.0f}. ")
         f.write(f"P&L está líquido de slippage ({cfg.WIN_SLIPPAGE_PTS} pts/lado) e ")
         f.write(f"custos B3 (R${cfg.B3_COST_PER_CONTRACT_RT:.2f}/contrato/RT). ")
-        f.write(f"Rollover: {n_rollover} barras descartadas ({100.0 * n_rollover / n:.2f}%).\n\n")
+        f.write(f"Rollover: {n_rollover} barras sinalizadas ({100.0 * n_rollover / n:.2f}%); ")
+        f.write(f"trades descartados por cruzamento — Bateria 1: {discarded_b1}, Bateria 2: {discarded_b2}.\n\n")
         f.write("## 5. Curva de Capital (Equity Curve)\n\n")
         f.write("![Equity Curve V5](./portfolio_v5_advanced.png)\n")
 

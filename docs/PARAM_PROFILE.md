@@ -154,7 +154,7 @@ These scripts pull from the canonical module. They may still redefine
 | Script                                | Imports                                    | Local overrides                              |
 |---------------------------------------|--------------------------------------------|----------------------------------------------|
 | `research/backtest_johansen_gate.py`  | `MT5_PATH, SYMBOL_A, SYMBOL_B, BETA_INITIAL` | **`Z_ENTRY=1.8`** (vs live 1.4)            |
-| `research/run_matador_v5_johansen.py` | `SYMBOL_A, SYMBOL_B, DI_SYMBOL, TIMEFRAME, MT5_PATH, ...` | redefines `WIN_PV=0.20` (matches) |
+| `research/run_matador_v5_johansen.py` | `from core import config as cfg` (full module — no local overrides) | none — **canonical validation candidate (AC #15)** |
 
 ### 🔍 Sweep ranges (intentional grid search)
 
