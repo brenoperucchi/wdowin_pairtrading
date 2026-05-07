@@ -247,7 +247,55 @@ moved them into the divergent table above — `equity_curve.py` and
   for live calibration, the SL/TP base must be reconciled with live
   values first.
 
-## 4. How to keep this manifest honest
+## 4. AC #16 reconciliation methodology
+
+Use `scripts/reconcile_paper_vs_backtest.py` to test paridade between
+paper-trading P&L (`matador_ops.pnl_brl`) and the validation backtest
+(`research/run_matador_v5_johansen.py`).
+
+**Conventions** (set by slice 6c, codex round-9):
+
+- Live engine writes **gross** P&L to `matador_ops.pnl_brl`:
+  `pts_favor × WIN_CONTRACTS × WIN_PV` (no slippage, no costs — B3
+  charges the account separately and MT5 fills already include
+  slippage).
+- Backtest writes **net** P&L: `_pnl_brl_close(d)` subtracts
+  `2 × WIN_SLIPPAGE_PTS × WIN_PV × WIN_CONTRACTS` of slippage and
+  `B3_COST_PER_CONTRACT_RT × WIN_CONTRACTS` of round-trip costs.
+- Both sides realize the **actual `pts_favor` at the trigger bar**
+  (not the threshold). Backtest pre-slice-6c hardcoded TP/-SL/0,
+  which overstated winners and understated losers — fixed.
+
+**Reconciliation states:**
+
+| State | Exit | Meaning |
+|-------|------|---------|
+| `BLOCKED` | 0 | `matador_ops` has 0 closed trades in lookback. AC #16 gated by data accumulation, not a code bug. |
+| `MISSING_BACKTEST` | 2 | paper data present, JSON sidecar absent — run backtest first. |
+| `PASS` | 0 | both gross and net |relative error| < 10 %. |
+| `FAIL` | 1 | one or both reconciliations exceed 10 % — investigate. |
+
+**Procedure:**
+
+```bash
+# 1. Generate fresh backtest summary (Windows host w/ MT5)
+python research/run_matador_v5_johansen.py
+# Writes .planning/docs/assets/portfolio_v5_summary.json
+
+# 2. Run reconcile (any host with read access to trades.db)
+python scripts/reconcile_paper_vs_backtest.py --days 30
+
+# Override portfolio leg or battery if needed:
+python scripts/reconcile_paper_vs_backtest.py \
+    --bateria bateria_2_johansen_gate \
+    --portfolio-key wdo_nwe
+```
+
+As of 2026-05-07 the engine has logged 0 closed paper trades, so
+AC #16 reads as `BLOCKED` and is **deferred** until paper data
+accumulates (typical: a few weeks of session uptime).
+
+## 5. How to keep this manifest honest
 
 `tests/test_param_profile.py` asserts:
 - `core/config.py` exposes every canonical name listed above with the

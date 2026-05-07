@@ -17,7 +17,7 @@ trade aqui vem de cfg; nada é hardcoded.
 
 Período: 35.000 barras M5 (~1.2 anos)
 """
-import sys, os
+import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
@@ -68,15 +68,23 @@ def calc_nwe(p, bw, lb, mm):
     return nw, nw+mae, nw-mae
 
 # ─── Cost model + rollover gap detection (TASK-3 AC #15) ────────────────────
+#
+# Exit-fill convention: simulators close at the *actual* `pts_favor` of the
+# triggering bar (i.e. `d` at the bar that breached TP / -SL / BE_LOCK), not
+# at the threshold itself. This matches `core.trade_engine._handle_open` which
+# realizes `pnl = pts_favor * WIN_CONTRACTS * WIN_PV` once `pts_favor >= tp`
+# (or `<= -sl`, etc.). Pre-slice-6c the backtest hardcoded TP/-SL/0 — that
+# overstated winners (overshoot) and understated losers (undershoot below SL),
+# breaking AC #16 paridade.
 
 def _pnl_brl_close(pts_gross):
     """Convert gross point P&L of a closed trade to realized BRL.
 
-    Applies cfg.WIN_SLIPPAGE_PTS on each side (2× total) and round-trip
-    cfg.B3_COST_PER_CONTRACT_RT × cfg.WIN_CONTRACTS.
-
-    A favorable trade gives positive `pts_gross`; a stop gives negative.
-    Both pay slippage and costs, so the helper handles both sides.
+    `pts_gross` is the actual `pts_favor` at the bar that triggered the exit
+    (positive for favorable, negative for stop). Applies cfg.WIN_SLIPPAGE_PTS
+    on each side (2× total) and round-trip cfg.B3_COST_PER_CONTRACT_RT ×
+    cfg.WIN_CONTRACTS. Slippage is subtracted regardless of sign — the
+    operator pays it on both entries and exits.
     """
     pts_net = pts_gross - 2 * cfg.WIN_SLIPPAGE_PTS
     gross_brl = pts_net * cfg.WIN_PV * cfg.WIN_CONTRACTS
@@ -158,9 +166,9 @@ def simulate_with_nwe(z, win_c, bar_mins, is_up, upper, lower,
         else:
             d = (p-ep) if pos == 1 else (ep-p)
             if not bh and d >= BE: bh = True
-            if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
-            elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
-            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
+            if d >= TP: pnl[i] = _pnl_brl_close(d); pos = 0
+            elif bh and d <= 0: pnl[i] = _pnl_brl_close(d); pos = 0
+            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(d); pos = 0
     return pnl, n_discarded
 
 def simulate_consensus_no_nwe(z_wdo, z_di, win_c, bar_mins, rollover_mask,
@@ -209,9 +217,9 @@ def simulate_consensus_no_nwe(z_wdo, z_di, win_c, bar_mins, rollover_mask,
         else:
             d = (p-ep) if pos == 1 else (ep-p)
             if not bh and d >= BE: bh = True
-            if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
-            elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
-            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
+            if d >= TP: pnl[i] = _pnl_brl_close(d); pos = 0
+            elif bh and d <= 0: pnl[i] = _pnl_brl_close(d); pos = 0
+            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(d); pos = 0
     return pnl, n_discarded
 
 def simulate_consensus_with_nwe(z_wdo, z_di, win_c, bar_mins, is_up, upper, lower,
@@ -270,9 +278,9 @@ def simulate_consensus_with_nwe(z_wdo, z_di, win_c, bar_mins, is_up, upper, lowe
         else:
             d = (p-ep) if pos == 1 else (ep-p)
             if not bh and d >= BE: bh = True
-            if d >= TP: pnl[i] = _pnl_brl_close(TP); pos = 0
-            elif bh and d <= 0: pnl[i] = _pnl_brl_close(0); pos = 0
-            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(-SL); pos = 0
+            if d >= TP: pnl[i] = _pnl_brl_close(d); pos = 0
+            elif bh and d <= 0: pnl[i] = _pnl_brl_close(d); pos = 0
+            elif not bh and d <= -SL: pnl[i] = _pnl_brl_close(d); pos = 0
     return pnl, n_discarded
 
 # ─── Johansen rolling ───────────────────────────────────────────────────────
@@ -505,6 +513,59 @@ def main():
         f.write("![Equity Curve V5](./portfolio_v5_advanced.png)\n")
 
     print(f"\n[REPORT] {report_path}")
+
+    # --- JSON sidecar for AC #16 reconciliation (slice 6c) ---
+    # `pnl` in `stats` is already net (cost-adjusted by _pnl_brl_close).
+    # Gross is recovered analytically: gross = net + trades × per-trade cost,
+    # where per-trade cost = 2·WIN_SLIPPAGE_PTS·WIN_PV·WIN_CONTRACTS +
+    # B3_COST_PER_CONTRACT_RT·WIN_CONTRACTS. Keeps the simulator hot-path
+    # cheap (no second pnl array) while still exposing both numbers.
+    per_trade_cost_brl = (
+        2 * cfg.WIN_SLIPPAGE_PTS * cfg.WIN_PV * cfg.WIN_CONTRACTS
+        + cfg.B3_COST_PER_CONTRACT_RT * cfg.WIN_CONTRACTS
+    )
+
+    def _summary_pair(s, discarded):
+        return {
+            "trades": int(s["trades"]),
+            "pnl_brl_net": float(s["pnl"]),
+            "pnl_brl_gross": float(s["pnl"] + s["trades"] * per_trade_cost_brl),
+            "win_rate_pct": float(s["wr"]),
+            "max_dd_brl": float(s["dd"]),
+            "rollover_discarded": int(discarded),
+        }
+
+    summary = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "bars_total": int(n),
+        "bars_used": int(BARS),
+        "rollover_bars_flagged": int(n_rollover),
+        "cost_model": {
+            "slippage_pts_per_side": cfg.WIN_SLIPPAGE_PTS,
+            "b3_cost_per_contract_rt_brl": cfg.B3_COST_PER_CONTRACT_RT,
+            "win_contracts": cfg.WIN_CONTRACTS,
+            "win_pv_brl_per_pt": cfg.WIN_PV,
+            "per_trade_cost_brl": per_trade_cost_brl,
+        },
+        "bateria_1_v4_puro": {
+            "wdo_nwe": _summary_pair(s_w1, dq_wdo1),
+            "di_nwe": _summary_pair(s_d1, dq_di1),
+            "consenso_nwe": _summary_pair(s_cn1, dq_cn1),
+            "consenso_puro": _summary_pair(s_cp1, dq_cp1),
+            "portfolio_wdo_di_cons_puro": _summary_pair(sp1, discarded_b1),
+        },
+        "bateria_2_johansen_gate": {
+            "wdo_nwe": _summary_pair(s_w2, dq_wdo2),
+            "di_nwe": _summary_pair(s_d2, dq_di2),
+            "consenso_nwe": _summary_pair(s_cn2, dq_cn2),
+            "consenso_puro": _summary_pair(s_cp2, dq_cp2),
+            "portfolio_wdo_di_cons_puro": _summary_pair(sp2, discarded_b2),
+        },
+    }
+    summary_path = os.path.join(OUT, "portfolio_v5_summary.json")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    print(f"[SUMMARY] {summary_path}")
 
     # --- Gráfico Avançado (mesma estrutura do V4) ---
     plt.style.use('dark_background')
