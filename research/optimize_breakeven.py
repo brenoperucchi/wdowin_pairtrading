@@ -1,4 +1,10 @@
 """
+RESEARCH EXPLORATÓRIO — NÃO USAR COMO VALIDAÇÃO DE PRODUÇÃO
+============================================================
+Este script diverge do motor live (core/config.py + core/trade_engine.py).
+Ver docs/PARAM_PROFILE.md §2 (divergent hardcoded values).
+Validação operacional: research/run_matador_v5_johansen.py (TASK-3 AC #15).
+
 Otimizacao de BE/Trailing Stop para WIN
 Janela: 10h as 16h
 V2 Kalman BUY (SL=350, TP=500)

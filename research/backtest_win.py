@@ -1,4 +1,10 @@
 """
+RESEARCH EXPLORATÓRIO — NÃO USAR COMO VALIDAÇÃO DE PRODUÇÃO
+============================================================
+Este script diverge do motor live (core/config.py + core/trade_engine.py).
+Ver docs/PARAM_PROFILE.md §2 (divergent hardcoded values).
+Validação operacional: research/run_matador_v5_johansen.py (TASK-3 AC #15).
+
 Backtest WIN Only — Entry a mercado, SL 560 / TP 600
 =====================================================
 Sinal: |z| >= 2.0 e < 4.0, safe_to_trade=True

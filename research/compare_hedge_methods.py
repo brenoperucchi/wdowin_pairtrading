@@ -1,5 +1,11 @@
 # research/compare_hedge_methods.py
 """
+RESEARCH EXPLORATÓRIO — NÃO USAR COMO VALIDAÇÃO DE PRODUÇÃO
+============================================================
+Este script diverge do motor live (core/config.py + core/trade_engine.py).
+Ver docs/PARAM_PROFILE.md §2 (divergent hardcoded values).
+Validação operacional: research/run_matador_v5_johansen.py (TASK-3 AC #15).
+
 Hedge Ratio Methods Comparison: WIN×DI Pair Trading
 ====================================================
 Compares 4 methods for calculating the spread/z-score:

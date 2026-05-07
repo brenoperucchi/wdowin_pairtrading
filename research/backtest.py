@@ -1,4 +1,10 @@
 """
+RESEARCH EXPLORATÓRIO — NÃO USAR COMO VALIDAÇÃO DE PRODUÇÃO
+============================================================
+Este script diverge do motor live (core/config.py + core/trade_engine.py).
+Ver docs/PARAM_PROFILE.md §2 (divergent hardcoded values).
+Validação operacional: research/run_matador_v5_johansen.py (TASK-3 AC #15).
+
 Backtest V1 (OLS) vs V2 (Kalman) — WIN/WDO Legs Separados
 ==========================================================
 Compara os dois modelos de z-score em 5 anos de dados M1 agregados para M5.

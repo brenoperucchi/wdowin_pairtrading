@@ -1,4 +1,10 @@
 """
+RESEARCH EXPLORATÓRIO — NÃO USAR COMO VALIDAÇÃO DE PRODUÇÃO
+============================================================
+Este script diverge do motor live (core/config.py + core/trade_engine.py).
+Ver docs/PARAM_PROFILE.md §2 (divergent hardcoded values).
+Validação operacional: research/run_matador_v5_johansen.py (TASK-3 AC #15).
+
 Otimização de Limites Diários: Max Trades e Max Loss
 V2 Kalman BUY (Z=2.0, SL=350, TP=500)
 V1 OLS SELL (Z=2.1, SL=300, TP=1400)

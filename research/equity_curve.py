@@ -1,4 +1,10 @@
 """
+RESEARCH EXPLORATÓRIO — NÃO USAR COMO VALIDAÇÃO DE PRODUÇÃO
+============================================================
+Este script diverge do motor live (core/config.py + core/trade_engine.py).
+Ver docs/PARAM_PROFILE.md §2 (divergent hardcoded values).
+Validação operacional: research/run_matador_v5_johansen.py (TASK-3 AC #15).
+
 Equity Curve: V2 Kalman BUY z=2.0 + V1 OLS SELL z=2.1
 WIN SL=560 TP=600 | 2 contratos
 """

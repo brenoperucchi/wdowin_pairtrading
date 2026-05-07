@@ -1,5 +1,11 @@
 # research/backtest_johansen_gate.py
 """
+RESEARCH EXPLORATÓRIO — NÃO USAR COMO VALIDAÇÃO DE PRODUÇÃO
+============================================================
+Este script importa core.config mas sobrescreve Z_ENTRY=1.8 (vs live 1.4).
+Ver docs/PARAM_PROFILE.md §2 (divergent hardcoded values).
+Validação operacional: research/run_matador_v5_johansen.py (TASK-3 AC #15).
+
 Johansen Gate Backtest — WIN x WDO
 ===================================
 Compares 4 strategies using Kalman z-score as signal source:
