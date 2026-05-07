@@ -295,3 +295,107 @@ def test_get_trades_for_date_preserva_campos(engine):
     assert t["price_win_out"] is None
     assert t["pnl_brl"] is None
     assert t["time_out"] is None
+
+
+# ── Operational risk stat helpers (TASK-3 AC #11) ───────────────────────────
+
+def test_count_trades_today_empty(engine):
+    assert engine.count_trades_today("2026-05-07") == 0
+
+
+def test_count_trades_today_includes_open_and_closed(engine):
+    today = datetime.now().strftime("%Y-%m-%d")
+    # Open + close one trade
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5, win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=0,
+    )
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0, win_price=130000 + BUY_TP, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=5,
+    )
+    # Open another, leave it open (different strategy slot)
+    engine.evaluate(
+        z_wdo=-2.1, z_di=0.0, win_price=100000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=12, minute=0,
+        nwe_is_up=False, nwe_upper=120000, nwe_lower=99000,
+    )
+    assert engine.count_trades_today(today) == 2
+
+
+def test_pnl_today_zero_when_no_closed_trades(engine):
+    today = datetime.now().strftime("%Y-%m-%d")
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5, win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=0,
+    )
+    # Trade is OPEN, no realized P&L yet
+    assert engine.pnl_today(today) == 0.0
+
+
+def test_pnl_today_sums_closed_trades(engine):
+    today = datetime.now().strftime("%Y-%m-%d")
+    # BUY → TARGET (positive PnL)
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5, win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=0,
+    )
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0, win_price=130000 + BUY_TP, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=5,
+    )
+    pnl = engine.pnl_today(today)
+    assert pnl > 0
+
+
+def test_minutes_since_last_loss_none_when_no_history(engine):
+    assert engine.minutes_since_last_loss() is None
+
+
+def test_minutes_since_last_loss_after_stop_loss(engine):
+    # Open BUY then trigger SL
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5, win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=0,
+    )
+    engine.evaluate(
+        z_wdo=-1.0, z_di=-0.5,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=5,
+    )
+    # Cooldown should be ~0 minutes from now
+    mins = engine.minutes_since_last_loss()
+    assert mins is not None
+    assert mins < 1.0
+
+
+def test_minutes_since_last_loss_uses_explicit_now(engine):
+    """`now` arg lets callers compute deterministic deltas — important so
+    the V2 endpoint gets a consistent reference instead of clock drift."""
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5, win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=0,
+    )
+    engine.evaluate(
+        z_wdo=-1.0, z_di=-0.5,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=5,
+    )
+    future = datetime.now() + timedelta(minutes=45)
+    mins = engine.minutes_since_last_loss(now=future)
+    assert mins is not None
+    assert 44.0 < mins < 46.0
+
+
+def test_minutes_since_last_loss_ignores_target_exits(engine):
+    """Only STOP_LOSS exits count for cooldown — TARGET wins shouldn't
+    keep a fresh trade off the table."""
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5, win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=0,
+    )
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0, win_price=130000 + BUY_TP, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=5,
+    )
+    assert engine.minutes_since_last_loss() is None

@@ -204,3 +204,106 @@ def test_eg_returns_none_when_coint_yields_nan(monkeypatch):
     win = np.linspace(130000, 130500, 100)
     wdo = np.linspace(5800, 5850, 100)
     assert compute_engle_granger_pvalue(win, wdo, bar_ts=99) is None
+
+
+# ─── Operational risk gates (TASK-3 AC #11) ─────────────────────────────────
+
+from core.config import (
+    MAX_TRADES_PER_DAY,
+    DAILY_LOSS_LIMIT_BRL,
+    LOSS_COOLDOWN_MIN,
+)
+
+
+def test_max_trades_below_limit_passes():
+    out = risk_gate(**_ok_kwargs(trades_today_count=MAX_TRADES_PER_DAY - 1))
+    assert out["allowed"] is True
+    assert out["checks"]["max_trades"] is True
+
+
+def test_max_trades_at_limit_blocks():
+    out = risk_gate(**_ok_kwargs(trades_today_count=MAX_TRADES_PER_DAY))
+    assert out["allowed"] is False
+    assert "MAX_TRADES_REACHED" in out["reasons"]
+
+
+def test_max_trades_above_limit_blocks():
+    out = risk_gate(**_ok_kwargs(trades_today_count=MAX_TRADES_PER_DAY + 5))
+    assert "MAX_TRADES_REACHED" in out["reasons"]
+
+
+def test_daily_pnl_above_limit_passes():
+    out = risk_gate(**_ok_kwargs(daily_pnl_brl=-DAILY_LOSS_LIMIT_BRL + 1.0))
+    assert out["allowed"] is True
+    assert out["checks"]["daily_loss"] is True
+
+
+def test_daily_pnl_at_limit_blocks():
+    """Loss exactly equal to the limit must trip the gate (>= triggers)."""
+    out = risk_gate(**_ok_kwargs(daily_pnl_brl=-DAILY_LOSS_LIMIT_BRL))
+    assert "DAILY_LOSS_LIMIT" in out["reasons"]
+
+
+def test_daily_pnl_above_limit_blocks():
+    out = risk_gate(**_ok_kwargs(daily_pnl_brl=-(DAILY_LOSS_LIMIT_BRL + 50)))
+    assert "DAILY_LOSS_LIMIT" in out["reasons"]
+
+
+def test_profitable_day_never_blocks_on_loss_gate():
+    """No upper bound on profit — only the loss side can block."""
+    out = risk_gate(**_ok_kwargs(daily_pnl_brl=10_000.0))
+    assert out["checks"]["daily_loss"] is True
+
+
+def test_no_prior_loss_means_no_cooldown():
+    """minutes_since_last_loss=None → no cooldown applies."""
+    out = risk_gate(**_ok_kwargs(minutes_since_last_loss=None))
+    assert out["checks"]["loss_cooldown"] is True
+
+
+def test_loss_cooldown_active_blocks():
+    out = risk_gate(**_ok_kwargs(minutes_since_last_loss=LOSS_COOLDOWN_MIN - 1))
+    assert out["allowed"] is False
+    assert "LOSS_COOLDOWN" in out["reasons"]
+
+
+def test_loss_cooldown_at_threshold_passes():
+    """Exactly at threshold, cooldown has expired."""
+    out = risk_gate(**_ok_kwargs(minutes_since_last_loss=LOSS_COOLDOWN_MIN))
+    assert out["checks"]["loss_cooldown"] is True
+
+
+def test_loss_cooldown_long_past_passes():
+    out = risk_gate(**_ok_kwargs(minutes_since_last_loss=240.0))
+    assert out["checks"]["loss_cooldown"] is True
+
+
+def test_mt5_disconnected_blocks_when_default_block_true():
+    out = risk_gate(**_ok_kwargs(mt5_connected=False))
+    assert out["allowed"] is False
+    assert "MT5_DISCONNECTED" in out["reasons"]
+
+
+def test_mt5_disconnected_allowed_when_block_disabled(monkeypatch):
+    """If BLOCK_ON_MT5_DISCONNECT is False (offline backtest mode), the gate
+    must NOT block on disconnection — the check is skipped entirely."""
+    monkeypatch.setattr(rg, "BLOCK_ON_MT5_DISCONNECT", False)
+    out = risk_gate(**_ok_kwargs(mt5_connected=False))
+    assert "MT5_DISCONNECTED" not in out["reasons"]
+    assert out["checks"]["mt5_connection"] is True
+
+
+def test_operational_failures_compose_with_market_failures():
+    out = risk_gate(**_ok_kwargs(
+        rho_level=2,
+        trades_today_count=MAX_TRADES_PER_DAY,
+        daily_pnl_brl=-(DAILY_LOSS_LIMIT_BRL + 1),
+        minutes_since_last_loss=5.0,
+    ))
+    assert out["allowed"] is False
+    assert set(out["reasons"]) >= {
+        "RHO_BREAKDOWN",
+        "MAX_TRADES_REACHED",
+        "DAILY_LOSS_LIMIT",
+        "LOSS_COOLDOWN",
+    }

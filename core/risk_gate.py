@@ -21,6 +21,10 @@ from core.config import (
     ENTRY_START_M,
     ENTRY_END_H,
     ENTRY_END_M,
+    MAX_TRADES_PER_DAY,
+    DAILY_LOSS_LIMIT_BRL,
+    LOSS_COOLDOWN_MIN,
+    BLOCK_ON_MT5_DISCONNECT,
 )
 
 
@@ -98,6 +102,10 @@ def risk_gate(
     hour: int,
     minute: int,
     bar_close_confirmed: bool,
+    trades_today_count: int = 0,
+    daily_pnl_brl: float = 0.0,
+    minutes_since_last_loss: Optional[float] = None,
+    mt5_connected: bool = True,
     joh_open: Optional[bool] = None,
     hmm_state: Optional[str] = None,
 ) -> dict:
@@ -118,10 +126,15 @@ def risk_gate(
       - beta:      |beta_delta_pct| < 25%
       - z_anomaly: max(|z_wdo|, |z_di|) < Z_ANOMALY
       - engle_granger: eg_pvalue is finite AND < 0.10
+      - max_trades: trades_today_count < MAX_TRADES_PER_DAY
+      - daily_loss: daily_pnl_brl > -DAILY_LOSS_LIMIT_BRL
+      - loss_cooldown: minutes_since_last_loss is None OR >= LOSS_COOLDOWN_MIN
+      - mt5_connection: mt5_connected (skipped if BLOCK_ON_MT5_DISCONNECT=False)
 
     Reasons emitted:
       BAR_NOT_CLOSED, OUT_OF_SESSION, RHO_BREAKDOWN, BETA_DRIFT,
-      Z_ANOMALY, EG_UNAVAILABLE, EG_NOT_COINTEGRATED.
+      Z_ANOMALY, EG_UNAVAILABLE, EG_NOT_COINTEGRATED,
+      MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN, MT5_DISCONNECTED.
     """
     reasons: list[str] = []
     checks: dict[str, bool] = {}
@@ -154,6 +167,31 @@ def risk_gate(
         reasons.append("EG_NOT_COINTEGRATED")
     else:
         checks["engle_granger"] = True
+
+    # ── Operational gates (TASK-3 AC #11) ──
+    checks["max_trades"] = trades_today_count < MAX_TRADES_PER_DAY
+    if not checks["max_trades"]:
+        reasons.append("MAX_TRADES_REACHED")
+
+    # daily_pnl_brl is signed: negative = loss. Block when cumulative loss
+    # crosses the limit (i.e., pnl <= -LIMIT). A profitable day is unbounded.
+    checks["daily_loss"] = daily_pnl_brl > -DAILY_LOSS_LIMIT_BRL
+    if not checks["daily_loss"]:
+        reasons.append("DAILY_LOSS_LIMIT")
+
+    checks["loss_cooldown"] = (
+        minutes_since_last_loss is None
+        or minutes_since_last_loss >= LOSS_COOLDOWN_MIN
+    )
+    if not checks["loss_cooldown"]:
+        reasons.append("LOSS_COOLDOWN")
+
+    if BLOCK_ON_MT5_DISCONNECT:
+        checks["mt5_connection"] = bool(mt5_connected)
+        if not checks["mt5_connection"]:
+            reasons.append("MT5_DISCONNECTED")
+    else:
+        checks["mt5_connection"] = True
 
     return {
         "allowed": len(reasons) == 0,

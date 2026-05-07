@@ -395,6 +395,55 @@ class TradeEngine:
         conn.close()
         return [dict(r) for r in rows]
 
+    # ── Operational risk stats (TASK-3 AC #11) ──────────────────────────────
+
+    def count_trades_today(self, date_str: str) -> int:
+        """Count trades opened today (OPEN + CLOSED). Used by MAX_TRADES gate."""
+        conn = sqlite3.connect(self.db_path)
+        n = conn.execute(
+            "SELECT COUNT(*) FROM matador_ops WHERE date(timestamp_in) = ?",
+            (date_str,)
+        ).fetchone()[0]
+        conn.close()
+        return int(n)
+
+    def pnl_today(self, date_str: str) -> float:
+        """Sum of pnl_brl for trades CLOSED today. Used by DAILY_LOSS gate.
+
+        Uses `timestamp_out` (close time), not `timestamp_in`, because a
+        trade opened yesterday but closed today should count toward today's
+        loss budget — the realized P&L belongs to the day it printed.
+        """
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute(
+            "SELECT COALESCE(SUM(pnl_brl), 0.0) FROM matador_ops "
+            "WHERE status='CLOSED' AND date(timestamp_out) = ?",
+            (date_str,)
+        ).fetchone()
+        conn.close()
+        return float(row[0] or 0.0)
+
+    def minutes_since_last_loss(self, now: datetime | None = None):
+        """Minutes since the most recent STOP_LOSS exit. Returns None if
+        there's no STOP_LOSS in history. Used by LOSS_COOLDOWN gate.
+        """
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute(
+            "SELECT timestamp_out FROM matador_ops "
+            "WHERE status='CLOSED' AND exit_reason='STOP_LOSS' "
+            "ORDER BY timestamp_out DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return None
+        try:
+            ts = datetime.fromisoformat(row[0])
+        except Exception:
+            return None
+        ref = now or datetime.now()
+        delta = ref - ts
+        return delta.total_seconds() / 60.0
+
     # ── Performance API ─────────────────────────────────────────────────────
 
     @staticmethod

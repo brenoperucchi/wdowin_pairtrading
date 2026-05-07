@@ -12,10 +12,12 @@ Infrastructure constants (ports, paths, timeframes) merged from server.py.
 import MetaTrader5 as mt5
 
 # ─── Infrastructure ─────────────────────────────────────────────────────────
-# NOTE: "MetaTrader 5 Terminal" path causes IPC timeout due to Windows Service
-# conflict (RegimeSupervisor holds PID in Session 0). Use "MetaTrader 5" (XP Demo)
-# which has all B3 symbols (WIN$N, WDO$N, DI1$N) and runs in user Session 1.
-MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
+# Dedicated portable MT5 instance for pair trading (XP DEMO conta 52033102).
+# Isolated from dco-collector, which runs against E:\...\Books\terminal64.exe
+# at ~150 calls/s during 10:00–16:55 BRT — sharing would saturate the IPC queue.
+# WIN$N, WDO$N, DI1$N must be enabled in Market Watch.
+MT5_PATH = r"E:\MetaTraders\MT5-Python\Ticks\terminal64.exe"
+MT5_PORTABLE = True
 
 # ─── Symbols ────────────────────────────────────────────────────────────────
 SYMBOL_A = "WIN$N"
@@ -94,4 +96,23 @@ NWE_BANDWIDTH = 8              # Kernel bandwidth
 NWE_LOOKBACK = 95              # Lookback window (bars)
 NWE_BAND_MULT = 0.10           # Adaptive band multiplier (fraction of band width)
 NWE_MULT_MAE = 3.0             # MAE multiplier for bands
+
+# ─── Operational risk (TASK-3 AC #11) ───────────────────────────────────────
+# Conservative defaults. These are *floors* — production should tighten, not
+# loosen. Each is enforced as a check inside `core.risk_gate.risk_gate(...)`.
+# Calibration notes:
+#   - MAX_TRADES_PER_DAY: 3 strategy slots × ~1 retry budget. Higher counts
+#     correlate with overtrading on noise in past simulated runs.
+#   - DAILY_LOSS_LIMIT_BRL: ~2× a single losing trade with WIN_CONTRACTS=2 at
+#     BUY_SL=300 pts × WIN_PV=0.20 = R$ 120/contract = R$ 240 total. To
+#     calibrate against live P&L distribution, see docs/RUNBOOK_ROLLOVER.md.
+#   - LOSS_COOLDOWN_MIN: blocks ALL new entries after any STOP_LOSS for N
+#     minutes. Global (not per-slot) by design — a fresh stop usually means
+#     the regime is shifting, not just one strategy is wrong.
+#   - BLOCK_ON_MT5_DISCONNECT: True is the only safe default for live; flip
+#     only for offline backtests/replays.
+MAX_TRADES_PER_DAY = 4
+DAILY_LOSS_LIMIT_BRL = 240.0
+LOSS_COOLDOWN_MIN = 30
+BLOCK_ON_MT5_DISCONNECT = True
 

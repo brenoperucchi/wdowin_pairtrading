@@ -729,6 +729,12 @@ def regime_v2():
         nwe_lower_closed = nwe_lower_now
         eg_input_a, eg_input_b = ac, bc
 
+    # ── Operational risk stats (TASK-3 AC #11) ──
+    today_str = now_dt.strftime("%Y-%m-%d")
+    trades_today_count = _trade_engine.count_trades_today(today_str)
+    daily_pnl_brl = _trade_engine.pnl_today(today_str)
+    minutes_since_last_loss = _trade_engine.minutes_since_last_loss(now=now_dt)
+
     # ── Centralized risk gate ──
     eg_pvalue = compute_engle_granger_pvalue(eg_input_a, eg_input_b, closed_bar_ts)
     gate = risk_gate(
@@ -738,6 +744,10 @@ def regime_v2():
         eg_pvalue=eg_pvalue,
         hour=now_dt.hour, minute=now_dt.minute,
         bar_close_confirmed=bar_close_confirmed,
+        trades_today_count=trades_today_count,
+        daily_pnl_brl=daily_pnl_brl,
+        minutes_since_last_loss=minutes_since_last_loss,
+        mt5_connected=True,  # connect_mt5() short-circuited at endpoint top
         joh_open=joh_open,
         hmm_state=hmm.current_hmm_regime,
     )
