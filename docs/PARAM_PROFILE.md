@@ -14,68 +14,87 @@ script's hardcoded values shift.
 ## 1. Canonical live profile
 
 Pulled from `core/config.py` (TIMEFRAME = M5, account = XP DEMO 52033102).
+Each row maps a single attribute on `core/config.py` to its current value.
+`tests/test_param_profile.py` parses these tables and asserts each value
+equals `getattr(cfg, NAME)` — if `core/config.py` changes, the test fails
+and forces an update here.
 
 ### Entry / signal
 
-| Constant       | Value | Notes |
-|----------------|-------|-------|
-| `Z_ENTRY`      | 1.4   | Z-score entry threshold (WDO) |
-| `Z_ANOMALY`    | 4.0   | Block trade above this (anomaly) |
-| `Z_ATTENTION`  | 1.2   | Display-only attention zone |
-| `DI_Z_ENTRY`   | 1.4   | Z-score entry threshold (DI) |
-| `DI_Z_ANOMALY` | 4.0   | Block (DI) |
-| `DI_Z_ATTENTION` | 1.2 | Display-only (DI) |
+| Constant         | Value | Notes |
+|------------------|-------|-------|
+| `Z_ENTRY`        | 1.4   | Z-score entry threshold (WDO) |
+| `Z_ANOMALY`      | 4.0   | Block trade above this (anomaly) |
+| `Z_ATTENTION`    | 1.2   | Display-only attention zone |
+| `DI_Z_ENTRY`     | 1.4   | Z-score entry threshold (DI) |
+| `DI_Z_ANOMALY`   | 4.0   | Block (DI) |
+| `DI_Z_ATTENTION` | 1.2   | Display-only (DI) |
 
 ### SL / TP / BE (WIN points)
 
-| Constant      | BUY | SELL |
-|---------------|-----|------|
-| `*_SL`        | 300 | 300  |
-| `*_TP`        | 800 | 800  |
-| `*_BE_ACT`    | 300 | 300  |
-| `*_BE_LOCK`   | 0   | 0    |
+| Constant       | Value | Notes |
+|----------------|-------|-------|
+| `BUY_SL`       | 300   | BUY stop-loss (pts) |
+| `BUY_TP`       | 800   | BUY take-profit (pts) |
+| `BUY_BE_ACT`   | 300   | BUY break-even activation (pts) |
+| `BUY_BE_LOCK`  | 0     | BUY break-even lock-in offset (pts) |
+| `SELL_SL`      | 300   | SELL stop-loss (pts) |
+| `SELL_TP`      | 800   | SELL take-profit (pts) |
+| `SELL_BE_ACT`  | 300   | SELL break-even activation (pts) |
+| `SELL_BE_LOCK` | 0     | SELL break-even lock-in offset (pts) |
 
 ### Sizing
 
-| Constant         | Value | Notes |
-|------------------|-------|-------|
-| `WIN_CONTRACTS`  | 2     | WIN-only — no WDO leg |
-| `WIN_PV`         | 0.20  | R$/point/contract |
+| Constant        | Value | Notes |
+|-----------------|-------|-------|
+| `WIN_CONTRACTS` | 2     | WIN-only — no WDO leg |
+| `WIN_PV`        | 0.20  | R$/point/contract |
 
 ### Regime / hedge ratio
 
-| Constant            | Value  | Notes |
-|---------------------|--------|-------|
-| `BETA_INITIAL`      | -22.5  | OLS reference beta WIN×WDO |
-| `RHO_MIN`           | -0.40  | rho breakdown threshold |
-| `BETA_DELTA_MAX`    | 25.0   | %, beta drift block |
-| `KALMAN_BURN_IN`    | 15000  | bars |
+| Constant         | Value  | Notes |
+|------------------|--------|-------|
+| `BETA_INITIAL`   | -22.5  | OLS reference beta WIN×WDO |
+| `RHO_MIN`        | -0.40  | rho breakdown threshold |
+| `BETA_DELTA_MAX` | 25.0   | %, beta drift block |
+| `KALMAN_BURN_IN` | 15000  | bars |
 
 ### Session (BRT)
 
-| Constant          | Value         |
-|-------------------|---------------|
-| Entry start       | 09:00 BRT     |
-| Entry end         | 15:00 BRT     |
-| Force close       | 17:40 BRT     |
+| Constant        | Value | Notes |
+|-----------------|-------|-------|
+| `ENTRY_START_H` | 9     | entry window start hour |
+| `ENTRY_START_M` | 0     | entry window start minute |
+| `ENTRY_END_H`   | 15    | entry window end hour |
+| `ENTRY_END_M`   | 0     | entry window end minute |
+| `FORCE_CLOSE_H` | 17    | force-close hour |
+| `FORCE_CLOSE_M` | 40    | force-close minute |
 
 ### Operational risk (TASK-3 AC #11)
 
-| Constant                   | Value | Notes |
-|----------------------------|-------|-------|
-| `MAX_TRADES_PER_DAY`       | 4     | floor — production should tighten |
-| `DAILY_LOSS_LIMIT_BRL`     | 240.0 | ~2× a single losing trade |
-| `LOSS_COOLDOWN_MIN`        | 30    | global, all slots |
-| `BLOCK_ON_MT5_DISCONNECT`  | True  | only safe default for live |
+| Constant                  | Value | Notes |
+|---------------------------|-------|-------|
+| `MAX_TRADES_PER_DAY`      | 4     | floor — production should tighten |
+| `DAILY_LOSS_LIMIT_BRL`    | 240.0 | ~2× a single losing trade |
+| `LOSS_COOLDOWN_MIN`       | 30    | global, all slots |
+| `BLOCK_ON_MT5_DISCONNECT` | True  | only safe default for live |
 
 ### NWE filter
 
-| Constant         | Value | Notes |
-|------------------|-------|-------|
-| `NWE_BANDWIDTH`  | 8     | kernel bandwidth |
-| `NWE_LOOKBACK`   | 95    | bars |
-| `NWE_BAND_MULT`  | 0.10  | adaptive band fraction |
-| `NWE_MULT_MAE`   | 3.0   | MAE multiplier |
+| Constant        | Value | Notes |
+|-----------------|-------|-------|
+| `NWE_BANDWIDTH` | 8     | kernel bandwidth |
+| `NWE_LOOKBACK`  | 95    | bars |
+| `NWE_BAND_MULT` | 0.10  | adaptive band fraction |
+| `NWE_MULT_MAE`  | 3.0   | MAE multiplier |
+
+### Symbols & infra
+
+| Constant    | Value    | Notes |
+|-------------|----------|-------|
+| `SYMBOL_A`  | `WIN$N`  | mini índice (only leg actually traded) |
+| `SYMBOL_B`  | `WDO$N`  | mini dólar — used only as filter, not traded |
+| `DI_SYMBOL` | `DI1$N`  | DI1 front-month, filter-only |
 
 ## 2. Research script status
 
@@ -96,29 +115,44 @@ These scripts pull from the canonical module. They may still redefine
 These scripts iterate over parameter ranges. The "divergence" is the
 purpose of the script — they are calibration tools, not validation runs.
 
-| Script                       | Param swept              | Range                |
-|------------------------------|--------------------------|----------------------|
-| `research/backtest.py`       | `Z_ENTRY`                | `[2.0, 4.0]`         |
-| `research/backtest_pa.py`    | `Z_ENTRY`                | `[2.0, 4.0]`         |
-| `research/backtest_win.py`   | `Z_ENTRY`                | `[2.0, 4.0]`         |
-| `research/optimize_breakeven.py` | `BUY_BE_ACT`         | `[200..500]`         |
+| Script                           | Param swept       | Range / values        |
+|----------------------------------|-------------------|-----------------------|
+| `research/backtest.py`           | `Z_ENTRY`         | `[2.0, 4.0]`          |
+| `research/backtest_pa.py`        | `Z_ENTRY`         | `[2.0, 4.0]`          |
+| `research/backtest_win.py`       | `Z_ENTRY`         | `[2.0, 4.0]`          |
+| `research/optimize_breakeven.py` | `BUY_BE_ACT`      | `[200..500]` (over a divergent SL/TP base — see below) |
+| `research/optimize_time.py`      | `ENTRY_START/END` | sweeps session window |
 
 ### ⚠️ Divergent hardcoded values
 
-These scripts pin a single value that differs from the live profile.
-Backtest P&L from these is structurally not comparable to live P&L.
+These scripts pin a single value (or set) that differs from the live
+profile. Backtest P&L from these is structurally not comparable to live
+P&L until they are aligned.
 
-| Script                              | Constant   | Script value          | Live value  | Delta |
-|-------------------------------------|------------|-----------------------|-------------|-------|
-| `research/compare_hedge_methods.py` | `Z_ENTRY`  | 1.8                   | 1.4         | +0.4  |
-| `research/optimize_consensus.py`    | `Z_ENTRY`  | 1.8                   | 1.4         | +0.4  |
-| `research/optimize_core_models.py`  | `Z_ENTRY`  | 1.6                   | 1.4         | +0.2  |
-| `research/hmm_zscore_optimizer.py`  | `BUY_SL/TP`  | 350 / 500           | 300 / 800   | tighter SL, smaller TP |
-| `research/hmm_zscore_optimizer.py`  | `SELL_SL/TP` | 300 / 1400          | 300 / 800   | larger SELL TP        |
-| `research/hmm_zscore_optimizer.py`  | `BUY_BE_ACT/LOCK` | 400 / 50      | 300 / 0     | later BE, locks +50 pts |
-| `research/plot_final_vs_hmm.py`     | (same as hmm_zscore_optimizer) | (same)  | (same)      | (same) |
-| `research/plot_hmm_comparison.py`   | (same as hmm_zscore_optimizer) | (same)  | (same)      | (same) |
-| `research/plot_isolated_new.py`     | `Z_ENTRY`  | 1.4                   | 1.4         | matches |
+| Script                              | Constant     | Script value      | Live value | Delta |
+|-------------------------------------|--------------|-------------------|------------|-------|
+| `research/compare_hedge_methods.py` | `Z_ENTRY`    | 1.8               | 1.4        | +0.4 |
+| `research/optimize_consensus.py`    | `Z_ENTRY`    | 1.8               | 1.4        | +0.4 |
+| `research/optimize_core_models.py`  | `Z_ENTRY`    | 1.6               | 1.4        | +0.2 |
+| `research/hmm_zscore_optimizer.py`  | `BUY_SL/TP`  | 350 / 500         | 300 / 800  | tighter SL, smaller TP |
+| `research/hmm_zscore_optimizer.py`  | `SELL_SL/TP` | 300 / 1400        | 300 / 800  | larger SELL TP |
+| `research/hmm_zscore_optimizer.py`  | `BUY_BE_ACT/LOCK`  | 400 / 50    | 300 / 0    | later BE, locks +50 pts |
+| `research/hmm_zscore_optimizer.py`  | `SELL_BE_ACT/LOCK` | 800 / 200   | 300 / 0    | much later BE, locks +200 pts |
+| `research/plot_final_vs_hmm.py`     | (same as hmm_zscore_optimizer) | (same) | (same) | (same) |
+| `research/plot_hmm_comparison.py`   | (same as hmm_zscore_optimizer) | (same) | (same) | (same) |
+| `research/plot_isolated_new.py`     | `Z_ENTRY`    | 1.4               | 1.4        | matches |
+| `research/optimize_daily_limits.py` | `BUY_SL/TP`  | 350 / 500         | 300 / 800  | tighter SL, smaller TP |
+| `research/optimize_daily_limits.py` | `SELL_SL/TP` | 300 / 1400        | 300 / 800  | larger SELL TP |
+| `research/optimize_daily_limits.py` | session      | 09:15–16:00       | 09:00–15:00 | shifted/extended window |
+| `research/optimize_time.py`         | `BUY_SL/TP`  | 350 / 500         | 300 / 800  | tighter SL, smaller TP |
+| `research/optimize_time.py`         | `SELL_SL/TP` | 300 / 1400        | 300 / 800  | larger SELL TP |
+| `research/optimize_breakeven.py`    | `BUY_SL/TP`  | 350 / 500         | 300 / 800  | tighter SL, smaller TP |
+| `research/optimize_breakeven.py`    | `SELL_SL/TP` | 300 / 1400        | 300 / 800  | larger SELL TP |
+| `research/plot_final_equity.py`     | `BUY_SL/TP`  | 350 / 500         | 300 / 800  | tighter SL, smaller TP |
+| `research/plot_final_equity.py`     | `SELL_SL/TP` | 300 / 1400        | 300 / 800  | larger SELL TP |
+| `research/plot_final_equity.py`     | `BUY_BE_ACT/LOCK`  | 400 / 50    | 300 / 0    | later BE, locks +50 |
+| `research/plot_final_equity.py`     | `SELL_BE_ACT/LOCK` | 800 / 200   | 300 / 0    | much later BE, locks +200 |
+| `research/plot_final_equity.py`     | session      | 10:00–16:00       | 09:00–15:00 | shifted/extended window |
 
 ### Categorized but no hardcoded entry/exit override
 
@@ -140,15 +174,26 @@ pin a single live-equivalent constant: `optimize_nwe*.py`,
 - `backtest_johansen_gate.py` partially imports core.config but
   overrides `Z_ENTRY=1.8`; if elevated to production validation it
   must drop the override and import `Z_ENTRY` from `core.config`.
+- The "HMM family" (`hmm_zscore_optimizer.py`, `plot_final_vs_hmm.py`,
+  `plot_hmm_comparison.py`, `plot_final_equity.py`) shares one
+  divergent SL/TP/BE profile (350/500 BUY, 300/1400 SELL, BE shifted)
+  — aligning them is one decision, not four.
+- `optimize_daily_limits.py` / `optimize_time.py` / `optimize_breakeven.py`
+  share the 350/500 + 300/1400 SL/TP base. If the gestor cites these
+  for live calibration, the SL/TP base must be reconciled with live
+  values first.
 
 ## 4. How to keep this manifest honest
 
 `tests/test_param_profile.py` asserts:
 - `core/config.py` exposes every canonical name listed above with the
-  expected type and a sane range. If a constant is renamed or its
-  type changes, the test fails — forcing a manifest update.
-- This file (`docs/PARAM_PROFILE.md`) exists. Keeps the doc in the
-  loop.
+  expected type and a sane range.
+- **Each value in Section 1 above equals `getattr(cfg, NAME)`** — the
+  test parses this file and compares row-by-row. If a constant is
+  renamed, removed, or its value changes in `core/config.py`, the test
+  fails and forces an update here.
+- This file (`docs/PARAM_PROFILE.md`) exists with the three required
+  sections (canonical / research / config).
 
 When you change a constant in `core/config.py`, update Section 1 here.
 When you change a research script's hardcoded value, update Section 2.

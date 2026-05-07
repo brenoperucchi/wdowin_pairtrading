@@ -1,14 +1,22 @@
-"""TASK-3 AC #5 — manifest smoke test.
+"""TASK-3 AC #5 — manifest smoke test + parse-and-compare.
 
 `docs/PARAM_PROFILE.md` documents every canonical live constant. This
-test asserts that those names still exist in `core/config.py` with the
-expected type and a sane range, so a rename, deletion, or type change
-fails CI before the manifest silently drifts.
+test asserts:
+  1. The doc exists with the required sections (smoke test).
+  2. The shape/type of each canonical constant in `core/config.py`
+     matches the manifest (rename / type-change guard).
+  3. **Every value pinned in Section 1 of the doc equals
+     `getattr(cfg, NAME)`.** This is the sync guard added in codex
+     round-6: previously the doc could drift silently from
+     `core/config.py` because the test only checked shapes.
 
-The test is intentionally narrow: it does NOT pin exact values (live
-calibration changes — the manifest doc tracks current values). It pins
-*shapes*. A shape mismatch means the manifest needs an update.
+Section-1 tables in the manifest are written in a parser-friendly
+format — one constant per row — so this test can reconstruct the
+expected mapping with a single regex pass.
 """
+from __future__ import annotations
+
+import re
 from pathlib import Path
 
 import pytest
@@ -17,17 +25,148 @@ from core import config as cfg
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+DOC_PATH = REPO_ROOT / "docs" / "PARAM_PROFILE.md"
 
+
+# Names that MUST appear in the manifest's Section 1. If any are missing
+# from the parsed table, the manifest is incomplete and the test fails.
+REQUIRED_IN_MANIFEST = [
+    # Entry / signal
+    "Z_ENTRY", "Z_ANOMALY", "Z_ATTENTION",
+    "DI_Z_ENTRY", "DI_Z_ANOMALY", "DI_Z_ATTENTION",
+    # SL / TP / BE
+    "BUY_SL", "BUY_TP", "BUY_BE_ACT", "BUY_BE_LOCK",
+    "SELL_SL", "SELL_TP", "SELL_BE_ACT", "SELL_BE_LOCK",
+    # Sizing
+    "WIN_CONTRACTS", "WIN_PV",
+    # Regime
+    "BETA_INITIAL", "RHO_MIN", "BETA_DELTA_MAX", "KALMAN_BURN_IN",
+    # Session
+    "ENTRY_START_H", "ENTRY_START_M",
+    "ENTRY_END_H", "ENTRY_END_M",
+    "FORCE_CLOSE_H", "FORCE_CLOSE_M",
+    # Operational risk
+    "MAX_TRADES_PER_DAY", "DAILY_LOSS_LIMIT_BRL",
+    "LOSS_COOLDOWN_MIN", "BLOCK_ON_MT5_DISCONNECT",
+    # NWE
+    "NWE_BANDWIDTH", "NWE_LOOKBACK", "NWE_BAND_MULT", "NWE_MULT_MAE",
+    # Symbols
+    "SYMBOL_A", "SYMBOL_B", "DI_SYMBOL",
+]
+
+
+# ── Parser ──────────────────────────────────────────────────────────────────
+
+# Match table rows of the form: | `NAME` | value | optional notes |
+# The doc wraps constant names in backticks. We only parse rows whose first
+# cell is a backticked identifier — narrative tables (script status, etc.)
+# don't match this shape.
+_ROW_RE = re.compile(
+    r"^\|\s*`([A-Z][A-Z0-9_]*)`\s*\|\s*([^|]+?)\s*\|",
+    re.MULTILINE,
+)
+
+
+def _coerce(raw: str):
+    """Parse a markdown cell into a Python value.
+
+    Order matters: bool before int (since `True`/`False` aren't ints in
+    Python's `isinstance` sense for our asserts), then int before float
+    (we want exact int equality for hour/minute fields).
+    """
+    s = raw.strip().strip("`")
+    if s in ("True", "False"):
+        return s == "True"
+    # Strip thousands separators just in case (none today, future-proofing).
+    s_clean = s.replace(",", "")
+    try:
+        return int(s_clean)
+    except ValueError:
+        pass
+    try:
+        return float(s_clean)
+    except ValueError:
+        pass
+    # Fall through: treat as a string (e.g. "WIN$N").
+    return s
+
+
+def _parse_canonical(text: str) -> dict[str, object]:
+    """Extract the {NAME: value} map from Section 1 of the manifest.
+
+    Section 1 ends where Section 2 begins (`## 2.`). We restrict the
+    regex search to the slice before that header so script-status tables
+    can never bleed into the canonical map.
+    """
+    end = text.find("\n## 2.")
+    if end == -1:
+        raise AssertionError("Section 2 marker missing — manifest malformed")
+    section1 = text[:end]
+    out: dict[str, object] = {}
+    for m in _ROW_RE.finditer(section1):
+        name, raw_val = m.group(1), m.group(2)
+        out[name] = _coerce(raw_val)
+    return out
+
+
+@pytest.fixture(scope="module")
+def manifest_values() -> dict[str, object]:
+    assert DOC_PATH.exists(), f"Manifest missing: {DOC_PATH}"
+    return _parse_canonical(DOC_PATH.read_text(encoding="utf-8"))
+
+
+# ── Smoke / structure tests ─────────────────────────────────────────────────
 
 def test_param_profile_doc_exists():
-    """The manifest doc must be present in the repo."""
-    doc = REPO_ROOT / "docs" / "PARAM_PROFILE.md"
-    assert doc.exists(), f"Manifest missing: {doc}"
-    text = doc.read_text(encoding="utf-8")
-    # Spot-check that the three required sections are present.
+    """The manifest doc must be present in the repo with required sections."""
+    assert DOC_PATH.exists(), f"Manifest missing: {DOC_PATH}"
+    text = DOC_PATH.read_text(encoding="utf-8")
     assert "Canonical live profile" in text
     assert "Research script status" in text
     assert "core/config.py" in text
+
+
+def test_all_required_constants_in_manifest(manifest_values):
+    """Every constant on the required list must appear in Section 1."""
+    missing = [n for n in REQUIRED_IN_MANIFEST if n not in manifest_values]
+    assert not missing, (
+        f"Manifest Section 1 is missing constants: {missing}. "
+        "Add a row to docs/PARAM_PROFILE.md or remove from REQUIRED_IN_MANIFEST."
+    )
+
+
+def test_canonical_values_match_config(manifest_values):
+    """**Sync guard.** Each pinned value in Section 1 must equal cfg.NAME.
+
+    If `core/config.py` changes a value, this test fails with a clear
+    diff and forces a manifest update — closing the silent-drift hole
+    flagged by codex round-6.
+    """
+    mismatches: list[str] = []
+    for name, doc_val in manifest_values.items():
+        if not hasattr(cfg, name):
+            mismatches.append(f"{name}: manifest pins {doc_val!r} but cfg has no such attribute")
+            continue
+        cfg_val = getattr(cfg, name)
+        # Compare with type tolerance: int 0 vs float 0.0 in the doc is fine
+        # so long as the numeric value matches. Booleans and strings must
+        # match exactly. We never want int/bool conflation, though, since
+        # bool is a subclass of int in Python.
+        if isinstance(cfg_val, bool) or isinstance(doc_val, bool):
+            ok = cfg_val == doc_val and isinstance(cfg_val, bool) == isinstance(doc_val, bool)
+        elif isinstance(cfg_val, (int, float)) and isinstance(doc_val, (int, float)):
+            ok = float(cfg_val) == float(doc_val)
+        else:
+            ok = cfg_val == doc_val
+        if not ok:
+            mismatches.append(
+                f"{name}: manifest={doc_val!r} ({type(doc_val).__name__}), "
+                f"config={cfg_val!r} ({type(cfg_val).__name__})"
+            )
+    assert not mismatches, (
+        "docs/PARAM_PROFILE.md is out of sync with core/config.py:\n  "
+        + "\n  ".join(mismatches)
+    )
 
 
 # ── Entry / signal thresholds ───────────────────────────────────────────────
