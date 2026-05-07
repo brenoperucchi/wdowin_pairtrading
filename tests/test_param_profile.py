@@ -31,6 +31,14 @@ DOC_PATH = REPO_ROOT / "docs" / "PARAM_PROFILE.md"
 # Names that MUST appear in the manifest's Section 1. If any are missing
 # from the parsed table, the manifest is incomplete and the test fails.
 REQUIRED_IN_MANIFEST = [
+    # Bar / data window — backtest must match live or it isn't comparing
+    # the same signal.
+    "TIMEFRAME", "WINDOW", "BARS", "DI_BARS",
+    # Kalman tuning (WDO + DI run independent filters)
+    "WDO_KALMAN_Q", "WDO_KALMAN_R", "WDO_KALMAN_W",
+    "DI_KALMAN_Q", "DI_KALMAN_R", "DI_KALMAN_W",
+    # Johansen test
+    "JOH_WINDOW", "JOH_RECHECK_BARS",
     # Entry / signal
     "Z_ENTRY", "Z_ANOMALY", "Z_ATTENTION",
     "DI_Z_ENTRY", "DI_Z_ANOMALY", "DI_Z_ATTENTION",

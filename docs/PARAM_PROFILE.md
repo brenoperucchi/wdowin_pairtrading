@@ -19,6 +19,41 @@ Each row maps a single attribute on `core/config.py` to its current value.
 equals `getattr(cfg, NAME)` — if `core/config.py` changes, the test fails
 and forces an update here.
 
+### Bar / data window
+
+These define the *shape* of the data the engine sees. A change here
+silently invalidates any backtest that loads its own number of bars or
+a different timeframe.
+
+| Constant     | Value | Notes |
+|--------------|-------|-------|
+| `TIMEFRAME`  | 5     | `mt5.TIMEFRAME_M5` enum (5 == M5; M15 == 15, etc.) |
+| `WINDOW`     | 90    | OLS rolling window (bars) |
+| `BARS`       | 250   | bars fetched per MT5 poll (WIN×WDO) |
+| `DI_BARS`    | 250   | bars fetched per MT5 poll (DI) |
+
+### Kalman tuning
+
+WDO and DI run independent Kalman filters with their own Q/R/W. A
+backtest that recomputes Z with a different W or Q/R is not comparing
+the same signal as live.
+
+| Constant       | Value  | Notes |
+|----------------|--------|-------|
+| `WDO_KALMAN_Q` | 0.0001 | trans_cov (1e-4) |
+| `WDO_KALMAN_R` | 100.0  | obs_cov (1e2) |
+| `WDO_KALMAN_W` | 40     | Z-score rolling window |
+| `DI_KALMAN_Q`  | 0.001  | trans_cov (1e-3) — fast adaptation |
+| `DI_KALMAN_R`  | 10.0   | obs_cov (1e1) — low smoothing |
+| `DI_KALMAN_W`  | 60     | Z-score rolling window |
+
+### Johansen test
+
+| Constant           | Value | Notes |
+|--------------------|-------|-------|
+| `JOH_WINDOW`       | 150   | rolling window (bars) for Johansen test |
+| `JOH_RECHECK_BARS` | 12    | recompute every N bars (~1h on M5) |
+
 ### Entry / signal
 
 | Constant         | Value | Notes |
@@ -153,14 +188,28 @@ P&L until they are aligned.
 | `research/plot_final_equity.py`     | `BUY_BE_ACT/LOCK`  | 400 / 50    | 300 / 0    | later BE, locks +50 |
 | `research/plot_final_equity.py`     | `SELL_BE_ACT/LOCK` | 800 / 200   | 300 / 0    | much later BE, locks +200 |
 | `research/plot_final_equity.py`     | session      | 10:00–16:00       | 09:00–15:00 | shifted/extended window |
+| `research/equity_curve.py`          | `BUY_ZMIN/MAX`     | 2.0 / 3.0   | live uses single `Z_ENTRY=1.4` (no upper) | bounded entry zone |
+| `research/equity_curve.py`          | `SELL_ZMIN/MAX`    | 2.1 / 3.0   | live uses single `Z_ENTRY=1.4`            | bounded entry zone |
+| `research/equity_curve.py`          | session      | 09:15–16:00       | 09:00–15:00 | shifted window |
+| `research/equity_split.py`          | `BUY_ZMIN/MAX`     | 2.0 / 3.0   | live uses single `Z_ENTRY=1.4`            | bounded entry zone |
+| `research/equity_split.py`          | `SELL_ZMIN/MAX`    | 2.1 / 3.0   | live uses single `Z_ENTRY=1.4`            | bounded entry zone |
+| `research/equity_split.py`          | session      | 09:15–16:00       | 09:00–15:00 | shifted window |
+| `research/optimize_wdo_sltp.py`     | `BUY_ZMIN`   | 3.00              | 1.4 (`Z_ENTRY`) | +1.6, much harder entry |
+| `research/optimize_wdo_sltp.py`     | `SELL_ZMIN`  | 2.75              | 1.4 (`Z_ENTRY`) | +1.35 |
+| `research/optimize_wdo_sltp.py`     | session      | 10:00–16:00       | 09:00–15:00 | shifted/extended window |
 
 ### Categorized but no hardcoded entry/exit override
 
 Optimizers and plotters that define their own ranges/grids but don't
 pin a single live-equivalent constant: `optimize_nwe*.py`,
 `optimize_zscore*.py`, `optimize_sltp.py`, `optimize_di_*.py`,
-`plot_*.py` (excluding the three flagged above), `equity_*.py`,
-`compare_models.py`, `tune_*.py`. Treat as research-only.
+`plot_*.py` (excluding the three flagged above), `compare_models.py`,
+`tune_*.py`. Treat as research-only.
+
+Note: `equity_*.py` were previously listed here. Codex round-7 audit
+moved them into the divergent table above — `equity_curve.py` and
+`equity_split.py` pin `BUY_ZMIN/SELL_ZMIN` plus a shifted session, and
+`optimize_wdo_sltp.py` pins entry thresholds far above live.
 
 ## 3. Implications for backtest reconciliation (AC #14/#15/#16)
 
