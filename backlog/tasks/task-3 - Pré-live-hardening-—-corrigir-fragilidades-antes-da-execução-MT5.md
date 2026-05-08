@@ -131,6 +131,10 @@ Validado em Linux puro (sem MT5): 5 branches do reconciler verificadas (BLOCKED/
 **MED — portfólio subcontava trades**: `p1 = pnl_wdo1 + pnl_di1 + pnl_cp1` somava arrays bar-a-bar; `_daily_aggregate(p1)` contava barras não-zero, então duas pernas fechando na mesma barra M5 viravam 1 trade (e cancelamento exato a + b = 0 sumia). Fix: novo helper `_daily_sum_legs(*leg_dailies)` soma os daily das pernas (counts e pnl agregam corretamente), e novo `_summary_portfolio` recomputa top-level trades/net/gross a partir desse sum. `_daily_aggregate` ganhou warning na docstring contra uso em portfolios. Verificado: 2 pernas mesma data → trades=2 (não 1); cancelamento exato → ainda trades=2 com pnl_net=0.
 
 Validação: 108/108 pytest, py_compile OK, 5 branches do reconciler re-verificadas com nova lógica window+inclusive, fixture de window upper bound passa.
+
+2026-05-07 (slice 6c-fix-r12, codex round-12): um finding medium, corrigido antes da slice 7.
+
+**MED — WINDOW_NOT_COVERED parcial**: o gate só rejeitava `last_bar_date < cutoff`. Para janela [2026-05-01..2026-05-07], um sidecar terminando em 2026-05-06 passava → paper inclui 2026-05-07 mas backtest fica zerado nesse dia → falso PASS. Codex reproduziu localmente. Fix: scripts/reconcile_paper_vs_backtest.py:248-275 agora exige `last_bar >= today` E `first_bar <= cutoff`; senão WINDOW_NOT_COVERED com mensagem específica do tipo (cabeça ou cauda descoberta), incluindo a janela e o range do sidecar para diagnóstico. Verificado com seis fixtures: cauda descoberta (round-12 case) → WNC, cabeça descoberta → WNC, cobertura exata → PASS, sidecar mais largo que janela → PASS (não falso WNC), BLOCKED ainda funciona, FAIL ainda funciona.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

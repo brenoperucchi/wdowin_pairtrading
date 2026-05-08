@@ -34,8 +34,11 @@ States:
     AC #16 is gated by data accumulation, not a code bug.
   - `MISSING_BACKTEST` — JSON sidecar absent. Exit 2; user must run
     `python research/run_matador_v5_johansen.py` first.
-  - `WINDOW_NOT_COVERED` — backtest sidecar's `last_bar_date` is older
-    than the cutoff. Exit 4; user must regenerate the sidecar.
+  - `WINDOW_NOT_COVERED` — sidecar does not span the full window: either
+    `last_bar_date < today` (uncovered tail would silently zero-out
+    paper rows and produce a false PASS) or `first_bar_date > cutoff`
+    (uncovered head). Exit 4; user must regenerate the sidecar or
+    pick a different `--today` / `--days`.
   - `PASS` / `FAIL` — both sides have data; verdict printed.
 
 Usage:
@@ -245,16 +248,37 @@ def main():
         print(f"generate {args.summary}, then re-run this script.")
         return 2
 
+    # Require FULL window coverage on both ends (codex round-12).
+    # A sidecar ending before `today` would silently zero-out paper rows
+    # in the uncovered tail and produce a false PASS; one starting after
+    # `cutoff` does the same on the head. Reject either case.
+    first_bar = backtest_full.get("first_bar_date")
     last_bar = backtest_full.get("last_bar_date")
-    if last_bar and last_bar < cutoff.isoformat():
-        print(f"[reconcile] backtest last bar = {last_bar}, cutoff = {cutoff}")
+    cutoff_iso = cutoff.isoformat()
+    today_iso = today.isoformat()
+    coverage_problem = None
+    if last_bar and last_bar < today_iso:
+        coverage_problem = (
+            f"backtest stops at {last_bar}, before window upper bound "
+            f"{today_iso}"
+        )
+    elif first_bar and first_bar > cutoff_iso:
+        coverage_problem = (
+            f"backtest starts at {first_bar}, after window lower bound "
+            f"{cutoff_iso}"
+        )
+    if coverage_problem:
+        print(f"[reconcile] {coverage_problem}")
         print()
         print("=" * 70)
-        print("AC #16 WINDOW_NOT_COVERED: backtest sidecar is too old")
+        print("AC #16 WINDOW_NOT_COVERED: backtest sidecar does not cover the window")
         print("=" * 70)
-        print(f"The backtest summary stops at {last_bar}, before the lookback")
-        print(f"cutoff {cutoff.isoformat()}. Re-run run_matador_v5_johansen.py")
-        print("to refresh the sidecar over fresh bars before comparing.")
+        print(f"Reconciliation window: [{cutoff_iso} .. {today_iso}]")
+        print(f"Sidecar range:         [{first_bar} .. {last_bar}]")
+        print()
+        print(f"{coverage_problem}.")
+        print("Re-run run_matador_v5_johansen.py to refresh the sidecar over")
+        print("fresh bars (or pick a different --today/--days), then retry.")
         return 4
 
     bt_leg = backtest_full[args.bateria][args.portfolio_key]

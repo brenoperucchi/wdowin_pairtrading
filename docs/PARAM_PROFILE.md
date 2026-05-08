@@ -296,7 +296,7 @@ faithful and pnl exact (codex round-11).
 |-------|------|---------|
 | `BLOCKED` | 0 | `matador_ops` has 0 closed trades in lookback. AC #16 gated by data accumulation, not a code bug. |
 | `MISSING_BACKTEST` | 2 | paper data present, JSON sidecar absent — run backtest first. |
-| `WINDOW_NOT_COVERED` | 4 | sidecar's `last_bar_date` is older than the cutoff — regenerate the sidecar. |
+| `WINDOW_NOT_COVERED` | 4 | sidecar does not span the full window (`last_bar_date < today` or `first_bar_date > cutoff`) — regenerate the sidecar or change `--today`/`--days`. |
 | `PASS` | 0 | both gross and net |relative error| < 10 %. |
 | `FAIL` | 1 | one or both reconciliations exceed 10 % — investigate. |
 
