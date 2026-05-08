@@ -3,7 +3,7 @@ id: TASK-4.2
 title: >-
   Slice B — Emissão server.py (DATA/INDICATORS/ELIGIBILITY/RISK/SIGNAL
   WAIT-SKIPPED) + endpoint
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-08 18:53'
 labels:
@@ -51,13 +51,29 @@ Conectar a Execution Timeline ao `regime_v2`: emitir eventos do funil somente qu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `init_timeline_table(DB_PATH)` chamado no startup do server
-- [ ] #2 `regime_v2` mantém `_last_emitted_bar_ts` e só emite funil em barra fechada nova
-- [ ] #3 DATA failure usa dedupe por janela ou transição de estado (sem uuid em loop)
-- [ ] #4 INDICATORS_OK emitido com payload completo conforme plano
-- [ ] #5 ELIGIBILITY emite uma row por reason exceto `BAR_NOT_CLOSED`; severity classificado via `WITHIN_POLL_OP_REASONS`
-- [ ] #6 RISK emite uma row por reason operacional
-- [ ] #7 SIGNAL WAIT/SKIPPED emitido por estratégia somente quando barra fecha
-- [ ] #8 Endpoint `GET /api/execution-timeline` aceita filtros e retorna `{events, summary}`
-- [ ] #9 Testes integrados via TestClient verdes; total continua passando
+- [x] #1 `init_timeline_table(DB_PATH)` chamado no startup do server
+- [x] #2 `regime_v2` mantém `_last_emitted_bar_ts` e só emite funil em barra fechada nova
+- [x] #3 DATA failure usa dedupe por janela ou transição de estado (sem uuid em loop)
+- [x] #4 INDICATORS_OK emitido com payload completo conforme plano
+- [x] #5 ELIGIBILITY emite uma row por reason exceto `BAR_NOT_CLOSED`; severity classificado via `WITHIN_POLL_OP_REASONS`
+- [x] #6 RISK emite uma row por reason operacional
+- [x] #7 SIGNAL WAIT/SKIPPED emitido por estratégia somente quando barra fecha
+- [x] #8 Endpoint `GET /api/execution-timeline` aceita filtros e retorna `{events, summary}`
+- [x] #9 Testes integrados via TestClient verdes; total continua passando
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Slice B entregue:
+
+- `server.py` agora define `DB_PATH`, inicializa `execution_timeline` no startup/import e expõe `GET /api/execution-timeline`.
+- `regime_v2` registra DATA failures (`MT5_DISCONNECTED`, `BARS_FETCH_FAILED`) com dedupe por minuto e registra recuperação DATA quando o processo volta de uma falha conhecida.
+- A timeline de barra fechada é emitida apenas quando `bar_close_confirmed=True` e `closed_bar_ts` ainda não foi emitido. `BAR_NOT_CLOSED` fica fora da timeline persistente.
+- `INDICATORS_OK` carrega payload rico (`z_wdo`, `z_di`, `rho`, `rho_level`, `beta_delta_pct`, `eg_pvalue`, `joh_open`, `live_orders_enabled`, `mt5_connected`).
+- ELIGIBILITY/RISK geram uma linha por reason, com metric/threshold/operator quando conhecido. EG usa `operator="<"` e distance positiva quando `eg_pvalue` está acima de `0.10`.
+- SIGNAL `WAIT`/`SKIPPED` é emitido por estratégia somente no contexto de barra fechada. `TradeEngine` ainda não emite SIGNAL real/ORDER/EXECUTION/EXIT; isso fica para TASK-4.3.
+- `tests/test_execution_timeline_server.py` adiciona 4 testes cobrindo DATA dedupe, emissão de reasons sem `BAR_NOT_CLOSED`, dedupe por closed bar e endpoint com filtros/summary.
+
+`PYTHONPATH=/tmp/codex-pytest python3 -m pytest tests/ -q` → 169 passed.
+<!-- SECTION:NOTES:END -->

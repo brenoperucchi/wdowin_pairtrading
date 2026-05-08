@@ -53,7 +53,8 @@ from core.config import (
     JOH_WINDOW, JOH_RECHECK_BARS,
     NWE_BANDWIDTH, NWE_LOOKBACK, NWE_MULT_MAE,
     WDO_KALMAN_Q, WDO_KALMAN_R, WDO_KALMAN_W,
-    LIVE_ORDERS,
+    LIVE_ORDERS, BETA_DELTA_MAX, Z_ANOMALY,
+    MAX_TRADES_PER_DAY, DAILY_LOSS_LIMIT_BRL, LOSS_COOLDOWN_MIN,
 )
 from core.mt5_client import (
     connect_mt5, fetch_bars,
@@ -64,8 +65,21 @@ from core.signals import (
     calc_nwe_with_bands,
 )
 from core.kalman_filter import KalmanBetaFilter
-from core.risk_gate import compute_engle_granger_pvalue, risk_gate
-from core.trade_engine import TradeEngine
+from core.execution_timeline import (
+    bulk_record_events,
+    current_bottleneck,
+    current_live_issue,
+    init_timeline_table,
+    load_timeline,
+    record_event,
+)
+from core.risk_gate import (
+    EG_PVALUE_THRESHOLD,
+    WITHIN_POLL_OP_REASONS,
+    compute_engle_granger_pvalue,
+    risk_gate,
+)
+from core.trade_engine import STRATEGIES, TradeEngine
 import core.hmm_background as hmm
 
 
@@ -132,7 +146,10 @@ async def firebase_push_loop():
             print(f"[AVISO] Erro no sync do Firebase: {e}")
         await asyncio.sleep(2.5)  # Envia live a cada 2.5s
 
-_trade_engine = TradeEngine(db_path="trades.db")
+DB_PATH = "trades.db"
+
+_trade_engine = TradeEngine(db_path=DB_PATH)
+init_timeline_table(DB_PATH)
 
 # DI pair trading state
 _di_cache: dict = {}
@@ -164,6 +181,247 @@ _joh_di_state = {
     "gate_open": False, "trace_ratio": 0.0, "joh_beta": None,
     "last_check_i": -999, "conviction": "N/A",
 }
+
+_TIMELINE_RISK_REASONS = set(WITHIN_POLL_OP_REASONS) | {"MT5_DISCONNECTED"}
+_TIMELINE_TRANSIENT_REASONS = {"OUT_OF_SESSION"}
+
+
+def _timeline_ts(now_dt: datetime | None = None) -> str:
+    return (now_dt or datetime.now()).isoformat(timespec="seconds")
+
+
+def _timeline_minute_key(now_dt: datetime | None = None) -> str:
+    return (now_dt or datetime.now()).strftime("%Y%m%d%H%M")
+
+
+def _record_timeline_data_failure(
+    event: str,
+    *,
+    message: str | None = None,
+    payload: dict | None = None,
+    now_dt: datetime | None = None,
+    db_path: str = DB_PATH,
+) -> int | None:
+    """Persist DATA failures with minute-level dedupe to avoid poll spam."""
+    rowid = record_event(
+        db_path,
+        timestamp=_timeline_ts(now_dt),
+        dedupe_key=f"crit:DATA:{event}:{_timeline_minute_key(now_dt)}",
+        phase="DATA",
+        event=event,
+        status="FAILED",
+        severity="error",
+        message=message,
+        payload_json=payload,
+    )
+    regime_v2._timeline_data_failed = True
+    return rowid
+
+
+def _record_timeline_data_recovery(
+    *,
+    now_dt: datetime | None = None,
+    db_path: str = DB_PATH,
+) -> int | None:
+    """Clear a process-local DATA failure with one recovery event."""
+    if not getattr(regime_v2, "_timeline_data_failed", False):
+        return None
+    rowid = record_event(
+        db_path,
+        timestamp=_timeline_ts(now_dt),
+        dedupe_key=f"crit:DATA:DATA_RECOVERED:{_timeline_minute_key(now_dt)}",
+        phase="DATA",
+        event="DATA_RECOVERED",
+        status="OK",
+        severity="info",
+        message="MT5 data path recovered",
+    )
+    regime_v2._timeline_data_failed = False
+    return rowid
+
+
+def _timeline_severity_for_reason(reason: str) -> str:
+    if reason in _TIMELINE_RISK_REASONS:
+        return "operational_block"
+    if reason in _TIMELINE_TRANSIENT_REASONS:
+        return "transient_block"
+    return "structural_block"
+
+
+def _timeline_reason_fields(
+    reason: str,
+    *,
+    z_wdo: float,
+    z_di: float,
+    rho_level: int,
+    beta_delta_pct: float,
+    eg_pvalue: float | None,
+    trades_today_count: int,
+    daily_pnl_brl: float,
+    minutes_since_last_loss: float | None,
+) -> dict:
+    """Attach metric/threshold/operator context for known gate reasons."""
+    if reason in {"EG_NOT_COINTEGRATED", "EG_UNAVAILABLE"}:
+        return {
+            "metric": "eg_pvalue",
+            "value": eg_pvalue,
+            "threshold": EG_PVALUE_THRESHOLD,
+            "operator": "<",
+        }
+    if reason == "RHO_BREAKDOWN":
+        return {"metric": "rho_level", "value": rho_level, "threshold": 2, "operator": "<"}
+    if reason == "BETA_DRIFT":
+        return {
+            "metric": "abs_beta_delta_pct",
+            "value": abs(beta_delta_pct),
+            "threshold": BETA_DELTA_MAX,
+            "operator": "<",
+        }
+    if reason == "Z_ANOMALY":
+        return {
+            "metric": "max_abs_z",
+            "value": max(abs(z_wdo), abs(z_di)),
+            "threshold": Z_ANOMALY,
+            "operator": "<",
+        }
+    if reason == "MAX_TRADES_REACHED":
+        return {
+            "metric": "trades_today_count",
+            "value": trades_today_count,
+            "threshold": MAX_TRADES_PER_DAY,
+            "operator": "<",
+        }
+    if reason == "DAILY_LOSS_LIMIT":
+        return {
+            "metric": "daily_pnl_brl",
+            "value": daily_pnl_brl,
+            "threshold": -DAILY_LOSS_LIMIT_BRL,
+            "operator": ">",
+        }
+    if reason == "LOSS_COOLDOWN":
+        return {
+            "metric": "minutes_since_last_loss",
+            "value": minutes_since_last_loss,
+            "threshold": LOSS_COOLDOWN_MIN,
+            "operator": ">=",
+        }
+    return {}
+
+
+def _emit_closed_bar_timeline(
+    *,
+    closed_bar_ts: int | None,
+    gate: dict,
+    trade_result: dict,
+    z_wdo: float,
+    z_di: float,
+    rho: float,
+    rho_level: int,
+    beta_delta_pct: float,
+    eg_pvalue: float | None,
+    joh_open: bool | None,
+    mt5_connected: bool,
+    trades_today_count: int,
+    daily_pnl_brl: float,
+    minutes_since_last_loss: float | None,
+    now_dt: datetime,
+    db_path: str = DB_PATH,
+) -> int:
+    """Emit the full closed-bar funnel for DATA/INDICATORS/GATE/SIGNAL."""
+    if closed_bar_ts is None:
+        return 0
+
+    ts = _timeline_ts(now_dt)
+    base_global = f"bar:{closed_bar_ts}:GLOBAL"
+    events: list[dict] = [
+        {
+            "timestamp": ts,
+            "closed_bar_ts": closed_bar_ts,
+            "correlation_id": base_global,
+            "dedupe_key": f"{base_global}:INDICATORS:INDICATORS_OK",
+            "phase": "INDICATORS",
+            "event": "INDICATORS_OK",
+            "status": "OK",
+            "severity": "info",
+            "payload_json": {
+                "closed_bar_ts": closed_bar_ts,
+                "z_wdo": z_wdo,
+                "z_di": z_di,
+                "rho": rho,
+                "rho_level": rho_level,
+                "beta_delta_pct": beta_delta_pct,
+                "eg_pvalue": eg_pvalue,
+                "joh_open": joh_open,
+                "live_orders_enabled": bool(LIVE_ORDERS),
+                "mt5_connected": mt5_connected,
+            },
+        }
+    ]
+
+    gate_reasons = [r for r in gate.get("reasons", []) if r != "BAR_NOT_CLOSED"]
+    for reason in gate_reasons:
+        phase = "RISK" if reason in _TIMELINE_RISK_REASONS else "ELIGIBILITY"
+        event = {
+            "timestamp": ts,
+            "closed_bar_ts": closed_bar_ts,
+            "correlation_id": base_global,
+            "dedupe_key": f"{base_global}:{phase}:{reason}",
+            "phase": phase,
+            "event": reason,
+            "status": "BLOCKED",
+            "severity": _timeline_severity_for_reason(reason),
+            "message": f"{phase} blocked by {reason}",
+        }
+        event.update(
+            _timeline_reason_fields(
+                reason,
+                z_wdo=z_wdo,
+                z_di=z_di,
+                rho_level=rho_level,
+                beta_delta_pct=beta_delta_pct,
+                eg_pvalue=eg_pvalue,
+                trades_today_count=trades_today_count,
+                daily_pnl_brl=daily_pnl_brl,
+                minutes_since_last_loss=minutes_since_last_loss,
+            )
+        )
+        events.append(event)
+
+    strategies = trade_result.get("strategies") or {}
+    for strategy in STRATEGIES:
+        strat_result = strategies.get(strategy) or {}
+        action = strat_result.get("action", "WAIT")
+        if gate_reasons:
+            signal_event = "SKIPPED"
+            status = "SKIPPED"
+            message = "Gate blocked before strategy evaluation"
+        elif action == "WAIT":
+            signal_event = "WAIT"
+            status = "INFO"
+            message = "No entry signal on closed bar"
+        else:
+            continue
+
+        correlation_id = f"bar:{closed_bar_ts}:{strategy}"
+        events.append({
+            "timestamp": ts,
+            "closed_bar_ts": closed_bar_ts,
+            "correlation_id": correlation_id,
+            "dedupe_key": f"{correlation_id}:SIGNAL:{signal_event}",
+            "phase": "SIGNAL",
+            "event": signal_event,
+            "status": status,
+            "severity": "info",
+            "strategy": strategy,
+            "message": message,
+            "payload_json": {
+                "action": action,
+                "gate_reasons": gate_reasons,
+            },
+        })
+
+    rowids = bulk_record_events(db_path, events)
+    return sum(1 for rowid in rowids if rowid is not None)
 
 
 def _compute_johansen_gate(closes_a, closes_b, state, bar_count):
@@ -607,13 +865,30 @@ def _build_response(current_z, current_rho, half_life, strength,
 def regime_v2():
     """V2 endpoint — Kalman-based regime monitoring + Johansen gate."""
     if not connect_mt5():
+        _record_timeline_data_failure(
+            "MT5_DISCONNECTED",
+            message="connect_mt5() returned False",
+            now_dt=datetime.now(),
+        )
         return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": [], "trades_today": []}
 
     closes_a, times_a = fetch_bars(SYMBOL_A, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
     closes_b, times_b = fetch_bars(SYMBOL_B, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
 
     if closes_a is None or closes_b is None:
+        _record_timeline_data_failure(
+            "BARS_FETCH_FAILED",
+            message="fetch_bars returned no data",
+            payload={
+                "symbol_a": SYMBOL_A,
+                "symbol_b": SYMBOL_B,
+                "symbol_a_ok": closes_a is not None,
+                "symbol_b_ok": closes_b is not None,
+            },
+            now_dt=datetime.now(),
+        )
         return {"error": "Sem dados.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": [], "trades_today": []}
+    _record_timeline_data_recovery(now_dt=datetime.now())
 
     min_len = min(len(closes_a), len(closes_b))
     ac, bc, tc = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
@@ -788,11 +1063,38 @@ def regime_v2():
     # strategy result correctly carries LOSS_COOLDOWN. Engine state is
     # already committed to SQLite by _close_trade — subsequent queries
     # see fresh values. (Codex round-5 medium.)
+    post_trades_today_count = _trade_engine.count_trades_today(today_str)
+    post_daily_pnl_brl = _trade_engine.pnl_today(today_str)
+    post_minutes_since_last_loss = _trade_engine.minutes_since_last_loss(now=now_dt)
     gate = _build_gate(
-        _trade_engine.count_trades_today(today_str),
-        _trade_engine.pnl_today(today_str),
-        _trade_engine.minutes_since_last_loss(now=now_dt),
+        post_trades_today_count,
+        post_daily_pnl_brl,
+        post_minutes_since_last_loss,
     )
+
+    if (
+        bar_close_confirmed
+        and closed_bar_ts is not None
+        and closed_bar_ts != getattr(regime_v2, "_last_emitted_bar_ts", None)
+    ):
+        _emit_closed_bar_timeline(
+            closed_bar_ts=closed_bar_ts,
+            gate=gate,
+            trade_result=trade_result,
+            z_wdo=z_wdo_closed,
+            z_di=float(z_di),
+            rho=rho_closed,
+            rho_level=rho_level_closed,
+            beta_delta_pct=beta_delta_pct_closed,
+            eg_pvalue=eg_pvalue,
+            joh_open=joh_open,
+            mt5_connected=mt5.terminal_info() is not None,
+            trades_today_count=post_trades_today_count,
+            daily_pnl_brl=post_daily_pnl_brl,
+            minutes_since_last_loss=post_minutes_since_last_loss,
+            now_dt=now_dt,
+        )
+        regime_v2._last_emitted_bar_ts = closed_bar_ts
 
     # History — Statefully loaded from DB to prevent repainting
     db_hist = load_bar_history(days=2) # Load last 2 days is enough for dashboard
@@ -1082,6 +1384,34 @@ def get_performance():
         return _trade_engine.get_performance(limit=50)
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/api/execution-timeline")
+def execution_timeline_endpoint(
+    limit: int = 200,
+    phase: str | None = None,
+    status: str | None = None,
+    strategy: str | None = None,
+    event: str | None = None,
+    since: str | None = None,
+):
+    """Structured operational funnel events for the dashboard."""
+    events = load_timeline(
+        DB_PATH,
+        limit=limit,
+        phase=phase,
+        status=status,
+        strategy=strategy,
+        event=event,
+        since=since,
+    )
+    return {
+        "events": events,
+        "summary": {
+            "current_bottleneck": current_bottleneck(DB_PATH),
+            "current_live_issue": current_live_issue(DB_PATH),
+        },
+    }
 
 
 # ─── Multi-day History Endpoint ──────────────────────────────────────────────
