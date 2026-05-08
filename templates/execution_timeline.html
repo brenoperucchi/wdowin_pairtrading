@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Execution Timeline</title>
+{% if refresh and refresh > 0 %}<meta http-equiv="refresh" content="{{ refresh }}">{% endif %}
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #2d333b;
+    --fg: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --skip: #8b949e;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); margin: 0; padding: 16px; font-size: 13px; }
+  h1 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 11px; margin-bottom: 16px; }
+  .meta a { color: var(--accent); text-decoration: none; margin-left: 8px; }
+  .meta a:hover { text-decoration: underline; }
+  .summary { padding: 12px 14px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border); }
+  .summary.ok { background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.4); }
+  .summary.bad { background: rgba(248,81,73,0.08); border-color: rgba(248,81,73,0.4); }
+  .summary.warn { background: rgba(210,153,34,0.08); border-color: rgba(210,153,34,0.4); }
+  .summary .label { font-weight: 600; margin-right: 6px; }
+  .summary .row { margin: 2px 0; }
+  .summary .kv { color: var(--muted); margin-right: 12px; }
+  .summary .kv b { color: var(--fg); }
+  form.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+  form.filters label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+  form.filters input, form.filters select { background: var(--panel-2); border: 1px solid var(--border); color: var(--fg); padding: 4px 6px; font-size: 12px; border-radius: 3px; }
+  form.filters input[type=text] { width: 110px; }
+  form.filters input[type=number] { width: 70px; }
+  form.filters button { background: var(--accent); border: none; color: #000; font-weight: 600; padding: 4px 12px; border-radius: 3px; cursor: pointer; }
+  form.filters a.clear { color: var(--muted); padding: 4px 8px; text-decoration: none; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: top; }
+  th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; }
+  tr.ok td.status { color: var(--ok); }
+  tr.bad td.status { color: var(--bad); font-weight: 600; }
+  tr.bad { background: rgba(248,81,73,0.06); }
+  tr.skip td.status { color: var(--skip); }
+  tr.warn td.status { color: var(--warn); }
+  td.msg { white-space: normal; max-width: 320px; color: var(--muted); font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  td.corr { font-family: ui-monospace, monospace; color: var(--muted); font-size: 11px; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>Execution Timeline</h1>
+<div class="meta">
+  Renderizado em <b>{{ rendered_at }}</b>
+  · {{ events|length }} evento(s){% if filters_active %} (filtrados){% endif %}
+  · auto-refresh: {% if refresh and refresh > 0 %}{{ refresh }}s{% else %}off{% endif %}
+  <a href="/api/execution-timeline{% if query_string %}?{{ query_string }}{% endif %}">JSON</a>
+</div>
+
+{% if current_live_issue %}
+  {% set li = current_live_issue %}
+  <div class="summary bad">
+    <div class="row"><span class="label">Live issue:</span> {{ li.phase }} / <b>{{ li.event }}</b></div>
+    <div class="row">
+      <span class="kv">timestamp <b>{{ li.timestamp }}</b></span>
+      {% if li.message %}<span class="kv">message <b>{{ li.message }}</b></span>{% endif %}
+    </div>
+  </div>
+{% elif current_bottleneck %}
+  {% set b = current_bottleneck %}
+  <div class="summary {% if b.status == 'FAILED' %}bad{% else %}warn{% endif %}">
+    <div class="row"><span class="label">Gargalo atual:</span> {{ b.phase }} / <b>{{ b.event }}</b>{% if b.strategy %} ({{ b.strategy }}){% endif %}</div>
+    <div class="row">
+      {% if b.metric %}<span class="kv">metric <b>{{ b.metric }}</b></span>{% endif %}
+      {% if b.value is not none %}<span class="kv">value <b>{{ "%.4g"|format(b.value) }}</b></span>{% endif %}
+      {% if b.threshold is not none %}<span class="kv">threshold <b>{{ b.operator or '' }} {{ "%.4g"|format(b.threshold) }}</b></span>{% endif %}
+      {% if b.distance is not none %}<span class="kv">distance <b>{{ "%+.4g"|format(b.distance) }}</b></span>{% endif %}
+      {% if b.ratio_to_threshold is not none %}<span class="kv">ratio <b>{{ "%.3g"|format(b.ratio_to_threshold) }}</b></span>{% endif %}
+    </div>
+    {% if b.message %}<div class="row" style="color: var(--muted);">{{ b.message }}</div>{% endif %}
+  </div>
+{% else %}
+  <div class="summary ok">
+    <span class="label">Funil OK</span> na última barra fechada (sem bloqueio).
+  </div>
+{% endif %}
+
+<form class="filters" method="get" action="/execution-timeline">
+  <label>phase
+    <select name="phase">
+      <option value="">(any)</option>
+      {% for p in phase_options %}<option value="{{ p }}"{% if p == filters.phase %} selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>status
+    <select name="status">
+      <option value="">(any)</option>
+      {% for s in status_options %}<option value="{{ s }}"{% if s == filters.status %} selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>strategy
+    <input type="text" name="strategy" value="{{ filters.strategy or '' }}" placeholder="CONS_BASE…">
+  </label>
+  <label>event
+    <input type="text" name="event" value="{{ filters.event or '' }}" placeholder="EG_NOT_…">
+  </label>
+  <label>limit
+    <input type="number" name="limit" value="{{ filters.limit }}" min="1" max="1000">
+  </label>
+  <label>refresh(s)
+    <input type="number" name="refresh" value="{{ refresh }}" min="0" max="3600">
+  </label>
+  <button type="submit">Apply</button>
+  <a class="clear" href="/execution-timeline">clear</a>
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>timestamp</th>
+      <th>phase</th>
+      <th>event</th>
+      <th class="status">status</th>
+      <th>strategy</th>
+      <th>symbol</th>
+      <th>metric</th>
+      <th class="num">value</th>
+      <th class="num">threshold</th>
+      <th class="num">distance</th>
+      <th>message</th>
+      <th>corr</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for e in events %}
+    {% set cls = row_class(e.status) %}
+    <tr class="{{ cls }}">
+      <td>{{ e.timestamp }}</td>
+      <td>{{ e.phase }}</td>
+      <td><b>{{ e.event }}</b></td>
+      <td class="status">{{ e.status }}</td>
+      <td>{{ e.strategy or '' }}</td>
+      <td>{{ e.symbol or '' }}</td>
+      <td>{{ e.metric or '' }}</td>
+      <td class="num">{% if e.value is not none %}{{ "%.4g"|format(e.value) }}{% endif %}</td>
+      <td class="num">{% if e.threshold is not none %}{{ e.operator or '' }} {{ "%.4g"|format(e.threshold) }}{% endif %}</td>
+      <td class="num">{% if e.distance is not none %}{{ "%+.4g"|format(e.distance) }}{% endif %}</td>
+      <td class="msg">{{ (e.message or '')[:160] }}</td>
+      <td class="corr">{{ (e.correlation_id or '')[:16] }}</td>
+    </tr>
+  {% else %}
+    <tr><td class="empty" colspan="12">Sem eventos no filtro atual.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</body>
+</html>

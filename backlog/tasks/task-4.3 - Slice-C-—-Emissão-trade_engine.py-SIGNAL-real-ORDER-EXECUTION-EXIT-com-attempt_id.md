@@ -6,6 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-05-08 18:54'
+updated_date: '2026-05-08 19:38'
 labels:
   - timeline
   - slice-c
@@ -59,10 +60,27 @@ Wirear emissão de SIGNAL efetivo (BUY_WIN/SELL_WIN), ORDER_REQUEST, EXECUTION_F
 - [x] #8 Todos os testes de `test_mt5_client.py` continuam passando; novos testes de timeline em `test_trade_engine.py` verdes
 <!-- AC:END -->
 
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Guardrails do codex (review pós-Slice B):
+1. `attempt_id` (uuid4) deve nascer ANTES de qualquer `mt5.order_send`, inclusive antes do insert em `matador_ops` (antes de existir `trade_id`). correlation_id usa `attempt:{attempt_id}` até o insert; depois muda para `trade:{trade_id}`.
+2. Payloads MT5 devem ser suficientes para debug, sem dados sensíveis:
+   - `ORDER_REQUEST.payload`: {symbol, side, volume, magic, deviation, comment} — SEM credenciais, login, server.
+   - `EXECUTION_FILLED.payload`: {ticket, price, retcode, message}
+   - `EXECUTION_REJECTED.payload`: {retcode, message}
+   - `CLOSE_FAILED.payload`: {ticket, retcode, message}
+3. SIGNAL=BUY_WIN/SELL_WIN emitido UMA vez por tentativa real de entrada (no caminho que executa abertura). NÃO a cada poll.
+4. SKIPPED/WAIT continua exclusivo do Slice B (server.py). Slice C foca apenas no caminho real de execução.
+5. EXIT events distinguem claramente: TARGET, STOP_LOSS, BE_STOP, FORCE_CLOSE (sucesso) e CLOSE_FAILED (falha de envio MT5).
+<!-- SECTION:PLAN:END -->
+
 ## Implementation Notes
 
+<!-- SECTION:NOTES:BEGIN -->
 - `TradeEngine` agora inicializa `execution_timeline` para uso isolado em teste/worker e emite eventos com escrita tolerante a falha.
 - Entradas reais emitem `SIGNAL` (`BUY_WIN`/`SELL_WIN`) em paper e live; live também emite `ORDER_REQUEST` e `EXECUTION_FILLED`/`EXECUTION_REJECTED`.
 - Saídas emitem `EXIT` para `TARGET`, `STOP_LOSS`, `BE_STOP`, `FORCE_CLOSE`; falha de fechamento live emite também `CLOSE_FAILED`.
 - `server.py` passa `closed_bar_ts` para `evaluate()`, mantendo eventos de entrada/saída ligados à barra M5 quando aplicável.
 - Verificação focada: `PYTHONPATH=/tmp/codex-pytest python3 -m pytest tests/test_trade_engine.py tests/test_trade_engine_live.py tests/test_mt5_client.py -q` → 65 passed.
+<!-- SECTION:NOTES:END -->

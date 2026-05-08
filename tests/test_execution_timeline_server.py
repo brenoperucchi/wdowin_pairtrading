@@ -163,3 +163,73 @@ def test_execution_timeline_endpoint_returns_events_summary_and_filters(tmp_path
     alias_response = client.get("/api/execution_timeline", params={"phase": "ELIGIBILITY"})
     assert alias_response.status_code == 200
     assert alias_response.json()["events"] == data["events"]
+
+
+def test_execution_timeline_html_page_renders_summary_and_rows(tmp_path, monkeypatch):
+    db = _timeline_db(tmp_path, monkeypatch)
+    record_event(
+        db,
+        dedupe_key="bar:1:GLOBAL:ELIGIBILITY:EG",
+        closed_bar_ts=1,
+        phase="ELIGIBILITY",
+        event="EG_NOT_COINTEGRATED",
+        status="BLOCKED",
+        metric="eg_pvalue",
+        value=0.64,
+        threshold=0.10,
+        operator="<",
+    )
+    record_event(
+        db,
+        dedupe_key="bar:1:CONS_BASE:SIGNAL:WAIT",
+        closed_bar_ts=1,
+        phase="SIGNAL",
+        event="WAIT",
+        status="SKIPPED",
+        strategy="CONS_BASE",
+    )
+
+    client = TestClient(server.app)
+    response = client.get("/execution-timeline")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    body = response.text
+    assert "Execution Timeline" in body
+    assert "Gargalo atual" in body
+    assert "EG_NOT_COINTEGRATED" in body
+    assert "ELIGIBILITY" in body
+    assert "WAIT" in body
+    assert 'http-equiv="refresh"' in body  # default refresh=5
+
+
+def test_execution_timeline_html_filters_by_phase_and_disables_refresh(tmp_path, monkeypatch):
+    db = _timeline_db(tmp_path, monkeypatch)
+    record_event(
+        db,
+        dedupe_key="bar:1:GLOBAL:ELIGIBILITY:EG",
+        closed_bar_ts=1,
+        phase="ELIGIBILITY",
+        event="EG_NOT_COINTEGRATED",
+        status="BLOCKED",
+    )
+    record_event(
+        db,
+        dedupe_key="bar:1:GLOBAL:RISK:MAX_TRADES",
+        closed_bar_ts=1,
+        phase="RISK",
+        event="MAX_TRADES_REACHED",
+        status="BLOCKED",
+    )
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/execution-timeline",
+        params={"phase": "ELIGIBILITY", "refresh": 0},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "EG_NOT_COINTEGRATED" in body
+    assert "MAX_TRADES_REACHED" not in body
+    assert 'http-equiv="refresh"' not in body

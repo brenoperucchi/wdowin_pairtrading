@@ -6,6 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-05-08 18:53'
+updated_date: '2026-05-08 19:38'
 labels:
   - timeline
   - slice-b
@@ -77,3 +78,9 @@ Slice B entregue:
 
 `PYTHONPATH=/tmp/codex-pytest python3 -m pytest tests/ -q` → 169 passed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Slice B fechado em commit `372b20d` (feat(task-4): emit execution timeline from server). Codex confirmou veredito "good to close". 169 testes passando. Funil por barra fechada emite DATA failures (com dedupe minute-key + transição), INDICATORS_OK com payload completo, ELIGIBILITY/RISK por reason (operator=requisito de pass, distance>0=blocked) e SIGNAL WAIT/SKIPPED por estratégia. Endpoint `/api/execution-timeline` retorna events + summary {current_bottleneck, current_live_issue}. Verificado em runtime LIVE_ORDERS=1 com gate bloqueado por BAR_NOT_CLOSED + OUT_OF_SESSION + EG_NOT_COINTEGRATED.
+<!-- SECTION:FINAL_SUMMARY:END -->

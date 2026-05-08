@@ -9,8 +9,10 @@ import sqlite3
 import numpy as np
 import MetaTrader5 as mt5
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 import math
 from statsmodels.tsa.stattools import coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
@@ -150,6 +152,8 @@ DB_PATH = "trades.db"
 
 _trade_engine = TradeEngine(db_path=DB_PATH)
 init_timeline_table(DB_PATH)
+
+templates = Jinja2Templates(directory="templates")
 
 # DI pair trading state
 _di_cache: dict = {}
@@ -1414,6 +1418,71 @@ def execution_timeline_endpoint(
             "current_live_issue": current_live_issue(DB_PATH),
         },
     }
+
+
+_TIMELINE_PHASE_OPTIONS = (
+    "DATA", "INDICATORS", "ELIGIBILITY", "RISK",
+    "SIGNAL", "ORDER", "EXECUTION", "EXIT",
+)
+_TIMELINE_STATUS_OPTIONS = ("OK", "BLOCKED", "SKIPPED", "FAILED", "INFO")
+
+
+def _timeline_row_class(status: str | None) -> str:
+    if status in ("FAILED", "BLOCKED"):
+        return "bad"
+    if status == "OK":
+        return "ok"
+    if status == "SKIPPED":
+        return "skip"
+    return "warn"
+
+
+@app.get("/execution-timeline", response_class=HTMLResponse)
+def execution_timeline_html(
+    request: Request,
+    limit: int = 200,
+    phase: str | None = None,
+    status: str | None = None,
+    strategy: str | None = None,
+    event: str | None = None,
+    refresh: int = 5,
+):
+    """Standalone server-rendered HTML view of the execution timeline."""
+    refresh = max(0, min(refresh, 3600))
+    events = load_timeline(
+        DB_PATH,
+        limit=limit,
+        phase=phase or None,
+        status=status or None,
+        strategy=strategy or None,
+        event=event or None,
+    )
+    filters = {
+        "phase": phase or "",
+        "status": status or "",
+        "strategy": strategy or "",
+        "event": event or "",
+        "limit": limit,
+    }
+    filters_active = any(v for k, v in filters.items() if k != "limit") or limit != 200
+    qs = request.url.query
+    return templates.TemplateResponse(
+        request,
+        "execution_timeline.html",
+        {
+            "events": events,
+            "current_bottleneck": current_bottleneck(DB_PATH),
+            "current_live_issue": current_live_issue(DB_PATH),
+            "filters": filters,
+            "filters_active": filters_active,
+            "phase_options": _TIMELINE_PHASE_OPTIONS,
+            "status_options": _TIMELINE_STATUS_OPTIONS,
+            "refresh": refresh,
+            "rendered_at": datetime.now().isoformat(timespec="seconds"),
+            "row_class": _timeline_row_class,
+            "query_string": qs,
+        },
+    )
 
 
 # ─── Multi-day History Endpoint ──────────────────────────────────────────────
