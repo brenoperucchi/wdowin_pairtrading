@@ -797,6 +797,32 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
     return history
 
 
+def _closed_di_z_from_cache(closed_bar_ts: int | None, fallback: float = 0.0) -> float:
+    """Return WINxDI z-score aligned to the last closed WIN/WDO bar."""
+    if closed_bar_ts is None or not _di_cache:
+        return float(fallback)
+
+    history = _di_cache.get("history") or []
+    try:
+        local_dt = datetime.fromtimestamp(int(closed_bar_ts) + TIME_OFFSET)
+        target_date = local_dt.strftime("%Y-%m-%d")
+        target_time = local_dt.strftime("%H:%M")
+    except Exception:
+        target_date = target_time = None
+
+    for entry in reversed(history):
+        if entry.get("date") == target_date and entry.get("bar_time") == target_time:
+            return float(entry.get("z", fallback) or 0.0)
+
+    # If the DI cache is fresh but timestamp matching fails, prefer its last
+    # closed row over current_z, which may belong to the open M5 candle.
+    if len(history) >= 2:
+        return float(history[-2].get("z", fallback) or 0.0)
+    if history:
+        return float(history[-1].get("z", fallback) or 0.0)
+    return float(fallback)
+
+
 def _build_response(current_z, current_rho, half_life, strength,
                      beta_ols, beta_ref_20d, beta_delta_pct, beta_change_pct, beta_unstable,
                      rho_status, beta_status, safe_to_trade,
@@ -964,7 +990,7 @@ def regime_v2():
 
     # Trade engine (Consenso WDO + DI + NWE filters)
     now_dt = datetime.now()
-    z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
+    z_di_live = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
 
     # ── Bar-close gate: entries only on confirmed bar close ──────────
     # `copy_rates_from_pos(symbol, TF, 0, count)` returns the in-formation bar
@@ -988,7 +1014,7 @@ def regime_v2():
             di_regime()
 
     # Re-fetch DI cache after possible forced update
-    z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
+    z_di_live = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
 
     # ── Closed-bar values fed to the gate and the engine ──
     # Dashboard payload below keeps live ([-1]) values for display; only entry
@@ -1007,10 +1033,14 @@ def regime_v2():
         nwe_upper_closed = float(nwe_upper[-2])
         nwe_lower_closed = float(nwe_lower[-2])
         eg_input_a, eg_input_b = ac[:-1], bc[:-1]
+        z_di_closed = _closed_di_z_from_cache(closed_bar_ts, fallback=float(z_di_live))
+        entry_win_price_closed = float(ac[-2])
+        entry_wdo_price_closed = float(bc[-2])
     else:
         # Insufficient history for closed-bar slice — fall back to live values
         # but bar_close_confirmed will be False so no entries fire anyway.
         z_wdo_closed = current_z
+        z_di_closed = float(z_di_live)
         rho_closed = current_rho
         rho_level_closed = rho_status["level"]
         beta_closed = beta_current
@@ -1019,6 +1049,8 @@ def regime_v2():
         nwe_upper_closed = nwe_upper_now
         nwe_lower_closed = nwe_lower_now
         eg_input_a, eg_input_b = ac, bc
+        entry_win_price_closed = float(ac[-1])
+        entry_wdo_price_closed = float(bc[-1])
 
     # ── Operational risk stats (TASK-3 AC #11) ──
     today_str = now_dt.strftime("%Y-%m-%d")
@@ -1034,7 +1066,7 @@ def regime_v2():
         # across the pre/post-evaluate boundary. Only the operational
         # stats vary (when an exit fires inside evaluate).
         return risk_gate(
-            z_wdo=z_wdo_closed, z_di=float(z_di),
+            z_wdo=z_wdo_closed, z_di=z_di_closed,
             rho_level=rho_level_closed,
             beta_delta_pct=beta_delta_pct_closed,
             eg_pvalue=eg_pvalue,
@@ -1051,12 +1083,13 @@ def regime_v2():
             hmm_state=hmm.current_hmm_regime,
         )
 
-    gate = _build_gate(trades_today_count, daily_pnl_brl, minutes_since_last_loss)
+    pre_entry_gate = _build_gate(trades_today_count, daily_pnl_brl, minutes_since_last_loss)
 
     trade_result = _trade_engine.evaluate(
-        z_wdo=z_wdo_closed, z_di=float(z_di),
+        z_wdo=z_wdo_closed, z_di=z_di_closed,
         win_price=float(ac[-1]), wdo_price=float(bc[-1]),  # LIVE for exit checks
-        rho=rho_closed, gate=gate, hmm_state=hmm.current_hmm_regime,
+        entry_win_price=entry_win_price_closed, entry_wdo_price=entry_wdo_price_closed,
+        rho=rho_closed, gate=pre_entry_gate, hmm_state=hmm.current_hmm_regime,
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_closed,
         nwe_is_up=nwe_is_up_closed, nwe_upper=nwe_upper_closed, nwe_lower=nwe_lower_closed,
         closed_bar_ts=closed_bar_ts,
@@ -1084,19 +1117,19 @@ def regime_v2():
     ):
         _emit_closed_bar_timeline(
             closed_bar_ts=closed_bar_ts,
-            gate=gate,
+            gate=pre_entry_gate,
             trade_result=trade_result,
             z_wdo=z_wdo_closed,
-            z_di=float(z_di),
+            z_di=z_di_closed,
             rho=rho_closed,
             rho_level=rho_level_closed,
             beta_delta_pct=beta_delta_pct_closed,
             eg_pvalue=eg_pvalue,
             joh_open=joh_open,
             mt5_connected=mt5.terminal_info() is not None,
-            trades_today_count=post_trades_today_count,
-            daily_pnl_brl=post_daily_pnl_brl,
-            minutes_since_last_loss=post_minutes_since_last_loss,
+            trades_today_count=trades_today_count,
+            daily_pnl_brl=daily_pnl_brl,
+            minutes_since_last_loss=minutes_since_last_loss,
             now_dt=now_dt,
         )
         regime_v2._last_emitted_bar_ts = closed_bar_ts

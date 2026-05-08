@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 
+import server
 from core.config import TIME_OFFSET
 from server import _build_history
 
@@ -56,6 +57,34 @@ def test_di_map_lookup_merges_z_di():
     out = _build_history(times, z, spread, di_map=di_map)
     assert len(out) == 1
     assert out[0]["z_di"] == 0.42
+
+
+def test_closed_di_z_from_cache_uses_closed_bar_not_current(monkeypatch):
+    closed_local = datetime.now().replace(hour=11, minute=5, second=0, microsecond=0)
+    open_local = closed_local + timedelta(minutes=5)
+    closed_raw_ts = int(closed_local.timestamp()) - TIME_OFFSET
+
+    monkeypatch.setattr(
+        server,
+        "_di_cache",
+        {
+            "current_z": 9.99,
+            "history": [
+                {
+                    "date": closed_local.strftime("%Y-%m-%d"),
+                    "bar_time": closed_local.strftime("%H:%M"),
+                    "z": -1.23,
+                },
+                {
+                    "date": open_local.strftime("%Y-%m-%d"),
+                    "bar_time": open_local.strftime("%H:%M"),
+                    "z": 9.99,
+                },
+            ],
+        },
+    )
+
+    assert server._closed_di_z_from_cache(closed_raw_ts, fallback=0.0) == -1.23
 
 
 def test_nwe_blocking_buy_signal_when_up():

@@ -144,7 +144,9 @@ class TradeEngine:
                  nwe_is_up: bool = True,
                  nwe_upper: float = 0.0,
                  nwe_lower: float = 0.0,
-                 closed_bar_ts: int | None = None) -> dict:
+                 closed_bar_ts: int | None = None,
+                 entry_win_price: float | None = None,
+                 entry_wdo_price: float | None = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -161,7 +163,14 @@ class TradeEngine:
 
         ``hmm_state`` is recorded on opened trades for postmortem; it does
         not gate entries (informational only — TASK-3 AC #4 decision).
+
+        ``entry_win_price`` / ``entry_wdo_price`` let the server evaluate and
+        persist entries against the confirmed closed bar while still using
+        live prices above for intra-bar SL/TP exit checks.
         """
+        entry_win_price = win_price if entry_win_price is None else entry_win_price
+        entry_wdo_price = wdo_price if entry_wdo_price is None else entry_wdo_price
+
         open_trades = self._get_open_trades()
         results: dict = {}
         # Market-side reasons that do NOT change within a single poll.
@@ -229,17 +238,17 @@ class TradeEngine:
             # ── Strategy-specific entry logic ──
             if strat == "CONS_BASE":
                 res = self._eval_consensus(
-                    z_wdo, z_di, win_price, wdo_price, rho, beta_value,
+                    z_wdo, z_di, entry_win_price, entry_wdo_price, rho, beta_value,
                     hmm_state, closed_bar_ts
                 )
             elif strat == "WDO_NWE":
                 res = self._eval_wdo_nwe(
-                    z_wdo, win_price, wdo_price, rho, beta_value, hmm_state,
+                    z_wdo, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
                     nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts
                 )
             elif strat == "DI_NWE":
                 res = self._eval_di_nwe(
-                    z_di, win_price, wdo_price, rho, beta_value, hmm_state,
+                    z_di, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
                     nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts
                 )
             results[strat] = res
@@ -563,7 +572,7 @@ class TradeEngine:
             self._emit_timeline_event(
                 closed_bar_ts=closed_bar_ts,
                 correlation_id=correlation_id,
-                dedupe_key=f"{correlation_id}:EXIT:{reason}",
+                dedupe_key=f"{correlation_id}:EXIT:{reason}:{exit_status}",
                 trade_id=trade_id,
                 phase="EXIT",
                 event=reason,

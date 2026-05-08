@@ -62,6 +62,28 @@ def test_buy_entry_consensus(engine):
     assert result["strategies"]["CONS_BASE"]["open_trade"]["direction"] == "BUY"
 
 
+def test_entry_uses_closed_bar_prices_when_provided(engine):
+    """Entry fills must use closed-bar inputs while exit checks may use live prices."""
+    result = engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=999999, wdo_price=9999,
+        entry_win_price=130000, entry_wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+    )
+
+    opened = result["strategies"]["CONS_BASE"]["open_trade"]
+    assert opened["price_win_in"] == 130000
+
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute(
+        "SELECT price_win_in, price_wdo_in FROM matador_ops WHERE id = ?",
+        (opened["id"],),
+    ).fetchone()
+    conn.close()
+    assert row == (130000, 5800)
+
+
 def test_sell_entry_consensus(engine):
     """Both z-scores confirming sell (CONS_BASE) should open SELL WIN."""
     result = engine.evaluate(
@@ -767,6 +789,32 @@ def test_timeline_live_close_failure_records_exit_and_close_failed(engine, monke
     )
     exit_rows = [r for r in _timeline_rows(engine) if r["phase"] == "EXIT"]
     assert [r["event"] for r in exit_rows] == ["STOP_LOSS", "CLOSE_FAILED"]
+
+    monkeypatch.setattr(
+        te,
+        "close_position_by_ticket",
+        lambda ticket, magic, comment="": {
+            "ok": True,
+            "ticket": ticket,
+            "retcode": 10009,
+            "message": "done",
+            "price": 129890.0,
+        },
+    )
+    result = engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+    )
+
+    assert result["action"] == "CLOSE"
+    exit_rows = [r for r in _timeline_rows(engine) if r["phase"] == "EXIT"]
+    assert [(r["event"], r["status"]) for r in exit_rows] == [
+        ("STOP_LOSS", "FAILED"),
+        ("CLOSE_FAILED", "FAILED"),
+        ("STOP_LOSS", "OK"),
+    ]
 
 
 def test_timeline_does_not_emit_skipped_signal_on_blocked_poll(engine):
