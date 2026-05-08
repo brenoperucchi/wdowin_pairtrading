@@ -1,7 +1,7 @@
 ---
 id: TASK-4.4
 title: Slice D — Frontend ExecutionTimelinePanel + integração no App.jsx
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-08 18:54'
 labels:
@@ -42,10 +42,17 @@ Painel React para consumir `/api/execution-timeline`, mostrar `current_bottlenec
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `ExecutionTimelinePanel.jsx` faz polling em `POLL_MS=2500` no `/api/execution-timeline`
-- [ ] #2 Summary mostra `current_bottleneck` com value/threshold/distance/ratio, ou `current_live_issue`, ou "Funil OK"
-- [ ] #3 Tabela cronológica colorida por status; filtros funcionais (phase, status, strategy, event)
-- [ ] #4 Painel inserido entre `RegimeHealthPanel` e `PerformancePanel` no `App.jsx`
-- [ ] #5 `npm run lint` verde no `regime-dashboard/`
-- [ ] #6 `npm run build` verde no `regime-dashboard/`
+- [x] #1 `ExecutionTimelinePanel.jsx` faz polling em `POLL_MS=2500` no `/api/execution-timeline`
+- [x] #2 Summary mostra `current_bottleneck` com value/threshold/distance/ratio, ou `current_live_issue`, ou "Funil OK"
+- [x] #3 Tabela cronológica colorida por status; filtros funcionais (phase, status, strategy, event)
+- [x] #4 Painel inserido entre `RegimeHealthPanel` e `PerformancePanel` no `App.jsx`
+- [x] #5 `npm run lint` verde no `regime-dashboard/`
+- [x] #6 `npm run build` verde no `regime-dashboard/`
 <!-- AC:END -->
+
+## Implementation Notes
+
+- Novo `ExecutionTimelinePanel.jsx` com polling proprio de 2.5s, filtros por fase/status/setup/evento e fetch relativo em `/api/execution-timeline` para funcionar via proxy no `:5174`.
+- Summary prioriza `current_live_issue`; se nao houver, mostra `current_bottleneck`; sem ambos, mostra funil OK.
+- `App.jsx` insere o painel entre `RegimeHealthPanel` e `PerformancePanel`.
+- Verificacao: `npm run lint` e `npm run build` verdes em `regime-dashboard/`.

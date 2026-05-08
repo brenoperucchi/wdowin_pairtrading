@@ -44,7 +44,7 @@ Plano completo em `/home/brenoperucchi/.claude/plans/stateful-toasting-pony.md`.
 - [x] #2 Endpoint `GET /api/execution-timeline?limit=&phase=&status=&strategy=&event=&since=` retorna eventos + `summary.current_bottleneck` + `summary.current_live_issue`
 - [x] #3 Funil por barra fechada cobre DATA failures, INDICATORS_OK (com payload rico), ELIGIBILITY/RISK reasons (sem `BAR_NOT_CLOSED`), SIGNAL WAIT-SKIPPED por estratégia
 - [x] #4 Trade real registra SIGNAL→ORDER_REQUEST→EXECUTION_FILLED/REJECTED→EXIT(target/SL/BE/force/CLOSE_FAILED) com `attempt_id` e/ou `trade_id`
-- [ ] #5 Painel `ExecutionTimelinePanel` aparece entre `RegimeHealthPanel` e `PerformancePanel`, mostra gargalo atual + lista filtrável
+- [x] #5 Painel `ExecutionTimelinePanel` aparece entre `RegimeHealthPanel` e `PerformancePanel`, mostra gargalo atual + lista filtrável
 - [x] #6 `pytest tests/ -q` verde com testes de schema, dedupe, distance/ratio, bottleneck e live issue
-- [ ] #7 `npm run lint && npm run build` em `regime-dashboard/` verde
+- [x] #7 `npm run lint && npm run build` em `regime-dashboard/` verde
 <!-- AC:END -->

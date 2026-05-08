@@ -4,6 +4,7 @@ import { db } from "./firebase";
 import ZScoreChart from "./components/ZScoreChart";
 import RegimeHealthPanel from "./components/RegimeHealthPanel";
 import PerformancePanel from "./components/PerformancePanel";
+import ExecutionTimelinePanel from "./components/ExecutionTimelinePanel";
 import TradingGuide from "./components/TradingGuide";
 import SignalHistogram from "./components/SignalHistogram";
 import IndexChart from "./components/IndexChart";
@@ -688,6 +689,8 @@ export default function App() {
                     riskGate={data?.risk_gate}
                     liveOrdersEnabled={data?.meta?.live_orders_enabled}
                 />
+
+                <ExecutionTimelinePanel />
 
                 {/* Performance */}
                 <PerformancePanel perf={perf} />
