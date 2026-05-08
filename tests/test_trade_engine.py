@@ -1,9 +1,14 @@
 import sqlite3
-import os
+import json
 from datetime import datetime, timedelta
 import pytest
+import core.trade_engine as te
+from core.execution_timeline import load_timeline
 from core.trade_engine import TradeEngine
-from core.config import BUY_SL, BUY_TP, SELL_SL, SELL_TP, Z_ENTRY, Z_ANOMALY, Z_ATTENTION
+from core.config import (
+    BUY_SL, BUY_TP, SELL_TP,
+    FORCE_CLOSE_H, FORCE_CLOSE_M,
+)
 
 
 @pytest.fixture
@@ -24,6 +29,10 @@ def _gate(allowed=True, reasons=None):
         "checks": {},
         "informational": {"joh_open": True, "hmm_state": None, "eg_pvalue": 0.02},
     }
+
+
+def _timeline_rows(engine):
+    return list(reversed(load_timeline(engine.db_path, limit=100)))
 
 
 # ── Entry conditions ─────────────────────────────────────────────────────────
@@ -508,3 +517,247 @@ def test_gate_block_logged_when_bar_closed_plus_other_reason(engine, caplog):
     gate_records = [r for r in caplog.records if "gate_block" in r.message]
     assert len(gate_records) >= 1
     assert "EG_UNAVAILABLE" in gate_records[0].message
+
+
+# ── Execution timeline emission (TASK-4.3 / Slice C) ─────────────────────────
+
+def test_timeline_paper_open_records_real_signal_without_order(engine, monkeypatch):
+    monkeypatch.setattr(te, "LIVE_ORDERS", False)
+
+    result = engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0, closed_bar_ts=1778243100,
+    )
+
+    assert result["action"] == "BUY_WIN"
+    rows = _timeline_rows(engine)
+    assert [r["event"] for r in rows] == ["BUY_WIN"]
+    signal = rows[0]
+    assert signal["phase"] == "SIGNAL"
+    assert signal["status"] == "OK"
+    assert signal["closed_bar_ts"] == 1778243100
+    assert signal["correlation_id"].startswith("attempt:")
+    assert signal["attempt_id"]
+    assert signal["trade_id"] is None
+    payload = json.loads(signal["payload_json"])
+    assert payload["direction"] == "BUY"
+    assert payload["z_source"] == "CONSENSO"
+
+
+def test_timeline_live_open_records_signal_order_and_execution(engine, monkeypatch):
+    captured = {}
+
+    def fake_send(symbol, side, volume, magic, deviation, comment):
+        captured.update(
+            symbol=symbol, side=side, volume=volume,
+            magic=magic, deviation=deviation, comment=comment,
+        )
+        return {
+            "ok": True,
+            "ticket": 111222,
+            "retcode": 10009,
+            "message": "done",
+            "price": 130025.0,
+        }
+
+    monkeypatch.setattr(te, "LIVE_ORDERS", True)
+    monkeypatch.setattr(te, "send_market_order", fake_send)
+
+    result = engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0, closed_bar_ts=1778243100,
+    )
+
+    assert result["action"] == "BUY_WIN"
+    rows = _timeline_rows(engine)
+    assert [r["event"] for r in rows] == [
+        "BUY_WIN",
+        "ORDER_REQUEST",
+        "EXECUTION_FILLED",
+    ]
+    attempt_ids = {r["attempt_id"] for r in rows}
+    corr_ids = {r["correlation_id"] for r in rows}
+    assert len(attempt_ids) == 1
+    assert len(corr_ids) == 1
+    assert next(iter(corr_ids)).startswith("attempt:")
+    assert all(r["closed_bar_ts"] == 1778243100 for r in rows)
+
+    order_request = json.loads(rows[1]["payload_json"])
+    assert order_request == captured
+    execution = json.loads(rows[2]["payload_json"])
+    assert execution["ticket"] == 111222
+    assert execution["price"] == 130025.0
+    assert execution["retcode"] == 10009
+
+
+def test_timeline_live_reject_records_execution_rejected_without_trade(engine, monkeypatch):
+    monkeypatch.setattr(te, "LIVE_ORDERS", True)
+    monkeypatch.setattr(
+        te,
+        "send_market_order",
+        lambda *args, **kwargs: {
+            "ok": False,
+            "ticket": None,
+            "retcode": 10004,
+            "message": "requote",
+            "price": None,
+        },
+    )
+
+    result = engine.evaluate(
+        z_wdo=2.1, z_di=1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0, closed_bar_ts=1778243100,
+        nwe_is_up=False,
+    )
+
+    assert result["action"] == "ORDER_FAILED"
+    rows = _timeline_rows(engine)
+    assert [r["event"] for r in rows] == [
+        "SELL_WIN",
+        "ORDER_REQUEST",
+        "EXECUTION_REJECTED",
+    ]
+    assert rows[-1]["phase"] == "EXECUTION"
+    assert rows[-1]["status"] == "FAILED"
+    assert rows[-1]["severity"] == "operational_block"
+    assert "EXIT" not in {r["phase"] for r in rows}
+    conn = sqlite3.connect(engine.db_path)
+    count = conn.execute("SELECT COUNT(*) FROM matador_ops").fetchone()[0]
+    conn.close()
+    assert count == 0
+
+
+def _open_buy_consensus(engine):
+    result = engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+    )
+    return result["strategies"]["CONS_BASE"]["open_trade"]["id"]
+
+
+def test_timeline_paper_exit_records_target_with_trade_correlation(engine):
+    trade_id = _open_buy_consensus(engine)
+
+    result = engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 + BUY_TP, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5, closed_bar_ts=1778243400,
+    )
+
+    assert result["action"] == "CLOSE"
+    target = [r for r in _timeline_rows(engine) if r["event"] == "TARGET"][0]
+    assert target["phase"] == "EXIT"
+    assert target["status"] == "OK"
+    assert target["correlation_id"] == f"trade:{trade_id}"
+    assert target["trade_id"] == trade_id
+    assert target["closed_bar_ts"] == 1778243400
+
+
+def test_timeline_paper_exit_records_stop_loss(engine):
+    _open_buy_consensus(engine)
+
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+    )
+
+    assert "STOP_LOSS" in [r["event"] for r in _timeline_rows(engine)]
+
+
+def test_timeline_paper_exit_records_be_stop(engine):
+    _open_buy_consensus(engine)
+
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130400, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+    )
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=10,
+    )
+
+    assert "BE_STOP" in [r["event"] for r in _timeline_rows(engine)]
+
+
+def test_timeline_paper_exit_records_force_close(engine):
+    _open_buy_consensus(engine)
+
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=FORCE_CLOSE_H, minute=FORCE_CLOSE_M,
+    )
+
+    assert "FORCE_CLOSE" in [r["event"] for r in _timeline_rows(engine)]
+
+
+def test_timeline_live_close_failure_records_exit_and_close_failed(engine, monkeypatch):
+    monkeypatch.setattr(te, "LIVE_ORDERS", True)
+    monkeypatch.setattr(
+        te,
+        "send_market_order",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "ticket": 111222,
+            "retcode": 10009,
+            "message": "done",
+            "price": 130000.0,
+        },
+    )
+    trade_id = _open_buy_consensus(engine)
+
+    monkeypatch.setattr(
+        te,
+        "close_position_by_ticket",
+        lambda ticket, magic, comment="": {
+            "ok": False,
+            "ticket": ticket,
+            "retcode": 10006,
+            "message": "timeout",
+            "price": None,
+        },
+    )
+    result = engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+    )
+
+    assert result["action"] == "CLOSE_FAILED"
+    rows = _timeline_rows(engine)
+    exit_rows = [r for r in rows if r["phase"] == "EXIT"]
+    assert [r["event"] for r in exit_rows] == ["STOP_LOSS", "CLOSE_FAILED"]
+    assert all(r["correlation_id"] == f"trade:{trade_id}" for r in exit_rows)
+    assert exit_rows[-1]["status"] == "FAILED"
+    payload = json.loads(exit_rows[-1]["payload_json"])
+    assert payload["retcode"] == 10006
+    assert payload["message"] == "timeout"
+
+
+def test_timeline_does_not_emit_skipped_signal_on_blocked_poll(engine):
+    for _ in range(3):
+        engine.evaluate(
+            z_wdo=-2.5, z_di=-2.5,
+            win_price=130000, wdo_price=5800,
+            rho=-0.75, gate=_gate(allowed=False, reasons=["EG_NOT_COINTEGRATED"]),
+            hmm_state="CHOP", hour=11, minute=0,
+        )
+
+    assert _timeline_rows(engine) == []

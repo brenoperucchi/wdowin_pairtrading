@@ -3,7 +3,7 @@ id: TASK-4.3
 title: >-
   Slice C — Emissão trade_engine.py (SIGNAL real, ORDER, EXECUTION, EXIT) com
   attempt_id
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-08 18:54'
 labels:
@@ -49,12 +49,20 @@ Wirear emissão de SIGNAL efetivo (BUY_WIN/SELL_WIN), ORDER_REQUEST, EXECUTION_F
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `_open_trade` gera `attempt_id` (uuid) e emite SIGNAL/ORDER/EXECUTION com `correlation_id=attempt:<uuid>` até existir trade_id, depois passa a `trade:<id>`
-- [ ] #2 Em paper mode, SIGNAL real é gravado sem ORDER/EXECUTION
-- [ ] #3 Em live mode, sequência SIGNAL→ORDER_REQUEST→EXECUTION_FILLED/REJECTED é gravada com payloads normalizados
-- [ ] #4 EXIT (TARGET/STOP_LOSS/BE_STOP/FORCE_CLOSE) gravado em `_check_exits` com `correlation_id=trade:<id>`
-- [ ] #5 CLOSE_FAILED emitido quando `close_position_by_ticket` retorna `ok=False` em live
-- [ ] #6 `evaluate()` não emite SIGNAL=SKIPPED a cada poll (responsabilidade do server.py)
-- [ ] #7 `mt5_client.py` continua puro (sem import/uso de `execution_timeline`)
-- [ ] #8 Todos os testes de `test_mt5_client.py` continuam passando; novos testes de timeline em `test_trade_engine.py` verdes
+- [x] #1 `_open_trade` gera `attempt_id` (uuid) e emite SIGNAL/ORDER/EXECUTION com `correlation_id=attempt:<uuid>` até existir trade_id, depois passa a `trade:<id>`
+- [x] #2 Em paper mode, SIGNAL real é gravado sem ORDER/EXECUTION
+- [x] #3 Em live mode, sequência SIGNAL→ORDER_REQUEST→EXECUTION_FILLED/REJECTED é gravada com payloads normalizados
+- [x] #4 EXIT (TARGET/STOP_LOSS/BE_STOP/FORCE_CLOSE) gravado em `_check_exits` com `correlation_id=trade:<id>`
+- [x] #5 CLOSE_FAILED emitido quando `close_position_by_ticket` retorna `ok=False` em live
+- [x] #6 `evaluate()` não emite SIGNAL=SKIPPED a cada poll (responsabilidade do server.py)
+- [x] #7 `mt5_client.py` continua puro (sem import/uso de `execution_timeline`)
+- [x] #8 Todos os testes de `test_mt5_client.py` continuam passando; novos testes de timeline em `test_trade_engine.py` verdes
 <!-- AC:END -->
+
+## Implementation Notes
+
+- `TradeEngine` agora inicializa `execution_timeline` para uso isolado em teste/worker e emite eventos com escrita tolerante a falha.
+- Entradas reais emitem `SIGNAL` (`BUY_WIN`/`SELL_WIN`) em paper e live; live também emite `ORDER_REQUEST` e `EXECUTION_FILLED`/`EXECUTION_REJECTED`.
+- Saídas emitem `EXIT` para `TARGET`, `STOP_LOSS`, `BE_STOP`, `FORCE_CLOSE`; falha de fechamento live emite também `CLOSE_FAILED`.
+- `server.py` passa `closed_bar_ts` para `evaluate()`, mantendo eventos de entrada/saída ligados à barra M5 quando aplicável.
+- Verificação focada: `PYTHONPATH=/tmp/codex-pytest python3 -m pytest tests/test_trade_engine.py tests/test_trade_engine_live.py tests/test_mt5_client.py -q` → 65 passed.

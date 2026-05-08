@@ -7,12 +7,13 @@ Portfolio with 3 independent strategy slots:
   2. WDO_NWE    — WDO Kalman + NWE band proximity filter
   3. DI_NWE     — DI Kalman + NWE band proximity filter
 
-Each slot manages its own position independently.
-No orders are dispatched to MT5 — signal-only + paper tracking.
+Each slot manages its own position independently. Paper mode only persists
+signals/trades locally; live mode dispatches WIN orders through MT5 helpers.
 """
 import logging
 import sqlite3
 from datetime import datetime
+from uuid import uuid4
 from core.config import (
     Z_ENTRY, Z_ANOMALY, Z_ATTENTION,
     BUY_SL, BUY_TP, BUY_BE_ACT, BUY_BE_LOCK,
@@ -24,6 +25,7 @@ from core.config import (
     NWE_BAND_MULT,
     LIVE_ORDERS, LIVE_SYMBOL_WIN, LIVE_DEVIATION, MAGIC_BY_STRATEGY,
 )
+from core.execution_timeline import init_timeline_table, record_event
 from core.risk_gate import operational_checks, WITHIN_POLL_OP_REASONS
 
 STRATEGIES = ["CONS_BASE", "WDO_NWE", "DI_NWE"]
@@ -96,6 +98,7 @@ class TradeEngine:
                     raise
         conn.commit()
         conn.close()
+        init_timeline_table(self.db_path)
 
     def _get_open_trades(self):
         """Returns dict of open trades keyed by strategy."""
@@ -140,7 +143,8 @@ class TradeEngine:
                  beta_value: float = 0.0,
                  nwe_is_up: bool = True,
                  nwe_upper: float = 0.0,
-                 nwe_lower: float = 0.0) -> dict:
+                 nwe_lower: float = 0.0,
+                 closed_bar_ts: int | None = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -172,7 +176,8 @@ class TradeEngine:
             trade = open_trades[strat]
             if trade is not None:
                 results[strat] = self._check_exits(
-                    trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strat
+                    trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strat,
+                    closed_bar_ts
                 )
 
         # ── Refresh operational stats post-exits (within-poll consistency) ─
@@ -224,17 +229,18 @@ class TradeEngine:
             # ── Strategy-specific entry logic ──
             if strat == "CONS_BASE":
                 res = self._eval_consensus(
-                    z_wdo, z_di, win_price, wdo_price, rho, beta_value, hmm_state
+                    z_wdo, z_di, win_price, wdo_price, rho, beta_value,
+                    hmm_state, closed_bar_ts
                 )
             elif strat == "WDO_NWE":
                 res = self._eval_wdo_nwe(
                     z_wdo, win_price, wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower
+                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts
                 )
             elif strat == "DI_NWE":
                 res = self._eval_di_nwe(
                     z_di, win_price, wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower
+                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts
                 )
             results[strat] = res
             if res.get("open_trade") is not None:
@@ -245,23 +251,26 @@ class TradeEngine:
 
     # ── Strategy evaluators ─────────────────────────────────────────────────
 
-    def _eval_consensus(self, z_wdo, z_di, win_price, wdo_price, rho, beta, hmm):
+    def _eval_consensus(self, z_wdo, z_di, win_price, wdo_price, rho, beta, hmm,
+                        closed_bar_ts=None):
         """Consensus: requires BOTH z-scores to confirm."""
         # BUY
         if (z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION) or \
            (z_wdo <= -Z_ATTENTION and z_di <= -Z_ENTRY):
             return self._open_trade("BUY", "CONSENSO", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE")
+                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
+                                    closed_bar_ts)
         # SELL
         if (z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION) or \
            (z_wdo >= Z_ATTENTION and z_di >= Z_ENTRY):
             return self._open_trade("SELL", "CONSENSO", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE")
+                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
+                                    closed_bar_ts)
 
         return self._result("WAIT", "CONS_BASE")
 
     def _eval_wdo_nwe(self, z_wdo, win_price, wdo_price, rho, beta, hmm,
-                      nwe_is_up, nwe_upper, nwe_lower):
+                      nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None):
         """WDO Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_wdo <= -Z_ENTRY
         sig_sell = z_wdo >= Z_ENTRY
@@ -287,15 +296,17 @@ class TradeEngine:
 
         if sig_buy:
             return self._open_trade("BUY", "WDO_KALMAN", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
+                                    closed_bar_ts)
         if sig_sell:
             return self._open_trade("SELL", "WDO_KALMAN", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
+                                    closed_bar_ts)
 
         return self._result("WAIT", "WDO_NWE")
 
     def _eval_di_nwe(self, z_di, win_price, wdo_price, rho, beta, hmm,
-                     nwe_is_up, nwe_upper, nwe_lower):
+                     nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None):
         """DI Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_di <= -Z_ENTRY
         sig_sell = z_di >= Z_ENTRY
@@ -321,10 +332,12 @@ class TradeEngine:
 
         if sig_buy:
             return self._open_trade("BUY", "DI_JOHANSEN", z_di,
-                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE",
+                                    closed_bar_ts)
         if sig_sell:
             return self._open_trade("SELL", "DI_JOHANSEN", z_di,
-                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE",
+                                    closed_bar_ts)
 
         return self._result("WAIT", "DI_NWE")
 
@@ -337,24 +350,116 @@ class TradeEngine:
             "gate_reasons": list(gate_reasons) if gate_reasons else [],
         }
 
+    def _emit_timeline_event(self, **fields):
+        try:
+            return record_event(self.db_path, **fields)
+        except Exception:
+            logger.exception(
+                "timeline_emit_failed phase=%s event=%s strategy=%s",
+                fields.get("phase"), fields.get("event"), fields.get("strategy"),
+            )
+            return None
+
+    @staticmethod
+    def _event_corr_attempt(attempt_id):
+        return f"attempt:{attempt_id}"
+
+    @staticmethod
+    def _event_corr_trade(trade_id):
+        return f"trade:{trade_id}"
+
     def _open_trade(self, direction, z_source, z_val,
-                     win_price, wdo_price, rho, beta, hmm_state, strategy):
+                     win_price, wdo_price, rho, beta, hmm_state, strategy,
+                     closed_bar_ts=None):
+        attempt_id = uuid4().hex
         entry_price = win_price
         mt5_ticket_in = None
         mt5_magic = None
         live = 0
+        action = "BUY_WIN" if direction == "BUY" else "SELL_WIN"
+        correlation_id = self._event_corr_attempt(attempt_id)
+
+        self._emit_timeline_event(
+            closed_bar_ts=closed_bar_ts,
+            correlation_id=correlation_id,
+            attempt_id=attempt_id,
+            dedupe_key=f"{correlation_id}:SIGNAL:{action}",
+            phase="SIGNAL",
+            event=action,
+            status="OK",
+            severity="info",
+            strategy=strategy,
+            symbol=LIVE_SYMBOL_WIN,
+            metric="abs_z_score",
+            value=abs(z_val),
+            threshold=Z_ENTRY,
+            operator=">=",
+            message=f"{strategy} entry signal {action}",
+            payload_json={
+                "direction": direction,
+                "z_source": z_source,
+                "z_value": z_val,
+                "rho": rho,
+                "beta": beta,
+                "hmm_state": hmm_state,
+                "win_price": win_price,
+                "wdo_price": wdo_price,
+                "qty_win": WIN_CONTRACTS,
+            },
+        )
 
         if LIVE_ORDERS:
             mt5_magic = MAGIC_BY_STRATEGY[strategy]
+            order_request = {
+                "symbol": LIVE_SYMBOL_WIN,
+                "side": direction,
+                "volume": WIN_CONTRACTS,
+                "magic": mt5_magic,
+                "deviation": LIVE_DEVIATION,
+                "comment": f"{strategy}/{z_source}",
+            }
+            self._emit_timeline_event(
+                closed_bar_ts=closed_bar_ts,
+                correlation_id=correlation_id,
+                attempt_id=attempt_id,
+                dedupe_key=f"{correlation_id}:ORDER:ORDER_REQUEST",
+                phase="ORDER",
+                event="ORDER_REQUEST",
+                status="OK",
+                severity="info",
+                strategy=strategy,
+                symbol=LIVE_SYMBOL_WIN,
+                message=f"{strategy} MT5 order request",
+                payload_json=order_request,
+            )
             order = send_market_order(
-                LIVE_SYMBOL_WIN,
-                direction,
-                WIN_CONTRACTS,
-                magic=mt5_magic,
-                deviation=LIVE_DEVIATION,
-                comment=f"{strategy}/{z_source}",
+                order_request["symbol"],
+                order_request["side"],
+                order_request["volume"],
+                magic=order_request["magic"],
+                deviation=order_request["deviation"],
+                comment=order_request["comment"],
             )
             if not order.get("ok"):
+                self._emit_timeline_event(
+                    closed_bar_ts=closed_bar_ts,
+                    correlation_id=correlation_id,
+                    attempt_id=attempt_id,
+                    dedupe_key=f"{correlation_id}:EXECUTION:EXECUTION_REJECTED",
+                    phase="EXECUTION",
+                    event="EXECUTION_REJECTED",
+                    status="FAILED",
+                    severity="operational_block",
+                    strategy=strategy,
+                    symbol=LIVE_SYMBOL_WIN,
+                    message=f"{strategy} MT5 order rejected",
+                    payload_json={
+                        "ticket": order.get("ticket"),
+                        "price": order.get("price"),
+                        "retcode": order.get("retcode"),
+                        "message": order.get("message"),
+                    },
+                )
                 logger.error(
                     "order_open_failed strategy=%s direction=%s retcode=%s message=%s",
                     strategy, direction, order.get("retcode"), order.get("message"),
@@ -364,6 +469,25 @@ class TradeEngine:
                     strategy,
                     gate_reasons=[f"ORDER_SEND_FAILED:{order.get('message')}"],
                 )
+            self._emit_timeline_event(
+                closed_bar_ts=closed_bar_ts,
+                correlation_id=correlation_id,
+                attempt_id=attempt_id,
+                dedupe_key=f"{correlation_id}:EXECUTION:EXECUTION_FILLED",
+                phase="EXECUTION",
+                event="EXECUTION_FILLED",
+                status="OK",
+                severity="info",
+                strategy=strategy,
+                symbol=LIVE_SYMBOL_WIN,
+                message=f"{strategy} MT5 order filled",
+                payload_json={
+                    "ticket": order.get("ticket"),
+                    "price": order.get("price"),
+                    "retcode": order.get("retcode"),
+                    "message": order.get("message"),
+                },
+            )
             mt5_ticket_in = order.get("ticket")
             entry_price = order.get("price") or win_price
             live = 1
@@ -382,17 +506,19 @@ class TradeEngine:
         trade_id = c.lastrowid
         conn.close()
 
-        action = "BUY_WIN" if direction == "BUY" else "SELL_WIN"
         return {
             "action": action, "strategy": strategy,
             "open_trade": {"id": trade_id, "direction": direction,
                            "z_source": z_source, "price_win_in": entry_price,
                            "strategy": strategy, "mt5_ticket_in": mt5_ticket_in,
-                           "live": bool(live)},
+                           "live": bool(live), "attempt_id": attempt_id},
             "exit_reason": None, "pnl": None,
         }
 
-    def _check_exits(self, trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strategy):
+    def _check_exits(
+        self, trade, win_price, wdo_price, hour, minute, z_wdo, z_di,
+        strategy, closed_bar_ts=None,
+    ):
         is_buy = trade["direction"] == "BUY"
         sl = BUY_SL if is_buy else SELL_SL
         tp = BUY_TP if is_buy else SELL_TP
@@ -430,7 +556,55 @@ class TradeEngine:
         if reason:
             pnl = pts_favor * WIN_CONTRACTS * WIN_PV
             close_result = self._close_trade(trade, reason, win_price, wdo_price, pnl)
+            trade_id = trade["id"]
+            correlation_id = self._event_corr_trade(trade_id)
+            self._emit_timeline_event(
+                closed_bar_ts=closed_bar_ts,
+                correlation_id=correlation_id,
+                dedupe_key=f"{correlation_id}:EXIT:{reason}",
+                trade_id=trade_id,
+                phase="EXIT",
+                event=reason,
+                status="OK",
+                severity="info",
+                strategy=strategy,
+                symbol=LIVE_SYMBOL_WIN,
+                message=f"{strategy} exit trigger {reason}",
+                payload_json={
+                    "reason": reason,
+                    "direction": trade["direction"],
+                    "price_win_in": trade["price_win_in"],
+                    "price_win_out": close_result.get("price_win_out", win_price),
+                    "price_wdo_out": wdo_price,
+                    "pts_favor": pts_favor,
+                    "pnl_brl": close_result.get("pnl"),
+                    "live": bool(trade.get("live")),
+                    "mt5_ticket_in": trade.get("mt5_ticket_in"),
+                    "mt5_ticket_out": close_result.get("mt5_ticket_out"),
+                    "retcode": close_result.get("retcode"),
+                    "message": close_result.get("message"),
+                },
+            )
             if not close_result["ok"]:
+                self._emit_timeline_event(
+                    closed_bar_ts=closed_bar_ts,
+                    correlation_id=correlation_id,
+                    dedupe_key=f"{correlation_id}:EXIT:CLOSE_FAILED:{reason}:{uuid4().hex}",
+                    trade_id=trade_id,
+                    phase="EXIT",
+                    event="CLOSE_FAILED",
+                    status="FAILED",
+                    severity="operational_block",
+                    strategy=strategy,
+                    symbol=LIVE_SYMBOL_WIN,
+                    message=f"{strategy} close order failed",
+                    payload_json={
+                        "reason": reason,
+                        "ticket": close_result.get("ticket"),
+                        "retcode": close_result.get("retcode"),
+                        "message": close_result.get("message"),
+                    },
+                )
                 return {
                     "action": "CLOSE_FAILED", "strategy": strategy,
                     "open_trade": trade, "exit_reason": reason,
@@ -465,7 +639,15 @@ class TradeEngine:
             mt5_magic = trade.get("mt5_magic") or MAGIC_BY_STRATEGY.get(trade["strategy"])
             if not mt5_ticket_in:
                 logger.error("order_close_missing_ticket trade_id=%s strategy=%s", trade_id, trade["strategy"])
-                return {"ok": False, "pnl": None, "message": "MISSING_MT5_TICKET"}
+                return {
+                    "ok": False,
+                    "pnl": None,
+                    "ticket": None,
+                    "retcode": None,
+                    "message": "MISSING_MT5_TICKET",
+                    "price_win_out": win_out,
+                    "mt5_ticket_out": None,
+                }
 
             order = close_position_by_ticket(mt5_ticket_in, mt5_magic, comment=reason)
             if not order.get("ok"):
@@ -473,7 +655,15 @@ class TradeEngine:
                     "order_close_failed trade_id=%s ticket=%s retcode=%s message=%s",
                     trade_id, mt5_ticket_in, order.get("retcode"), order.get("message"),
                 )
-                return {"ok": False, "pnl": None, "message": order.get("message")}
+                return {
+                    "ok": False,
+                    "pnl": None,
+                    "ticket": order.get("ticket"),
+                    "retcode": order.get("retcode"),
+                    "message": order.get("message"),
+                    "price_win_out": win_out,
+                    "mt5_ticket_out": None,
+                }
 
             price_win_out = order.get("price") or win_out
             mt5_ticket_out = order.get("ticket")
@@ -497,7 +687,15 @@ class TradeEngine:
         )
         conn.commit()
         conn.close()
-        return {"ok": True, "pnl": round(realized_pnl, 2), "message": "OK"}
+        return {
+            "ok": True,
+            "pnl": round(realized_pnl, 2),
+            "message": "OK",
+            "retcode": order.get("retcode") if LIVE_ORDERS and trade.get("live") else None,
+            "ticket": mt5_ticket_out,
+            "price_win_out": price_win_out,
+            "mt5_ticket_out": mt5_ticket_out,
+        }
 
     def _build_portfolio_result(self, results: dict) -> dict:
         """Combine all 3 strategy results into a unified response."""

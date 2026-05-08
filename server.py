@@ -1055,6 +1055,7 @@ def regime_v2():
         rho=rho_closed, gate=gate, hmm_state=hmm.current_hmm_regime,
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_closed,
         nwe_is_up=nwe_is_up_closed, nwe_upper=nwe_upper_closed, nwe_lower=nwe_lower_closed,
+        closed_bar_ts=closed_bar_ts,
     )
 
     # Refresh the gate post-evaluate so the published payload reflects
