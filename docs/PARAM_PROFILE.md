@@ -253,6 +253,11 @@ Use `scripts/reconcile_paper_vs_backtest.py` to test paridade between
 paper-trading P&L (`matador_ops.pnl_brl`) and the validation backtest
 (`research/run_matador_v5_johansen.py`).
 
+The paper side intentionally excludes synthetic rows whose `z_source`
+starts with `REPLAY_`. Those rows may be inserted for dashboard/replay
+inspection, but they are not real paper/live engine executions and must
+not satisfy AC #16.
+
 **Conventions** (set by slice 6c, codex round-9):
 
 - Live engine writes **gross** P&L to `matador_ops.pnl_brl`:

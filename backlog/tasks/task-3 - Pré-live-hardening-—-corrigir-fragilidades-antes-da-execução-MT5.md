@@ -4,7 +4,7 @@ title: Pré-live hardening — corrigir fragilidades antes da execução MT5
 status: To Do
 assignee: []
 created_date: '2026-05-07 00:42'
-updated_date: '2026-05-07 21:23'
+updated_date: '2026-05-08 00:30'
 labels:
   - backend
   - frontend
@@ -94,7 +94,7 @@ Antes de mover para Done, pedir um review do Claude focado em:
 - [x] #9 `npm run build` passa.
 - [x] #10 Dashboard diferencia claramente estado live, fallback simulado, Firebase indisponível, API offline e modo histórico. — JÁ CUMPRIDO em `regime-dashboard/src/App.jsx:618-630, 636-639, 667-676` (badges Topbar MT5 LIVE/SIMULADO/HISTÓRICO + banner de erro específico + footer DADOS REAIS/SIMULADOS); marcar como done sem trabalho adicional.
 - [x] #11 Constantes de risco operacional adicionadas a `core/config.py` com valores default conservadores e implementadas como checks no `risk_gate`: `MAX_TRADES_PER_DAY` (sugestão default 4), `DAILY_LOSS_LIMIT_BRL` (default a calibrar a partir de histórico de `pnl_brl`), `LOSS_COOLDOWN_MIN` (sugestão default 30), `BLOCK_ON_MT5_DISCONNECT` (default True). Política de rollover de símbolos contínuos (WIN/WDO/DI mensal) documentada como processo manual em runbook.
-- [ ] #12 Review do Claude anexado nas notas da task antes de mover para Done, com eventuais comentários resolvidos ou convertidos em follow-ups.
+- [x] #12 Review final anexado nas notas da task antes de mover para Done, com eventuais comentários resolvidos ou convertidos em follow-ups.
 - [x] #13 Nomenclatura DOL/WDO documentada em `research/README.md` (ou doc equivalente): no escopo atual deste codebase, DOL ≡ WDO ≡ Mini Dólar (`SYMBOL_B='WDO$N'`), sem contrato cheio implementado; remover ambiguidade antes de investigar P&L.
 - [x] #14 Escopo de cada script de research reconciliado com o motor de produção: `research/optimize_wdo.py`, `research/optimize_wdo_sltp.py`, `research/backtest.py`, `research/backtest_pa.py` são (a) reescritos para operar a perna WIN com filtros WDO/DI (paridade com `_eval_consensus`/`_eval_wdo_nwe`/`_eval_di_nwe` do trade_engine) ou (b) marcados em header como 'research exploratório, não validação de produção'. Não fazer fix sem antes decidir o que cada script deve testar.
 - [x] #15 Script(s) marcado(s) como validação de produção incluem: slippage WIN (5 pts/lado, conservador), custos B3 estimados (emolumentos + corretagem por contrato — confirmar com XP), descarte de trades que cruzam rollover de WDO/DI/WIN.
@@ -152,10 +152,36 @@ Validação: 108/108 pytest, py_compile OK, 5 branches do reconciler re-verifica
 **`no-empty` (2 erros)**: resolvidos junto com os catches via comentário descritivo (`/* AudioContext.close may throw on already-closed */` etc).
 
 Validação: `npx eslint . --format json` retorna 0 erros / 0 warnings; `npm run build` ok (760KB, mesma chunk-size warning pré-existente — fora de escopo); 108/108 pytest verde via Windows runtime. AC #8 marcado done.
+
+2026-05-08 (slice 8, review final pré-TASK-2): revisão final executada sobre o estado `33a2374` + follow-up de AC #16. Resultado: sem findings bloqueantes para seguir a preparação da TASK-2, desde que AC #16 permaneça explicitamente BLOCKED até acumular paper real.
+
+**Finding resolvido durante a slice 8 — replay não pode satisfazer AC #16**: após popular o dashboard local com linhas sintéticas `REPLAY_*` em `matador_ops`, `scripts/reconcile_paper_vs_backtest.py --days 30` passou a contar esses replays como paper real e retornou `MISSING_BACKTEST` em vez de `BLOCKED`. Fix: `load_paper_trades(...)` agora exclui `z_source LIKE 'REPLAY_%'`, e `docs/PARAM_PROFILE.md §4` documenta que replay é apenas inspeção visual, não paper/live. Testes adicionados em `tests/test_reconcile_paper_vs_backtest.py` cobrem janela inclusiva, upper bound e exclusão de replay. Verificado no `trades.db` local: mesmo com 2 linhas `REPLAY_DI_JOHANSEN`, o reconciler reporta `AC #16 BLOCKED: no paper history`.
+
+**Review final dos riscos pré-live**:
+- V1 removido; `/api/v2/regime` é o único regime do dashboard.
+- `bar_history` tem migration idempotente, escrita ativa e teste de persistência/repaint.
+- `risk_gate` centraliza gates estatísticos, sessão, bar-close e risco operacional; `TradeEngine.evaluate()` consome reasons estruturados.
+- Johansen e HMM estão explicitamente informativos; Engle-Granger voltou como gate hard.
+- O conceito operacional foi documentado como WIN direcional com WDO/DI como filtros/sinais, sem hedge WDO real.
+- Parâmetros vivos estão manifestados em `docs/PARAM_PROFILE.md` com drift guard em teste.
+- Backtests divergentes foram carimbados como research exploratório; `run_matador_v5_johansen.py` é o candidato de validação com custos/slippage/rollover.
+- Frontend lint/build estão verdes; fallback/API/Firebase/histórico têm estados visuais distintos.
+
+**Risco residual antes da TASK-2**:
+- AC #16 segue aberto por falta de paper real. O reconciler está pronto e protegido contra janelas desalinhadas, sidecar parcial, datas futuras e replay sintético, mas a paridade <10% só pode ser validada depois de pregões reais com `matador_ops` fechado.
+- Custos B3 `B3_COST_PER_CONTRACT_RT=1.00` ainda são estimativa conservadora; confirmar com XP antes de usar como métrica final de net P&L.
+- Replays locais podem ser úteis para dashboard, mas não devem ser usados como evidência de performance/paper.
+
+**Validação final slice 8**:
+- `/mnt/c/Users/brenoperucchi/AppData/Local/Microsoft/WindowsApps/py.exe -3.12 -m pytest tests -q` → 112 passed.
+- `npm run lint` em `regime-dashboard/` → 0 errors / 0 warnings.
+- `npm run build` em `regime-dashboard/` → OK; warning de chunk >500KB permanece conhecido e fora de escopo.
+- `python3 scripts/reconcile_paper_vs_backtest.py --days 30` → `AC #16 BLOCKED: no paper history` após ignorar `REPLAY_*`.
+- `git diff --check` → OK.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 Sem avanço para TASK-2 até esta task estar Done ou explicitamente aprovada como exceção.
-- [ ] #2 Notas finais resumem o que foi corrigido, o que ficou pendente e o risco residual.
+- [x] #2 Notas finais resumem o que foi corrigido, o que ficou pendente e o risco residual.
 <!-- DOD:END -->

@@ -2,9 +2,11 @@
 """
 TASK-3 AC #16 — Paper trading × validated-backtest reconciliation tool.
 
-Compares CLOSED `matador_ops` trades over the last N business days against
-the same window inside the validation backtest summary written by
-`research/run_matador_v5_johansen.py` (`portfolio_v5_summary.json`).
+Compares CLOSED real paper-trading `matador_ops` trades over the last N
+business days against the same window inside the validation backtest
+summary written by `research/run_matador_v5_johansen.py`
+(`portfolio_v5_summary.json`). Synthetic dashboard/replay rows tagged
+with `z_source LIKE 'REPLAY_%'` are excluded from the paper side.
 
 Window alignment (codex round-10/11 findings): the sidecar carries a
 `daily` array per leg and per battery — the reconciler filters both
@@ -101,8 +103,12 @@ def load_paper_trades(db_path, cutoff_date, today_date):
     `timestamp_out` falls within `[cutoff_date, today_date]` (inclusive
     on both sides). The upper bound matters for historical
     reconciliations driven by `--today`: without it, future-dated rows
-    would leak into older windows. `pnl_brl` as stored is gross — live
-    engine does no cost adjustment."""
+    would leak into older windows.
+
+    Excludes `REPLAY_%` z_source rows. Those can be inserted into
+    matador_ops for dashboard inspection, but AC #16 compares only real
+    paper/live engine rows. `pnl_brl` as stored is gross — live engine
+    does no cost adjustment."""
     if not os.path.exists(db_path):
         return None
     cutoff_iso = cutoff_date.isoformat()
@@ -114,6 +120,7 @@ def load_paper_trades(db_path, cutoff_date, today_date):
             "SELECT timestamp_out, pnl_brl FROM matador_ops "
             "WHERE status='CLOSED' AND pnl_brl IS NOT NULL "
             "AND date(timestamp_out) >= ? AND date(timestamp_out) <= ? "
+            "AND (z_source IS NULL OR z_source NOT LIKE 'REPLAY_%') "
             "ORDER BY timestamp_out",
             (cutoff_iso, today_iso),
         )
