@@ -708,6 +708,12 @@ def test_timeline_paper_exit_records_force_close(engine):
 
 
 def test_timeline_live_close_failure_records_exit_and_close_failed(engine, monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls):
+            return cls(2026, 5, 8, 11, 5, 10)
+
+    monkeypatch.setattr(te, "datetime", FixedDatetime)
     monkeypatch.setattr(te, "LIVE_ORDERS", True)
     monkeypatch.setattr(
         te,
@@ -745,10 +751,22 @@ def test_timeline_live_close_failure_records_exit_and_close_failed(engine, monke
     exit_rows = [r for r in rows if r["phase"] == "EXIT"]
     assert [r["event"] for r in exit_rows] == ["STOP_LOSS", "CLOSE_FAILED"]
     assert all(r["correlation_id"] == f"trade:{trade_id}" for r in exit_rows)
+    assert exit_rows[0]["status"] == "FAILED"
+    assert exit_rows[0]["severity"] == "operational_block"
     assert exit_rows[-1]["status"] == "FAILED"
     payload = json.loads(exit_rows[-1]["payload_json"])
     assert payload["retcode"] == 10006
     assert payload["message"] == "timeout"
+
+    # Same failing close in the same minute must not spam CLOSE_FAILED rows.
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+    )
+    exit_rows = [r for r in _timeline_rows(engine) if r["phase"] == "EXIT"]
+    assert [r["event"] for r in exit_rows] == ["STOP_LOSS", "CLOSE_FAILED"]
 
 
 def test_timeline_does_not_emit_skipped_signal_on_blocked_poll(engine):

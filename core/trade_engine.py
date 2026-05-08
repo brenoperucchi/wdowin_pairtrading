@@ -558,6 +558,8 @@ class TradeEngine:
             close_result = self._close_trade(trade, reason, win_price, wdo_price, pnl)
             trade_id = trade["id"]
             correlation_id = self._event_corr_trade(trade_id)
+            exit_status = "OK" if close_result["ok"] else "FAILED"
+            exit_severity = "info" if close_result["ok"] else "operational_block"
             self._emit_timeline_event(
                 closed_bar_ts=closed_bar_ts,
                 correlation_id=correlation_id,
@@ -565,8 +567,8 @@ class TradeEngine:
                 trade_id=trade_id,
                 phase="EXIT",
                 event=reason,
-                status="OK",
-                severity="info",
+                status=exit_status,
+                severity=exit_severity,
                 strategy=strategy,
                 symbol=LIVE_SYMBOL_WIN,
                 message=f"{strategy} exit trigger {reason}",
@@ -586,10 +588,11 @@ class TradeEngine:
                 },
             )
             if not close_result["ok"]:
+                failure_minute = datetime.now().strftime("%Y%m%d%H%M")
                 self._emit_timeline_event(
                     closed_bar_ts=closed_bar_ts,
                     correlation_id=correlation_id,
-                    dedupe_key=f"{correlation_id}:EXIT:CLOSE_FAILED:{reason}:{uuid4().hex}",
+                    dedupe_key=f"{correlation_id}:EXIT:CLOSE_FAILED:{reason}:{failure_minute}",
                     trade_id=trade_id,
                     phase="EXIT",
                     event="CLOSE_FAILED",
