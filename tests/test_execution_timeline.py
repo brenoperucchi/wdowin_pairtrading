@@ -6,6 +6,7 @@ selectors honour the funnel order.
 """
 import json
 import sqlite3
+from datetime import datetime
 
 import pytest
 
@@ -53,7 +54,7 @@ def test_trade_engine_init_db_enables_wal(tmp_path):
 
 # ─── distance / ratio ────────────────────────────────────────────────────────
 
-def test_record_event_computes_distance_and_ratio_for_gt_operator(db):
+def test_record_event_computes_distance_and_ratio_for_lt_operator(db):
     rowid = et.record_event(
         db,
         closed_bar_ts=1778243100,
@@ -67,7 +68,7 @@ def test_record_event_computes_distance_and_ratio_for_gt_operator(db):
         metric="eg_pvalue",
         value=0.64,
         threshold=0.10,
-        operator=">",
+        operator="<",
     )
     assert rowid is not None
     rows = et.load_timeline(db, limit=10)
@@ -77,7 +78,23 @@ def test_record_event_computes_distance_and_ratio_for_gt_operator(db):
     assert row["ratio_to_threshold"] == pytest.approx(6.4)
 
 
-def test_record_event_distance_for_lt_operator_is_inverted(db):
+def test_record_event_distance_for_passing_lt_operator_is_negative(db):
+    et.record_event(
+        db,
+        dedupe_key="bar:1:CONS_BASE:ELIGIBILITY:EG_OK",
+        phase="ELIGIBILITY",
+        event="EG_OK",
+        status="OK",
+        metric="eg_pvalue",
+        value=0.04,
+        threshold=0.10,
+        operator="<",
+    )
+    rows = et.load_timeline(db, limit=1)
+    assert rows[0]["distance"] == pytest.approx(-0.06)
+
+
+def test_record_event_distance_for_gt_operator_is_positive_when_below_minimum(db):
     et.record_event(
         db,
         dedupe_key="bar:1:CONS_BASE:RISK:RHO_BREAKDOWN",
@@ -85,15 +102,14 @@ def test_record_event_distance_for_lt_operator_is_inverted(db):
         event="RHO_BREAKDOWN",
         status="BLOCKED",
         metric="rho",
-        value=-0.30,
+        value=-0.50,
         threshold=-0.40,
-        operator="<",
+        operator=">",
     )
     rows = et.load_timeline(db, limit=1)
-    # gate is "block when rho > -0.40"; with operator "<" interpreted as
-    # "open while value < threshold", value -0.30 vs threshold -0.40 →
-    # threshold - value = -0.40 - (-0.30) = -0.10  (closed/blocked side)
-    assert rows[0]["distance"] == pytest.approx(-0.10)
+    # Requirement is value > threshold. With value below threshold, distance is
+    # positive because the metric is still 0.10 away from passing.
+    assert rows[0]["distance"] == pytest.approx(0.10)
 
 
 # ─── dedupe ──────────────────────────────────────────────────────────────────
@@ -205,6 +221,18 @@ def test_load_timeline_filters(db):
     assert limited[0]["event"] == "INDICATORS_OK"
 
 
+def test_load_timeline_clamps_non_positive_limit(db):
+    et.bulk_record_events(
+        db,
+        [
+            {"dedupe_key": f"k{i}", "phase": "DATA", "event": f"E{i}", "status": "OK"}
+            for i in range(3)
+        ],
+    )
+    assert len(et.load_timeline(db, limit=-1)) == 1
+    assert len(et.load_timeline(db, limit=0)) == 1
+
+
 # ─── current_bottleneck ──────────────────────────────────────────────────────
 
 def test_current_bottleneck_picks_first_blocked_in_funnel_order(db):
@@ -304,9 +332,50 @@ def test_current_live_issue_returns_latest_failed_without_bar(db):
             },
         ],
     )
-    issue = et.current_live_issue(db)
+    issue = et.current_live_issue(db, now=datetime.fromisoformat("2026-05-08T10:06:00"))
     assert issue is not None
     assert issue["event"] == "BARS_FETCH_FAILED"
+
+
+def test_current_live_issue_expires_old_failed_without_bar(db):
+    et.record_event(
+        db,
+        dedupe_key="crit:DATA:MT5_DISCONNECTED:1",
+        phase="DATA",
+        event="MT5_DISCONNECTED",
+        status="FAILED",
+        timestamp="2026-05-08T10:00:00",
+    )
+    issue = et.current_live_issue(
+        db,
+        now=datetime.fromisoformat("2026-05-08T10:10:01"),
+        max_age_seconds=300,
+    )
+    assert issue is None
+
+
+def test_current_live_issue_cleared_by_later_data_recovery(db):
+    et.bulk_record_events(
+        db,
+        [
+            {
+                "dedupe_key": "crit:DATA:MT5_DISCONNECTED:1",
+                "phase": "DATA",
+                "event": "MT5_DISCONNECTED",
+                "status": "FAILED",
+                "timestamp": "2026-05-08T10:00:00",
+            },
+            {
+                "dedupe_key": "crit:DATA:MT5_CONNECTED:1",
+                "phase": "DATA",
+                "event": "MT5_CONNECTED",
+                "status": "OK",
+                "timestamp": "2026-05-08T10:01:00",
+            },
+        ],
+    )
+    issue = et.current_live_issue(db, now=datetime.fromisoformat("2026-05-08T10:02:00"))
+    assert issue is None
 
 
 def test_current_live_issue_none_when_no_critical_failures(db):

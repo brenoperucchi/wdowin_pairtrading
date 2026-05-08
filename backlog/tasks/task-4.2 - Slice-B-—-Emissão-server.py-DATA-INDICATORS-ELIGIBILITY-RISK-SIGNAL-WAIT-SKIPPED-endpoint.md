@@ -43,7 +43,7 @@ Conectar a Execution Timeline ao `regime_v2`: emitir eventos do funil somente qu
 
 **Testes**:
 - Cache hit não duplica funil (mesma `closed_bar_ts` chamada 2x → 1 conjunto de eventos)
-- ELIGIBILITY emite uma row por reason (ex.: `EG_NOT_COINTEGRATED` com value/threshold/distance)
+- ELIGIBILITY emite uma row por reason (ex.: `EG_NOT_COINTEGRATED` com `value=eg_pvalue`, `threshold=0.10`, `operator="<"`, distance positiva quando acima do limite)
 - Endpoint retorna 200 com summary, filtros funcionam
 - `BAR_NOT_CLOSED` não aparece como evento ELIGIBILITY
 - DATA failure repetido em polls consecutivos não vira N rows

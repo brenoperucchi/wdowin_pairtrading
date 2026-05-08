@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 # Ordem do funil — usada pela `current_bottleneck` para escolher o primeiro
@@ -35,6 +35,8 @@ PHASE_ORDER = (
 )
 
 _BLOCKING_STATUSES = ("BLOCKED", "FAILED")
+_MAX_LOAD_LIMIT = 1000
+_DEFAULT_LIVE_ISSUE_MAX_AGE_SECONDS = 300
 
 _FIELDS = (
     "timestamp",
@@ -121,10 +123,13 @@ def _compute_distance_ratio(
 ) -> tuple[float | None, float | None]:
     """Return (distance, ratio_to_threshold) given value/threshold/operator.
 
-    `distance` is signed: positive when the gate is *open* given operator,
-    negative when blocked. So for `value=0.64 threshold=0.10 operator=">"`
-    (block when value > threshold), `distance = 0.64 - 0.10 = 0.54` (over the
-    line). For `operator="<"` the sign is inverted.
+    `operator` is the pass requirement. `distance` is signed around that
+    requirement: positive means the value is still on the blocked side;
+    negative means the value has margin on the passing side.
+
+    Example: the EG gate requires `eg_pvalue < 0.10`. With value=0.64,
+    threshold=0.10, operator="<", distance is +0.54: the pvalue is 0.54
+    above the permitted ceiling. With value=0.04, distance is -0.06.
 
     `ratio_to_threshold` is `value / threshold` when threshold != 0. Useful
     to highlight "6.4× over the limit" type messages in the UI.
@@ -132,12 +137,12 @@ def _compute_distance_ratio(
     if value is None or threshold is None:
         return None, None
     op = operator or ""
-    raw = float(value) - float(threshold)
     if op in ("<", "<="):
-        # gate is open while value < threshold; distance positive == still ok
+        distance = float(value) - float(threshold)
+    elif op in (">", ">="):
         distance = float(threshold) - float(value)
-    else:  # ">", ">=", "==", or unknown — default to value-threshold
-        distance = raw
+    else:  # "==", or unknown — default to value-threshold
+        distance = float(value) - float(threshold)
     if threshold == 0:
         ratio = None
     else:
@@ -249,6 +254,14 @@ def _row_to_dict(cursor: sqlite3.Cursor, row: tuple) -> dict[str, Any]:
     return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
 
 
+def _clamp_limit(limit: int) -> int:
+    try:
+        out = int(limit)
+    except (TypeError, ValueError):
+        out = 200
+    return max(1, min(out, _MAX_LOAD_LIMIT))
+
+
 def load_timeline(
     db_path: str,
     *,
@@ -260,6 +273,7 @@ def load_timeline(
     since: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return events newest-first, with optional filters."""
+    bounded_limit = _clamp_limit(limit)
     where: list[str] = []
     params: list[Any] = []
     if phase:
@@ -282,7 +296,7 @@ def load_timeline(
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC LIMIT ?"
-    params.append(int(limit))
+    params.append(bounded_limit)
 
     conn = sqlite3.connect(db_path, timeout=10.0)
     try:
@@ -334,19 +348,48 @@ def current_bottleneck(db_path: str) -> dict[str, Any] | None:
         conn.close()
 
 
-def current_live_issue(db_path: str) -> dict[str, Any] | None:
-    """Most recent FAILED event with no closed_bar_ts (live-only critical issue)."""
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def current_live_issue(
+    db_path: str,
+    *,
+    max_age_seconds: int | None = _DEFAULT_LIVE_ISSUE_MAX_AGE_SECONDS,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Most recent unresolved DATA failure with no closed_bar_ts.
+
+    Only recent DATA failures should keep the dashboard red. A later DATA
+    recovery event (status != FAILED) clears the issue, and old failures expire
+    by `max_age_seconds` so a transient outage does not remain "current"
+    forever.
+    """
     conn = sqlite3.connect(db_path, timeout=10.0)
     try:
         c = conn.cursor()
         c.execute(
             "SELECT * FROM execution_timeline "
-            "WHERE closed_bar_ts IS NULL AND status = 'FAILED' "
+            "WHERE closed_bar_ts IS NULL AND phase = 'DATA' "
             "ORDER BY id DESC LIMIT 1"
         )
         row = c.fetchone()
         if not row:
             return None
-        return _row_to_dict(c, row)
+        event = _row_to_dict(c, row)
+        if event.get("status") != "FAILED":
+            return None
+        if max_age_seconds is not None:
+            ts = _parse_iso_timestamp(event.get("timestamp"))
+            if ts is not None:
+                ref = now or datetime.now()
+                if ts < ref - timedelta(seconds=max_age_seconds):
+                    return None
+        return event
     finally:
         conn.close()
