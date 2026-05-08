@@ -22,6 +22,7 @@ from core.config import (
     FORCE_CLOSE_H, FORCE_CLOSE_M,
     RHO_MIN,
     NWE_BAND_MULT,
+    LIVE_ORDERS, LIVE_SYMBOL_WIN, LIVE_DEVIATION, MAGIC_BY_STRATEGY,
 )
 from core.risk_gate import operational_checks, WITHIN_POLL_OP_REASONS
 
@@ -30,9 +31,22 @@ STRATEGIES = ["CONS_BASE", "WDO_NWE", "DI_NWE"]
 logger = logging.getLogger(__name__)
 
 
+def send_market_order(*args, **kwargs):
+    """Lazy MT5 import so paper-mode TradeEngine stays importable on Linux/CI."""
+    from core.mt5_client import send_market_order as _send_market_order
+    return _send_market_order(*args, **kwargs)
+
+
+def close_position_by_ticket(*args, **kwargs):
+    """Lazy MT5 import so paper-mode TradeEngine stays importable on Linux/CI."""
+    from core.mt5_client import close_position_by_ticket as _close_position_by_ticket
+    return _close_position_by_ticket(*args, **kwargs)
+
+
 class TradeEngine:
     def __init__(self, db_path: str = "trades.db"):
         self.db_path = db_path
+        self._last_gate_block_log: dict[str, tuple[str, tuple[str, ...]]] = {}
         self._init_db()
 
     def _init_db(self):
@@ -192,13 +206,19 @@ class TradeEngine:
                 # while the M5 bar is still forming — suppress them to avoid
                 # filling the log with 3 identical lines per 2.5-second cycle.
                 _POLLING_REASONS = {"BAR_NOT_CLOSED", "OUT_OF_SESSION"}
-                if not _POLLING_REASONS.issuperset(all_reasons):
+                log_key = (action, tuple(all_reasons))
+                if (
+                    not _POLLING_REASONS.issuperset(all_reasons)
+                    and self._last_gate_block_log.get(strat) != log_key
+                ):
                     logger.info(
                         "gate_block strategy=%s action=%s reasons=%s",
                         strat, action, all_reasons,
                     )
+                    self._last_gate_block_log[strat] = log_key
                 results[strat] = self._result(action, strat, gate_reasons=all_reasons)
                 continue
+            self._last_gate_block_log.pop(strat, None)
 
             # ── Strategy-specific entry logic ──
             if strat == "CONS_BASE":
@@ -318,15 +338,45 @@ class TradeEngine:
 
     def _open_trade(self, direction, z_source, z_val,
                      win_price, wdo_price, rho, beta, hmm_state, strategy):
+        entry_price = win_price
+        mt5_ticket_in = None
+        mt5_magic = None
+        live = 0
+
+        if LIVE_ORDERS:
+            mt5_magic = MAGIC_BY_STRATEGY[strategy]
+            order = send_market_order(
+                LIVE_SYMBOL_WIN,
+                direction,
+                WIN_CONTRACTS,
+                magic=mt5_magic,
+                deviation=LIVE_DEVIATION,
+                comment=f"{strategy}/{z_source}",
+            )
+            if not order.get("ok"):
+                logger.error(
+                    "order_open_failed strategy=%s direction=%s retcode=%s message=%s",
+                    strategy, direction, order.get("retcode"), order.get("message"),
+                )
+                return self._result(
+                    "ORDER_FAILED",
+                    strategy,
+                    gate_reasons=[f"ORDER_SEND_FAILED:{order.get('message')}"],
+                )
+            mt5_ticket_in = order.get("ticket")
+            entry_price = order.get("price") or win_price
+            live = 1
+
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('''
             INSERT INTO matador_ops
             (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
-             qty_win, price_win_in, price_wdo_in, hmm_state, live)
-            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+             qty_win, price_win_in, price_wdo_in, hmm_state, mt5_ticket_in, mt5_magic, live)
+            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (datetime.now().isoformat(), direction, z_val, z_source, strategy,
-              rho, beta, WIN_CONTRACTS, win_price, wdo_price, hmm_state))
+              rho, beta, WIN_CONTRACTS, entry_price, wdo_price, hmm_state,
+              mt5_ticket_in, mt5_magic, live))
         conn.commit()
         trade_id = c.lastrowid
         conn.close()
@@ -335,8 +385,9 @@ class TradeEngine:
         return {
             "action": action, "strategy": strategy,
             "open_trade": {"id": trade_id, "direction": direction,
-                           "z_source": z_source, "price_win_in": win_price,
-                           "strategy": strategy},
+                           "z_source": z_source, "price_win_in": entry_price,
+                           "strategy": strategy, "mt5_ticket_in": mt5_ticket_in,
+                           "live": bool(live)},
             "exit_reason": None, "pnl": None,
         }
 
@@ -377,11 +428,17 @@ class TradeEngine:
 
         if reason:
             pnl = pts_favor * WIN_CONTRACTS * WIN_PV
-            self._close_trade(trade["id"], reason, win_price, wdo_price, pnl)
+            close_result = self._close_trade(trade, reason, win_price, wdo_price, pnl)
+            if not close_result["ok"]:
+                return {
+                    "action": "CLOSE_FAILED", "strategy": strategy,
+                    "open_trade": trade, "exit_reason": reason,
+                    "pnl": None,
+                }
             return {
                 "action": "CLOSE", "strategy": strategy,
                 "open_trade": None, "exit_reason": reason,
-                "pnl": round(pnl, 2),
+                "pnl": close_result["pnl"],
             }
 
         return {
@@ -396,23 +453,57 @@ class TradeEngine:
         conn.commit()
         conn.close()
 
-    def _close_trade(self, trade_id, reason, win_out, wdo_out, pnl):
+    def _close_trade(self, trade, reason, win_out, wdo_out, pnl):
+        trade_id = trade["id"]
+        price_win_out = win_out
+        realized_pnl = pnl
+        mt5_ticket_out = None
+
+        if LIVE_ORDERS and trade.get("live"):
+            mt5_ticket_in = trade.get("mt5_ticket_in")
+            mt5_magic = trade.get("mt5_magic") or MAGIC_BY_STRATEGY.get(trade["strategy"])
+            if not mt5_ticket_in:
+                logger.error("order_close_missing_ticket trade_id=%s strategy=%s", trade_id, trade["strategy"])
+                return {"ok": False, "pnl": None, "message": "MISSING_MT5_TICKET"}
+
+            order = close_position_by_ticket(mt5_ticket_in, mt5_magic, comment=reason)
+            if not order.get("ok"):
+                logger.error(
+                    "order_close_failed trade_id=%s ticket=%s retcode=%s message=%s",
+                    trade_id, mt5_ticket_in, order.get("retcode"), order.get("message"),
+                )
+                return {"ok": False, "pnl": None, "message": order.get("message")}
+
+            price_win_out = order.get("price") or win_out
+            mt5_ticket_out = order.get("ticket")
+            is_buy = trade["direction"] == "BUY"
+            pts_favor = (
+                price_win_out - trade["price_win_in"]
+                if is_buy else trade["price_win_in"] - price_win_out
+            )
+            realized_pnl = pts_favor * WIN_CONTRACTS * WIN_PV
+
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute(
             "UPDATE matador_ops SET status='CLOSED', timestamp_out=?, "
-            "exit_reason=?, price_win_out=?, price_wdo_out=?, pnl_brl=? WHERE id=?",
-            (datetime.now().isoformat(), reason, win_out, wdo_out, pnl, trade_id)
+            "exit_reason=?, price_win_out=?, price_wdo_out=?, pnl_brl=?, "
+            "mt5_ticket_out=? WHERE id=?",
+            (
+                datetime.now().isoformat(), reason, price_win_out, wdo_out,
+                realized_pnl, mt5_ticket_out, trade_id,
+            )
         )
         conn.commit()
         conn.close()
+        return {"ok": True, "pnl": round(realized_pnl, 2), "message": "OK"}
 
     def _build_portfolio_result(self, results: dict) -> dict:
         """Combine all 3 strategy results into a unified response."""
         # Legacy compat: pick the most "active" action for the main field
         actions = [r["action"] for r in results.values()]
         main_action = "WAIT"
-        for a in ["BUY_WIN", "SELL_WIN", "CLOSE"]:
+        for a in ["BUY_WIN", "SELL_WIN", "CLOSE", "ORDER_FAILED", "CLOSE_FAILED"]:
             if a in actions:
                 main_action = a
                 break

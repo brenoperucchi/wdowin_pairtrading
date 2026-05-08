@@ -4,7 +4,7 @@ title: Execução live no MT5 (XP DEMO) — versão robusta
 status: In Progress
 assignee: []
 created_date: '2026-05-06 22:35'
-updated_date: '2026-05-08 01:38'
+updated_date: '2026-05-08 14:32'
 labels:
   - backend
   - mt5
@@ -180,13 +180,13 @@ Roteiro documentado em `docs/live_orders_smoke.md`:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Flag `LIVE_ORDERS` em `core/config.py` com default `False` controla todo o fluxo live; quando `False`, comportamento de `_open_trade`/`_close_trade` é idêntico ao atual (paper).
+- [x] #1 Flag `LIVE_ORDERS` em `core/config.py` com default `False` controla todo o fluxo live; quando `False`, comportamento de `_open_trade`/`_close_trade` é idêntico ao atual (paper).
 - [x] #2 Tabela `matador_ops` ganha colunas `mt5_ticket_in`, `mt5_ticket_out`, `mt5_magic`, `live` via migration aditiva idempotente (re-rodar `_init_db` não falha em base existente).
-- [ ] #3 `MAGIC_BY_STRATEGY` mapeia cada slot para um magic único (770001/770002/770003); ordem aberta carrega o magic correspondente.
-- [ ] #4 Helper `send_market_order` em `core/mt5_client.py` envia ordem market via `mt5.order_send` e retorna `{ok, ticket, retcode, message, price}`; não faz retry automático.
-- [ ] #5 Helper `close_position_by_ticket` em `core/mt5_client.py` fecha posição pelo ticket + magic e retorna a mesma estrutura.
-- [ ] #6 Quando `LIVE_ORDERS=True` e `send_market_order` falha, nenhuma linha é inserida em `matador_ops` e a estratégia retorna `WAIT`/`ORDER_FAILED`; próximo bar close reavalia.
-- [ ] #7 Quando `LIVE_ORDERS=True` e `close_position_by_ticket` falha, o trade permanece `status=OPEN`; saída é re-tentada no próximo poll de exit.
+- [x] #3 `MAGIC_BY_STRATEGY` mapeia cada slot para um magic único (770001/770002/770003); ordem aberta carrega o magic correspondente.
+- [x] #4 Helper `send_market_order` em `core/mt5_client.py` envia ordem market via `mt5.order_send` e retorna `{ok, ticket, retcode, message, price}`; não faz retry automático.
+- [x] #5 Helper `close_position_by_ticket` em `core/mt5_client.py` fecha posição pelo ticket + magic e retorna a mesma estrutura.
+- [x] #6 Quando `LIVE_ORDERS=True` e `send_market_order` falha, nenhuma linha é inserida em `matador_ops` e a estratégia retorna `WAIT`/`ORDER_FAILED`; próximo bar close reavalia.
+- [x] #7 Quando `LIVE_ORDERS=True` e `close_position_by_ticket` falha, o trade permanece `status=OPEN`; saída é re-tentada no próximo poll de exit.
 - [ ] #8 Reconciliação no startup detecta os 3 estados (match / fantasma SQLite / órfã MT5) e age conforme tabela do plano; quando `LIVE_ORDERS=False`, é skipada.
 - [ ] #9 Suite `tests/test_trade_engine_live.py` cobre: paper inalterado, live success, live order fail, live close fail, reconcile ghost, reconcile orphan, magic per strategy.
 - [ ] #10 Roteiro de smoke test manual em `docs/live_orders_smoke.md` cobre: subir com `LIVE_ORDERS=True`, validar abertura/fechamento no MT5, validar persistência no SQLite, validar reconciliação após restart.
@@ -199,4 +199,6 @@ Roteiro documentado em `docs/live_orders_smoke.md`:
 2026-05-07 — TASK-3 (`Pré-live hardening`) criada como pré-requisito recomendado antes da execução live. Não iniciar integração `mt5.order_send` enquanto fragilidades de paridade produção/backtest, risk gate, persistência `bar_history`, validação e clareza operacional não estiverem resolvidas ou explicitamente aprovadas como exceção.
 
 2026-05-08 — Slice 9 iniciou a TASK-2 com scaffold seguro: `LIVE_ORDERS=False` e perfil live/magic em `core/config.py`; migration idempotente adiciona `mt5_ticket_in`, `mt5_ticket_out`, `mt5_magic`, `live` em `matador_ops`; o caminho paper grava `live=0` e tickets/magic nulos. Nenhuma chamada a `mt5.order_send` foi adicionada nesta slice. AC #1 fica aberto até `_open_trade`/`_close_trade` consumirem a flag no fluxo live. AC #3 tem o mapa testado, mas só fecha quando a ordem live persistir/carregar o magic.
+
+2026-05-08 14:32 — Slice 10 integrou execução live no `TradeEngine` atrás de `LIVE_ORDERS`: abertura chama `send_market_order` antes do INSERT; falha retorna `ORDER_FAILED` e não grava linha; sucesso grava `mt5_ticket_in`, `mt5_magic`, `live=1` e preço de fill. Fechamento live chama `close_position_by_ticket`; falha mantém `status=OPEN` para retry no próximo poll; sucesso grava `mt5_ticket_out`, preço de fill e P&L recalculado. Dashboard agora mostra `risk_gate.reasons` no painel de regime para distinguir "sem entrada" de "gate bloqueado" (`EG_NOT_COINTEGRATED`, `BAR_NOT_CLOSED`, etc.). AC #8/#10/#11 ainda pendentes.
 <!-- SECTION:NOTES:END -->

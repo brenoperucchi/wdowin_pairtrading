@@ -1,4 +1,5 @@
 import sqlite3
+import core.trade_engine as te
 from core.config import (
     LIVE_DEVIATION,
     LIVE_MAGIC_BASE,
@@ -95,3 +96,198 @@ def test_open_trade_paper_persists_live_zero_and_no_mt5_ticket(tmp_path):
     conn.close()
 
     assert row == ("OPEN", "CONS_BASE", 0, None, None, None)
+
+
+def test_open_trade_live_persists_ticket_magic_and_fill_price(tmp_path, monkeypatch):
+    db_path = tmp_path / "trades.db"
+    engine = TradeEngine(str(db_path))
+
+    monkeypatch.setattr(te, "LIVE_ORDERS", True)
+    monkeypatch.setattr(
+        te,
+        "send_market_order",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "ticket": 111222,
+            "retcode": 10009,
+            "message": "done",
+            "price": 130025.0,
+        },
+    )
+
+    result = engine.evaluate(
+        z_wdo=-2.1,
+        z_di=-1.5,
+        win_price=130000,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=11,
+        minute=0,
+    )
+
+    assert result["action"] == "BUY_WIN"
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT live, mt5_ticket_in, mt5_magic, price_win_in FROM matador_ops"
+    ).fetchone()
+    conn.close()
+
+    assert row == (1, 111222, MAGIC_BY_STRATEGY["CONS_BASE"], 130025.0)
+
+
+def test_open_trade_live_failure_does_not_insert(tmp_path, monkeypatch):
+    db_path = tmp_path / "trades.db"
+    engine = TradeEngine(str(db_path))
+
+    monkeypatch.setattr(te, "LIVE_ORDERS", True)
+    monkeypatch.setattr(
+        te,
+        "send_market_order",
+        lambda *args, **kwargs: {
+            "ok": False,
+            "ticket": None,
+            "retcode": 10004,
+            "message": "requote",
+            "price": None,
+        },
+    )
+
+    result = engine.evaluate(
+        z_wdo=-2.1,
+        z_di=-1.5,
+        win_price=130000,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=11,
+        minute=0,
+    )
+
+    assert result["action"] == "ORDER_FAILED"
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM matador_ops").fetchone()[0]
+    conn.close()
+    assert count == 0
+
+
+def test_close_trade_live_success_updates_ticket_out_and_fill_pnl(tmp_path, monkeypatch):
+    db_path = tmp_path / "trades.db"
+    engine = TradeEngine(str(db_path))
+
+    monkeypatch.setattr(te, "LIVE_ORDERS", True)
+    monkeypatch.setattr(
+        te,
+        "send_market_order",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "ticket": 111222,
+            "retcode": 10009,
+            "message": "done",
+            "price": 130000.0,
+        },
+    )
+    engine.evaluate(
+        z_wdo=-2.1,
+        z_di=-1.5,
+        win_price=130000,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=11,
+        minute=0,
+    )
+
+    monkeypatch.setattr(
+        te,
+        "close_position_by_ticket",
+        lambda ticket, magic, comment="": {
+            "ok": True,
+            "ticket": 222333,
+            "retcode": 10009,
+            "message": "done",
+            "price": 129675.0,
+        },
+    )
+    result = engine.evaluate(
+        z_wdo=0.0,
+        z_di=0.0,
+        win_price=129700,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=11,
+        minute=5,
+    )
+
+    assert result["action"] == "CLOSE"
+    assert result["pnl"] == -130.0
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT status, mt5_ticket_out, price_win_out, pnl_brl FROM matador_ops"
+    ).fetchone()
+    conn.close()
+    assert row == ("CLOSED", 222333, 129675.0, -130.0)
+
+
+def test_close_trade_live_failure_keeps_trade_open(tmp_path, monkeypatch):
+    db_path = tmp_path / "trades.db"
+    engine = TradeEngine(str(db_path))
+
+    monkeypatch.setattr(te, "LIVE_ORDERS", True)
+    monkeypatch.setattr(
+        te,
+        "send_market_order",
+        lambda *args, **kwargs: {
+            "ok": True,
+            "ticket": 111222,
+            "retcode": 10009,
+            "message": "done",
+            "price": 130000.0,
+        },
+    )
+    engine.evaluate(
+        z_wdo=-2.1,
+        z_di=-1.5,
+        win_price=130000,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=11,
+        minute=0,
+    )
+
+    monkeypatch.setattr(
+        te,
+        "close_position_by_ticket",
+        lambda ticket, magic, comment="": {
+            "ok": False,
+            "ticket": ticket,
+            "retcode": 10006,
+            "message": "timeout",
+            "price": None,
+        },
+    )
+    result = engine.evaluate(
+        z_wdo=0.0,
+        z_di=0.0,
+        win_price=129700,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=11,
+        minute=5,
+    )
+
+    assert result["action"] == "CLOSE_FAILED"
+    assert result["holding"] is True
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT status, mt5_ticket_out FROM matador_ops").fetchone()
+    conn.close()
+    assert row == ("OPEN", None)

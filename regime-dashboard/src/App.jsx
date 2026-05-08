@@ -685,6 +685,7 @@ export default function App() {
                     diRhoHealth={diData?.regime_health?.rho}
                     johWdoGate={johWdoGate}
                     johDiGate={johDiGate}
+                    riskGate={data?.risk_gate}
                 />
 
                 {/* Performance */}

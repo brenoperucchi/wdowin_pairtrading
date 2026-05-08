@@ -168,7 +168,7 @@ def close_position_by_ticket(
         )
     return {
         "ok": ok,
-        "ticket": ticket,
+        "ticket": result.order if ok else ticket,
         "retcode": result.retcode,
         "message": result.comment,
         "price": result.price if ok else None,

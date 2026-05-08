@@ -39,7 +39,56 @@ function Gate({ label, gate }) {
     );
 }
 
-export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBetaHealth, diRhoHealth, johWdoGate, johDiGate }) {
+function RiskGateStatus({ gate }) {
+    if (!gate) return null;
+    const allowed = gate.allowed === true;
+    const reasons = gate.reasons || [];
+    const color = allowed ? "#00e87a" : "#f5a623";
+
+    return (
+        <div style={{
+            gridColumn: "1 / -1",
+            borderTop: "1px solid #1a2530",
+            padding: "8px 14px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            minWidth: 0,
+        }}>
+            <span style={{ fontSize: 9, color: "#6f8a9c", letterSpacing: 1 }}>GATE ENTRADA</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <span style={{
+                    fontSize: 8,
+                    color: "#0c1218",
+                    background: color,
+                    fontWeight: "bold",
+                    padding: "2px 6px",
+                    borderRadius: 3,
+                    letterSpacing: 0.5,
+                }}>
+                    {allowed ? "LIBERADO" : "BLOQUEADO"}
+                </span>
+                {!allowed && reasons.slice(0, 4).map(reason => (
+                    <span key={reason} style={{
+                        fontSize: 8,
+                        color: "#f5a623",
+                        border: "1px solid rgba(245,166,35,0.35)",
+                        background: "rgba(245,166,35,0.08)",
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        maxWidth: 160,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                    }}>{reason}</span>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBetaHealth, diRhoHealth, johWdoGate, johDiGate, riskGate }) {
     return (
         <div style={{
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0,
@@ -82,6 +131,7 @@ export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBe
                 )}
                 <Gate label="JOHANSEN" gate={johDiGate} />
             </div>
+            <RiskGateStatus gate={riskGate} />
         </div>
     );
 }

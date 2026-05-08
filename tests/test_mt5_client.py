@@ -110,10 +110,10 @@ def test_send_market_order_payload_fields(monkeypatch):
 def test_close_position_buy_ok(monkeypatch):
     pos = _position(ticket=111222, pos_type=mt5.POSITION_TYPE_BUY)
     monkeypatch.setattr(mt5, "positions_get", lambda **kw: [pos])
-    monkeypatch.setattr(mt5, "order_send", lambda req: _order_result(price=130500.0))
+    monkeypatch.setattr(mt5, "order_send", lambda req: _order_result(order=222333, price=130500.0))
     res = client.close_position_by_ticket(111222, magic=770001)
     assert res["ok"] is True
-    assert res["ticket"] == 111222
+    assert res["ticket"] == 222333
     assert res["price"] == 130500.0
 
 
