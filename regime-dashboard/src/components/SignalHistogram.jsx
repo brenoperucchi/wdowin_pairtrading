@@ -7,7 +7,10 @@ const STRAT_COLORS = {
     DI_NWE: "#8a6dff",
 };
 
-function TradeMarkersLayer({ xAxisMap, yAxisMap, bars, trades }) {
+const MARKER_ROW_GAP = 10;
+const MARKER_BOTTOM_OFFSET = 5;
+
+function TradeMarkersLayer({ xAxisMap, yAxisMap, trades }) {
     if (!trades?.length || !xAxisMap?.[0] || !yAxisMap?.[0]) return null;
 
     const xScale = xAxisMap[0].scale;
@@ -16,6 +19,19 @@ function TradeMarkersLayer({ xAxisMap, yAxisMap, bars, trades }) {
     const bw = xScale.bandwidth ? xScale.bandwidth() : 0;
 
     const elements = [];
+    const occupiedRowsByBar = new Map();
+
+    const getMarkerY = (barTime, preferredRow) => {
+        const occupiedRows = occupiedRowsByBar.get(barTime) ?? new Set();
+        let row = preferredRow;
+
+        while (occupiedRows.has(row)) row += 1;
+
+        occupiedRows.add(row);
+        occupiedRowsByBar.set(barTime, occupiedRows);
+
+        return yBottom - MARKER_BOTTOM_OFFSET - row * MARKER_ROW_GAP;
+    };
 
     trades.forEach((trade, i) => {
         const color = STRAT_COLORS[trade.strategy] ?? "#888";
@@ -25,9 +41,10 @@ function TradeMarkersLayer({ xAxisMap, yAxisMap, bars, trades }) {
             const xRaw = xScale(trade.bar_time_in);
             if (xRaw != null && !isNaN(xRaw)) {
                 const cx = xRaw + bw / 2;
+                const y = getMarkerY(trade.bar_time_in, 0);
                 const label = `${trade.strategy} ${trade.direction} · Z: ${trade.z_in != null ? trade.z_in.toFixed(2) : "—"} · Entrada`;
                 elements.push(
-                    <text key={`entry-${i}`} x={cx} y={yBottom - 3} textAnchor="middle" fontSize={8} fill={color}>
+                    <text key={`entry-${i}`} x={cx} y={y} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill={color}>
                         {isBuy ? "▲" : "▼"}
                         <title>{label}</title>
                     </text>
@@ -39,12 +56,14 @@ function TradeMarkersLayer({ xAxisMap, yAxisMap, bars, trades }) {
             const xRaw = xScale(trade.bar_time_out);
             if (xRaw != null && !isNaN(xRaw)) {
                 const cx = xRaw + bw / 2;
+                const y = getMarkerY(trade.bar_time_out, 1);
                 const pnl = trade.pnl_brl != null ? ` · PnL: R$${Number(trade.pnl_brl).toFixed(0)}` : "";
                 const label = `${trade.strategy} ${trade.direction} · Saída: ${trade.exit_reason ?? "—"}${pnl}`;
                 elements.push(
-                    <rect key={`exit-${i}`} x={cx - 3} y={yBottom - 10} width={6} height={6} fill={color}>
+                    <text key={`exit-${i}`} x={cx} y={y} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill={color}>
+                        ■
                         <title>{label}</title>
-                    </rect>
+                    </text>
                 );
             }
         }
@@ -204,7 +223,7 @@ export default function SignalHistogram({ data, trades }) {
                             <Cell key={`wdo-${index}`} fill={getBarColor(entry.wdo_z)} />
                         ))}
                     </Bar>
-                    <Customized component={TradeMarkersLayer} bars={bars} trades={trades} />
+                    <Customized component={TradeMarkersLayer} trades={trades} />
                 </ComposedChart>
             </ResponsiveContainer>
         </div>

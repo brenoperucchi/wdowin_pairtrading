@@ -11,5 +11,14 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = getDatabase(app);
+const hasConfig = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
+
+let db = null;
+if (hasConfig) {
+  const app = initializeApp(firebaseConfig);
+  db = getDatabase(app);
+} else if (import.meta.env.PROD) {
+  console.warn("[firebase] VITE_FIREBASE_* env vars missing in production build — db unavailable.");
+}
+
+export { db };

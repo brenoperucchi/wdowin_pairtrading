@@ -1,9 +1,10 @@
 ---
 id: TASK-1
 title: Trades no Dashboard — Paridade Visual com Backtest/Setup
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-05-06 17:57'
+updated_date: '2026-05-06 22:38'
 labels:
   - feature
   - dashboard
@@ -74,3 +75,9 @@ Plotar marcadores de entrada e saída dos trades diretamente nos gráficos do da
 - [ ] #8 Todos os testes existentes continuam passando (nenhuma regressão)
 - [ ] #9 npm run lint e npm run build sem erros
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-05-06 — Evidência de atendimento parcial/majoritário ao pedido do gestor: backend já expõe `trades_today` a partir de `matador_ops` via `core/trade_engine.py:get_trades_for_date()` e `/api/v2/regime`; `App.jsx` já mantém `todayTrades`, alinha trades ao `paddedSignals`/M5 e passa `trades` para `SignalHistogram`, `ZScoreChart` e `IndexChart`; `SignalHistogram` renderiza entrada `▲/▼`, saída `■`, cor por estratégia e tooltip nativo; `ZScoreChart` e `IndexChart` renderizam dots de entrada/saída. Ajustes recentes limparam `todayTrades` em fallback/erro e empilharam marcadores no histograma para evitar sobreposição no mesmo candle. Status mantido como não concluído porque ainda falta validação visual ponta a ponta com dashboard/trades reais, `npm run lint` geral permanece falhando por débitos existentes, e testes Python não foram executados neste ambiente por ausência de `pytest`. `npm run build` passou e `npx eslint src/components/SignalHistogram.jsx` passou.
+<!-- SECTION:NOTES:END -->
