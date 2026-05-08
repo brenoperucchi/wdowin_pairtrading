@@ -1387,6 +1387,7 @@ def get_performance():
 
 
 @app.get("/api/execution-timeline")
+@app.get("/api/execution_timeline")
 def execution_timeline_endpoint(
     limit: int = 200,
     phase: str | None = None,

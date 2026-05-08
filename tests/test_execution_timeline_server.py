@@ -159,3 +159,7 @@ def test_execution_timeline_endpoint_returns_events_summary_and_filters(tmp_path
     assert [e["phase"] for e in data["events"]] == ["ELIGIBILITY"]
     assert data["summary"]["current_bottleneck"]["event"] == "EG_NOT_COINTEGRATED"
     assert data["summary"]["current_live_issue"] is None
+
+    alias_response = client.get("/api/execution_timeline", params={"phase": "ELIGIBILITY"})
+    assert alias_response.status_code == 200
+    assert alias_response.json()["events"] == data["events"]
