@@ -1,7 +1,7 @@
 from core.config import (
     Z_ENTRY, BUY_SL, BUY_TP, SELL_SL, SELL_TP,
     BUY_BE_ACT, BUY_BE_LOCK, SELL_BE_ACT, SELL_BE_LOCK,
-    WIN_CONTRACTS, WIN_PV, SYMBOL_A, SYMBOL_B,
+    WIN_CONTRACTS, WIN_PV, SYMBOL_A, SYMBOL_B, _env_bool,
 )
 
 
@@ -24,3 +24,12 @@ def test_be_params():
 def test_sizing():
     assert WIN_CONTRACTS == 2
     assert WIN_PV == 0.20
+
+
+def test_live_orders_env_flag(monkeypatch):
+    monkeypatch.delenv("LIVE_ORDERS", raising=False)
+    assert _env_bool("LIVE_ORDERS", False) is False
+    monkeypatch.setenv("LIVE_ORDERS", "1")
+    assert _env_bool("LIVE_ORDERS", False) is True
+    monkeypatch.setenv("LIVE_ORDERS", "false")
+    assert _env_bool("LIVE_ORDERS", True) is False

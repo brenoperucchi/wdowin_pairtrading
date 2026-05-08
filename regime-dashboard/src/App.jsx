@@ -686,6 +686,7 @@ export default function App() {
                     johWdoGate={johWdoGate}
                     johDiGate={johDiGate}
                     riskGate={data?.risk_gate}
+                    liveOrdersEnabled={data?.meta?.live_orders_enabled}
                 />
 
                 {/* Performance */}

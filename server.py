@@ -53,6 +53,7 @@ from core.config import (
     JOH_WINDOW, JOH_RECHECK_BARS,
     NWE_BANDWIDTH, NWE_LOOKBACK, NWE_MULT_MAE,
     WDO_KALMAN_Q, WDO_KALMAN_R, WDO_KALMAN_W,
+    LIVE_ORDERS,
 )
 from core.mt5_client import (
     connect_mt5, fetch_bars,
@@ -587,6 +588,7 @@ def _build_response(current_z, current_rho, half_life, strength,
             "window":     "KALMAN",
             "timeframe":  TF_NAMES.get(TIMEFRAME, str(TIMEFRAME)),
             "hmm_regime": hmm.current_hmm_regime,
+            "live_orders_enabled": bool(LIVE_ORDERS),
         },
         "trade_engine": {
             "action": trade_result["action"],

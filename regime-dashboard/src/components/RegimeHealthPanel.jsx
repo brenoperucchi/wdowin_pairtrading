@@ -88,7 +88,38 @@ function RiskGateStatus({ gate }) {
     );
 }
 
-export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBetaHealth, diRhoHealth, johWdoGate, johDiGate, riskGate }) {
+function ExecutionMode({ enabled }) {
+    if (enabled === undefined || enabled === null) return null;
+    const color = enabled ? "#00e87a" : "#8ca5b5";
+
+    return (
+        <div style={{
+            gridColumn: "1 / -1",
+            borderTop: "1px solid #1a2530",
+            padding: "8px 14px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+        }}>
+            <span style={{ fontSize: 9, color: "#6f8a9c", letterSpacing: 1 }}>ORDEM MT5</span>
+            <span style={{
+                fontSize: 8,
+                color: enabled ? "#0c1218" : color,
+                background: enabled ? color : "rgba(140,165,181,0.08)",
+                border: enabled ? "none" : "1px solid rgba(140,165,181,0.35)",
+                fontWeight: "bold",
+                padding: "2px 6px",
+                borderRadius: 3,
+                letterSpacing: 0.5,
+            }}>
+                {enabled ? "LIGADA" : "PAPER"}
+            </span>
+        </div>
+    );
+}
+
+export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBetaHealth, diRhoHealth, johWdoGate, johDiGate, riskGate, liveOrdersEnabled }) {
     return (
         <div style={{
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0,
@@ -132,6 +163,7 @@ export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBe
                 <Gate label="JOHANSEN" gate={johDiGate} />
             </div>
             <RiskGateStatus gate={riskGate} />
+            <ExecutionMode enabled={liveOrdersEnabled} />
         </div>
     );
 }

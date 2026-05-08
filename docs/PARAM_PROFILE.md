@@ -88,8 +88,8 @@ the same signal as live.
 ### Live execution scaffold
 
 TASK-2 starts with a paper-safe live profile. `LIVE_ORDERS=False` remains
-the only safe default; helper wiring and actual MT5 `order_send` calls land
-in later TASK-2 slices.
+the default; set environment variable `LIVE_ORDERS=1` only for an explicitly
+supervised DEMO/live process.
 
 | Constant           | Value   | Notes |
 |--------------------|---------|-------|

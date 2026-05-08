@@ -9,6 +9,8 @@ CONS: z-scores WDO+DI alinhados (SEM filtro NWE)
 
 Infrastructure constants (ports, paths, timeframes) merged from server.py.
 """
+import os
+
 try:
     import MetaTrader5 as mt5
 except ImportError:
@@ -21,6 +23,13 @@ except ImportError:
         TIMEFRAME_M5 = 5
         ORDER_FILLING_RETURN = 2
     mt5 = _MT5Stub()
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 # ─── Infrastructure ─────────────────────────────────────────────────────────
 # Dedicated portable MT5 instance for pair trading (XP DEMO conta 52033102).
@@ -74,10 +83,9 @@ WIN_CONTRACTS = 2
 WIN_PV = 0.20          # R$/point/contract
 
 # ─── Live order scaffold (TASK-2) ───────────────────────────────────────────
-# Default must remain paper-only. Future TASK-2 slices will wire MT5 helper
-# calls behind this flag; this scaffold only centralizes the live profile and
-# prepares persistence for ticket/magic reconciliation.
-LIVE_ORDERS = False
+# Default remains paper-only. Set environment variable LIVE_ORDERS=1 only for
+# an explicitly supervised DEMO/live process.
+LIVE_ORDERS = _env_bool("LIVE_ORDERS", False)
 LIVE_SYMBOL_WIN = SYMBOL_A
 LIVE_DEVIATION = 50
 LIVE_MAGIC_BASE = 770000
