@@ -1,7 +1,6 @@
 // RegimeHealthPanel — Shows regime health for WDO and DI
-export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBetaHealth, diRhoHealth, johWdoGate, johDiGate }) {
-
-    const Gauge = ({ label, value, status, color }) => (
+function Gauge({ label, value, status, color }) {
+    return (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0" }}>
             <span style={{ fontSize: 9, color: "#6f8a9c", letterSpacing: 1 }}>{label}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -17,28 +16,30 @@ export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBe
             </div>
         </div>
     );
+}
 
-    const Gate = ({ label, gate }) => {
-        if (!gate) return null;
-        const isOpen = gate.open;
-        const c = isOpen ? "#00e87a" : "#ff3860";
-        return (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0" }}>
-                <span style={{ fontSize: 9, color: "#6f8a9c", letterSpacing: 1 }}>{label}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{
-                        display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: c,
-                        boxShadow: `0 0 6px ${c}66`,
-                    }} />
-                    <span style={{ fontSize: 10, fontWeight: "bold", color: c }}>
-                        {isOpen ? "ABERTO" : "FECHADO"}
-                    </span>
-                    <span style={{ fontSize: 8, color: "#4a6070" }}>({gate.trace_ratio}x)</span>
-                </div>
+function Gate({ label, gate }) {
+    if (!gate) return null;
+    const isOpen = gate.open;
+    const c = isOpen ? "#00e87a" : "#ff3860";
+    return (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0" }}>
+            <span style={{ fontSize: 9, color: "#6f8a9c", letterSpacing: 1 }}>{label}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{
+                    display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: c,
+                    boxShadow: `0 0 6px ${c}66`,
+                }} />
+                <span style={{ fontSize: 10, fontWeight: "bold", color: c }}>
+                    {isOpen ? "ABERTO" : "FECHADO"}
+                </span>
+                <span style={{ fontSize: 8, color: "#4a6070" }}>({gate.trace_ratio}x)</span>
             </div>
-        );
-    };
+        </div>
+    );
+}
 
+export default function RegimeHealthPanel({ kalmanZ, kalmanBetaHealth, diZ, diBetaHealth, diRhoHealth, johWdoGate, johDiGate }) {
     return (
         <div style={{
             display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0,

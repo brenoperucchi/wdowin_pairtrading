@@ -90,7 +90,7 @@ Antes de mover para Done, pedir um review do Claude focado em:
 - [x] #5 Produção e backtest usam um perfil único/versionado de parâmetros, ou há manifesto comparando exatamente os parâmetros vivos vs parâmetros do backtest.
 - [x] #6 Conceito operacional está explicitado: sistema atual opera apenas WIN com filtros WDO/DI, ou plano de hedge real está documentado como futuro.
 - [x] #7 `requirements.txt` inclui dependências necessárias para runtime e teste (`firebase-admin`, `pytest`, demais imports detectados); `python -m pytest tests/ -q` é executável em ambiente preparado.
-- [ ] #8 `npm run lint` não possui falhas críticas relacionadas ao escopo pré-live, ou as remanescentes estão listadas com justificativa e follow-up.
+- [x] #8 `npm run lint` não possui falhas críticas relacionadas ao escopo pré-live, ou as remanescentes estão listadas com justificativa e follow-up.
 - [x] #9 `npm run build` passa.
 - [x] #10 Dashboard diferencia claramente estado live, fallback simulado, Firebase indisponível, API offline e modo histórico. — JÁ CUMPRIDO em `regime-dashboard/src/App.jsx:618-630, 636-639, 667-676` (badges Topbar MT5 LIVE/SIMULADO/HISTÓRICO + banner de erro específico + footer DADOS REAIS/SIMULADOS); marcar como done sem trabalho adicional.
 - [x] #11 Constantes de risco operacional adicionadas a `core/config.py` com valores default conservadores e implementadas como checks no `risk_gate`: `MAX_TRADES_PER_DAY` (sugestão default 4), `DAILY_LOSS_LIMIT_BRL` (default a calibrar a partir de histórico de `pnl_brl`), `LOSS_COOLDOWN_MIN` (sugestão default 30), `BLOCK_ON_MT5_DISCONNECT` (default True). Política de rollover de símbolos contínuos (WIN/WDO/DI mensal) documentada como processo manual em runbook.
@@ -135,6 +135,23 @@ Validação: 108/108 pytest, py_compile OK, 5 branches do reconciler re-verifica
 2026-05-07 (slice 6c-fix-r12, codex round-12): um finding medium, corrigido antes da slice 7.
 
 **MED — WINDOW_NOT_COVERED parcial**: o gate só rejeitava `last_bar_date < cutoff`. Para janela [2026-05-01..2026-05-07], um sidecar terminando em 2026-05-06 passava → paper inclui 2026-05-07 mas backtest fica zerado nesse dia → falso PASS. Codex reproduziu localmente. Fix: scripts/reconcile_paper_vs_backtest.py:248-275 agora exige `last_bar >= today` E `first_bar <= cutoff`; senão WINDOW_NOT_COVERED com mensagem específica do tipo (cabeça ou cauda descoberta), incluindo a janela e o range do sidecar para diagnóstico. Verificado com seis fixtures: cauda descoberta (round-12 case) → WNC, cabeça descoberta → WNC, cobertura exata → PASS, sidecar mais largo que janela → PASS (não falso WNC), BLOCKED ainda funciona, FAIL ainda funciona.
+
+2026-05-07 (slice 7, AC #8): lint frontend zerado. Baseline: 32 erros, 0 warnings. Categorias e fixes:
+
+**`react-hooks/static-components` (16 erros)**: componentes inline (`Row` em TradingGuide.jsx, `Gauge`+`Gate` em RegimeHealthPanel.jsx) eram redeclarados a cada render → reset de state. Movidos para top-level do arquivo, mantendo a destructure de props.
+
+**`no-unused-vars` (14 erros)**:
+- App.jsx state slots não-lidos (`histLoading`, `fullHistory`) → trocado para `[, setHistLoading]`/`[, setFullHistory]` (mantém os setters chamados, descarta o valor não usado).
+- Catch params (`} catch (e) {...}`) → `} catch {...}` (4 sites: 295, 324, 451, 462) — também resolve os 2 `no-empty` ao adicionar comentário descritivo dentro dos blocos.
+- `rhoStatus`, `betaHealth`, `isAnom` removidos (declarados, nunca consumidos). Cascading: `currentRho`, `betaOls`, `betaRef20d`, `betaDeltaPct` ficaram orphan após remover `rhoStatus`/`betaHealth` — também removidos.
+- `hasAnyTrades` em PerformancePanel.jsx removido (declarado, nunca lido).
+- `sigColor`/`currentZ`/`hideXAxis` em ZScoreChart.jsx eram dead-passed: removido de ambas as pontas (signature do componente + call-site no App.jsx).
+
+**`react-refresh/only-export-components` (1 erro)**: App.jsx exportava `alignTradesToBars` (não-componente). Confirmado via grep: nenhum consumidor externo (uso só dentro do próprio App.jsx, sem testes JS no projeto). Removido o `export`, agora função local.
+
+**`no-empty` (2 erros)**: resolvidos junto com os catches via comentário descritivo (`/* AudioContext.close may throw on already-closed */` etc).
+
+Validação: `npx eslint . --format json` retorna 0 erros / 0 warnings; `npm run build` ok (760KB, mesma chunk-size warning pré-existente — fora de escopo); 108/108 pytest verde via Windows runtime. AC #8 marcado done.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

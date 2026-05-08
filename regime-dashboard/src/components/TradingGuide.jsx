@@ -1,6 +1,6 @@
 // TradingGuide — Reference guide for the pair trading signals
-export default function TradingGuide() {
-    const Row = ({ signal, label, color }) => (
+function Row({ signal, label, color }) {
+    return (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
             <span style={{
                 display: "inline-block", width: 8, height: 8, borderRadius: 2,
@@ -10,7 +10,9 @@ export default function TradingGuide() {
             <span style={{ fontSize: 9, color: "#8ca5b5" }}>{label}</span>
         </div>
     );
+}
 
+export default function TradingGuide() {
     return (
         <div style={{
             background: "#0c1218", borderRadius: 8, padding: "10px 14px",

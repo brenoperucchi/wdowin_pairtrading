@@ -12,7 +12,7 @@ const CHART_MARGIN = { top: 8, right: 12, bottom: 0, left: 0 };
 const Y_AXIS_WIDTH = 38;
 const Z_CLAMP = 5; // Truncate Z values beyond ±5
 
-export default function ZScoreChart({ history, sigColor = "#00e87a", currentZ = 0, useV2 = false, hideXAxis = false, trades }) {
+export default function ZScoreChart({ history, useV2 = false, trades }) {
     const chartData = useMemo(() => {
         if (!history || history.length === 0) return [];
         return history.map(d => {

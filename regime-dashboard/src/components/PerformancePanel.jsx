@@ -67,7 +67,6 @@ export default function PerformancePanel({ perf }) {
     if (!perf) return null;
 
     const strategies = perf.strategies || {};
-    const hasAnyTrades = perf.total_closed_trades > 0 || Object.values(strategies).some(s => s.total_closed > 0 || s.open_trades > 0);
 
     const allTrades = perf.trades || [];
     const uniqueDates = Array.from(new Set(allTrades.map(t => t.date_in).filter(Boolean)));

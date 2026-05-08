@@ -80,7 +80,7 @@ function toBarMinutes(timeStr) {
     return h * 60 + m;
 }
 
-export function alignTradesToBars(trades, history) {
+function alignTradesToBars(trades, history) {
     if (!trades?.length || !history?.length) return [];
     const barTimes = history.map(b => b.bar_time).filter(Boolean);
 
@@ -123,8 +123,8 @@ export default function App() {
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
-    const [histLoading, setHistLoading] = useState(false);
-    const [fullHistory, setFullHistory] = useState([]);
+    const [, setHistLoading] = useState(false);
+    const [, setFullHistory] = useState([]);
     const [todayTrades, setTodayTrades] = useState([]);
     const flashTimerRef = useRef(null);
     const audioCtxRef = useRef(null);
@@ -292,7 +292,7 @@ export default function App() {
                     const today = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
                     setHistDates(dates.filter(d => d !== today));
                 }
-            } catch (e) { /* ignore */ }
+            } catch { /* ignore */ }
         }
         loadDates();
     }, []);
@@ -321,7 +321,7 @@ export default function App() {
                 }));
                 setHistDayData(dayBars);
             }
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
         setHistLoading(false);
     }, []);
 
@@ -331,19 +331,12 @@ export default function App() {
 
     // ── Derived state ──────────────────────────────────────────────────────────
     const currentZ = data ? data.current_z : (history.length > 0 ? history[history.length - 1].z : 0);
-    const currentRho = data ? data.current_rho : -0.67;
     const sig = data ? data.signal : getSignal(currentZ);
     const meta = data ? data.meta : { symbol_a: "WIN$N", symbol_b: "WDO$N", beta: -22.5, window: 40, timeframe: "M5" };
-    const betaOls = data ? data.beta_ols : -22.5;
     const betaChangePct = data ? data.beta_change_pct : 0;
     const betaUnstable = data ? data.beta_unstable : false;
-    const betaRef20d = data ? data.beta_ref_20d : -22.5;
-    const betaDeltaPct = data ? data.beta_delta_pct : 0;
     const rh = data ? data.regime_health : null;
     const safeToTrade = rh ? rh.safe_to_trade : true;
-    const rhoStatus = rh ? rh.rho : { value: currentRho, status: "—", action: "", color: "#3a5060", level: 0 };
-    const betaHealth = rh ? rh.beta : { current: betaOls, ref_20d: betaRef20d, delta_pct: betaDeltaPct, status: "—", action: "", color: "#3a5060", level: 0 };
-
     // ── Merged signal data for histogram ───────────────────────────────────────
     const mergedSignals = useMemo(() => {
         const sourceData = isViewingHistory && histDayData ? histDayData : (isViewingHistory ? [] : history);
@@ -448,7 +441,7 @@ export default function App() {
                     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
                     osc.start(ctx.currentTime);
                     osc.stop(ctx.currentTime + 0.3);
-                } catch (e) { }
+                } catch { /* AudioContext may be blocked by autoplay policy */ }
             }
             setLastSignalId(sig.id);
         }
@@ -459,13 +452,12 @@ export default function App() {
         return () => {
             if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
             if (audioCtxRef.current) {
-                try { audioCtxRef.current.close(); } catch (e) { }
+                try { audioCtxRef.current.close(); } catch { /* AudioContext.close may throw on already-closed */ }
             }
         };
     }, []);
 
     const isActive = sig.id === "compraWdo" || sig.id === "compraWin";
-    const isAnom = sig.id === "anomalia";
 
     // ── Count active signals for consensus badge (WDO + DI) ────────────────────
     const lastBar = mergedSignals.length > 0 ? mergedSignals[mergedSignals.length - 1] : {};
@@ -670,10 +662,7 @@ export default function App() {
                 <div>
                     <ZScoreChart
                         history={paddedSignals}
-                        sigColor={isViewingHistory ? "#00e87a" : sig.color}
-                        currentZ={isViewingHistory ? 0 : currentZ}
                         useV2={true}
-                        hideXAxis={true}
                         trades={isViewingHistory ? [] : alignedTrades}
                     />
                     <SignalHistogram
