@@ -439,3 +439,72 @@ def test_minutes_since_last_loss_ignores_target_exits(engine):
         rho=-0.75, gate=_gate(), hmm_state="CHOP", hour=11, minute=5,
     )
     assert engine.minutes_since_last_loss() is None
+
+
+# ── gate_block logging ────────────────────────────────────────────────────────
+
+def test_gate_block_logged_for_substantive_reason(engine, caplog):
+    """A hard gate failure (e.g. RHO_BREAKDOWN) must produce an INFO record
+    with strategy, action, and reasons so operators can diagnose blocks."""
+    import logging
+    with caplog.at_level(logging.INFO, logger="core.trade_engine"):
+        engine.evaluate(
+            z_wdo=0.5, z_di=-0.3,
+            win_price=130000, wdo_price=5800,
+            rho=-0.75,
+            gate=_gate(allowed=False, reasons=["RHO_BREAKDOWN"]),
+            hmm_state="CHOP",
+            hour=11, minute=0,
+        )
+    gate_records = [r for r in caplog.records if "gate_block" in r.message]
+    assert len(gate_records) >= 1
+    assert "RHO_BREAKDOWN" in gate_records[0].message
+
+
+def test_gate_block_not_logged_for_bar_not_closed(engine, caplog):
+    """BAR_NOT_CLOSED fires on every poll tick — must NOT produce log spam."""
+    import logging
+    with caplog.at_level(logging.INFO, logger="core.trade_engine"):
+        engine.evaluate(
+            z_wdo=0.5, z_di=-0.3,
+            win_price=130000, wdo_price=5800,
+            rho=-0.75,
+            gate=_gate(allowed=False, reasons=["BAR_NOT_CLOSED"]),
+            hmm_state="CHOP",
+            hour=11, minute=0,
+        )
+    gate_records = [r for r in caplog.records if "gate_block" in r.message]
+    assert gate_records == []
+
+
+def test_gate_block_not_logged_for_out_of_session(engine, caplog):
+    """OUT_OF_SESSION fires on every out-of-hours poll — must NOT spam."""
+    import logging
+    with caplog.at_level(logging.INFO, logger="core.trade_engine"):
+        engine.evaluate(
+            z_wdo=0.5, z_di=-0.3,
+            win_price=130000, wdo_price=5800,
+            rho=-0.75,
+            gate=_gate(allowed=False, reasons=["OUT_OF_SESSION"]),
+            hmm_state="CHOP",
+            hour=8, minute=0,
+        )
+    gate_records = [r for r in caplog.records if "gate_block" in r.message]
+    assert gate_records == []
+
+
+def test_gate_block_logged_when_bar_closed_plus_other_reason(engine, caplog):
+    """BAR_NOT_CLOSED combined with a substantive reason must still log."""
+    import logging
+    with caplog.at_level(logging.INFO, logger="core.trade_engine"):
+        engine.evaluate(
+            z_wdo=0.5, z_di=-0.3,
+            win_price=130000, wdo_price=5800,
+            rho=-0.75,
+            gate=_gate(allowed=False, reasons=["BAR_NOT_CLOSED", "EG_UNAVAILABLE"]),
+            hmm_state="CHOP",
+            hour=11, minute=0,
+        )
+    gate_records = [r for r in caplog.records if "gate_block" in r.message]
+    assert len(gate_records) >= 1
+    assert "EG_UNAVAILABLE" in gate_records[0].message

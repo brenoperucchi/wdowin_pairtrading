@@ -191,7 +191,7 @@ def risk_gate(
       - bar_close: entries fire only on confirmed bar close
       - session:   inside ENTRY_START..ENTRY_END
       - rho:       rho_status level < 2 (correlation healthy)
-      - beta:      |beta_delta_pct| < 25%
+      - beta:      |beta_delta_pct| < BETA_DELTA_MAX
       - z_anomaly: max(|z_wdo|, |z_di|) < Z_ANOMALY
       - engle_granger: eg_pvalue is finite AND < 0.10
       - max_trades: trades_today_count < MAX_TRADES_PER_DAY

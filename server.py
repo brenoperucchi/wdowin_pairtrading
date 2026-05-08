@@ -3,6 +3,7 @@
 FastAPI server for WIN×WDO pair trading regime monitoring.
 All computation logic lives in core/ modules.
 """
+import logging
 import time
 import sqlite3
 import numpy as np
@@ -16,6 +17,15 @@ from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
 import os
 import asyncio
+
+# Configure root logger at module import so gate_block INFO lines reach the
+# console/PM2 log in all launch modes (python server.py, uvicorn server:app,
+# pm2). If a caller has already configured logging this call is a no-op.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 import firebase_admin
 from firebase_admin import credentials, db as fdb
 

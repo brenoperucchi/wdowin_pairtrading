@@ -188,10 +188,15 @@ class TradeEngine:
             all_reasons = market_reasons + ops_reasons
             if all_reasons:
                 action = "ANOMALY" if "Z_ANOMALY" in all_reasons else "WAIT"
-                logger.info(
-                    "gate_block strategy=%s action=%s reasons=%s",
-                    strat, action, all_reasons,
-                )
+                # BAR_NOT_CLOSED and OUT_OF_SESSION fire on every poll tick
+                # while the M5 bar is still forming — suppress them to avoid
+                # filling the log with 3 identical lines per 2.5-second cycle.
+                _POLLING_REASONS = {"BAR_NOT_CLOSED", "OUT_OF_SESSION"}
+                if not _POLLING_REASONS.issuperset(all_reasons):
+                    logger.info(
+                        "gate_block strategy=%s action=%s reasons=%s",
+                        strat, action, all_reasons,
+                    )
                 results[strat] = self._result(action, strat, gate_reasons=all_reasons)
                 continue
 
