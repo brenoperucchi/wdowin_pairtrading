@@ -10,6 +10,7 @@ Portfolio with 3 independent strategy slots:
 Each slot manages its own position independently.
 No orders are dispatched to MT5 — signal-only + paper tracking.
 """
+import logging
 import sqlite3
 from datetime import datetime
 from core.config import (
@@ -25,6 +26,8 @@ from core.config import (
 from core.risk_gate import operational_checks, WITHIN_POLL_OP_REASONS
 
 STRATEGIES = ["CONS_BASE", "WDO_NWE", "DI_NWE"]
+
+logger = logging.getLogger(__name__)
 
 
 class TradeEngine:
@@ -185,6 +188,10 @@ class TradeEngine:
             all_reasons = market_reasons + ops_reasons
             if all_reasons:
                 action = "ANOMALY" if "Z_ANOMALY" in all_reasons else "WAIT"
+                logger.info(
+                    "gate_block strategy=%s action=%s reasons=%s",
+                    strat, action, all_reasons,
+                )
                 results[strat] = self._result(action, strat, gate_reasons=all_reasons)
                 continue
 

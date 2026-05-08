@@ -10,6 +10,7 @@ Decisions baked in (see TASK-3 AC #3/#4 for context):
 - HMM regime → INFORMATIONAL ONLY (stored on trade row for postmortem).
 - Sizing is NOT decided here — that stays in `core/signals.get_signal()`.
 """
+import threading
 from typing import Optional
 
 import numpy as np
@@ -25,6 +26,7 @@ from core.config import (
     DAILY_LOSS_LIMIT_BRL,
     LOSS_COOLDOWN_MIN,
     BLOCK_ON_MT5_DISCONNECT,
+    BETA_DELTA_MAX,
 )
 
 
@@ -32,13 +34,15 @@ from core.config import (
 
 EG_PVALUE_THRESHOLD = 0.10  # block when pvalue >= this
 EG_MIN_BARS = 60  # minimum bars for a meaningful coint test
-BETA_DRIFT_PCT_LIMIT = 25.0  # block when |beta_delta_pct| >= this
 RHO_BREAKDOWN_LEVEL = 2  # block when rho_status['level'] >= this
 
 
 # ─── Engle-Granger pvalue cache (keyed by last_bar_ts) ──────────────────────
+# FastAPI runs sync endpoints in a threadpool (not the event loop), so
+# concurrent polls can race on this dict. A Lock makes the cache safe.
 
 _eg_cache: dict = {"bar_ts": None, "pvalue": None}
+_eg_lock = threading.Lock()
 
 
 def compute_engle_granger_pvalue(
@@ -53,32 +57,40 @@ def compute_engle_granger_pvalue(
     caller treats None as "EG unavailable" and blocks the entry.
     """
     global _eg_cache
-    if _eg_cache["bar_ts"] == bar_ts:
-        return _eg_cache["pvalue"]
+    with _eg_lock:
+        if _eg_cache["bar_ts"] == bar_ts:
+            return _eg_cache["pvalue"]
 
     if win_closes is None or wdo_closes is None:
-        _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
+        with _eg_lock:
+            _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
         return None
     if len(win_closes) < EG_MIN_BARS or len(wdo_closes) < EG_MIN_BARS:
-        _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
+        with _eg_lock:
+            _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
         return None
 
     try:
         _, pvalue, _ = coint(np.asarray(win_closes), np.asarray(wdo_closes))
         if not np.isfinite(pvalue):
-            _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
+            with _eg_lock:
+                _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
             return None
-        _eg_cache = {"bar_ts": bar_ts, "pvalue": float(pvalue)}
-        return float(pvalue)
+        result = float(pvalue)
+        with _eg_lock:
+            _eg_cache = {"bar_ts": bar_ts, "pvalue": result}
+        return result
     except Exception:
-        _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
+        with _eg_lock:
+            _eg_cache = {"bar_ts": bar_ts, "pvalue": None}
         return None
 
 
 def reset_eg_cache() -> None:
     """Test helper — drop the cached pvalue so the next call recomputes."""
     global _eg_cache
-    _eg_cache = {"bar_ts": None, "pvalue": None}
+    with _eg_lock:
+        _eg_cache = {"bar_ts": None, "pvalue": None}
 
 
 # ─── Session helper ─────────────────────────────────────────────────────────
@@ -207,7 +219,7 @@ def risk_gate(
     if not checks["rho"]:
         reasons.append("RHO_BREAKDOWN")
 
-    checks["beta"] = abs(beta_delta_pct) < BETA_DRIFT_PCT_LIMIT
+    checks["beta"] = abs(beta_delta_pct) < BETA_DELTA_MAX
     if not checks["beta"]:
         reasons.append("BETA_DRIFT")
 

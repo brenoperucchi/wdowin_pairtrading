@@ -98,6 +98,22 @@ def test_beta_drift_negative_direction_also_blocks():
     assert "BETA_DRIFT" in out["reasons"]
 
 
+def test_beta_drift_threshold_follows_config_BETA_DELTA_MAX(monkeypatch):
+    """Gate must use core.config.BETA_DELTA_MAX, not a local copy.
+
+    Monkeypatching the module attribute proves the live check reads from
+    config rather than a hardcoded constant that would drift silently.
+    """
+    import core.risk_gate as rg
+    monkeypatch.setattr(rg, "BETA_DELTA_MAX", 30.0)
+    # 25% drift: below the patched threshold → must NOT block
+    no_block = risk_gate(**_ok_kwargs(beta_delta_pct=25.0))
+    assert "BETA_DRIFT" not in no_block["reasons"]
+    # 31% drift: above the patched threshold → must block
+    blocked = risk_gate(**_ok_kwargs(beta_delta_pct=31.0))
+    assert "BETA_DRIFT" in blocked["reasons"]
+
+
 def test_z_anomaly_on_either_leg_blocks():
     out_wdo = risk_gate(**_ok_kwargs(z_wdo=4.5))
     out_di = risk_gate(**_ok_kwargs(z_di=-4.2))

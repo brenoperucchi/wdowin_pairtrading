@@ -183,29 +183,34 @@ Validação: `npx eslint . --format json` retorna 0 erros / 0 warnings; `npm run
 
 **Dois itens investigados como suspeitos, ambos descartados como não-bloqueantes:**
 
-1. *`_eg_cache` sem lock (suspeita de race condition)* — Falso positivo. O servidor corre em uvicorn single-process com asyncio (`reload=False`, sem `--workers`). `compute_engle_granger_pvalue()` é síncrona, sem `await` → executa atomicamente dentro de um tick do event loop. Não há concorrência real. Seria relevante apenas se `--workers N` fosse adicionado; documentar como caveat no runbook antes de escalar para workers.
+1. *`_eg_cache` sem lock (race condition real)* — `/api/v2/regime` é `def` (síncrono), não `async def`; FastAPI despacha endpoints síncronos em threadpool mesmo com um único worker. Dois polls concorrentes podem colidir no dict. **Fix aplicado em `core/risk_gate.py`**: adicionado `_eg_lock = threading.Lock()` e todos os acessos a `_eg_cache` envolvidos com `with _eg_lock:`. Nota anterior sobre "atomicidade de event loop" estava errada — corrigida aqui.
 
 2. *`SESSION_START=8:50, SESSION_END=18:20` em `server.py:265-266` diverge de `ENTRY_START_H=9:00, ENTRY_END_H=15:00` em `config.py`* — Divergência intencional. `SESSION_START/END` controla quais barras MT5 entram no payload de histórico enviado ao frontend (janela mais larga, para warmup e contexto visual). O gate de entrada usa `risk_gate._in_session()` que lê `ENTRY_START_H/END_H` do `config.py`. As duas constantes têm semânticas distintas e não conflitam.
 
 **Resultado por AC (todos verificados no código):**
 - #1 V1 removido ✓; server.py não tem mais rota /api/regime sem versionamento.
 - #2 `init_bar_history()` com `CREATE TABLE IF NOT EXISTS` em server.py:196-225; chamado em init_db() na startup ✓.
-- #3 `risk_gate(...)` em core/risk_gate.py:151-246 retorna `{allowed, reasons, checks, informational}`; trade_engine.evaluate() consome o dict ✓.
-- #4 Johansen/HMM em `informational` dict, nunca em `reasons`; evaluate() inclui gate_reasons em _result() para WAIT ✓.
+- #3 `risk_gate(...)` em core/risk_gate.py retorna `{allowed, reasons, checks, informational}`; trade_engine.evaluate() consome o dict ✓.
+- #4 Johansen/HMM em `informational` dict, nunca em `reasons`; evaluate() registra gate_reasons via `logger.info("gate_block ...")` quando action=WAIT/ANOMALY ✓.
 - #5 PARAM_PROFILE.md com tabela completa; `tests/test_param_profile.py` valida automaticamente ✓.
 - #6 CLAUDE.md e PARAM_PROFILE.md documentam WIN direcional com filtros WDO/DI ✓.
 - #7 `requirements.txt` inclui firebase-admin, pytest e demais ✓.
 - #8 0 erros / 0 warnings no lint ✓.
 - #9 `npm run build` OK ✓.
 - #10 App.jsx com badges MT5 LIVE/SIMULADO/HISTÓRICO + banners de erro distintos ✓.
-- #11 4 constantes operacionais em config.py; verificadas em `operational_checks()` (risk_gate.py:107-146) ✓.
+- #11 4 constantes operacionais em config.py; verificadas em `operational_checks()` (risk_gate.py) ✓.
 - #12 Este registro.
 - #13 `research/README.md` documenta DOL ≡ WDO ≡ Mini Dólar; sem contrato cheio ✓.
 - #14 Scripts de research carimbados como exploratório ou validation-grade ✓.
 - #15 `run_matador_v5_johansen.py` com slippage, custos B3 e rollover discard ✓.
 - #16 BLOCKED — reconciler pronto, sem paper real acumulado.
 
-**Veredito: TASK-3 Done.** Nenhum finding bloqueante para início da TASK-2. AC #16 permanece explicitamente aberto com estado BLOCKED: o reconciler está operacional e protegido contra janela desalinhada, sidecar parcial, replay sintético e datas futuras; a paridade <10% só pode ser aferida após pregões reais com `matador_ops` fechado. Custos B3 `B3_COST_PER_CONTRACT_RT=1.00` são estimativa conservadora — confirmar com XP antes de usar como métrica final. Ao avançar para TASK-2: não habilitar `--workers` em uvicorn sem adicionar lock ao `_eg_cache`.
+**Findings corrigidos pós-veredito inicial (commit de follow-up):**
+- `BETA_DRIFT_PCT_LIMIT = 25.0` hardcoded em risk_gate.py ignorava mudanças em `BETA_DELTA_MAX` do config → removido; gate agora importa e usa `BETA_DELTA_MAX` diretamente. Teste `test_beta_drift_threshold_follows_config_BETA_DELTA_MAX` valida via monkeypatch.
+- AC #4 "log estruturado": gate_reasons eram colocados apenas no payload; faltava trail histórico. Fix: `logger.info("gate_block strategy=%s action=%s reasons=%s", ...)` adicionado em trade_engine.py no ponto de WAIT/ANOMALY.
+- `_eg_cache` thread race: `/api/v2/regime` é `def` síncrono → FastAPI usa threadpool → race real. Fix: `_eg_lock = threading.Lock()` com `with _eg_lock:` em todos os acessos ao cache.
+
+**Veredito final: TASK-3 Done.** Todos os três findings pós-veredito resolvidos e testados. AC #16 permanece explicitamente BLOCKED — o reconciler está pronto; paridade <10% só pode ser aferida após pregões reais com `matador_ops` fechado. Custos B3 `B3_COST_PER_CONTRACT_RT=1.00` são estimativa conservadora — confirmar com XP antes de usar como métrica final de net P&L.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done
