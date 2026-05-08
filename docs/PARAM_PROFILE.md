@@ -85,6 +85,22 @@ the same signal as live.
 | `WIN_CONTRACTS` | 2     | WIN-only — no WDO leg |
 | `WIN_PV`        | 0.20  | R$/point/contract |
 
+### Live execution scaffold
+
+TASK-2 starts with a paper-safe live profile. `LIVE_ORDERS=False` remains
+the only safe default; helper wiring and actual MT5 `order_send` calls land
+in later TASK-2 slices.
+
+| Constant           | Value   | Notes |
+|--------------------|---------|-------|
+| `LIVE_ORDERS`      | False   | master switch — default paper-only |
+| `LIVE_SYMBOL_WIN`  | `WIN$N` | only tradable leg |
+| `LIVE_DEVIATION`   | 50      | market order deviation budget |
+| `LIVE_MAGIC_BASE`  | 770000  | base for per-strategy magic numbers |
+| `LIVE_FILLING`     | 2       | `mt5.ORDER_FILLING_RETURN` |
+
+`MAGIC_BY_STRATEGY`: `CONS_BASE=770001`, `WDO_NWE=770002`, `DI_NWE=770003`.
+
 ### Execution costs (validation backtest only)
 
 Live engine does not consume these — MT5 fills already net of slippage and

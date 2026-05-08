@@ -19,6 +19,7 @@ except ImportError:
     # surfacing for read-only consumers like docs/reconcile/test tooling.
     class _MT5Stub:
         TIMEFRAME_M5 = 5
+        ORDER_FILLING_RETURN = 2
     mt5 = _MT5Stub()
 
 # ─── Infrastructure ─────────────────────────────────────────────────────────
@@ -71,6 +72,21 @@ SELL_BE_LOCK = 0
 # ─── Sizing ─────────────────────────────────────────────────────────────────
 WIN_CONTRACTS = 2
 WIN_PV = 0.20          # R$/point/contract
+
+# ─── Live order scaffold (TASK-2) ───────────────────────────────────────────
+# Default must remain paper-only. Future TASK-2 slices will wire MT5 helper
+# calls behind this flag; this scaffold only centralizes the live profile and
+# prepares persistence for ticket/magic reconciliation.
+LIVE_ORDERS = False
+LIVE_SYMBOL_WIN = SYMBOL_A
+LIVE_DEVIATION = 50
+LIVE_MAGIC_BASE = 770000
+MAGIC_BY_STRATEGY = {
+    "CONS_BASE": LIVE_MAGIC_BASE + 1,
+    "WDO_NWE": LIVE_MAGIC_BASE + 2,
+    "DI_NWE": LIVE_MAGIC_BASE + 3,
+}
+LIVE_FILLING = getattr(mt5, "ORDER_FILLING_RETURN", 2)
 
 # ─── Execution costs (TASK-3 AC #15) ────────────────────────────────────────
 # Used by validation-grade backtests (research/run_matador_v5_johansen.py)
@@ -139,4 +155,3 @@ MAX_TRADES_PER_DAY = 4
 DAILY_LOSS_LIMIT_BRL = 240.0
 LOSS_COOLDOWN_MIN = 30
 BLOCK_ON_MT5_DISCONNECT = True
-

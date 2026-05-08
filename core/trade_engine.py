@@ -56,14 +56,26 @@ class TradeEngine:
                 pnl_brl REAL,
                 max_pts_favor REAL DEFAULT 0.0,
                 be_active INTEGER DEFAULT 0,
-                hmm_state TEXT
+                hmm_state TEXT,
+                mt5_ticket_in INTEGER,
+                mt5_ticket_out INTEGER,
+                mt5_magic INTEGER,
+                live INTEGER DEFAULT 0
             )
         ''')
-        # Migration: add strategy column if missing
-        try:
-            c.execute("ALTER TABLE matador_ops ADD COLUMN strategy TEXT DEFAULT 'CONS_BASE'")
-        except sqlite3.OperationalError:
-            pass
+        migrations = [
+            ("strategy", "TEXT DEFAULT 'CONS_BASE'"),
+            ("mt5_ticket_in", "INTEGER"),
+            ("mt5_ticket_out", "INTEGER"),
+            ("mt5_magic", "INTEGER"),
+            ("live", "INTEGER DEFAULT 0"),
+        ]
+        for column, ddl in migrations:
+            try:
+                c.execute(f"ALTER TABLE matador_ops ADD COLUMN {column} {ddl}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
         conn.commit()
         conn.close()
 
@@ -73,7 +85,8 @@ class TradeEngine:
         c = conn.cursor()
         c.execute(
             "SELECT id, direction, z_source, strategy, price_win_in, price_wdo_in, "
-            "max_pts_favor, be_active FROM matador_ops WHERE status='OPEN'"
+            "max_pts_favor, be_active, mt5_ticket_in, mt5_magic, live "
+            "FROM matador_ops WHERE status='OPEN'"
         )
         rows = c.fetchall()
         conn.close()
@@ -86,6 +99,8 @@ class TradeEngine:
                 "strategy": strat,
                 "price_win_in": row[4], "price_wdo_in": row[5],
                 "max_pts_favor": row[6], "be_active": bool(row[7]),
+                "mt5_ticket_in": row[8], "mt5_magic": row[9],
+                "live": bool(row[10] or 0),
             }
         return result
 
@@ -296,8 +311,8 @@ class TradeEngine:
         c.execute('''
             INSERT INTO matador_ops
             (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
-             qty_win, price_win_in, price_wdo_in, hmm_state)
-            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             qty_win, price_win_in, price_wdo_in, hmm_state, live)
+            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         ''', (datetime.now().isoformat(), direction, z_val, z_source, strategy,
               rho, beta, WIN_CONTRACTS, win_price, wdo_price, hmm_state))
         conn.commit()

@@ -47,6 +47,9 @@ REQUIRED_IN_MANIFEST = [
     "SELL_SL", "SELL_TP", "SELL_BE_ACT", "SELL_BE_LOCK",
     # Sizing
     "WIN_CONTRACTS", "WIN_PV",
+    # Live execution scaffold (TASK-2)
+    "LIVE_ORDERS", "LIVE_SYMBOL_WIN", "LIVE_DEVIATION",
+    "LIVE_MAGIC_BASE", "LIVE_FILLING",
     # Execution costs (validation backtest)
     "WIN_SLIPPAGE_PTS", "B3_COST_PER_CONTRACT_RT",
     # Regime
