@@ -1,6 +1,6 @@
 """Tests for bar_history migration and save/load roundtrip.
 
-Covers TASK-3 AC #2: idempotent CREATE TABLE, INSERT OR IGNORE dedup,
+Covers TASK-3 AC #2: idempotent CREATE TABLE, timestamp dedup/upsert,
 date-window filtering in load_bar_history, and the V2 persistence helper
 that activates the non-repainting write path.
 """
@@ -28,14 +28,22 @@ def db(tmp_path):
     return str(p)
 
 
-def _sample(ts, *, z_wdo=0.5, win_price=130000.0, nwe_is_up=True):
+def _sample(
+    ts,
+    *,
+    z_wdo=0.5,
+    win_price=130000.0,
+    wdo_price=5500.0,
+    di_price=12.5,
+    nwe_is_up=True,
+):
     return dict(
         timestamp=ts,
         date_str="2026-05-07",
         bar_time="10:30",
         win_price=win_price,
-        wdo_price=5500.0,
-        di_price=12.5,
+        wdo_price=wdo_price,
+        di_price=di_price,
         spread_wdo=42.0,
         spread_di=-3.1,
         z_wdo=z_wdo,
@@ -69,16 +77,36 @@ def test_save_load_roundtrip(db):
     assert r["bar_time"] == "10:30"
     assert r["date"] == "2026-05-07"
     assert r["win_price"] == 130000.0
+    assert r["wdo_price"] == 5500.0
+    assert r["di_price"] == 12.5
     assert r["z"] == 0.5  # mapped from z_wdo
 
 
-def test_insert_or_ignore_dedups_on_timestamp(db):
+def test_timestamp_conflict_dedups_non_null_values(db):
     ts_now = int(time.time())
     save_bar_history(**_sample(ts_now, z_wdo=0.5), db_path=db)
     save_bar_history(**_sample(ts_now, z_wdo=0.99), db_path=db)  # same ts, different z
     rows = load_bar_history(days=1, db_path=db)
     assert len(rows) == 1
-    assert rows[0]["z"] == 0.5  # first write wins (INSERT OR IGNORE)
+    assert rows[0]["z"] == 0.5  # first write wins for non-null persisted values
+
+
+def test_save_bar_history_fills_missing_wdo_di_on_conflict(db):
+    ts_now = int(time.time())
+    save_bar_history(
+        **_sample(ts_now, z_wdo=0.5, wdo_price=None, di_price=None),
+        db_path=db,
+    )
+    save_bar_history(
+        **_sample(ts_now, z_wdo=0.99, wdo_price=5501.5, di_price=13.12),
+        db_path=db,
+    )
+
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    assert rows[0]["z"] == 0.5
+    assert rows[0]["wdo_price"] == 5501.5
+    assert rows[0]["di_price"] == 13.12
 
 
 def test_load_filters_by_days_window(db):
@@ -121,6 +149,8 @@ def test_persist_closed_bars_skips_open_bar(db):
     z = np.array([0.5, -0.3, 1.7])
     spread = np.array([40.0, 41.0, 42.0])
     win_prices = np.array([130000.0, 130100.0, 130200.0])
+    wdo_prices = np.array([5500.0, 5501.0, 5502.0])
+    di_prices = np.array([13.10, 13.11, 13.12])
     nwe_data = (
         np.array([130050.0, 130150.0, 130250.0]),
         np.array([130200.0, 130300.0, 130400.0]),
@@ -128,7 +158,15 @@ def test_persist_closed_bars_skips_open_bar(db):
         np.array([True, True, True]),
     )
 
-    history = _build_history(times, z, spread, win_prices=win_prices, nwe_data=nwe_data)
+    history = _build_history(
+        times,
+        z,
+        spread,
+        win_prices=win_prices,
+        wdo_prices=wdo_prices,
+        di_prices=di_prices,
+        nwe_data=nwe_data,
+    )
     assert len(history) == 3  # all in session
 
     saved = _persist_closed_bars(history, db_path=db)
@@ -137,6 +175,11 @@ def test_persist_closed_bars_skips_open_bar(db):
     rows = load_bar_history(days=1, db_path=db)
     assert len(rows) == 2
     assert {r["bar_time"] for r in rows} == {"10:00", "10:05"}
+    by_time = {r["bar_time"]: r for r in rows}
+    assert by_time["10:00"]["wdo_price"] == 5500.0
+    assert by_time["10:00"]["di_price"] == 13.10
+    assert by_time["10:05"]["wdo_price"] == 5501.0
+    assert by_time["10:05"]["di_price"] == 13.11
     # Open bar at 10:10 must not be present
     assert "10:10" not in {r["bar_time"] for r in rows}
 
@@ -154,7 +197,7 @@ def test_persist_closed_bars_idempotent_across_polls(db):
     _persist_closed_bars(history, db_path=db)  # second poll, same bars
 
     rows = load_bar_history(days=1, db_path=db)
-    assert len(rows) == 2  # INSERT OR IGNORE deduped
+    assert len(rows) == 2  # timestamp conflict deduped
 
 
 def test_persist_closed_bars_writes_unfiltered_z(db):

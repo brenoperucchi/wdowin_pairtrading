@@ -589,7 +589,7 @@ def init_bar_history(db_path: str = "trades.db") -> None:
     """Idempotent migration for the bar_history table.
 
     Schema mirrors the columns written by save_bar_history. timestamp is the
-    PRIMARY KEY so INSERT OR IGNORE dedups when MT5 reissues an old M5 bar.
+    PRIMARY KEY dedups when MT5 reissues an old M5 bar.
     """
     conn = sqlite3.connect(db_path, timeout=10.0)
     try:
@@ -670,9 +670,12 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
         c = conn.cursor()
         nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
         c.execute('''
-            INSERT OR IGNORE INTO bar_history
+            INSERT INTO bar_history
             (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(timestamp) DO UPDATE SET
+                wdo_price = COALESCE(bar_history.wdo_price, excluded.wdo_price),
+                di_price = COALESCE(bar_history.di_price, excluded.di_price)
         ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up_val))
         conn.commit()
         conn.close()
@@ -685,7 +688,7 @@ def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
 
     Skips the last entry (it is the still-forming bar; saving it would freeze
     a not-yet-final value into the non-repainting source-of-truth). Returns the
-    number of save attempts (independent of INSERT OR IGNORE outcome).
+    number of save attempts (independent of insert/upsert outcome).
 
     The function reads the unfiltered z values (z_unfiltered_*) so that
     load_bar_history's NWE re-application is consistent across writes/reads.
@@ -703,8 +706,8 @@ def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
                 date_str=entry["date"],
                 bar_time=entry["bar_time"],
                 win_price=entry.get("win_price"),
-                wdo_price=None,
-                di_price=None,
+                wdo_price=entry.get("wdo_price"),
+                di_price=entry.get("di_price"),
                 spread_wdo=entry.get("spread"),
                 spread_di=None,
                 z_wdo=entry.get("z_unfiltered_wdo", entry.get("z")),
@@ -737,6 +740,8 @@ def load_bar_history(days=30, db_path: str = "trades.db"):
             z_wdo = r["z_wdo"]
             z_di = r["z_di"] or 0.0
             win_price = r["win_price"]
+            wdo_price = r["wdo_price"]
+            di_price = r["di_price"]
             
             nv = r["nwe_center"]
             nu = r["nwe_upper"]
@@ -776,6 +781,8 @@ def load_bar_history(days=30, db_path: str = "trades.db"):
                 "date": r["date_str"],
                 "t_min": dt_time.hour * 60 + dt_time.minute,
                 "win_price": win_price,
+                "wdo_price": wdo_price,
+                "di_price": di_price,
                 
                 "nwe": nv,
                 "nweUpper": nu,
@@ -817,11 +824,24 @@ def do_backfill_if_empty():
     except Exception as e:
         print(f"[ERRO] Falha no backfill: {e}")
 
-def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None, nwe_data=None, di_map=None):
+def _build_history(
+    bar_times,
+    z_arr,
+    spread_arr,
+    z_v1_arr=None,
+    win_prices=None,
+    nwe_data=None,
+    di_map=None,
+    wdo_prices=None,
+    di_prices=None,
+    di_price_map=None,
+):
     """Build filtered session history from bar data, including NWE and DI."""
     n = len(z_arr)
     v1_len = len(z_v1_arr) if z_v1_arr is not None else 0
     win_len = len(win_prices) if win_prices is not None else 0
+    wdo_len = len(wdo_prices) if wdo_prices is not None else 0
+    di_len = len(di_prices) if di_prices is not None else 0
     
     nwe_line, nwe_upper, nwe_lower, nwe_is_up = nwe_data if nwe_data else (None, None, None, None)
     nwe_len = len(nwe_line) if nwe_line is not None else 0
@@ -846,6 +866,21 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
             win_idx = i - (n - win_len)
             win_val = float(win_prices[win_idx]) if 0 <= win_idx < win_len else 0.0
             entry["win_price"] = win_val
+
+        if wdo_prices is not None:
+            wdo_idx = i - (n - wdo_len)
+            if 0 <= wdo_idx < wdo_len:
+                entry["wdo_price"] = float(wdo_prices[wdo_idx])
+
+        di_price_val = None
+        if di_prices is not None:
+            di_idx = i - (n - di_len)
+            if 0 <= di_idx < di_len:
+                di_price_val = float(di_prices[di_idx])
+        elif di_price_map:
+            di_price_val = di_price_map.get(local_ts)
+        if di_price_val is not None:
+            entry["di_price"] = float(di_price_val)
             
         z_di_val = di_map.get(local_ts, 0.0) if di_map else 0.0
         entry["z_di"] = z_di_val
@@ -1260,19 +1295,24 @@ def regime_v2():
     db_hist = [h for h in db_hist if h.get("date") == today_str]  # Only today for live view
     
     di_map = {}
+    di_price_map = {}
     if _di_cache and "history" in _di_cache:
         for dh in _di_cache["history"]:
             dt_str = dh.get("date", "") + " " + dh.get("bar_time", "")
             try:
                 local_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
-                di_map[int(local_dt.timestamp())] = dh.get("z", 0.0)
+                local_ts = int(local_dt.timestamp())
+                di_map[local_ts] = dh.get("z", 0.0)
+                if dh.get("di_price") is not None:
+                    di_price_map[local_ts] = dh.get("di_price")
             except Exception:
                 pass
 
     live_history = _build_history(
-        tc[-20:], z_scores[-20:], spreads[-20:], win_prices=ac[-20:],
+        tc[-20:], z_scores[-20:], spreads[-20:],
+        win_prices=ac[-20:], wdo_prices=bc[-20:],
         nwe_data=(nwe_line[-20:], nwe_upper[-20:], nwe_lower[-20:], nwe_is_up_arr[-20:]),
-        di_map=di_map
+        di_map=di_map, di_price_map=di_price_map
     )
     
     if db_hist and live_history:
@@ -1285,17 +1325,18 @@ def regime_v2():
         history = db_hist
     else:
         history = _build_history(
-            tc, z_scores, spreads, win_prices=ac,
+            tc, z_scores, spreads, win_prices=ac, wdo_prices=bc,
             nwe_data=(nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr),
-            di_map=di_map
+            di_map=di_map, di_price_map=di_price_map
         )
 
     # Persist closed bars from the FULL `history` (not just live_history).
     # On a midday cold start db_hist is empty → fallback branch returns the
     # full session in `history`; persisting only the last 20 (live_history)
     # would leave older candles unwritten and the next poll's merge branch
-    # would shrink the dashboard. INSERT OR IGNORE makes re-persistence of
-    # already-stored rows a no-op. The trailing open bar is skipped inside
+    # would shrink the dashboard. Re-persistence of already-stored rows is
+    # mostly no-op; missing WDO/DI prices can still be
+    # filled on conflict. The trailing open bar is skipped inside
     # _persist_closed_bars.
     _persist_closed_bars(history)
 
@@ -1456,7 +1497,12 @@ def di_regime():
 
     # ── History ───────────────────────────────────────────────────────
     n_z = len(z_arr)
-    history = _build_history(times_win[-n_z:], z_arr, spread_arr[-n_z:])
+    history = _build_history(
+        times_win[-n_z:],
+        z_arr,
+        spread_arr[-n_z:],
+        di_prices=closes_di[-n_z:],
+    )
 
     signal = _get_di_signal(current_z)
 

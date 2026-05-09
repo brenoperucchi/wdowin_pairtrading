@@ -59,6 +59,25 @@ def test_di_map_lookup_merges_z_di():
     assert out[0]["z_di"] == 0.42
 
 
+def test_price_arrays_merge_wdo_and_di_prices():
+    today = datetime.now().replace(hour=11, minute=5, second=0, microsecond=0)
+    times, z, spread = _mk_bars([today])
+
+    out = _build_history(
+        times,
+        z,
+        spread,
+        win_prices=np.array([130000.0]),
+        wdo_prices=np.array([5500.5]),
+        di_prices=np.array([13.12]),
+    )
+
+    assert len(out) == 1
+    assert out[0]["win_price"] == 130000.0
+    assert out[0]["wdo_price"] == 5500.5
+    assert out[0]["di_price"] == 13.12
+
+
 def test_closed_di_z_from_cache_uses_closed_bar_not_current(monkeypatch):
     closed_local = datetime.now().replace(hour=11, minute=5, second=0, microsecond=0)
     open_local = closed_local + timedelta(minutes=5)
