@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 from datetime import datetime
 
 import pytest
@@ -26,6 +28,89 @@ def _trade_result(action="WAIT"):
             "DI_NWE": {"action": action},
         }
     }
+
+
+def test_lifespan_starts_trade_eval_loop_without_firebase(monkeypatch):
+    started = {"value": False}
+
+    async def fake_trade_eval_loop():
+        started["value"] = True
+        try:
+            while True:
+                await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+
+    monkeypatch.setattr(server, "firebase_initialized", False)
+    monkeypatch.setattr(server, "trade_eval_loop", fake_trade_eval_loop)
+    monkeypatch.setattr(server, "do_backfill_if_empty", lambda: None)
+
+    with TestClient(server.app):
+        assert started["value"] is True
+
+
+def test_trade_eval_loop_runs_regime_without_firebase(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_run_regime():
+        calls["count"] += 1
+        return {"error": None, "trade_engine": {"action": "WAIT"}}
+
+    async def stop_after_first_cycle(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(server, "firebase_initialized", False)
+    monkeypatch.setattr(server, "_run_regime_v2_from_loop", fake_run_regime)
+    monkeypatch.setattr(server.asyncio, "sleep", stop_after_first_cycle)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(server.trade_eval_loop())
+
+    assert calls["count"] == 1
+    assert server._get_eval_state()["loop_running"] is False
+
+
+def test_serialized_regime_call_records_loop_source_and_snapshot(monkeypatch):
+    monkeypatch.setattr(server, "_latest_regime_snapshot", None)
+    wrapped = server._serialized_regime_call(lambda: {"error": None, "ok": True})
+
+    token = server._eval_source.set("loop")
+    try:
+        result = wrapped()
+    finally:
+        server._eval_source.reset(token)
+
+    state = server._get_eval_state()
+    assert result == {"error": None, "ok": True}
+    assert state["last_source"] == "loop"
+    assert state["last_completed_at"] is not None
+    assert state["last_duration_ms"] >= 0
+    assert state["last_error"] is None
+    assert state["last_result_error"] is None
+    assert server._latest_regime_snapshot == result
+
+
+def test_health_reports_trade_eval_loop_state(monkeypatch):
+    monkeypatch.setattr(server, "connect_mt5", lambda: False)
+    monkeypatch.setattr(server, "_latest_regime_snapshot", {"ok": True})
+    server._set_eval_state(
+        loop_running=True,
+        in_progress=False,
+        last_completed_at="2026-05-09T10:00:00",
+        last_completed_epoch=time.time() - 4,
+        last_source="loop",
+        last_duration_ms=12.3,
+        last_error=None,
+        last_error_at=None,
+        last_result_error=None,
+    )
+
+    out = server.health()
+
+    assert out["trade_eval_loop"]["running"] is True
+    assert out["trade_eval_loop"]["last_source"] == "loop"
+    assert out["trade_eval_loop"]["last_completed_age_sec"] >= 4
+    assert out["trade_eval_loop"]["has_snapshot"] is True
 
 
 def test_record_timeline_data_failure_dedupes_by_minute(tmp_path, monkeypatch):

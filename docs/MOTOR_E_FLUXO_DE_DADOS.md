@@ -25,11 +25,12 @@ Estado atual:
 ## Visao de Alto Nivel
 
 ```text
-Dashboard React
-  |
-  | polling HTTP local ou listener Firebase em producao
-  v
 FastAPI server.py
+  |
+  | poller operacional interno a cada 2.5s
+  | dashboard/Firebase apenas consomem ou espelham o estado
+  v
+GET /api/v2/regime
   |
   | conecta no MT5
   v
@@ -300,7 +301,7 @@ Importante: apesar de existirem sinais WDO/DI, o trade gravado e sempre direcion
 
 ## Saida de Trade
 
-Saidas sao avaliadas a cada polling enquanto houver posicao aberta.
+Saidas sao avaliadas a cada ciclo do poller interno enquanto houver posicao aberta. O dashboard pode chamar `/api/v2/regime`, mas a avaliacao operacional nao depende do navegador estar aberto.
 
 Regras atuais:
 

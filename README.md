@@ -46,7 +46,7 @@ O projeto é dividido em um Backend rápido em Python e um Frontend imersivo em 
 ```
 
 ### O Backend (`server.py`)
-Atua como um adaptador *Headless*. A cada chamada para `/api/v2/regime`, o Python comunica-se através de memória compartilhada com o processo do MT5 do Windows, puxa centenas de barras de M5 (OHLC), executa a matemática vetorial usando `numpy` (Filtro de Kalman + Johansen + NWE) e formata em um objeto JSON enriquecido (incluindo timestamps locais calculados com precisão).
+Atua como um adaptador *Headless* e como motor operacional. Um poller interno roda a cada **2.5 segundos** independentemente do dashboard/Firebase, chama `/api/v2/regime` internamente, conversa com o MT5, avalia entradas/saidas e persiste a timeline. Chamadas HTTP ao mesmo endpoint continuam disponíveis para o dashboard, mas não são mais o gatilho exclusivo do motor.
 
 ### O Frontend (`App.jsx`)
 Usa `React` puro com `Recharts` sem dependência de complexas *store libraries* (ex: Redux). Realiza polling de HTTP Long-polling a cada **2.5 segundos** (frequência ideal para setups gráficos sem sobrecarregar a bridge do MT5). Possui também um gerador de série temporal Gaussiana (Simulador Fallback) autônomo, ativado quando o servidor ou mercado está fechado, perfeito para testar layouts.

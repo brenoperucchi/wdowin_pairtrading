@@ -61,13 +61,13 @@ core/mt5_client.py  ←── fetches M5 bars (beta_ultimo.json is a legacy V1 a
     │
     ▼
 server.py (FastAPI, port 8080)
-    │ polls every 2.5s, CACHE_TTL=2.0s
+    │ internal trade_eval_loop polls every 2.5s, CACHE_TTL=2.0s
     │
     ├─ /api/v2/regime  ──► core/kalman_filter.py → core/signals.py → core/trade_engine.py
     ├─ /api/di-regime  ──► OLS beta on DI1$N pair
     ├─ /api/performance ─► SQLite matador_ops query
     ├─ /api/history    ──► last 5min of bar_history
-    └─ Firebase RTDB push (15s cadence for live state, 5min for history)
+    └─ optional Firebase RTDB mirror (15s cadence for live state, 5min for history)
                 │
                 ▼
     regime-dashboard/ (React 19 + Vite, port 5174)

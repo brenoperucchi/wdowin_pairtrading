@@ -6,6 +6,7 @@ All computation logic lives in core/ modules.
 import logging
 import time
 import sqlite3
+import threading
 import numpy as np
 import MetaTrader5 as mt5
 from datetime import datetime
@@ -14,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import math
+from contextvars import ContextVar
+from functools import wraps
 from statsmodels.tsa.stattools import coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
@@ -28,6 +31,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
+logger = logging.getLogger(__name__)
 import firebase_admin
 from firebase_admin import credentials, db as fdb
 
@@ -88,18 +92,120 @@ import core.hmm_background as hmm
 # ─── App setup ───────────────────────────────────────────────────────────────
 import contextlib
 
+POLL_INTERVAL_SEC = 2.5
+
+_eval_lock = threading.Lock()
+_eval_state_lock = threading.Lock()
+_eval_source = ContextVar("eval_source", default="http")
+_latest_regime_snapshot: dict | None = None
+_eval_state = {
+    "loop_running": False,
+    "in_progress": False,
+    "last_source": None,
+    "last_started_at": None,
+    "last_completed_at": None,
+    "last_completed_epoch": None,
+    "last_duration_ms": None,
+    "last_error": None,
+    "last_error_at": None,
+    "last_result_error": None,
+}
+
+
+def _set_eval_state(**fields) -> None:
+    with _eval_state_lock:
+        _eval_state.update(fields)
+
+
+def _get_eval_state() -> dict:
+    with _eval_state_lock:
+        return dict(_eval_state)
+
+
+def _serialized_regime_call(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        global _latest_regime_snapshot
+        source = _eval_source.get()
+        with _eval_lock:
+            started = time.time()
+            _set_eval_state(
+                in_progress=True,
+                last_source=source,
+                last_started_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            try:
+                result = fn(*args, **kwargs)
+                completed = time.time()
+                _latest_regime_snapshot = result if isinstance(result, dict) else None
+                _set_eval_state(
+                    in_progress=False,
+                    last_completed_at=datetime.now().isoformat(timespec="seconds"),
+                    last_completed_epoch=completed,
+                    last_duration_ms=round((completed - started) * 1000, 1),
+                    last_error=None,
+                    last_result_error=(
+                        result.get("error") if isinstance(result, dict) else None
+                    ),
+                )
+                return result
+            except Exception as exc:
+                completed = time.time()
+                _set_eval_state(
+                    in_progress=False,
+                    last_duration_ms=round((completed - started) * 1000, 1),
+                    last_error=f"{type(exc).__name__}: {exc}",
+                    last_error_at=datetime.now().isoformat(timespec="seconds"),
+                )
+                raise
+
+    return wrapper
+
+
+def _run_regime_v2_from_loop():
+    token = _eval_source.set("loop")
+    try:
+        return regime_v2()
+    finally:
+        _eval_source.reset(token)
+
+
+def _push_dashboard_to_firebase(regime, di_regime_payload, performance) -> None:
+    ref = fdb.reference('dashboard')
+    ref.set({
+        'regime': regime,
+        'di_regime': di_regime_payload,
+        'performance': performance,
+    })
+
+
+def _push_history_to_firebase(history_payload) -> None:
+    ref_hist = fdb.reference('history_30d')
+    ref_hist.set(history_payload.get("history", []))
+
+
+def _log_background_task_result(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.exception("trade_eval_loop stopped unexpectedly")
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    if firebase_initialized:
-        asyncio.create_task(firebase_push_loop())
-    
+    eval_task = asyncio.create_task(trade_eval_loop())
+    eval_task.add_done_callback(_log_background_task_result)
+
     # Run backfill async
-    import threading
     threading.Thread(target=do_backfill_if_empty, daemon=True).start()
-    
-    yield
-    # Shutdown
+
+    try:
+        yield
+    finally:
+        eval_task.cancel()
+        await asyncio.gather(eval_task, return_exceptions=True)
 
 app = FastAPI(title="WIN×WDO Regime Monitor", lifespan=lifespan)
 app.add_middleware(
@@ -109,44 +215,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-async def firebase_push_loop():
-    print("[INFO] Firebase Sync Loop iniciado.")
-    last_hist_update = 0
-    last_dash_update = 0
-    while True:
-        try:
-            if firebase_initialized:
-                # Chama as funções nativamente (cuidado com MT5: executado na main thread de evento)
-                r_v2 = regime_v2()
-                r_di = di_regime()
-                perf = get_performance()
-                
-                current_time = time.time()
-                
-                # Check for immediate push condition
-                action_v2 = r_v2.get("trade_engine", {}).get("action", "WAIT")
-                push_immediate = action_v2 not in ("WAIT", "HOLDING", "ANOMALY")
-                
-                # Push para RTDB (dashboard live) a cada 15 segundos ou imediatamente se houver trade
-                if push_immediate or current_time - last_dash_update >= 15:
-                    ref = fdb.reference('dashboard')
-                    ref.set({
-                        'regime': r_v2,
-                        'di_regime': r_di,
-                        'performance': perf,
-                    })
-                    last_dash_update = current_time
+async def trade_eval_loop():
+    _set_eval_state(loop_running=True)
+    try:
+        logger.info(
+            "trade_eval_loop started interval=%.1fs firebase_enabled=%s",
+            POLL_INTERVAL_SEC,
+            firebase_initialized,
+        )
+        last_hist_update = 0
+        last_dash_update = 0
 
-                # Push history_30d a cada 5 minutos (300 segundos) para economizar banda
-                if current_time - last_hist_update > 300:
-                    hist = history_endpoint(days=30)
-                    ref_hist = fdb.reference('history_30d')
-                    ref_hist.set(hist.get("history", []))
-                    last_hist_update = current_time
+        while True:
+            try:
+                r_v2 = await asyncio.to_thread(_run_regime_v2_from_loop)
 
-        except Exception as e:
-            print(f"[AVISO] Erro no sync do Firebase: {e}")
-        await asyncio.sleep(2.5)  # Envia live a cada 2.5s
+                if firebase_initialized:
+                    r_di = await asyncio.to_thread(di_regime)
+                    perf = await asyncio.to_thread(get_performance)
+
+                    # Check for immediate push condition
+                    action_v2 = r_v2.get("trade_engine", {}).get("action", "WAIT")
+                    push_immediate = action_v2 not in ("WAIT", "HOLDING", "ANOMALY")
+
+                    # Push para RTDB (dashboard live) a cada 15 segundos ou
+                    # imediatamente se houver trade.
+                    current_time = time.time()
+                    if push_immediate or current_time - last_dash_update >= 15:
+                        await asyncio.to_thread(
+                            _push_dashboard_to_firebase, r_v2, r_di, perf
+                        )
+                        last_dash_update = current_time
+
+                    # Push history_30d a cada 5 minutos (300 segundos) para
+                    # economizar banda.
+                    if current_time - last_hist_update > 300:
+                        hist = await asyncio.to_thread(history_endpoint, days=30)
+                        await asyncio.to_thread(_push_history_to_firebase, hist)
+                        last_hist_update = current_time
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.exception("trade_eval_loop error")
+                _set_eval_state(
+                    last_error=f"{type(e).__name__}: {e}",
+                    last_error_at=datetime.now().isoformat(timespec="seconds"),
+                )
+
+            await asyncio.sleep(POLL_INTERVAL_SEC)
+    finally:
+        _set_eval_state(loop_running=False)
 
 DB_PATH = "trades.db"
 
@@ -892,6 +1011,7 @@ def _build_response(current_z, current_rho, half_life, strength,
 # ─── Endpoints ───────────────────────────────────────────────────────────────
 
 @app.get("/api/v2/regime")
+@_serialized_regime_call
 def regime_v2():
     """V2 endpoint — Kalman-based regime monitoring + Johansen gate."""
     if not connect_mt5():
@@ -1405,6 +1525,12 @@ def di_regime():
 def health():
     connected = connect_mt5()
     info = mt5.terminal_info() if connected else None
+    eval_state = _get_eval_state()
+    last_completed_epoch = eval_state.get("last_completed_epoch")
+    last_completed_age_sec = (
+        round(time.time() - last_completed_epoch, 1)
+        if last_completed_epoch is not None else None
+    )
     return {
         "mt5_connected": connected,
         "terminal_name": info.name if info else None,
@@ -1413,6 +1539,20 @@ def health():
         "symbol_a": SYMBOL_A,
         "symbol_b": SYMBOL_B,
         "di_symbol": DI_SYMBOL,
+        "trade_eval_loop": {
+            "running": bool(eval_state.get("loop_running")),
+            "in_progress": bool(eval_state.get("in_progress")),
+            "interval_sec": POLL_INTERVAL_SEC,
+            "last_source": eval_state.get("last_source"),
+            "last_started_at": eval_state.get("last_started_at"),
+            "last_completed_at": eval_state.get("last_completed_at"),
+            "last_completed_age_sec": last_completed_age_sec,
+            "last_duration_ms": eval_state.get("last_duration_ms"),
+            "last_error": eval_state.get("last_error"),
+            "last_error_at": eval_state.get("last_error_at"),
+            "last_result_error": eval_state.get("last_result_error"),
+            "has_snapshot": _latest_regime_snapshot is not None,
+        },
     }
 
 
