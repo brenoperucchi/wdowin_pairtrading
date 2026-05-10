@@ -21,6 +21,15 @@ def _timeline_db(tmp_path, monkeypatch):
     return db
 
 
+def _replay_timeline_db(tmp_path, monkeypatch, date="2026-05-08"):
+    replay_dir = tmp_path / "replays"
+    replay_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(server, "REPLAY_DIR", str(replay_dir))
+    db = str(replay_dir / f"execution_timeline_{date}.db")
+    init_timeline_table(db)
+    return db, date
+
+
 def _trade_result(action="WAIT"):
     return {
         "strategies": {
@@ -249,6 +258,75 @@ def test_execution_timeline_endpoint_returns_events_summary_and_filters(tmp_path
     alias_response = client.get("/api/execution_timeline", params={"phase": "ELIGIBILITY"})
     assert alias_response.status_code == 200
     assert alias_response.json()["events"] == data["events"]
+
+
+def test_execution_timeline_endpoint_reads_replay_db_and_summary(tmp_path, monkeypatch):
+    live_db = _timeline_db(tmp_path, monkeypatch)
+    replay_db, replay_date = _replay_timeline_db(tmp_path, monkeypatch)
+    record_event(
+        live_db,
+        dedupe_key="bar:2:GLOBAL:RISK:MAX_TRADES",
+        closed_bar_ts=2,
+        phase="RISK",
+        event="MAX_TRADES_REACHED",
+        status="BLOCKED",
+    )
+    record_event(
+        replay_db,
+        dedupe_key="bar:1:GLOBAL:ELIGIBILITY:EG",
+        closed_bar_ts=1,
+        phase="ELIGIBILITY",
+        event="EG_NOT_COINTEGRATED",
+        status="BLOCKED",
+    )
+    record_event(
+        replay_db,
+        timestamp=datetime.now().isoformat(timespec="seconds"),
+        dedupe_key="crit:DATA:MT5_DISCONNECTED:test",
+        phase="DATA",
+        event="MT5_DISCONNECTED",
+        status="FAILED",
+    )
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/api/execution-timeline",
+        params={"mode": "replay", "date": replay_date, "phase": "ELIGIBILITY"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "replay"
+    assert data["date"] == replay_date
+    assert [e["event"] for e in data["events"]] == ["EG_NOT_COINTEGRATED"]
+    assert data["summary"]["current_bottleneck"]["event"] == "EG_NOT_COINTEGRATED"
+    assert data["summary"]["current_live_issue"]["event"] == "MT5_DISCONNECTED"
+
+
+def test_execution_timeline_endpoint_replay_not_found_and_bad_date(tmp_path, monkeypatch):
+    _timeline_db(tmp_path, monkeypatch)
+    replay_dir = tmp_path / "replays"
+    replay_dir.mkdir()
+    monkeypatch.setattr(server, "REPLAY_DIR", str(replay_dir))
+    client = TestClient(server.app)
+
+    missing = client.get(
+        "/api/execution-timeline",
+        params={"mode": "replay", "date": "2099-01-01"},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"] == "REPLAY_NOT_FOUND"
+
+    bad = client.get(
+        "/api/execution-timeline",
+        params={"mode": "replay", "date": "../etc/passwd"},
+    )
+    assert bad.status_code == 400
+    assert bad.json()["error"] == "INVALID_REPLAY_DATE"
+
+    no_date = client.get("/api/execution-timeline", params={"mode": "replay"})
+    assert no_date.status_code == 400
+    assert no_date.json()["error"] == "INVALID_REPLAY_DATE"
 
 
 def test_execution_timeline_html_page_renders_summary_and_rows(tmp_path, monkeypatch):

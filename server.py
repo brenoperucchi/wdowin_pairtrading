@@ -12,7 +12,7 @@ import MetaTrader5 as mt5
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import math
 from contextvars import ContextVar
@@ -270,6 +270,7 @@ async def trade_eval_loop():
         _set_eval_state(loop_running=False)
 
 DB_PATH = "trades.db"
+REPLAY_DIR = os.environ.get("REPLAY_DIR", "replays")
 
 _trade_engine = TradeEngine(db_path=DB_PATH)
 init_timeline_table(DB_PATH)
@@ -1465,6 +1466,52 @@ def get_performance():
         return {"error": str(e)}
 
 
+def _valid_replay_date(date_str: str | None) -> bool:
+    if not date_str:
+        return False
+    try:
+        parsed = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return parsed.strftime("%Y-%m-%d") == date_str
+
+
+def _replay_timeline_db_path(date_str: str) -> str:
+    return os.path.join(REPLAY_DIR, f"execution_timeline_{date_str}.db")
+
+
+def _resolve_timeline_db(mode: str | None, date: str | None) -> dict:
+    mode_norm = (mode or "live").lower()
+    if mode_norm == "live":
+        return {"ok": True, "mode": "live", "date": None, "db_path": DB_PATH}
+    if mode_norm == "replay":
+        if not _valid_replay_date(date):
+            return {
+                "ok": False,
+                "status_code": 400,
+                "error": "INVALID_REPLAY_DATE",
+                "mode": "replay",
+                "date": date,
+            }
+        db_path = _replay_timeline_db_path(date)
+        if not os.path.exists(db_path):
+            return {
+                "ok": False,
+                "status_code": 404,
+                "error": "REPLAY_NOT_FOUND",
+                "mode": "replay",
+                "date": date,
+                "db_path": db_path,
+            }
+        return {"ok": True, "mode": "replay", "date": date, "db_path": db_path}
+    return {
+        "ok": False,
+        "status_code": 400,
+        "error": "INVALID_TIMELINE_MODE",
+        "mode": mode_norm,
+    }
+
+
 @app.get("/api/execution-timeline")
 @app.get("/api/execution_timeline")
 def execution_timeline_endpoint(
@@ -1474,10 +1521,23 @@ def execution_timeline_endpoint(
     strategy: str | None = None,
     event: str | None = None,
     since: str | None = None,
+    mode: str = "live",
+    date: str | None = None,
 ):
     """Structured operational funnel events for the dashboard."""
+    resolved = _resolve_timeline_db(mode, date)
+    if not resolved["ok"]:
+        content = {"error": resolved["error"]}
+        if resolved["error"] in {"INVALID_REPLAY_DATE", "REPLAY_NOT_FOUND"}:
+            content["date"] = resolved.get("date")
+        if resolved["error"] == "INVALID_TIMELINE_MODE":
+            content["mode"] = mode
+        return JSONResponse(status_code=resolved["status_code"], content=content)
+
+    db_path = resolved["db_path"]
+
     events = load_timeline(
-        DB_PATH,
+        db_path,
         limit=limit,
         phase=phase,
         status=status,
@@ -1486,10 +1546,12 @@ def execution_timeline_endpoint(
         since=since,
     )
     return {
+        "mode": resolved["mode"],
+        "date": resolved["date"],
         "events": events,
         "summary": {
-            "current_bottleneck": current_bottleneck(DB_PATH),
-            "current_live_issue": current_live_issue(DB_PATH),
+            "current_bottleneck": current_bottleneck(db_path),
+            "current_live_issue": current_live_issue(db_path),
         },
     }
 
