@@ -4,7 +4,7 @@ title: Execução live no MT5 (XP DEMO) — versão robusta
 status: In Progress
 assignee: []
 created_date: '2026-05-06 22:35'
-updated_date: '2026-05-08 14:32'
+updated_date: '2026-05-10 07:15'
 labels:
   - backend
   - mt5
@@ -201,4 +201,6 @@ Roteiro documentado em `docs/live_orders_smoke.md`:
 2026-05-08 — Slice 9 iniciou a TASK-2 com scaffold seguro: `LIVE_ORDERS=False` e perfil live/magic em `core/config.py`; migration idempotente adiciona `mt5_ticket_in`, `mt5_ticket_out`, `mt5_magic`, `live` em `matador_ops`; o caminho paper grava `live=0` e tickets/magic nulos. Nenhuma chamada a `mt5.order_send` foi adicionada nesta slice. AC #1 fica aberto até `_open_trade`/`_close_trade` consumirem a flag no fluxo live. AC #3 tem o mapa testado, mas só fecha quando a ordem live persistir/carregar o magic.
 
 2026-05-08 14:32 — Slice 10 integrou execução live no `TradeEngine` atrás de `LIVE_ORDERS`: abertura chama `send_market_order` antes do INSERT; falha retorna `ORDER_FAILED` e não grava linha; sucesso grava `mt5_ticket_in`, `mt5_magic`, `live=1` e preço de fill. Fechamento live chama `close_position_by_ticket`; falha mantém `status=OPEN` para retry no próximo poll; sucesso grava `mt5_ticket_out`, preço de fill e P&L recalculado. Dashboard agora mostra `risk_gate.reasons` no painel de regime para distinguir "sem entrada" de "gate bloqueado" (`EG_NOT_COINTEGRATED`, `BAR_NOT_CLOSED`, etc.). AC #8/#10/#11 ainda pendentes.
+
+2026-05-10 07:15 — Smoke sintético de execução live validado em XP DEMO usando `scripts/wdowin_live_execution_smoke.py` com `--live --ack-live-risk`, símbolo `WINM26`, volume `1.0`, terminal `E:\MetaTraders\MT5-Python\Ticks\terminal64.exe`. O teste percorreu o caminho real até `mt5.order_send` e recebeu o retorno esperado fora de pregão: `classification=expected_market_closed`, `retcode=10018`, `retcode_name=TRADE_RETCODE_MARKET_CLOSED`, `message="Market closed"`. Evidência gerada em `C:\Users\brenoperucchi\AppData\Local\Temp\wdowin-smoke-reports\wdowin_live_execution_smoke_20260510-065742.json` e audit SQLite em `C:\Users\brenoperucchi\AppData\Local\Temp\wdowin-smoke-audit\wdowin_smoke_audit_20260510-065742.db`. Este smoke sintético fica considerado concluído, mas o AC #11 original permanece aberto porque ainda exige pelo menos um trade efetivamente aberto e fechado live durante pregão.
 <!-- SECTION:NOTES:END -->
