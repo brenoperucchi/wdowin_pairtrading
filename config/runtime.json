@@ -1,0 +1,16 @@
+{
+  "live": {
+    "beta_delta_max": 25.0,
+    "eg_bars": 250,
+    "eg_recalc": "bar",
+    "eg_threshold": 0.10,
+    "rho_breakdown_level": 2
+  },
+  "replay": {
+    "beta_delta_max": 25.0,
+    "eg_bars": 500,
+    "eg_recalc": "daily",
+    "eg_threshold": 0.10,
+    "rho_breakdown_level": 2
+  }
+}

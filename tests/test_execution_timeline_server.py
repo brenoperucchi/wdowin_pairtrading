@@ -649,3 +649,94 @@ def test_trades_endpoint_rejects_invalid_date(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["error"] == "INVALID_DATE"
+
+
+def test_runtime_config_get_returns_defaults_when_file_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        server.runtime_config, "CONFIG_PATH", tmp_path / "missing.json"
+    )
+    client = TestClient(server.app)
+    response = client.get("/api/runtime-config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"live", "replay"}
+    assert body["live"]["eg_threshold"] == 0.10
+    assert body["replay"]["eg_recalc"] == "daily"
+
+
+def test_runtime_config_post_persists_and_returns_normalised(tmp_path, monkeypatch):
+    target = tmp_path / "runtime.json"
+    monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)
+
+    payload = {
+        "live": {
+            "eg_threshold": 0.05,
+            "eg_bars": 250,
+            "eg_recalc": "bar",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+        },
+        "replay": {
+            "eg_threshold": 0.10,
+            "eg_bars": 2240,
+            "eg_recalc": "daily",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 30.0,
+        },
+    }
+    client = TestClient(server.app)
+    response = client.post("/api/runtime-config", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["live"]["eg_threshold"] == 0.05
+    assert body["replay"]["eg_bars"] == 2240
+    assert target.exists()
+
+    # GET should now return what we just saved.
+    follow_up = client.get("/api/runtime-config").json()
+    assert follow_up == body
+
+
+def test_runtime_config_post_rejects_invalid_payload(tmp_path, monkeypatch):
+    target = tmp_path / "runtime.json"
+    monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)
+
+    bad = {
+        "live": {
+            "eg_threshold": 0.10,
+            "eg_bars": 10,  # below floor
+            "eg_recalc": "bar",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+        },
+        "replay": {
+            "eg_threshold": 0.10,
+            "eg_bars": 500,
+            "eg_recalc": "daily",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+        },
+    }
+    client = TestClient(server.app)
+    response = client.post("/api/runtime-config", json=bad)
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "VALIDATION"
+    assert not target.exists()
+
+
+def test_runtime_config_post_rejects_invalid_json(tmp_path, monkeypatch):
+    target = tmp_path / "runtime.json"
+    monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)
+
+    client = TestClient(server.app)
+    response = client.post(
+        "/api/runtime-config",
+        data="not json",
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "INVALID_JSON"

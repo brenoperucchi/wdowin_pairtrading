@@ -88,6 +88,7 @@ from core.timeline_emit import (
     timeline_ts,
 )
 from core.trade_engine import STRATEGIES, TradeEngine
+from core import runtime_config
 import core.hmm_background as hmm
 
 
@@ -213,7 +214,7 @@ app = FastAPI(title="WIN×WDO Regime Monitor", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -1739,6 +1740,37 @@ def trades_endpoint(date: str):
             content={"error": "INVALID_DATE", "date": date},
         )
     return {"date": date, "trades": _trade_engine.get_trades_for_date(date)}
+
+
+@app.get("/api/runtime-config")
+def runtime_config_get():
+    """Return current Live + Replay runtime profiles (or defaults if unset)."""
+    try:
+        return runtime_config.load_runtime_config()
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "RUNTIME_CONFIG_INVALID", "detail": str(exc)},
+        )
+
+
+@app.post("/api/runtime-config")
+async def runtime_config_post(request: Request):
+    """Persist Live + Replay runtime profiles. Whole-document replace."""
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_JSON"},
+        )
+    try:
+        return runtime_config.save_runtime_config(payload)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "VALIDATION", "detail": str(exc)},
+        )
 
 
 @app.get("/api/history")
