@@ -32,6 +32,11 @@
   .summary .row { margin: 2px 0; }
   .summary .kv { color: var(--muted); margin-right: 12px; }
   .summary .kv b { color: var(--fg); }
+  .modebar { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; background: var(--panel); font-size: 12px; }
+  .modebar b { font-size: 13px; }
+  .modebar.live b { color: var(--ok); }
+  .modebar.replay { border-color: rgba(88,166,255,0.45); background: rgba(88,166,255,0.08); }
+  .modebar.replay b { color: var(--accent); }
   form.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
   form.filters label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
   form.filters input, form.filters select { background: var(--panel-2); border: 1px solid var(--border); color: var(--fg); padding: 4px 6px; font-size: 12px; border-radius: 3px; }
@@ -58,11 +63,26 @@
 <div class="meta">
   Renderizado em <b>{{ rendered_at }}</b>
   · {{ events|length }} evento(s){% if filters_active %} (filtrados){% endif %}
+  · modo: <b>{{ mode }}</b>{% if mode == 'replay' and (replay_date or filters.date) %} {{ replay_date or filters.date }}{% endif %}
   · auto-refresh: {% if refresh and refresh > 0 %}{{ refresh }}s{% else %}off{% endif %}
   <a href="/api/execution-timeline{% if query_string %}?{{ query_string }}{% endif %}">JSON</a>
 </div>
 
-{% if current_live_issue %}
+<div class="modebar {{ 'replay' if mode == 'replay' else 'live' }}">
+  {% if mode == 'replay' %}
+    <b>Replay {{ replay_date or filters.date or 'sem data' }}</b>
+    <span>timeline histórica isolada</span>
+  {% else %}
+    <b>Live</b>
+    <span>timeline operacional atual</span>
+  {% endif %}
+</div>
+
+{% if timeline_error %}
+  <div class="summary warn">
+    <div class="row"><span class="label">{{ timeline_error.title }}:</span> {{ timeline_error.message }}</div>
+  </div>
+{% elif current_live_issue %}
   {% set li = current_live_issue %}
   <div class="summary bad">
     <div class="row"><span class="label">Live issue:</span> {{ li.phase }} / <b>{{ li.event }}</b></div>
@@ -91,6 +111,15 @@
 {% endif %}
 
 <form class="filters" method="get" action="/execution-timeline">
+  <label>mode
+    <select name="mode">
+      <option value="live"{% if filters.mode == 'live' %} selected{% endif %}>Live</option>
+      <option value="replay"{% if filters.mode == 'replay' %} selected{% endif %}>Replay</option>
+    </select>
+  </label>
+  <label>date
+    <input type="date" name="date" value="{{ filters.date or '' }}">
+  </label>
   <label>phase
     <select name="phase">
       <option value="">(any)</option>

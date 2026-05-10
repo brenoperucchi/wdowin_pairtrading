@@ -397,3 +397,75 @@ def test_execution_timeline_html_filters_by_phase_and_disables_refresh(tmp_path,
     assert "EG_NOT_COINTEGRATED" in body
     assert "MAX_TRADES_REACHED" not in body
     assert 'http-equiv="refresh"' not in body
+
+
+def test_execution_timeline_html_replay_mode_renders_replay_db(tmp_path, monkeypatch):
+    live_db = _timeline_db(tmp_path, monkeypatch)
+    replay_db, replay_date = _replay_timeline_db(tmp_path, monkeypatch)
+    record_event(
+        live_db,
+        dedupe_key="bar:2:GLOBAL:RISK:MAX_TRADES",
+        closed_bar_ts=2,
+        phase="RISK",
+        event="MAX_TRADES_REACHED",
+        status="BLOCKED",
+    )
+    record_event(
+        replay_db,
+        dedupe_key="bar:1:GLOBAL:ELIGIBILITY:EG",
+        closed_bar_ts=1,
+        phase="ELIGIBILITY",
+        event="EG_NOT_COINTEGRATED",
+        status="BLOCKED",
+    )
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/execution-timeline",
+        params={"mode": "replay", "date": replay_date, "refresh": 5},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert f"Replay {replay_date}" in body
+    assert "EG_NOT_COINTEGRATED" in body
+    assert "MAX_TRADES_REACHED" not in body
+    assert 'http-equiv="refresh"' not in body
+    assert 'name="mode"' in body
+    assert 'value="replay" selected' in body
+    assert f'name="date" value="{replay_date}"' in body
+    assert f"mode=replay&amp;date={replay_date}" in body
+
+
+def test_execution_timeline_html_replay_missing_db_is_friendly(tmp_path, monkeypatch):
+    _timeline_db(tmp_path, monkeypatch)
+    replay_dir = tmp_path / "replays"
+    replay_dir.mkdir()
+    monkeypatch.setattr(server, "REPLAY_DIR", str(replay_dir))
+
+    client = TestClient(server.app)
+    response = client.get(
+        "/execution-timeline",
+        params={"mode": "replay", "date": "2099-01-01", "refresh": 5},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Sem replay para esta data" in body
+    assert "2099-01-01" in body
+    assert 'http-equiv="refresh"' not in body
+
+
+def test_execution_timeline_html_replay_bad_date_is_friendly(tmp_path, monkeypatch):
+    _timeline_db(tmp_path, monkeypatch)
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/execution-timeline",
+        params={"mode": "replay", "date": "../etc/passwd"},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Data de replay inválida" in body
+    assert 'http-equiv="refresh"' not in body

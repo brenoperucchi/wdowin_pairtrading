@@ -1582,33 +1582,77 @@ def execution_timeline_html(
     strategy: str | None = None,
     event: str | None = None,
     refresh: int = 5,
+    mode: str = "live",
+    date: str | None = None,
 ):
     """Standalone server-rendered HTML view of the execution timeline."""
-    refresh = max(0, min(refresh, 3600))
-    events = load_timeline(
-        DB_PATH,
-        limit=limit,
-        phase=phase or None,
-        status=status or None,
-        strategy=strategy or None,
-        event=event or None,
-    )
+    resolved = _resolve_timeline_db(mode, date)
+    mode_norm = resolved.get("mode", "live")
+    replay_date = resolved.get("date")
+    timeline_error = None
+    if mode_norm == "replay":
+        refresh = 0
+    else:
+        refresh = max(0, min(refresh, 3600))
+
+    if resolved["ok"]:
+        db_path = resolved["db_path"]
+        events = load_timeline(
+            db_path,
+            limit=limit,
+            phase=phase or None,
+            status=status or None,
+            strategy=strategy or None,
+            event=event or None,
+        )
+        current_bottleneck_obj = current_bottleneck(db_path)
+        current_live_issue_obj = current_live_issue(db_path)
+    else:
+        events = []
+        current_bottleneck_obj = None
+        current_live_issue_obj = None
+        if resolved["error"] == "REPLAY_NOT_FOUND":
+            timeline_error = {
+                "title": "Sem replay para esta data",
+                "message": f"Rode o replay de {replay_date} antes de visualizar.",
+            }
+        elif resolved["error"] == "INVALID_REPLAY_DATE":
+            timeline_error = {
+                "title": "Data de replay inválida",
+                "message": "Use o formato YYYY-MM-DD.",
+            }
+        else:
+            timeline_error = {
+                "title": "Modo inválido",
+                "message": "Use live ou replay.",
+            }
+
     filters = {
+        "mode": mode_norm if mode_norm in {"live", "replay"} else mode,
+        "date": date or "",
         "phase": phase or "",
         "status": status or "",
         "strategy": strategy or "",
         "event": event or "",
         "limit": limit,
     }
-    filters_active = any(v for k, v in filters.items() if k != "limit") or limit != 200
+    filters_active = (
+        filters["mode"] != "live"
+        or bool(filters["date"])
+        or any(v for k, v in filters.items() if k not in {"limit", "mode", "date"})
+        or limit != 200
+    )
     qs = request.url.query
     return templates.TemplateResponse(
         request,
         "execution_timeline.html",
         {
             "events": events,
-            "current_bottleneck": current_bottleneck(DB_PATH),
-            "current_live_issue": current_live_issue(DB_PATH),
+            "mode": filters["mode"],
+            "replay_date": replay_date,
+            "timeline_error": timeline_error,
+            "current_bottleneck": current_bottleneck_obj,
+            "current_live_issue": current_live_issue_obj,
             "filters": filters,
             "filters_active": filters_active,
             "phase_options": _TIMELINE_PHASE_OPTIONS,
