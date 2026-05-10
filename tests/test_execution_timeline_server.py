@@ -617,3 +617,35 @@ def test_execution_timeline_generate_endpoint_409_on_concurrent(
         assert response.json()["error"] == "REPLAY_IN_PROGRESS"
     finally:
         server._replay_in_progress.discard("2026-05-08")
+
+
+def test_trades_endpoint_returns_trades_for_date(monkeypatch):
+    captured = {}
+
+    class _StubEngine:
+        def get_trades_for_date(self, date_str):
+            captured["date"] = date_str
+            return [{"id": 1, "direction": "BUY", "strategy": "CONS_BASE"}]
+
+    monkeypatch.setattr(server, "_trade_engine", _StubEngine())
+    client = TestClient(server.app)
+    response = client.get("/api/trades", params={"date": "2026-05-08"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["date"] == "2026-05-08"
+    assert body["trades"] == [{"id": 1, "direction": "BUY", "strategy": "CONS_BASE"}]
+    assert captured["date"] == "2026-05-08"
+
+
+def test_trades_endpoint_rejects_invalid_date(monkeypatch):
+    class _StubEngine:
+        def get_trades_for_date(self, date_str):
+            raise AssertionError("must not be called for invalid date")
+
+    monkeypatch.setattr(server, "_trade_engine", _StubEngine())
+    client = TestClient(server.app)
+    response = client.get("/api/trades", params={"date": "not-a-date"})
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "INVALID_DATE"

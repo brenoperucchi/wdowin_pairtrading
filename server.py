@@ -1724,6 +1724,23 @@ _hist_cache: dict = {}
 _hist_cache_ts: float = 0.0
 _hist_cache_days: int = 0
 
+@app.get("/api/trades")
+def trades_endpoint(date: str):
+    """Trades (OPEN + CLOSED) opened on `date` (YYYY-MM-DD).
+
+    Lets the dashboard render trade markers on a historical day chart without
+    pulling the full live regime payload.
+    """
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_DATE", "date": date},
+        )
+    return {"date": date, "trades": _trade_engine.get_trades_for_date(date)}
+
+
 @app.get("/api/history")
 def history_endpoint(days: int = 30):
     """Multi-day z-score history (Kalman + OLS + DI).

@@ -127,6 +127,7 @@ export default function App() {
     const [, setHistLoading] = useState(false);
     const [, setFullHistory] = useState([]);
     const [todayTrades, setTodayTrades] = useState([]);
+    const [histDayTrades, setHistDayTrades] = useState([]);
     const flashTimerRef = useRef(null);
     const audioCtxRef = useRef(null);
 
@@ -300,7 +301,7 @@ export default function App() {
 
     // ── Fetch data for selected historical date ──────────────────────────
     const fetchDayData = useCallback(async (date) => {
-        if (!date) { setHistDayData(null); return; }
+        if (!date) { setHistDayData(null); setHistDayTrades([]); return; }
         setHistLoading(true);
         try {
             let jsonHistory = [];
@@ -321,6 +322,14 @@ export default function App() {
                     z_raw_di: h.z_di ?? 0,
                 }));
                 setHistDayData(dayBars);
+            }
+
+            try {
+                const tRes = await fetch(`${API_BASE}/api/trades?date=${date}`);
+                const tJson = await tRes.json();
+                setHistDayTrades(tJson.trades || []);
+            } catch {
+                setHistDayTrades([]);
             }
         } catch { /* ignore */ }
         setHistLoading(false);
@@ -422,6 +431,11 @@ export default function App() {
         () => alignTradesToBars(todayTrades, paddedSignals),
         [todayTrades, paddedSignals]
     );
+    const alignedHistTrades = useMemo(
+        () => alignTradesToBars(histDayTrades, paddedSignals),
+        [histDayTrades, paddedSignals]
+    );
+    const chartTrades = isViewingHistory ? alignedHistTrades : alignedTrades;
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -664,15 +678,15 @@ export default function App() {
                     <ZScoreChart
                         history={paddedSignals}
                         useV2={true}
-                        trades={isViewingHistory ? [] : alignedTrades}
+                        trades={chartTrades}
                     />
                     <SignalHistogram
                         data={paddedSignals}
-                        trades={isViewingHistory ? [] : alignedTrades}
+                        trades={chartTrades}
                     />
                     <IndexChart
                         history={paddedSignals}
-                        trades={isViewingHistory ? [] : alignedTrades}
+                        trades={chartTrades}
                     />
                 </div>
 
