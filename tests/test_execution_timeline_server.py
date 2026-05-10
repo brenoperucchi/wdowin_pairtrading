@@ -469,3 +469,123 @@ def test_execution_timeline_html_replay_bad_date_is_friendly(tmp_path, monkeypat
     body = response.text
     assert "Data de replay inválida" in body
     assert 'http-equiv="refresh"' not in body
+
+
+def test_execution_timeline_html_replay_mode_shows_generate_button(tmp_path, monkeypatch):
+    """Replay mode renders the 'Gerar replay' button bound to the chosen date."""
+    _timeline_db(tmp_path, monkeypatch)
+    replay_dir = tmp_path / "replays"
+    replay_dir.mkdir()
+    monkeypatch.setattr(server, "REPLAY_DIR", str(replay_dir))
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/execution-timeline",
+        params={"mode": "replay", "date": "2026-05-08"},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'id="generate-replay-btn"' in body
+    assert "Gerar replay" in body
+    # date is set, so button must NOT be disabled in initial render
+    assert 'id="generate-replay-btn" class="generate" disabled' not in body
+
+
+def test_execution_timeline_generate_endpoint_invokes_run_replay(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(server, "REPLAY_DIR", str(tmp_path / "replays"))
+    monkeypatch.setattr(server, "DB_PATH", str(tmp_path / "trades.db"))
+    captured = {}
+
+    def fake_run_replay(*, date_str, source_db, out_dir):
+        captured["date_str"] = date_str
+        captured["source_db"] = source_db
+        captured["out_dir"] = out_dir
+        return {
+            "replay_date": date_str,
+            "bars_total": 5,
+            "bars_processed": 5,
+            "bars_skipped_missing": 0,
+        }
+
+    import scripts.replay_execution_timeline as replay_mod
+    monkeypatch.setattr(replay_mod, "run_replay", fake_run_replay)
+
+    client = TestClient(server.app)
+    response = client.post(
+        "/api/execution-timeline/generate",
+        params={"date": "2026-05-08"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["date"] == "2026-05-08"
+    assert body["summary"]["bars_processed"] == 5
+    assert captured["date_str"] == "2026-05-08"
+    assert captured["source_db"] == server.DB_PATH
+    assert captured["out_dir"] == server.REPLAY_DIR
+
+
+def test_execution_timeline_generate_endpoint_rejects_bad_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "REPLAY_DIR", str(tmp_path / "replays"))
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/api/execution-timeline/generate",
+        params={"date": "../etc/passwd"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "INVALID_REPLAY_DATE"
+
+    response_missing = client.post("/api/execution-timeline/generate")
+    # date is required by FastAPI signature → 422
+    assert response_missing.status_code == 422
+
+
+def test_execution_timeline_generate_endpoint_handles_replay_failure(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(server, "REPLAY_DIR", str(tmp_path / "replays"))
+    monkeypatch.setattr(server, "DB_PATH", str(tmp_path / "trades.db"))
+
+    def boom(**_):
+        raise RuntimeError("source DB missing")
+
+    import scripts.replay_execution_timeline as replay_mod
+    monkeypatch.setattr(replay_mod, "run_replay", boom)
+
+    client = TestClient(server.app)
+    response = client.post(
+        "/api/execution-timeline/generate",
+        params={"date": "2026-05-08"},
+    )
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["error"] == "REPLAY_FAILED"
+    assert "source DB missing" in body["message"]
+    # Lock must be released even on failure — second call must not 409
+    assert "2026-05-08" not in server._replay_in_progress
+
+
+def test_execution_timeline_generate_endpoint_409_on_concurrent(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(server, "REPLAY_DIR", str(tmp_path / "replays"))
+    monkeypatch.setattr(server, "DB_PATH", str(tmp_path / "trades.db"))
+
+    # Pre-mark the date as in-progress to simulate a concurrent run.
+    server._replay_in_progress.add("2026-05-08")
+    try:
+        client = TestClient(server.app)
+        response = client.post(
+            "/api/execution-timeline/generate",
+            params={"date": "2026-05-08"},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"] == "REPLAY_IN_PROGRESS"
+    finally:
+        server._replay_in_progress.discard("2026-05-08")

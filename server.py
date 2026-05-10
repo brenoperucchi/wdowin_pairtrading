@@ -275,6 +275,12 @@ REPLAY_DIR = os.environ.get("REPLAY_DIR", "replays")
 _trade_engine = TradeEngine(db_path=DB_PATH)
 init_timeline_table(DB_PATH)
 
+# In-flight replay generation tracking. Per-date set protected by a single
+# lock — different dates can run in parallel (separate output DBs); same-date
+# concurrent requests get 409.
+_replay_in_progress: set[str] = set()
+_replay_progress_lock = threading.Lock()
+
 templates = Jinja2Templates(directory="templates")
 
 # DI pair trading state
@@ -1554,6 +1560,47 @@ def execution_timeline_endpoint(
             "current_live_issue": current_live_issue(db_path),
         },
     }
+
+
+@app.post("/api/execution-timeline/generate")
+def execution_timeline_generate(date: str):
+    """Trigger replay generation server-side. Returns the run summary."""
+    if not _valid_replay_date(date):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_REPLAY_DATE", "date": date},
+        )
+
+    with _replay_progress_lock:
+        if date in _replay_in_progress:
+            return JSONResponse(
+                status_code=409,
+                content={"error": "REPLAY_IN_PROGRESS", "date": date},
+            )
+        _replay_in_progress.add(date)
+
+    try:
+        from scripts.replay_execution_timeline import run_replay
+        summary = run_replay(date_str=date, source_db=DB_PATH, out_dir=REPLAY_DIR)
+        return {
+            "ok": True,
+            "date": date,
+            "db_path": _replay_timeline_db_path(date),
+            "summary": summary,
+        }
+    except Exception as exc:
+        logger.exception("replay_generate_failed date=%s", date)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "REPLAY_FAILED",
+                "date": date,
+                "message": f"{type(exc).__name__}: {exc}",
+            },
+        )
+    finally:
+        with _replay_progress_lock:
+            _replay_in_progress.discard(date)
 
 
 _TIMELINE_PHASE_OPTIONS = (
