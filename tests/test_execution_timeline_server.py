@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import server
 from core.execution_timeline import init_timeline_table, load_timeline, record_event
+from core.timeline_emit import emit_closed_bar_timeline
 
 
 def _timeline_db(tmp_path, monkeypatch):
@@ -140,7 +141,7 @@ def test_record_timeline_data_failure_dedupes_by_minute(tmp_path, monkeypatch):
 def test_emit_closed_bar_timeline_records_gate_reasons_and_skips_bar_not_closed(tmp_path, monkeypatch):
     db = _timeline_db(tmp_path, monkeypatch)
 
-    inserted = server._emit_closed_bar_timeline(
+    inserted = emit_closed_bar_timeline(
         closed_bar_ts=1778243100,
         gate={
             "allowed": False,
@@ -206,8 +207,8 @@ def test_emit_closed_bar_timeline_dedupes_same_closed_bar(tmp_path, monkeypatch)
         db_path=db,
     )
 
-    assert server._emit_closed_bar_timeline(**kwargs) == 4
-    assert server._emit_closed_bar_timeline(**kwargs) == 0
+    assert emit_closed_bar_timeline(**kwargs) == 4
+    assert emit_closed_bar_timeline(**kwargs) == 0
     rows = load_timeline(db, limit=20)
     assert len(rows) == 4  # INDICATORS + 3 WAIT signals
 

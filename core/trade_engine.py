@@ -146,7 +146,8 @@ class TradeEngine:
                  nwe_lower: float = 0.0,
                  closed_bar_ts: int | None = None,
                  entry_win_price: float | None = None,
-                 entry_wdo_price: float | None = None) -> dict:
+                 entry_wdo_price: float | None = None,
+                 now_dt: datetime | None = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -167,9 +168,14 @@ class TradeEngine:
         ``entry_win_price`` / ``entry_wdo_price`` let the server evaluate and
         persist entries against the confirmed closed bar while still using
         live prices above for intra-bar SL/TP exit checks.
+
+        ``now_dt`` defaults to wall-clock time for live operation. Replay
+        passes the closed bar timestamp here so daily limits, cooldown, and
+        persisted trade timestamps follow the replayed session clock.
         """
         entry_win_price = win_price if entry_win_price is None else entry_win_price
         entry_wdo_price = wdo_price if entry_wdo_price is None else entry_wdo_price
+        now_dt = now_dt or datetime.now()
 
         open_trades = self._get_open_trades()
         results: dict = {}
@@ -186,17 +192,17 @@ class TradeEngine:
             if trade is not None:
                 results[strat] = self._check_exits(
                     trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strat,
-                    closed_bar_ts
+                    closed_bar_ts, now_dt
                 )
 
         # ── Refresh operational stats post-exits (within-poll consistency) ─
         # If phase 1 just stop-lossed a trade, the next slot's entry attempt
         # MUST see LOSS_COOLDOWN active. count/pnl/cooldown are queried fresh
         # against the just-committed db state.
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = now_dt.strftime("%Y-%m-%d")
         trades_today_now = self.count_trades_today(today_str)
         daily_pnl_now = self.pnl_today(today_str)
-        minutes_since_loss_now = self.minutes_since_last_loss()
+        minutes_since_loss_now = self.minutes_since_last_loss(now=now_dt)
 
         # ── Phase 2: entries for slots without open trades ────────────────
         # `opens_this_poll` decrements the trade budget per actual open so
@@ -239,17 +245,17 @@ class TradeEngine:
             if strat == "CONS_BASE":
                 res = self._eval_consensus(
                     z_wdo, z_di, entry_win_price, entry_wdo_price, rho, beta_value,
-                    hmm_state, closed_bar_ts
+                    hmm_state, closed_bar_ts, now_dt
                 )
             elif strat == "WDO_NWE":
                 res = self._eval_wdo_nwe(
                     z_wdo, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts
+                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt
                 )
             elif strat == "DI_NWE":
                 res = self._eval_di_nwe(
                     z_di, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts
+                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt
                 )
             results[strat] = res
             if res.get("open_trade") is not None:
@@ -261,25 +267,26 @@ class TradeEngine:
     # ── Strategy evaluators ─────────────────────────────────────────────────
 
     def _eval_consensus(self, z_wdo, z_di, win_price, wdo_price, rho, beta, hmm,
-                        closed_bar_ts=None):
+                        closed_bar_ts=None, now_dt=None):
         """Consensus: requires BOTH z-scores to confirm."""
         # BUY
         if (z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION) or \
            (z_wdo <= -Z_ATTENTION and z_di <= -Z_ENTRY):
             return self._open_trade("BUY", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
-                                    closed_bar_ts)
+                                    closed_bar_ts, now_dt)
         # SELL
         if (z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION) or \
            (z_wdo >= Z_ATTENTION and z_di >= Z_ENTRY):
             return self._open_trade("SELL", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
-                                    closed_bar_ts)
+                                    closed_bar_ts, now_dt)
 
         return self._result("WAIT", "CONS_BASE")
 
     def _eval_wdo_nwe(self, z_wdo, win_price, wdo_price, rho, beta, hmm,
-                      nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None):
+                      nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None,
+                      now_dt=None):
         """WDO Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_wdo <= -Z_ENTRY
         sig_sell = z_wdo >= Z_ENTRY
@@ -306,16 +313,17 @@ class TradeEngine:
         if sig_buy:
             return self._open_trade("BUY", "WDO_KALMAN", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
-                                    closed_bar_ts)
+                                    closed_bar_ts, now_dt)
         if sig_sell:
             return self._open_trade("SELL", "WDO_KALMAN", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
-                                    closed_bar_ts)
+                                    closed_bar_ts, now_dt)
 
         return self._result("WAIT", "WDO_NWE")
 
     def _eval_di_nwe(self, z_di, win_price, wdo_price, rho, beta, hmm,
-                     nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None):
+                     nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None,
+                     now_dt=None):
         """DI Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_di <= -Z_ENTRY
         sig_sell = z_di >= Z_ENTRY
@@ -342,11 +350,11 @@ class TradeEngine:
         if sig_buy:
             return self._open_trade("BUY", "DI_JOHANSEN", z_di,
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
-                                    closed_bar_ts)
+                                    closed_bar_ts, now_dt)
         if sig_sell:
             return self._open_trade("SELL", "DI_JOHANSEN", z_di,
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
-                                    closed_bar_ts)
+                                    closed_bar_ts, now_dt)
 
         return self._result("WAIT", "DI_NWE")
 
@@ -379,7 +387,8 @@ class TradeEngine:
 
     def _open_trade(self, direction, z_source, z_val,
                      win_price, wdo_price, rho, beta, hmm_state, strategy,
-                     closed_bar_ts=None):
+                     closed_bar_ts=None, now_dt=None):
+        now_dt = now_dt or datetime.now()
         attempt_id = uuid4().hex
         entry_price = win_price
         mt5_ticket_in = None
@@ -389,6 +398,7 @@ class TradeEngine:
         correlation_id = self._event_corr_attempt(attempt_id)
 
         self._emit_timeline_event(
+            timestamp=now_dt.isoformat(timespec="seconds"),
             closed_bar_ts=closed_bar_ts,
             correlation_id=correlation_id,
             attempt_id=attempt_id,
@@ -428,6 +438,7 @@ class TradeEngine:
                 "comment": f"{strategy}/{z_source}",
             }
             self._emit_timeline_event(
+                timestamp=now_dt.isoformat(timespec="seconds"),
                 closed_bar_ts=closed_bar_ts,
                 correlation_id=correlation_id,
                 attempt_id=attempt_id,
@@ -451,6 +462,7 @@ class TradeEngine:
             )
             if not order.get("ok"):
                 self._emit_timeline_event(
+                    timestamp=now_dt.isoformat(timespec="seconds"),
                     closed_bar_ts=closed_bar_ts,
                     correlation_id=correlation_id,
                     attempt_id=attempt_id,
@@ -479,6 +491,7 @@ class TradeEngine:
                     gate_reasons=[f"ORDER_SEND_FAILED:{order.get('message')}"],
                 )
             self._emit_timeline_event(
+                timestamp=now_dt.isoformat(timespec="seconds"),
                 closed_bar_ts=closed_bar_ts,
                 correlation_id=correlation_id,
                 attempt_id=attempt_id,
@@ -508,7 +521,7 @@ class TradeEngine:
             (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
              qty_win, price_win_in, price_wdo_in, hmm_state, mt5_ticket_in, mt5_magic, live)
             VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (datetime.now().isoformat(), direction, z_val, z_source, strategy,
+        ''', (now_dt.isoformat(), direction, z_val, z_source, strategy,
               rho, beta, WIN_CONTRACTS, entry_price, wdo_price, hmm_state,
               mt5_ticket_in, mt5_magic, live))
         conn.commit()
@@ -526,8 +539,9 @@ class TradeEngine:
 
     def _check_exits(
         self, trade, win_price, wdo_price, hour, minute, z_wdo, z_di,
-        strategy, closed_bar_ts=None,
+        strategy, closed_bar_ts=None, now_dt=None,
     ):
+        now_dt = now_dt or datetime.now()
         is_buy = trade["direction"] == "BUY"
         sl = BUY_SL if is_buy else SELL_SL
         tp = BUY_TP if is_buy else SELL_TP
@@ -564,12 +578,13 @@ class TradeEngine:
 
         if reason:
             pnl = pts_favor * WIN_CONTRACTS * WIN_PV
-            close_result = self._close_trade(trade, reason, win_price, wdo_price, pnl)
+            close_result = self._close_trade(trade, reason, win_price, wdo_price, pnl, now_dt)
             trade_id = trade["id"]
             correlation_id = self._event_corr_trade(trade_id)
             exit_status = "OK" if close_result["ok"] else "FAILED"
             exit_severity = "info" if close_result["ok"] else "operational_block"
             self._emit_timeline_event(
+                timestamp=now_dt.isoformat(timespec="seconds"),
                 closed_bar_ts=closed_bar_ts,
                 correlation_id=correlation_id,
                 dedupe_key=f"{correlation_id}:EXIT:{reason}:{exit_status}",
@@ -597,8 +612,9 @@ class TradeEngine:
                 },
             )
             if not close_result["ok"]:
-                failure_minute = datetime.now().strftime("%Y%m%d%H%M")
+                failure_minute = now_dt.strftime("%Y%m%d%H%M")
                 self._emit_timeline_event(
+                    timestamp=now_dt.isoformat(timespec="seconds"),
                     closed_bar_ts=closed_bar_ts,
                     correlation_id=correlation_id,
                     dedupe_key=f"{correlation_id}:EXIT:CLOSE_FAILED:{reason}:{failure_minute}",
@@ -640,7 +656,8 @@ class TradeEngine:
         conn.commit()
         conn.close()
 
-    def _close_trade(self, trade, reason, win_out, wdo_out, pnl):
+    def _close_trade(self, trade, reason, win_out, wdo_out, pnl, now_dt=None):
+        now_dt = now_dt or datetime.now()
         trade_id = trade["id"]
         price_win_out = win_out
         realized_pnl = pnl
@@ -693,7 +710,7 @@ class TradeEngine:
             "exit_reason=?, price_win_out=?, price_wdo_out=?, pnl_brl=?, "
             "mt5_ticket_out=? WHERE id=?",
             (
-                datetime.now().isoformat(), reason, price_win_out, wdo_out,
+                now_dt.isoformat(), reason, price_win_out, wdo_out,
                 realized_pnl, mt5_ticket_out, trade_id,
             )
         )
