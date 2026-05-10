@@ -291,3 +291,117 @@ def test_midday_coldstart_does_not_shrink_history(db):
     )
     assert history_poll2[0]["bar_time"] == "10:00"
     assert history_poll2[-1]["bar_time"] == "12:30"
+
+
+# ─── TASK-8 Slice A: replay-required indicators on bar_history ───────────────
+
+def test_init_bar_history_creates_indicator_columns(tmp_path):
+    """Migration adds eg_pvalue/rho/rho_level/beta_value/beta_delta_pct."""
+    p = str(tmp_path / "indicators.db")
+    init_bar_history(p)
+    init_bar_history(p)  # re-run must be idempotent
+
+    conn = sqlite3.connect(p)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(bar_history)").fetchall()}
+    conn.close()
+    for col in ("eg_pvalue", "rho", "rho_level", "beta_value", "beta_delta_pct"):
+        assert col in cols, f"missing column {col} after migration"
+
+
+def test_save_bar_history_roundtrips_indicators(db):
+    ts = int(time.time())
+    save_bar_history(
+        **_sample(ts),
+        eg_pvalue=0.0345,
+        rho=-0.82,
+        rho_level=0,
+        beta_value=1.234,
+        beta_delta_pct=4.7,
+        db_path=db,
+    )
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["eg_pvalue"] == 0.0345
+    assert r["rho"] == -0.82
+    assert r["rho_level"] == 0
+    assert r["beta_value"] == 1.234
+    assert r["beta_delta_pct"] == 4.7
+
+
+def test_save_bar_history_indicator_coalesce_preserves_first_value(db):
+    """Subsequent re-saves of the same bar with NULL indicators must NOT
+    erase values written when the bar was the closed-bar of an earlier poll.
+    """
+    ts = int(time.time())
+    save_bar_history(
+        **_sample(ts),
+        eg_pvalue=0.05,
+        rho=-0.75,
+        rho_level=0,
+        beta_value=1.10,
+        beta_delta_pct=2.0,
+        db_path=db,
+    )
+    # Same bar again, this time with no indicators (simulates the bar
+    # being history[-3], history[-4], etc. in a later poll).
+    save_bar_history(**_sample(ts), db_path=db)
+
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["eg_pvalue"] == 0.05
+    assert r["rho"] == -0.75
+    assert r["rho_level"] == 0
+    assert r["beta_value"] == 1.10
+    assert r["beta_delta_pct"] == 2.0
+
+
+def test_save_bar_history_indicators_optional(db):
+    """Bars saved without indicator kwargs (legacy callers) must not break."""
+    ts = int(time.time())
+    save_bar_history(**_sample(ts), db_path=db)
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["eg_pvalue"] is None
+    assert r["rho"] is None
+    assert r["rho_level"] is None
+    assert r["beta_value"] is None
+    assert r["beta_delta_pct"] is None
+
+
+def test_persist_closed_bars_threads_indicators(db):
+    """_persist_closed_bars reads eg_pvalue/rho/etc. from history entries."""
+    today = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    bars = [today + timedelta(minutes=5 * i) for i in range(3)]
+    times = np.array([_utc_ts_for_local(dt) for dt in bars], dtype=np.int64)
+    z = np.array([0.5, -0.3, 1.7])
+    spread = np.array([40.0, 41.0, 42.0])
+    history = _build_history(times, z, spread)
+    assert len(history) == 3
+
+    # Mimic regime_v2's attachment: only the closed bar (history[-2]) gets
+    # indicators in any given poll.
+    history[-2]["eg_pvalue"] = 0.022
+    history[-2]["rho"] = -0.91
+    history[-2]["rho_level"] = 0
+    history[-2]["beta_value"] = 1.05
+    history[-2]["beta_delta_pct"] = -3.2
+
+    _persist_closed_bars(history, db_path=db)
+
+    rows = load_bar_history(days=1, db_path=db)
+    by_time = {r["bar_time"]: r for r in rows}
+    closed_bar_time = history[-2]["bar_time"]
+    closed = by_time[closed_bar_time]
+    assert closed["eg_pvalue"] == 0.022
+    assert closed["rho"] == -0.91
+    assert closed["rho_level"] == 0
+    assert closed["beta_value"] == 1.05
+    assert closed["beta_delta_pct"] == -3.2
+
+    # The earlier closed bar wasn't tagged this poll; indicators stay NULL.
+    earlier = by_time[history[0]["bar_time"]]
+    assert earlier["eg_pvalue"] is None
+    assert earlier["rho"] is None

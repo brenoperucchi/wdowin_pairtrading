@@ -612,6 +612,20 @@ def init_bar_history(db_path: str = "trades.db") -> None:
                 nwe_is_up   INTEGER
             )
         ''')
+        # TASK-8 Slice A: indicators required for replay parity. Idempotent
+        # ALTERs: ignore only the expected duplicate-column case.
+        for ddl in (
+            "ALTER TABLE bar_history ADD COLUMN eg_pvalue REAL",
+            "ALTER TABLE bar_history ADD COLUMN rho REAL",
+            "ALTER TABLE bar_history ADD COLUMN rho_level INTEGER",
+            "ALTER TABLE bar_history ADD COLUMN beta_value REAL",
+            "ALTER TABLE bar_history ADD COLUMN beta_delta_pct REAL",
+        ):
+            try:
+                c.execute(ddl)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
         conn.commit()
     finally:
         conn.close()
@@ -664,19 +678,28 @@ TF_NAMES = {
 }
 
 
-def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, db_path: str = "trades.db"):
+def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue=None, rho=None, rho_level=None, beta_value=None, beta_delta_pct=None, db_path: str = "trades.db"):
     try:
         conn = sqlite3.connect(db_path, timeout=10.0)
         c = conn.cursor()
         nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
+        rho_level_val = int(rho_level) if rho_level is not None else None
+        # COALESCE on indicator columns so they get filled in by the poll
+        # where the bar is the closed-bar (history[-2]); subsequent re-saves of
+        # the same bar arrive with NULL indicators and must not erase them.
         c.execute('''
             INSERT INTO bar_history
-            (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue, rho, rho_level, beta_value, beta_delta_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(timestamp) DO UPDATE SET
                 wdo_price = COALESCE(bar_history.wdo_price, excluded.wdo_price),
-                di_price = COALESCE(bar_history.di_price, excluded.di_price)
-        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up_val))
+                di_price = COALESCE(bar_history.di_price, excluded.di_price),
+                eg_pvalue = COALESCE(bar_history.eg_pvalue, excluded.eg_pvalue),
+                rho = COALESCE(bar_history.rho, excluded.rho),
+                rho_level = COALESCE(bar_history.rho_level, excluded.rho_level),
+                beta_value = COALESCE(bar_history.beta_value, excluded.beta_value),
+                beta_delta_pct = COALESCE(bar_history.beta_delta_pct, excluded.beta_delta_pct)
+        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up_val, eg_pvalue, rho, rho_level_val, beta_value, beta_delta_pct))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -716,6 +739,11 @@ def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
                 nwe_upper=entry.get("nweUpper"),
                 nwe_lower=entry.get("nweLower"),
                 nwe_is_up=entry.get("isUp"),
+                eg_pvalue=entry.get("eg_pvalue"),
+                rho=entry.get("rho"),
+                rho_level=entry.get("rho_level"),
+                beta_value=entry.get("beta_value"),
+                beta_delta_pct=entry.get("beta_delta_pct"),
                 db_path=db_path,
             )
             saved += 1
@@ -800,6 +828,14 @@ def load_bar_history(days=30, db_path: str = "trades.db"):
                 "sig_di": sig_di,
                 "cons_wdo_sig": cons_wdo_sig,
                 "cons_di_sig": cons_di_sig,
+                # TASK-8 Slice A: replay-required indicators. May be NULL on
+                # bars persisted before the migration ran or before the live
+                # poll attached them; replay treats NULLs as MISSING_*.
+                "eg_pvalue": r["eg_pvalue"] if "eg_pvalue" in r.keys() else None,
+                "rho": r["rho"] if "rho" in r.keys() else None,
+                "rho_level": r["rho_level"] if "rho_level" in r.keys() else None,
+                "beta_value": r["beta_value"] if "beta_value" in r.keys() else None,
+                "beta_delta_pct": r["beta_delta_pct"] if "beta_delta_pct" in r.keys() else None,
             })
         return history
     except Exception as e:
@@ -1338,6 +1374,17 @@ def regime_v2():
     # mostly no-op; missing WDO/DI prices can still be
     # filled on conflict. The trailing open bar is skipped inside
     # _persist_closed_bars.
+    #
+    # TASK-8 Slice A: attach the closed-bar indicators (the same values fed to
+    # risk_gate above) to history[-2] so save_bar_history persists them. Older
+    # entries already had their chance in past polls; they keep whatever they
+    # had (COALESCE in save_bar_history protects them from NULL overwrites).
+    if len(history) >= 2:
+        history[-2]["eg_pvalue"] = eg_pvalue
+        history[-2]["rho"] = rho_closed
+        history[-2]["rho_level"] = rho_level_closed
+        history[-2]["beta_value"] = beta_closed
+        history[-2]["beta_delta_pct"] = beta_delta_pct_closed
     _persist_closed_bars(history)
 
     sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
