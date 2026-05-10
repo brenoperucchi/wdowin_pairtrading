@@ -1664,10 +1664,16 @@ def execution_timeline_html(
                 "message": f"Rode o replay de {replay_date} antes de visualizar.",
             }
         elif resolved["error"] == "INVALID_REPLAY_DATE":
-            timeline_error = {
-                "title": "Data de replay inválida",
-                "message": "Use o formato YYYY-MM-DD.",
-            }
+            if not date:
+                timeline_error = {
+                    "title": "Escolha uma data",
+                    "message": "Selecione uma data acima para visualizar o replay.",
+                }
+            else:
+                timeline_error = {
+                    "title": "Data de replay inválida",
+                    "message": "Use o formato YYYY-MM-DD.",
+                }
         else:
             timeline_error = {
                 "title": "Modo inválido",

@@ -198,6 +198,19 @@
 </table>
 <script>
 (function(){
+  // Auto-submit the form when mode/date change so the user doesn't have to
+  // click Apply to switch between live and replay.
+  const form = document.querySelector('form.filters');
+  const modeSelect = form && form.querySelector('select[name="mode"]');
+  const dateField = form && form.querySelector('input[name="date"]');
+  if (modeSelect) {
+    modeSelect.addEventListener('change', () => form.submit());
+  }
+  if (dateField) {
+    dateField.addEventListener('change', () => form.submit());
+  }
+})();
+(function(){
   const btn = document.getElementById('generate-replay-btn');
   const status = document.getElementById('generate-replay-status');
   if (!btn) return;

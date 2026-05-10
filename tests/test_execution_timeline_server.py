@@ -471,6 +471,34 @@ def test_execution_timeline_html_replay_bad_date_is_friendly(tmp_path, monkeypat
     assert 'http-equiv="refresh"' not in body
 
 
+def test_execution_timeline_html_replay_empty_date_prompts_user(tmp_path, monkeypatch):
+    """Switching to replay without a date should prompt the user, not yell."""
+    _timeline_db(tmp_path, monkeypatch)
+    client = TestClient(server.app)
+
+    response = client.get("/execution-timeline", params={"mode": "replay"})
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Escolha uma data" in body
+    assert "Data de replay inválida" not in body
+    assert 'http-equiv="refresh"' not in body
+
+
+def test_execution_timeline_html_form_auto_submits_on_change(tmp_path, monkeypatch):
+    """The filters form must auto-submit so toggling mode/date doesn't need Apply."""
+    _timeline_db(tmp_path, monkeypatch)
+    client = TestClient(server.app)
+
+    response = client.get("/execution-timeline")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "form.submit()" in body
+    assert "select[name=\"mode\"]" in body
+    assert "input[name=\"date\"]" in body
+
+
 def test_execution_timeline_html_replay_mode_shows_generate_button(tmp_path, monkeypatch):
     """Replay mode renders the 'Gerar replay' button bound to the chosen date."""
     _timeline_db(tmp_path, monkeypatch)
