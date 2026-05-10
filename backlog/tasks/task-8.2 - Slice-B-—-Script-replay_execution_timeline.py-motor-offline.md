@@ -1,7 +1,7 @@
 ---
 id: TASK-8.2
 title: Slice B — Script replay_execution_timeline.py (motor offline)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-09 17:13'
 updated_date: '2026-05-10 07:06'
@@ -42,15 +42,15 @@ Escopo:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Script `scripts/replay_execution_timeline.py` aceita `--date YYYY-MM-DD` (obrigatório), `--source` (default `trades.db`), `--out` (default `replays/`).
-- [ ] #2 Cria `replays/execution_timeline_<date>.db` se não existir, usando `init_timeline_table()`.
-- [ ] #3 Para cada barra de `bar_history` na data: emite eventos DATA, INDICATORS, ELIGIBILITY, RISK, SIGNAL, ORDER, EXECUTION, EXIT respeitando o funil (não emite ORDER se ELIGIBILITY bloqueou, etc).
-- [ ] #4 Reusa `risk_gate()`, `TradeEngine.evaluate()` (em modo paper), `record_event()` do código do live; não reimplementa lógica.
-- [ ] #5 Quando `eg_pvalue/rho/rho_level/beta_value/beta_delta_pct/wdo_price/di_price/win_price` estão NULL na barra, emite evento DATA com `MISSING_<FIELD>` e segue para a próxima barra (não quebra).
-- [ ] #6 Replay nunca importa `MetaTrader5` nem chama `mt5.order_send`; teste assegura isso (mock/import guard).
-- [ ] #7 Janela operacional vem de `core.config.ENTRY_START_H/M, ENTRY_END_H/M`; sem hardcode no script.
-- [ ] #8 Stdout exibe summary final: bars total, processed, missing-by-field, blockers por (phase, reason), trades simulados, PnL paper, current_bottleneck, current_live_issue.
-- [ ] #9 Testes: replay de fixture com 1 dia válido produz N eventos esperados; replay de fixture com `di_price` faltante emite `MISSING_DI_PRICE`; replay de fixture com `eg_pvalue` faltante emite `MISSING_EG_PVALUE`; nenhum import MT5 é disparado.
+- [x] #1 Script `scripts/replay_execution_timeline.py` aceita `--date YYYY-MM-DD` (obrigatório), `--source` (default `trades.db`), `--out` (default `replays/`).
+- [x] #2 Cria `replays/execution_timeline_<date>.db` se não existir, usando `init_timeline_table()`.
+- [x] #3 Para cada barra de `bar_history` na data: emite eventos DATA, INDICATORS, ELIGIBILITY, RISK, SIGNAL, ORDER, EXECUTION, EXIT respeitando o funil (não emite ORDER se ELIGIBILITY bloqueou, etc).
+- [x] #4 Reusa `risk_gate()`, `TradeEngine.evaluate()` (em modo paper), `record_event()` do código do live; não reimplementa lógica.
+- [x] #5 Quando `eg_pvalue/rho/rho_level/beta_value/beta_delta_pct/wdo_price/di_price/win_price` estão NULL na barra, emite evento DATA com `MISSING_<FIELD>` e segue para a próxima barra (não quebra).
+- [x] #6 Replay nunca importa `MetaTrader5` nem chama `mt5.order_send`; teste assegura isso (mock/import guard).
+- [x] #7 Janela operacional vem de `core.config.ENTRY_START_H/M, ENTRY_END_H/M`; sem hardcode no script.
+- [x] #8 Stdout exibe summary final: bars total, processed, missing-by-field, blockers por (phase, reason), trades simulados, PnL paper, current_bottleneck, current_live_issue.
+- [x] #9 Testes: replay de fixture com 1 dia válido produz N eventos esperados; replay de fixture com `di_price` faltante emite `MISSING_DI_PRICE`; replay de fixture com `eg_pvalue` faltante emite `MISSING_EG_PVALUE`; nenhum import MT5 é disparado.
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -89,7 +89,7 @@ Both gaps are candidates for a follow-up TASK-8.x if needed; punted from this sl
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 `py.exe -3.12 -m pytest tests/test_replay_execution_timeline.py -q` passa.
-- [ ] #2 `py.exe -3.12 scripts/replay_execution_timeline.py --date 2026-05-08` roda sem erro e produz `replays/execution_timeline_2026-05-08.db`.
-- [ ] #3 Confirmar que `trades.db` não foi alterado pela execução do script (compara mtime/sha256 antes/depois).
+- [x] #1 `py.exe -3.12 -m pytest tests/test_replay_execution_timeline.py -q` passa.
+- [x] #2 `py.exe -3.12 scripts/replay_execution_timeline.py --date 2026-05-08` roda sem erro e produz `replays/execution_timeline_2026-05-08.db`.
+- [x] #3 Confirmar que `trades.db` não foi alterado pela execução do script (compara mtime/sha256 antes/depois).
 <!-- DOD:END -->

@@ -1,7 +1,7 @@
 ---
 id: TASK-8.3
 title: Slice C — Endpoint /api/execution-timeline?mode=replay&date=…
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-09 17:14'
 labels:
@@ -34,17 +34,17 @@ Escopo:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `GET /api/execution-timeline` (sem `mode`) mantém comportamento atual: lê de `trades.db`.
-- [ ] #2 `GET /api/execution-timeline?mode=replay&date=2026-05-08` lê de `replays/execution_timeline_2026-05-08.db` quando o arquivo existe.
-- [ ] #3 `GET /api/execution-timeline?mode=replay&date=2099-01-01` (arquivo inexistente) retorna 404 com `{"error":"REPLAY_NOT_FOUND"}`.
-- [ ] #4 `GET /api/execution-timeline?mode=replay&date=../etc/passwd` ou outro padrão não-data retorna 400 com erro de validação.
-- [ ] #5 Filtros (`phase, status, strategy, event, limit, since`) funcionam idênticos em modo replay.
-- [ ] #6 `current_bottleneck` e `current_live_issue` no payload de replay vem do DB de replay, não do `trades.db`.
-- [ ] #7 Teste: endpoint com mode=live não regride; endpoint com mode=replay válido lista eventos do DB esperado; endpoint com mode=replay inexistente retorna 404; endpoint com data malformada retorna 400.
+- [x] #1 `GET /api/execution-timeline` (sem `mode`) mantém comportamento atual: lê de `trades.db`.
+- [x] #2 `GET /api/execution-timeline?mode=replay&date=2026-05-08` lê de `replays/execution_timeline_2026-05-08.db` quando o arquivo existe.
+- [x] #3 `GET /api/execution-timeline?mode=replay&date=2099-01-01` (arquivo inexistente) retorna 404 com `{"error":"REPLAY_NOT_FOUND"}`.
+- [x] #4 `GET /api/execution-timeline?mode=replay&date=../etc/passwd` ou outro padrão não-data retorna 400 com erro de validação.
+- [x] #5 Filtros (`phase, status, strategy, event, limit, since`) funcionam idênticos em modo replay.
+- [x] #6 `current_bottleneck` e `current_live_issue` no payload de replay vem do DB de replay, não do `trades.db`.
+- [x] #7 Teste: endpoint com mode=live não regride; endpoint com mode=replay válido lista eventos do DB esperado; endpoint com mode=replay inexistente retorna 404; endpoint com data malformada retorna 400.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 `py.exe -3.12 -m pytest tests/test_execution_timeline_server.py -q` passa.
-- [ ] #2 `curl localhost:8080/api/execution-timeline` retorna eventos live; `curl 'localhost:8080/api/execution-timeline?mode=replay&date=2026-05-08'` retorna eventos do DB de replay.
+- [x] #1 `py.exe -3.12 -m pytest tests/test_execution_timeline_server.py -q` passa.
+- [x] #2 `curl localhost:8080/api/execution-timeline` retorna eventos live; `curl 'localhost:8080/api/execution-timeline?mode=replay&date=2026-05-08'` retorna eventos do DB de replay.
 <!-- DOD:END -->

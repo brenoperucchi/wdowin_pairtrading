@@ -1,7 +1,7 @@
 ---
 id: TASK-8.1
 title: Slice A — Persistir indicadores (eg/rho/beta) em bar_history no live
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-09 17:13'
 updated_date: '2026-05-09 17:14'
@@ -35,16 +35,16 @@ Escopo:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Migration idempotente adiciona colunas `eg_pvalue REAL`, `rho REAL`, `rho_level INTEGER`, `beta_value REAL`, `beta_delta_pct REAL` em `bar_history` no boot do servidor; rodar 2x sem erro.
-- [ ] #2 `save_bar_history()` aceita os 5 novos kwargs opcionais e grava com COALESCE (não sobrescreve valor não-NULL existente com NULL).
-- [ ] #3 `_persist_closed_bars()` propaga os valores computados na poll para os 5 novos campos quando disponíveis; mantém comportamento atual quando ausentes.
-- [ ] #4 `regime_v2()` (ou helper de persistência chamado por ele) anexa `eg_pvalue/rho/rho_level/beta_value/beta_delta_pct` aos entries de history antes da chamada a `_persist_closed_bars`.
-- [ ] #5 Teste pytest novo em `tests/test_bar_history.py` cobre: schema possui as 5 colunas novas; salvar com valores e recuperar via `load_bar_history` preserva os valores; salvar com kwargs ausentes mantém o valor antigo (COALESCE).
+- [x] #1 Migration idempotente adiciona colunas `eg_pvalue REAL`, `rho REAL`, `rho_level INTEGER`, `beta_value REAL`, `beta_delta_pct REAL` em `bar_history` no boot do servidor; rodar 2x sem erro.
+- [x] #2 `save_bar_history()` aceita os 5 novos kwargs opcionais e grava com COALESCE (não sobrescreve valor não-NULL existente com NULL).
+- [x] #3 `_persist_closed_bars()` propaga os valores computados na poll para os 5 novos campos quando disponíveis; mantém comportamento atual quando ausentes.
+- [x] #4 `regime_v2()` (ou helper de persistência chamado por ele) anexa `eg_pvalue/rho/rho_level/beta_value/beta_delta_pct` aos entries de history antes da chamada a `_persist_closed_bars`.
+- [x] #5 Teste pytest novo em `tests/test_bar_history.py` cobre: schema possui as 5 colunas novas; salvar com valores e recuperar via `load_bar_history` preserva os valores; salvar com kwargs ausentes mantém o valor antigo (COALESCE).
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 `py.exe -3.12 -m pytest tests/test_bar_history.py -q` passa.
-- [ ] #2 `py.exe -3.12 -m pytest tests/ -q` não regride.
-- [ ] #3 Inspecionar manualmente: subir o servidor, deixar uma barra fechar, conferir via SQL que pelo menos 1 linha em `bar_history` tem `eg_pvalue/rho/beta_value` não-NULL.
+- [x] #1 `py.exe -3.12 -m pytest tests/test_bar_history.py -q` passa.
+- [x] #2 `py.exe -3.12 -m pytest tests/ -q` não regride.
+- [x] #3 Inspecionar manualmente: subir o servidor, deixar uma barra fechar, conferir via SQL que pelo menos 1 linha em `bar_history` tem `eg_pvalue/rho/beta_value` não-NULL.
 <!-- DOD:END -->
