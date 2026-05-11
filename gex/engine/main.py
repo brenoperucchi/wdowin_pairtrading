@@ -22,7 +22,7 @@ def run_gex_pipeline(current_win, current_ibov):
     print()
     
     # 1. Fetch Option Data
-    print("[1/4] Carregando dados de OI da B3...")
+    print("[1/6] Carregando dados de OI da B3...")
     df_options = get_b3_options_data(current_ibov)
     
     if df_options.empty:
@@ -32,7 +32,7 @@ def run_gex_pipeline(current_win, current_ibov):
     print(f"      {len(df_options)} contratos de opcoes carregados.\n")
     
     # 2. Dynamic Implied Volatility via Newton-Raphson
-    print("[2/4] Calculando Volatilidade Implicita (Newton-Raphson)...")
+    print("[2/6] Calculando Volatilidade Implicita (Newton-Raphson)...")
     dynamic_iv = 0.20
     r = 0.145
     expiry_days = 27
@@ -73,7 +73,7 @@ def run_gex_pipeline(current_win, current_ibov):
     print()
     
     # 3. Calculate GEX & Find Walls
-    print("[3/4] Calculando GEX e gerando Walls...")
+    print("[3/6] Calculando GEX e gerando Walls...")
     walls = calculate_gex_profile(
         options_df=df_options, 
         current_win=current_win, 
@@ -90,12 +90,27 @@ def run_gex_pipeline(current_win, current_ibov):
             label += f" | IBOV {w['strike_ibov']}"
         print(label)
         
-    # 4. Publish to Firebase
-    print(f"\n[4/4] Publicando no Firebase...")
+    # 4. Gerar Relatorio Diario
+    print("\n[4/6] Gerando Relatorio de Tendencia...")
+    from .analyzer import generate_gex_report
+    import os
+    
+    # Encontra o GammaFlip para passar pro analisador
+    flip_price = current_ibov # fallback
+    for w in walls:
+        if w['type'] == 'GammaFlip':
+            flip_price = w['price']
+            break
+            
+    report_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "DAILY_REPORT.txt")
+    generate_gex_report(current_win, flip_price, walls, output_path=report_path)
+        
+    # 5. Publish to Firebase
+    print(f"\n[5/6] Publicando no Firebase...")
     push_walls_to_firebase(walls)
     
-    # 4. Export to ProfitChart
-    print("\n[4/4] Gerando arquivo para Nelogica ProfitChart...")
+    # 6. Export to ProfitChart
+    print("\n[6/6] Gerando arquivo para Nelogica ProfitChart...")
     from .profit_exporter import export_to_profit
     
     # Caminhos para salvar
