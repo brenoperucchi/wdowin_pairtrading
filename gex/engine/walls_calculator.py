@@ -21,6 +21,12 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
        - GammaFlip: preco onde GEX_net cruza zero
     """
     
+    # Filtrar apenas o Vencimento Mais Proximo (Front-Month)
+    options_df = options_df.copy()
+    front_month = options_df['expiry'].min()
+    options_df = options_df[options_df['expiry'] == front_month].copy()
+    print(f"  Front-Month Selecionado: {front_month} ({len(options_df)} contratos)")
+    
     # --- 1. Fator de conversao IBOV -> WIN Teorico ---
     T = max(1/252, expiry_days / 252)
     factor = (1 + r) ** T
@@ -31,7 +37,6 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
     
     # --- 2. Calcular GEX por strike IBOV (1000 em 1000) ---
     # Agrupar OI por strike arredondado para o 1000 mais proximo
-    options_df = options_df.copy()
     options_df['strike_round'] = (options_df['strike'] / 1000).round() * 1000
     
     # GEX por strike IBOV

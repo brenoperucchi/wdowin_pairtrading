@@ -132,6 +132,52 @@ def get_mt5_prices():
     return f_win, s_ibov
 
 
+def get_option_price(ticker, target_hour=16, target_minute=55):
+    """
+    Busca o preco de fechamento de uma opcao no MT5.
+    Tenta pegar a vela M5 exata do horario target (ex: 16:55).
+    Se nao houver liquidez no momento exato, pega a ultima disponivel do dia.
+    
+    :param ticker: Codigo da opcao (ex: IBOVK120)
+    :return: float (preco de fechamento) ou None se falhar
+    """
+    if not mt5.initialize(MT5_PATH):
+        return None
+        
+    mt5.symbol_select(ticker, True)
+    
+    # Verifica se o simbolo existe e tem last price hoje
+    tick = mt5.symbol_info_tick(ticker)
+    if tick is None:
+        return None
+        
+    # Puxar ultimas velas M5
+    rates = mt5.copy_rates_from_pos(ticker, mt5.TIMEFRAME_M5, 0, 500)
+    if rates is None or len(rates) == 0:
+        return None
+        
+    # Tenta achar a vela especifica
+    target_bar = rates[-1]
+    found_exact = False
+    
+    for b in reversed(rates):
+        dt = datetime.fromtimestamp(b[0])
+        if dt.hour == target_hour and dt.minute == target_minute:
+            target_bar = b
+            found_exact = True
+            break
+            
+    # O preco de fechamento e o indice 4 na tupla do copy_rates
+    price = float(target_bar[4])
+    
+    if not found_exact:
+        print(f"MT5: {ticker} sem trade as {target_hour}:{target_minute}. Usando ultima (R$ {price:.2f}).")
+    else:
+        print(f"MT5: {ticker} preco capturado as {target_hour}:{target_minute} -> R$ {price:.2f}")
+        
+    return price
+
+
 if __name__ == "__main__":
     f_win, s_ibov = get_mt5_prices()
     if f_win and s_ibov:

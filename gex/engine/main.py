@@ -2,7 +2,8 @@ import sys
 from .b3_parser import get_b3_options_data
 from .walls_calculator import calculate_gex_profile
 from .firebase_publisher import push_walls_to_firebase
-from .mt5_prices import get_mt5_prices
+from .mt5_prices import get_mt5_prices, get_option_price
+from .black76 import implied_volatility_newton_raphson
 
 def run_gex_pipeline(current_win, current_ibov):
     """
@@ -21,7 +22,7 @@ def run_gex_pipeline(current_win, current_ibov):
     print()
     
     # 1. Fetch Option Data
-    print("[1/3] Carregando dados de OI da B3...")
+    print("[1/4] Carregando dados de OI da B3...")
     df_options = get_b3_options_data(current_ibov)
     
     if df_options.empty:
@@ -30,15 +31,56 @@ def run_gex_pipeline(current_win, current_ibov):
     
     print(f"      {len(df_options)} contratos de opcoes carregados.\n")
     
-    # 2. Calculate GEX & Find Walls
-    print("[2/3] Calculando GEX e gerando Walls...")
+    # 2. Dynamic Implied Volatility via Newton-Raphson
+    print("[2/4] Calculando Volatilidade Implicita (Newton-Raphson)...")
+    dynamic_iv = 0.20
+    r = 0.145
+    expiry_days = 27
+    T = max(1/252, expiry_days / 252)
+    
+    # Encontrar ATM strike
+    all_strikes = df_options['strike'].unique()
+    atm_strike = min(all_strikes, key=lambda s: abs(s - current_ibov))
+    
+    # Buscar CALL ATM
+    atm_calls = df_options[(df_options['strike'] == atm_strike) & (df_options['type'] == 'CALL')]
+    if not atm_calls.empty:
+        # Pega a de maior liquidez (normalmente o vencimento mais curto/ativo)
+        atm_calls = atm_calls.sort_values(by='oi', ascending=False)
+        atm_ticker = atm_calls.iloc[0]['ticker']
+        print(f"      Opcao ATM identificada: {atm_ticker} (Strike {atm_strike})")
+        
+        c_market = get_option_price(atm_ticker)
+        if c_market and c_market > 0:
+            # Fator teorico pro K_WIN
+            factor = (1 + r) ** T
+            k_win = atm_strike * factor
+            
+            dynamic_iv = implied_volatility_newton_raphson(
+                C_market=c_market,
+                F=current_win,
+                K=k_win,
+                T=T,
+                r=r,
+                is_call=True
+            )
+            print(f"      Preco MT5: R$ {c_market:.2f} -> IV Calculada: {dynamic_iv*100:.2f}%")
+        else:
+            print(f"      Falha ao obter preco de {atm_ticker} no MT5. Usando IV fixo de 20%.")
+    else:
+        print("      Nao encontrou CALL ATM na base. Usando IV fixo de 20%.")
+    
+    print()
+    
+    # 3. Calculate GEX & Find Walls
+    print("[3/4] Calculando GEX e gerando Walls...")
     walls = calculate_gex_profile(
         options_df=df_options, 
         current_win=current_win, 
         current_ibov=current_ibov,
-        iv=0.20,          # Fixed IV for MVP (TODO: Newton-Raphson)
-        expiry_days=27,   # ~27 dias uteis para o prox vencimento
-        r=0.145           # Taxa de juros de 14.5% para o Fator Teorico
+        iv=dynamic_iv,
+        expiry_days=expiry_days,
+        r=r
     )
     
     print(f"\n      {len(walls)} linhas geradas:")
@@ -48,8 +90,8 @@ def run_gex_pipeline(current_win, current_ibov):
             label += f" | IBOV {w['strike_ibov']}"
         print(label)
         
-    # 3. Publish to Firebase
-    print(f"\n[3/3] Publicando no Firebase...")
+    # 4. Publish to Firebase
+    print(f"\n[4/4] Publicando no Firebase...")
     push_walls_to_firebase(walls)
     
     # 4. Export to ProfitChart
