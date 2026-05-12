@@ -627,3 +627,175 @@ def test_do_backfill_if_empty_uses_postgres_count(monkeypatch):
     server_mod.do_backfill_if_empty()
 
     assert count_calls == [((), {"backend": "postgres"})]
+
+
+# ─── Slice 6 wrapper API ────────────────────────────────────────────────────
+# Helpers used by backfill_z_di, backfill_bar_history, replay_execution_timeline.
+
+def _bar(ts, *, date_str="2026-05-08", bar_time="10:00", win_price=130000.0,
+         wdo_price=5500.0, di_price=12.5, z_di=0.0, rho=-0.9):
+    return {
+        "timestamp": ts, "date_str": date_str, "bar_time": bar_time,
+        "win_price": win_price, "wdo_price": wdo_price, "di_price": di_price,
+        "spread_wdo": 42.0, "spread_di": -3.1, "z_wdo": 0.5, "z_di": z_di,
+        "nwe_center": 130100.0, "nwe_upper": 130250.0, "nwe_lower": 129950.0,
+        "nwe_is_up": True, "eg_pvalue": 0.02, "rho": rho, "rho_level": 0,
+        "beta_value": 1.0, "beta_delta_pct": -2.0,
+    }
+
+
+def test_select_di_warmup_filters_null_prices(tmp_path, monkeypatch):
+    """`select_di_warmup` must exclude bars missing win_price or di_price."""
+    from core import bar_history_db as bhdb
+
+    p = tmp_path / "warmup.db"
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(p))
+    bhdb.init_schema()
+
+    bhdb.upsert_bar(_bar(1000, date_str="2026-05-07"))
+    bhdb.upsert_bar(_bar(2000, date_str="2026-05-07", di_price=None))   # filtered
+    bhdb.upsert_bar(_bar(3000, date_str="2026-05-07", win_price=None))  # filtered
+    bhdb.upsert_bar(_bar(4000, date_str="2026-05-08"))
+    bhdb.upsert_bar(_bar(5000, date_str="2026-05-09"))  # > cutoff → filtered
+
+    rows = bhdb.select_di_warmup("2026-05-08")
+    assert [r["timestamp"] for r in rows] == [1000, 4000]
+    assert all(r["win_price"] is not None and r["di_price"] is not None for r in rows)
+
+
+def test_select_timestamps_by_date_returns_only_that_session(tmp_path, monkeypatch):
+    from core import bar_history_db as bhdb
+
+    p = tmp_path / "ts.db"
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(p))
+    bhdb.init_schema()
+    bhdb.upsert_bar(_bar(1000, date_str="2026-05-07"))
+    bhdb.upsert_bar(_bar(2000, date_str="2026-05-08", bar_time="09:00"))
+    bhdb.upsert_bar(_bar(3000, date_str="2026-05-08", bar_time="10:00"))
+    bhdb.upsert_bar(_bar(4000, date_str="2026-05-09"))
+
+    assert bhdb.select_timestamps_by_date("2026-05-08") == [2000, 3000]
+
+
+def test_upsert_bar_replace_overwrites_all_columns(tmp_path, monkeypatch):
+    """`mode='replace'` mirrors backfill_bar_history --force: every non-key field
+    is overwritten by the incoming row, in contrast to merge's COALESCE."""
+    from core import bar_history_db as bhdb
+
+    p = tmp_path / "replace.db"
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(p))
+    bhdb.init_schema()
+    ts = 12345
+    bhdb.upsert_bar(_bar(ts, win_price=100.0, z_di=0.5, rho=-0.5))
+    # `merge` would preserve the original win_price (COALESCE) and rho.
+    bhdb.upsert_bar(
+        _bar(ts, win_price=200.0, z_di=None, rho=-0.9),  # z_di NULL too
+        mode="replace",
+    )
+    rows = bhdb.select_by_date("2026-05-08")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["win_price"] == 200.0    # overwritten
+    assert r["rho"] == -0.9            # overwritten (merge would COALESCE-preserve)
+    assert r["z_di"] is None           # overwritten with NULL (merge would keep 0.5)
+
+
+def test_upsert_bar_replace_rejects_bad_mode(tmp_path, monkeypatch):
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(tmp_path / "x.db"))
+    bhdb.init_schema()
+    with pytest.raises(ValueError, match="mode must be"):
+        bhdb.upsert_bar(_bar(1), mode="bogus")
+
+
+def test_upsert_bars_batch_inserts_all_rows(tmp_path, monkeypatch):
+    from core import bar_history_db as bhdb
+
+    p = tmp_path / "batch.db"
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(p))
+    bhdb.init_schema()
+    rows = [_bar(1000 + i) for i in range(5)]
+    bhdb.upsert_bars_batch(rows)
+
+    assert bhdb.count_rows(date_str="2026-05-08") == 5
+
+
+def test_upsert_bars_batch_replace_overwrites(tmp_path, monkeypatch):
+    from core import bar_history_db as bhdb
+
+    p = tmp_path / "batch_replace.db"
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(p))
+    bhdb.init_schema()
+    bhdb.upsert_bars_batch([_bar(1, win_price=100.0), _bar(2, win_price=200.0)])
+    bhdb.upsert_bars_batch(
+        [_bar(1, win_price=999.0), _bar(2, win_price=888.0)],
+        mode="replace",
+    )
+    rows = bhdb.select_by_date("2026-05-08")
+    by_ts = {r["timestamp"]: r["win_price"] for r in rows}
+    assert by_ts == {1: 999.0, 2: 888.0}
+
+
+def test_upsert_bars_batch_empty_is_noop(tmp_path, monkeypatch):
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(tmp_path / "n.db"))
+    bhdb.init_schema()
+    bhdb.upsert_bars_batch([])  # must not raise / open a connection
+
+
+def test_update_columns_batch_writes_one_column(tmp_path, monkeypatch):
+    from core import bar_history_db as bhdb
+
+    p = tmp_path / "ucb.db"
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(p))
+    bhdb.init_schema()
+    bhdb.upsert_bar(_bar(1, z_di=0.1))
+    bhdb.upsert_bar(_bar(2, z_di=0.2))
+
+    bhdb.update_columns_batch("z_di", [(1.5, 1), (2.5, 2)])
+
+    rows = {r["timestamp"]: r["z_di"] for r in bhdb.select_by_date("2026-05-08")}
+    assert rows == {1: 1.5, 2: 2.5}
+
+
+def test_update_columns_batch_rejects_unknown_column(tmp_path, monkeypatch):
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(tmp_path / "bad.db"))
+    bhdb.init_schema()
+    with pytest.raises(ValueError, match="unknown bar_history column"):
+        bhdb.update_columns_batch("not_a_column", [(1.0, 1)])
+
+
+def test_slice6_new_helpers_against_postgres(pg_clean_table, monkeypatch):
+    """Smoke the new wrapper additions end-to-end against Postgres."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    bhdb.upsert_bars_batch(
+        [_bar(10, date_str="2026-05-07"),
+         _bar(20, date_str="2026-05-08"),
+         _bar(30, date_str="2026-05-08", di_price=None)],  # filtered by select_di_warmup
+    )
+    bhdb.update_columns_batch("z_di", [(0.42, 10), (0.84, 20)])
+
+    warmup = bhdb.select_di_warmup("2026-05-08")
+    assert [r["timestamp"] for r in warmup] == [10, 20]
+
+    ts_list = bhdb.select_timestamps_by_date("2026-05-08")
+    assert ts_list == [20, 30]
+
+    rows = {r["timestamp"]: r["z_di"] for r in bhdb.select_window(since_ts=0)}
+    assert rows[10] == 0.42
+    assert rows[20] == 0.84

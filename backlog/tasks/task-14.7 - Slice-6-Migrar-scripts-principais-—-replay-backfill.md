@@ -1,9 +1,10 @@
 ---
 id: TASK-14.7
 title: '[Slice 6] Migrar scripts principais — replay + backfill'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-05-12 03:26'
+updated_date: '2026-05-12 06:36'
 labels:
   - migration
   - timescaledb

@@ -5,13 +5,16 @@ on a negatively-correlated pair (WIN×DI) and flips the z sign. This script
 overwrites z_di for the requested dates using calc_beta_ols + calc_zscore
 on the WIN/DI closes already persisted in bar_history.
 
+Backend is dispatched through `core.bar_history_db` (TASK-14 Slice 6), so
+this script honors BAR_HISTORY_BACKEND={sqlite,dual,postgres}.
+
 Usage:
-    python3 scripts/backfill_z_di.py --dates 2026-05-06,2026-05-07,2026-05-08
+    BAR_HISTORY_BACKEND=postgres python3 scripts/backfill_z_di.py \\
+        --dates 2026-05-06,2026-05-07,2026-05-08
 """
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -20,33 +23,24 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from core import bar_history_db as bhdb
 from core.config import DI_BETA_REF_BARS, DI_KALMAN_W
 from core.signals import calc_beta_ols, calc_zscore
 
 
-def _load_window(conn: sqlite3.Connection, target_date: str) -> tuple[list[int], np.ndarray, np.ndarray]:
+def _load_window(target_date: str) -> tuple[list[int], np.ndarray, np.ndarray]:
     """Pull all bars up to and including target_date so the OLS window is honest."""
-    rows = conn.execute(
-        """
-        SELECT timestamp, win_price, di_price
-          FROM bar_history
-         WHERE date_str <= ?
-           AND win_price IS NOT NULL
-           AND di_price  IS NOT NULL
-         ORDER BY timestamp
-        """,
-        (target_date,),
-    ).fetchall()
+    rows = bhdb.select_di_warmup(target_date)
     if not rows:
         return [], np.array([]), np.array([])
-    timestamps = [r[0] for r in rows]
-    win = np.asarray([float(r[1]) for r in rows])
-    di = np.asarray([float(r[2]) for r in rows])
+    timestamps = [int(r["timestamp"]) for r in rows]
+    win = np.asarray([float(r["win_price"]) for r in rows])
+    di = np.asarray([float(r["di_price"]) for r in rows])
     return timestamps, win, di
 
 
-def backfill_date(conn: sqlite3.Connection, target_date: str) -> int:
-    timestamps, win, di = _load_window(conn, target_date)
+def backfill_date(target_date: str) -> int:
+    timestamps, win, di = _load_window(target_date)
     if win.size < DI_KALMAN_W + 1:
         print(f"  {target_date}: skipped (only {win.size} bars, need >= {DI_KALMAN_W + 1})")
         return 0
@@ -56,27 +50,19 @@ def backfill_date(conn: sqlite3.Connection, target_date: str) -> int:
     _, z_di_arr, _ = calc_zscore(win, di, beta=beta_di, window=DI_KALMAN_W, max_bars=win.size)
 
     # Only update timestamps that belong to target_date (not the prior history).
-    target_rows = conn.execute(
-        "SELECT timestamp FROM bar_history WHERE date_str = ? ORDER BY timestamp",
-        (target_date,),
-    ).fetchall()
-    target_ts = {r[0] for r in target_rows}
+    target_ts = set(bhdb.select_timestamps_by_date(target_date))
 
-    updates = []
+    updates: list[tuple[float, int]] = []
     for ts, z in zip(timestamps, z_di_arr):
         if ts in target_ts:
             updates.append((round(float(z), 3), ts))
-    conn.executemany(
-        "UPDATE bar_history SET z_di = ? WHERE timestamp = ?",
-        updates,
-    )
+    bhdb.update_columns_batch("z_di", updates)
     print(f"  {target_date}: updated {len(updates)} bars (beta_di={beta_di:.4f}, ref_window={ref_window})")
     return len(updates)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default=str(REPO_ROOT / "trades.db"))
     parser.add_argument("--dates", required=True, help="Comma-separated YYYY-MM-DD list")
     args = parser.parse_args(argv)
 
@@ -85,15 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: --dates is empty", file=sys.stderr)
         return 2
 
-    print(f"Backfilling z_di in {args.db}")
-    conn = sqlite3.connect(args.db)
-    try:
-        total = 0
-        for d in dates:
-            total += backfill_date(conn, d)
-        conn.commit()
-    finally:
-        conn.close()
+    backend = bhdb.get_backend()
+    print(f"Backfilling z_di via backend={backend}")
+    total = 0
+    for d in dates:
+        total += backfill_date(d)
     print(f"Done. Total rows updated: {total}")
     return 0
 

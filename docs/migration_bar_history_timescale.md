@@ -509,5 +509,60 @@ Gated em `PG_TEST_URI` (skip clean quando ausente):
 
 ### 15.4 Não escopo (próximas slices)
 
-- Scripts (`scripts/replay_execution_timeline.py`, `scripts/backfill_*`) ainda leem SQLite direto. Slice 6 troca para o wrapper.
-- Validação A/B de replay em data X (mesmos resultados em sqlite vs postgres) é responsabilidade do Slice 6.
+- Scripts secundários (`scripts/backfill_bar_history_indicators.py`, `scripts/replay_bar_history_to_matador_ops.py`, `scripts/seed_dashboard_demo_trades.py`) ainda leem SQLite direto. Slice 7 troca o restante.
+- `DROP TABLE bar_history` em `trades.db` (cutover final) é Slice 9.
+
+## 16. Slice 6 — scripts replay + backfill via wrapper
+
+Os três scripts mais usados em desenvolvimento agora rodam contra qualquer backend (`BAR_HISTORY_BACKEND=sqlite|dual|postgres`):
+
+- `scripts/backfill_z_di.py` — usa `bhdb.select_di_warmup`, `bhdb.select_timestamps_by_date`, `bhdb.update_columns_batch("z_di", ...)`. Flag `--db` removida (a SQLite path vem de `BAR_HISTORY_SQLITE_PATH`).
+- `scripts/backfill_bar_history.py` — colocta os bars em memória e chama `bhdb.upsert_bars_batch(rows, mode="replace" if force else "merge")`. Flag `--db-path` removida.
+- `scripts/replay_execution_timeline.py` — `load_bars_for_date` e `load_eg_source_rows` agora delegam para `bhdb.select_by_date` / `bhdb.select_eg_warmup`. Flag `--source` mantida: quando o backend efetivo lê SQLite (`sqlite`/`dual`), o CLI valida `os.path.exists(--source)` e exporta `BAR_HISTORY_SQLITE_PATH`. Em modo `postgres` a flag é ignorada (sem guard, sem forward) — permite rodar o replay de fora da raiz do repo / em ambientes PG-only sem `trades.db`.
+
+### 16.1 Adições no wrapper
+
+- `select_di_warmup(date_str)` — retorna `(timestamp, win_price, di_price)` com `date_str <= cutoff` e ambos preços NOT NULL.
+- `select_timestamps_by_date(date_str)` — apenas a lista de PKs daquela sessão (usado para limitar o UPDATE aos bars do dia).
+- `upsert_bar(row, mode="merge"|"replace")` — modo `replace` espelha `force=True` do backfill: sobrescreve toda coluna não-PK. `merge` segue a semântica produção do `save_bar_history`.
+- `upsert_bars_batch(rows, mode=...)` — versão `executemany` (1 conexão por chamada) para backfills com milhares de bars.
+- `update_columns_batch(column, [(value, ts), ...])` — UPDATE em massa de uma coluna por PK (usado por `backfill_z_di`).
+
+### 16.2 Validação A/B (data 2026-05-08)
+
+Replay completo em modos `sqlite` e `postgres` da mesma data (após dados migrados via Slice 3):
+
+```bash
+BAR_HISTORY_BACKEND=sqlite \
+  python3 scripts/replay_execution_timeline.py --date 2026-05-08 --out /tmp/replay-sqlite
+
+BAR_HISTORY_BACKEND=postgres PG_URI=... \
+  python3 scripts/replay_execution_timeline.py --date 2026-05-08 --out /tmp/replay-pg
+```
+
+Resultado: ambos sumários idênticos (bars_total=115, bars_processed=108, mesmos blockers EG/RHO). Diff cell-level entre os dois `execution_timeline_*.db` (ignorando `id` PK + wall-clock `timestamp`): **0 linhas divergentes em 704 eventos**.
+
+`backfill_z_di --dates 2026-05-11` em ambos backends gerou os mesmos 112 z-scores (mesmo `beta_di=-26099.5354`, 0 diffs cell-level em 113 rows).
+
+### 16.3 Cobertura de teste
+
+Sem PG (rodam sempre):
+- `test_select_di_warmup_filters_null_prices` — exclui bars sem win_price/di_price.
+- `test_select_timestamps_by_date_returns_only_that_session` — só PKs do dia.
+- `test_upsert_bar_replace_overwrites_all_columns` — modo `replace` sobrescreve mesmo onde `merge` faria COALESCE.
+- `test_upsert_bar_replace_rejects_bad_mode` — `mode='bogus'` levanta `ValueError`.
+- `test_upsert_bars_batch_inserts_all_rows` / `test_upsert_bars_batch_replace_overwrites` / `test_upsert_bars_batch_empty_is_noop`.
+- `test_update_columns_batch_writes_one_column` / `test_update_columns_batch_rejects_unknown_column`.
+
+Gated em `PG_TEST_URI`:
+- `test_slice6_new_helpers_against_postgres` — smoke E2E: batch upsert + `select_di_warmup` + `select_timestamps_by_date` + `update_columns_batch` em uma conexão PG real.
+
+Os 18 testes existentes de `tests/test_replay_execution_timeline.py` continuam passando inalterados (rodam via wrapper + `BAR_HISTORY_SQLITE_PATH`). Acrescentados dois testes de regressão para o guard `--source`:
+- `test_main_skips_source_db_existence_check_under_postgres_backend` — `BAR_HISTORY_BACKEND=postgres` com `--source` inexistente roda normalmente; `source_db` não é repassado para `run_replay`.
+- `test_main_validates_source_db_under_sqlite_backend` — em modo `sqlite`, `--source` inexistente continua abortando com exit 2.
+
+### 16.4 Não escopo (próximas slices)
+
+- Slice 7: `backfill_bar_history_indicators.py`, `replay_bar_history_to_matador_ops.py`, `seed_dashboard_demo_trades.py`.
+- Slice 8: docs (`.env.example`, README, CLAUDE.md) + gate `PG_TEST_URI` em CI.
+- Slice 9: stop-write SQLite quando `BAR_HISTORY_BACKEND=postgres` + `DROP TABLE bar_history` em `trades.db`.

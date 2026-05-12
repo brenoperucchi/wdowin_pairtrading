@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -31,6 +30,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from core import bar_history_db as bhdb  # noqa: E402
 from core.config import LIVE_ORDERS  # noqa: E402
 from core import runtime_config  # noqa: E402
 from core.execution_timeline import (  # noqa: E402
@@ -107,51 +107,23 @@ class ReplayStats:
 
 # ─── Bar source ─────────────────────────────────────────────────────────────
 
-def load_bars_for_date(source_db: str, date_str: str) -> list[dict]:
+def load_bars_for_date(date_str: str) -> list[dict]:
     """Read raw bar_history rows for `date_str`, oldest first.
 
-    Reads `source_db` read-only by opening with `mode=ro` URI to be doubly
-    sure replay never mutates the live trades.db.
+    Backend (sqlite/dual/postgres) is dispatched via `core.bar_history_db`.
+    SQLite path comes from BAR_HISTORY_SQLITE_PATH (the `--source` CLI flag
+    exports it before calling here).
     """
-    abs_path = os.path.abspath(source_db)
-    uri = f"file:{abs_path}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True, timeout=10.0)
-    try:
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute(
-            "SELECT * FROM bar_history WHERE date_str = ? ORDER BY timestamp ASC",
-            (date_str,),
-        )
-        rows = c.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    return bhdb.select_by_date(date_str)
 
 
-def load_eg_source_rows(source_db: str, date_str: str) -> list[dict]:
+def load_eg_source_rows(date_str: str) -> list[dict]:
     """Read all bar_history rows up to `date_str` for EG recomputation.
 
     Replay processes only the requested date, but EG windows can be larger
     than one session. Prior rows are therefore warmup data, not emitted bars.
     """
-    abs_path = os.path.abspath(source_db)
-    uri = f"file:{abs_path}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True, timeout=10.0)
-    try:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """
-            SELECT timestamp, date_str, bar_time, win_price, wdo_price
-            FROM bar_history
-            WHERE date_str <= ?
-            ORDER BY timestamp ASC
-            """,
-            (date_str,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    return bhdb.select_eg_warmup(date_str)
 
 
 def _missing_required_fields(row: dict) -> list[str]:
@@ -561,13 +533,21 @@ def _print_summary(summary: dict) -> None:
 def run_replay(
     *,
     date_str: str,
-    source_db: str,
     out_dir: str,
+    source_db: str | None = None,
     config_path: str | None = None,
     runtime_profile: dict | ReplayRuntimeProfile | None = None,
     overrides: dict | None = None,
 ) -> dict:
-    """Run the replay. Returns the summary dict (also emitted as META event)."""
+    """Run the replay. Returns the summary dict (also emitted as META event).
+
+    Bar source is dispatched via `core.bar_history_db` and BAR_HISTORY_BACKEND.
+    `source_db` is preserved as a legacy parameter: when provided it exports
+    BAR_HISTORY_SQLITE_PATH so the SQLite backend reads from the requested file
+    instead of the default `trades.db`. Ignored under postgres/dual.
+    """
+    if source_db:
+        os.environ["BAR_HISTORY_SQLITE_PATH"] = source_db
     if LIVE_ORDERS:
         raise RuntimeError(
             "LIVE_ORDERS=True; refusing to replay. Replay must run with paper-mode config."
@@ -596,8 +576,8 @@ def run_replay(
     init_timeline_table(replay_db)
     engine = TradeEngine(db_path=replay_db)
 
-    rows = load_bars_for_date(source_db, date_str)
-    eg_rows = load_eg_source_rows(source_db, date_str)
+    rows = load_bars_for_date(date_str)
+    eg_rows = load_eg_source_rows(date_str)
     eg_computer = ReplayEgComputer(eg_rows, profile)
     stats = ReplayStats(bars_total=len(rows), runtime_profile=profile)
 
@@ -698,8 +678,14 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(f"[ERRO] --date must be YYYY-MM-DD, got {args.date!r}", file=sys.stderr)
         return 2
 
-    if not os.path.exists(args.source):
-        print(f"[ERRO] source DB not found: {args.source}", file=sys.stderr)
+    # `--source` is the SQLite file. Validate (and forward to the wrapper) only
+    # when the effective backend actually reads SQLite. In postgres mode the
+    # path is unused — guarding it would block PG-only environments / runs
+    # outside the repo root where trades.db doesn't exist.
+    backend = bhdb.get_backend()
+    source_db = args.source if backend in ("sqlite", "dual") else None
+    if source_db is not None and not os.path.exists(source_db):
+        print(f"[ERRO] source DB not found: {source_db}", file=sys.stderr)
         return 2
 
     eg_strategies_override: list[str] | None = None
@@ -721,7 +707,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     try:
         summary = run_replay(
             date_str=args.date,
-            source_db=args.source,
+            source_db=source_db,
             out_dir=args.out,
             config_path=args.config,
             overrides=overrides,

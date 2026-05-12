@@ -12,8 +12,12 @@ backfill (for replay/TASK-11 validation) is a one-shot operator action — no
 reason to expose it as an HTTP route. Run this from the Windows host that has
 MT5 installed; WSL has no MT5 access.
 
+Persistence flows through `core.bar_history_db` (TASK-14 Slice 6), so the
+backend is selected by `BAR_HISTORY_BACKEND={sqlite,dual,postgres}` and
+`PG_URI` (when not sqlite).
+
 Usage:
-    python scripts/backfill_bar_history.py [--days 30] [--no-force] [--db-path trades.db]
+    BAR_HISTORY_BACKEND=postgres python scripts/backfill_bar_history.py [--days 30] [--no-force]
 
 `eg_pvalue` is intentionally left NULL — ReplayEgComputer recomputes it from
 raw win/wdo prices using the active runtime profile's eg_bars/eg_recalc, so
@@ -22,7 +26,6 @@ persisting a single static pvalue per bar would be wrong.
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +36,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from core import bar_history_db as bhdb  # noqa: E402
 from core.config import (  # noqa: E402
     BETA_INITIAL,
     DI_BETA_REF_BARS,
@@ -65,90 +69,7 @@ SESSION_END = 18 * 60 + 20    # 18:20
 BARS_PER_DAY = 108            # ~108 M5 bars per B3 session day
 
 
-def _upsert_bar(
-    conn: sqlite3.Connection,
-    *,
-    timestamp: int,
-    date_str: str,
-    bar_time: str,
-    win_price: float,
-    wdo_price: float,
-    di_price: float | None,
-    spread_wdo: float,
-    spread_di: float | None,
-    z_wdo: float,
-    z_di: float,
-    nwe_center: float | None,
-    nwe_upper: float | None,
-    nwe_lower: float | None,
-    nwe_is_up: bool | None,
-    rho: float | None,
-    rho_level: int | None,
-    beta_value: float,
-    beta_delta_pct: float | None,
-    force: bool,
-) -> None:
-    """Mirror server.save_bar_history's UPSERT semantics.
-
-    `force=True` overwrites every indicator column (the backfill is
-    authoritative). `force=False` falls back to COALESCE so the script can
-    fill-in-only without erasing existing rows.
-    """
-    nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
-    rho_level_val = int(rho_level) if rho_level is not None else None
-    if force:
-        on_conflict = """
-            ON CONFLICT(timestamp) DO UPDATE SET
-                win_price = excluded.win_price,
-                wdo_price = excluded.wdo_price,
-                di_price = excluded.di_price,
-                spread_wdo = excluded.spread_wdo,
-                spread_di = excluded.spread_di,
-                z_wdo = excluded.z_wdo,
-                z_di = excluded.z_di,
-                nwe_center = excluded.nwe_center,
-                nwe_upper = excluded.nwe_upper,
-                nwe_lower = excluded.nwe_lower,
-                nwe_is_up = excluded.nwe_is_up,
-                eg_pvalue = excluded.eg_pvalue,
-                rho = excluded.rho,
-                rho_level = excluded.rho_level,
-                beta_value = excluded.beta_value,
-                beta_delta_pct = excluded.beta_delta_pct
-        """
-    else:
-        on_conflict = """
-            ON CONFLICT(timestamp) DO UPDATE SET
-                wdo_price = COALESCE(bar_history.wdo_price, excluded.wdo_price),
-                di_price = COALESCE(bar_history.di_price, excluded.di_price),
-                z_di = COALESCE(excluded.z_di, bar_history.z_di),
-                eg_pvalue = COALESCE(bar_history.eg_pvalue, excluded.eg_pvalue),
-                rho = COALESCE(bar_history.rho, excluded.rho),
-                rho_level = COALESCE(bar_history.rho_level, excluded.rho_level),
-                beta_value = COALESCE(bar_history.beta_value, excluded.beta_value),
-                beta_delta_pct = COALESCE(bar_history.beta_delta_pct, excluded.beta_delta_pct)
-        """
-    conn.execute(
-        f"""
-        INSERT INTO bar_history
-            (timestamp, date_str, bar_time, win_price, wdo_price, di_price,
-             spread_wdo, spread_di, z_wdo, z_di,
-             nwe_center, nwe_upper, nwe_lower, nwe_is_up,
-             eg_pvalue, rho, rho_level, beta_value, beta_delta_pct)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        {on_conflict}
-        """,
-        (
-            int(timestamp), date_str, bar_time,
-            win_price, wdo_price, di_price,
-            spread_wdo, spread_di, z_wdo, z_di,
-            nwe_center, nwe_upper, nwe_lower, nwe_is_up_val,
-            None, rho, rho_level_val, beta_value, beta_delta_pct,
-        ),
-    )
-
-
-def run_backfill(days: int, force: bool, db_path: str, rho_window: int | None = None) -> dict:
+def run_backfill(days: int, force: bool, rho_window: int | None = None) -> dict:
     if not connect_mt5():
         return {"error": "MT5_UNAVAILABLE", "bars_written": 0}
 
@@ -222,92 +143,86 @@ def run_backfill(days: int, force: bool, db_path: str, rho_window: int | None = 
             if i < len(spread_di_arr):
                 spread_di_map[local_ts] = float(spread_di_arr[i])
 
-    conn = sqlite3.connect(db_path, timeout=10.0)
-    try:
-        bars_written = 0
-        dates_touched: set[str] = set()
-        first_ts: int | None = None
-        last_ts: int | None = None
+    bar_rows: list[dict] = []
+    dates_touched: set[str] = set()
+    first_ts: int | None = None
+    last_ts: int | None = None
 
-        for i in range(len(ac)):
-            local_ts = int(tc[i]) + TIME_OFFSET
-            dt = datetime.fromtimestamp(local_ts)
-            t_min = dt.hour * 60 + dt.minute
-            if not (SESSION_START <= t_min <= SESSION_END):
-                continue
+    for i in range(len(ac)):
+        local_ts = int(tc[i]) + TIME_OFFSET
+        dt = datetime.fromtimestamp(local_ts)
+        t_min = dt.hour * 60 + dt.minute
+        if not (SESSION_START <= t_min <= SESSION_END):
+            continue
 
-            win_price = float(ac[i])
-            wdo_price = float(bc[i])
-            beta_value = float(kf_betas[i])
-            spread_wdo = win_price - beta_value * wdo_price
-            z_wdo_val = float(z_kalman[i]) if i < len(z_kalman) else 0.0
+        win_price = float(ac[i])
+        wdo_price = float(bc[i])
+        beta_value = float(kf_betas[i])
+        spread_wdo = win_price - beta_value * wdo_price
+        z_wdo_val = float(z_kalman[i]) if i < len(z_kalman) else 0.0
 
-            # rho_arr is 0 inside the rolling-warmup zone — treat as not-measurable.
-            if i < effective_rho_window:
-                rho_val: float | None = None
-                rho_level_val: int | None = None
-            else:
-                rho_raw = float(rho_arr[i]) if i < len(rho_arr) else 0.0
-                rho_val = rho_raw
-                rho_level_val = get_rho_status(rho_raw)["level"]
+        # rho_arr is 0 inside the rolling-warmup zone — treat as not-measurable.
+        if i < effective_rho_window:
+            rho_val: float | None = None
+            rho_level_val: int | None = None
+        else:
+            rho_raw = float(rho_arr[i]) if i < len(rho_arr) else 0.0
+            rho_val = rho_raw
+            rho_level_val = get_rho_status(rho_raw)["level"]
 
-            # beta_ref_20d: 40-bar window ending 40 bars before "now" (mirrors V2).
-            if i >= 80:
-                ref_slice = kf_betas[i - 80:i - 40]
-                beta_ref_20d = float(np.mean(ref_slice)) if ref_slice else 0.0
-                beta_delta_pct_val = (
-                    (beta_value - beta_ref_20d) / abs(beta_ref_20d) * 100
-                    if beta_ref_20d != 0 else 0.0
-                )
-            else:
-                beta_delta_pct_val = None
-
-            nwe_center_val = float(nwe_line[i]) if i < len(nwe_line) else None
-            nwe_upper_val = float(nwe_u[i]) if i < len(nwe_u) else None
-            nwe_lower_val = float(nwe_l[i]) if i < len(nwe_l) else None
-            nwe_is_up_val = bool(nwe_is_up[i]) if i < len(nwe_is_up) else None
-
-            _upsert_bar(
-                conn,
-                timestamp=local_ts,
-                date_str=dt.strftime("%Y-%m-%d"),
-                bar_time=dt.strftime("%H:%M"),
-                win_price=win_price,
-                wdo_price=wdo_price,
-                di_price=di_price_map.get(local_ts),
-                spread_wdo=spread_wdo,
-                spread_di=spread_di_map.get(local_ts),
-                z_wdo=z_wdo_val,
-                z_di=z_di_map.get(local_ts, 0.0),
-                nwe_center=nwe_center_val,
-                nwe_upper=nwe_upper_val,
-                nwe_lower=nwe_lower_val,
-                nwe_is_up=nwe_is_up_val,
-                rho=rho_val,
-                rho_level=rho_level_val,
-                beta_value=beta_value,
-                beta_delta_pct=beta_delta_pct_val,
-                force=force,
+        # beta_ref_20d: 40-bar window ending 40 bars before "now" (mirrors V2).
+        if i >= 80:
+            ref_slice = kf_betas[i - 80:i - 40]
+            beta_ref_20d = float(np.mean(ref_slice)) if ref_slice else 0.0
+            beta_delta_pct_val = (
+                (beta_value - beta_ref_20d) / abs(beta_ref_20d) * 100
+                if beta_ref_20d != 0 else 0.0
             )
-            bars_written += 1
-            dates_touched.add(dt.strftime("%Y-%m-%d"))
-            if first_ts is None or local_ts < first_ts:
-                first_ts = local_ts
-            if last_ts is None or local_ts > last_ts:
-                last_ts = local_ts
+        else:
+            beta_delta_pct_val = None
 
-        conn.commit()
-    finally:
-        conn.close()
+        nwe_center_val = float(nwe_line[i]) if i < len(nwe_line) else None
+        nwe_upper_val = float(nwe_u[i]) if i < len(nwe_u) else None
+        nwe_lower_val = float(nwe_l[i]) if i < len(nwe_l) else None
+        nwe_is_up_val = bool(nwe_is_up[i]) if i < len(nwe_is_up) else None
+
+        bar_rows.append({
+            "timestamp": local_ts,
+            "date_str": dt.strftime("%Y-%m-%d"),
+            "bar_time": dt.strftime("%H:%M"),
+            "win_price": win_price,
+            "wdo_price": wdo_price,
+            "di_price": di_price_map.get(local_ts),
+            "spread_wdo": spread_wdo,
+            "spread_di": spread_di_map.get(local_ts),
+            "z_wdo": z_wdo_val,
+            "z_di": z_di_map.get(local_ts, 0.0),
+            "nwe_center": nwe_center_val,
+            "nwe_upper": nwe_upper_val,
+            "nwe_lower": nwe_lower_val,
+            "nwe_is_up": nwe_is_up_val,
+            "eg_pvalue": None,
+            "rho": rho_val,
+            "rho_level": rho_level_val,
+            "beta_value": beta_value,
+            "beta_delta_pct": beta_delta_pct_val,
+        })
+        dates_touched.add(dt.strftime("%Y-%m-%d"))
+        if first_ts is None or local_ts < first_ts:
+            first_ts = local_ts
+        if last_ts is None or local_ts > last_ts:
+            last_ts = local_ts
+
+    bhdb.upsert_bars_batch(bar_rows, mode="replace" if force else "merge")
 
     return {
-        "bars_written": bars_written,
+        "bars_written": len(bar_rows),
         "days_requested": days,
         "days_touched": sorted(dates_touched),
         "from": datetime.fromtimestamp(first_ts).strftime("%Y-%m-%d %H:%M") if first_ts else None,
         "to": datetime.fromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M") if last_ts else None,
         "force": force,
-        "db_path": db_path,
+        "backend": bhdb.get_backend(),
     }
 
 
@@ -318,7 +233,6 @@ def main() -> int:
         "--no-force", dest="force", action="store_false",
         help="Fill-in-only mode: COALESCE on existing indicator columns instead of overwriting.",
     )
-    p.add_argument("--db-path", default="trades.db", help="Path to trades.db (default: trades.db)")
     p.add_argument(
         "--rho-window", type=int, default=None,
         help=(
@@ -330,8 +244,7 @@ def main() -> int:
     args = p.parse_args()
 
     result = run_backfill(
-        days=args.days, force=args.force, db_path=args.db_path,
-        rho_window=args.rho_window,
+        days=args.days, force=args.force, rho_window=args.rho_window,
     )
 
     if "error" in result:
@@ -343,7 +256,7 @@ def main() -> int:
     print(f"  first:       {result['from']}")
     print(f"  last:        {result['to']}")
     print(f"force:         {result['force']}")
-    print(f"db_path:       {result['db_path']}")
+    print(f"backend:       {result['backend']}")
     if args.rho_window:
         print(f"rho_window:    {args.rho_window} (override, default={WINDOW})")
     print("eg_pvalue:     left NULL (ReplayEgComputer recomputes from win/wdo).")

@@ -131,12 +131,28 @@ ON CONFLICT(timestamp) DO UPDATE SET
     beta_delta_pct = COALESCE(bar_history.beta_delta_pct, EXCLUDED.beta_delta_pct)
 """
 
+# `replace` mode (Slice 6) used by backfill scripts that own every column on
+# conflict — overwrites all non-key columns from the incoming row. `timestamp`,
+# `date_str`, `bar_time` are immutable in this contract (PK + bar identity).
+_REPLACE_COLUMNS: tuple[str, ...] = tuple(
+    c for c in BAR_COLUMNS if c not in ("timestamp", "date_str", "bar_time")
+)
+
+_CONFLICT_REPLACE_SQLITE = "ON CONFLICT(timestamp) DO UPDATE SET " + ", ".join(
+    f"{c} = excluded.{c}" for c in _REPLACE_COLUMNS
+)
+_CONFLICT_REPLACE_POSTGRES = "ON CONFLICT(timestamp) DO UPDATE SET " + ", ".join(
+    f"{c} = EXCLUDED.{c}" for c in _REPLACE_COLUMNS
+)
+
 _COLS_SQL = ", ".join(BAR_COLUMNS)
 _SQLITE_PLACEHOLDERS = ", ".join("?" * len(BAR_COLUMNS))
 _PG_PLACEHOLDERS = ", ".join(["%s"] * len(BAR_COLUMNS))
 
 _UPSERT_SQLITE = f"INSERT INTO bar_history ({_COLS_SQL}) VALUES ({_SQLITE_PLACEHOLDERS}) {_CONFLICT_SQLITE}"
 _UPSERT_POSTGRES = f"INSERT INTO bar_history ({_COLS_SQL}) VALUES ({_PG_PLACEHOLDERS}) {_CONFLICT_POSTGRES}"
+_UPSERT_REPLACE_SQLITE = f"INSERT INTO bar_history ({_COLS_SQL}) VALUES ({_SQLITE_PLACEHOLDERS}) {_CONFLICT_REPLACE_SQLITE}"
+_UPSERT_REPLACE_POSTGRES = f"INSERT INTO bar_history ({_COLS_SQL}) VALUES ({_PG_PLACEHOLDERS}) {_CONFLICT_REPLACE_POSTGRES}"
 
 
 # ── Backend resolution ──────────────────────────────────────────────────────
@@ -254,20 +270,60 @@ def _values_tuple(row: dict) -> tuple[Any, ...]:
     )
 
 
-def upsert_bar(row: dict, backend: str | None = None) -> None:
-    """Insert a bar, or merge non-NULL fields if the timestamp already exists.
+def upsert_bar(row: dict, backend: str | None = None, *, mode: str = "merge") -> None:
+    """Insert a bar, or update on conflict per `mode`.
 
     Required keys: timestamp, date_str, bar_time. All other columns optional.
+
+    * ``mode="merge"`` (default) — production semantics from save_bar_history:
+      COALESCE existing non-NULL fields, with `z_di` as the only column that
+      overwrites when the new row supplies a non-NULL.
+    * ``mode="replace"`` — backfill semantics (force=True): overwrite every
+      non-key column with the incoming row. Used by scripts that just recomputed
+      the whole bar from MT5 closes.
     """
+    if mode not in ("merge", "replace"):
+        raise ValueError(f"upsert_bar mode must be 'merge' or 'replace', got {mode!r}")
     b = (backend or get_backend()).lower()
     values = _values_tuple(row)
+    sqlite_sql = _UPSERT_SQLITE if mode == "merge" else _UPSERT_REPLACE_SQLITE
+    pg_sql = _UPSERT_POSTGRES if mode == "merge" else _UPSERT_REPLACE_POSTGRES
     if b in ("sqlite", "dual"):
         with _sqlite_conn() as conn:
-            conn.execute(_UPSERT_SQLITE, values)
+            conn.execute(sqlite_sql, values)
     if b in ("postgres", "dual"):
         with _pg_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(_UPSERT_POSTGRES, values)
+                cur.execute(pg_sql, values)
+
+
+def upsert_bars_batch(
+    rows: list[dict],
+    *,
+    mode: str = "merge",
+    backend: str | None = None,
+) -> None:
+    """Bulk UPSERT — same semantics as `upsert_bar`, one transaction.
+
+    Backfill scripts process thousands of bars per run; opening one connection
+    per row over Postgres adds 30+ seconds for no reason. This issues a single
+    executemany inside one connection.
+    """
+    if mode not in ("merge", "replace"):
+        raise ValueError(f"upsert_bars_batch mode must be 'merge' or 'replace', got {mode!r}")
+    if not rows:
+        return
+    b = (backend or get_backend()).lower()
+    values_list = [_values_tuple(r) for r in rows]
+    sqlite_sql = _UPSERT_SQLITE if mode == "merge" else _UPSERT_REPLACE_SQLITE
+    pg_sql = _UPSERT_POSTGRES if mode == "merge" else _UPSERT_REPLACE_POSTGRES
+    if b in ("sqlite", "dual"):
+        with _sqlite_conn() as conn:
+            conn.executemany(sqlite_sql, values_list)
+    if b in ("postgres", "dual"):
+        with _pg_conn() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(pg_sql, values_list)
 
 
 def update_columns(timestamp: int, *, backend: str | None = None, **cols: Any) -> None:
@@ -289,6 +345,39 @@ def update_columns(timestamp: int, *, backend: str | None = None, **cols: Any) -
         with _pg_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, [*values, int(timestamp)])
+
+
+def update_columns_batch(
+    column: str,
+    updates: list[tuple[Any, int]],
+    *,
+    backend: str | None = None,
+) -> None:
+    """Bulk UPDATE of a single column by timestamp PK.
+
+    `updates` is a list of (value, timestamp) tuples. Used by backfill scripts
+    that rewrite a single indicator (e.g. z_di) across hundreds of rows: opening
+    one connection per row is wasteful, especially against Postgres.
+    """
+    if column not in BAR_COLUMNS:
+        raise ValueError(f"unknown bar_history column: {column}")
+    if not updates:
+        return
+    b = (backend or get_backend()).lower()
+    coerced = [(v, int(ts)) for v, ts in updates]
+    if b in ("sqlite", "dual"):
+        with _sqlite_conn() as conn:
+            conn.executemany(
+                f"UPDATE bar_history SET {column}=? WHERE timestamp=?",
+                coerced,
+            )
+    if b in ("postgres", "dual"):
+        with _pg_conn() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    f"UPDATE bar_history SET {column}=%s WHERE timestamp=%s",
+                    coerced,
+                )
 
 
 # ── Reads ───────────────────────────────────────────────────────────────────
@@ -345,6 +434,62 @@ def select_by_date(date_str: str, *, backend: str | None = None) -> list[dict]:
                 (date_str,),
             )
             return _pg_rows_as_dicts(cur)
+
+
+def select_di_warmup(date_str: str, *, backend: str | None = None) -> list[dict]:
+    """Rows with date_str <= cutoff and both win_price/di_price non-NULL.
+
+    Used by `scripts/backfill_z_di.py` to rebuild the OLS window without
+    leaking SQL across the wrapper.
+    """
+    b = _read_backend(backend)
+    if b == "sqlite":
+        with _sqlite_conn(readonly=True) as conn:
+            cur = conn.execute(
+                """
+                SELECT timestamp, win_price, di_price
+                FROM bar_history
+                WHERE date_str <= ?
+                  AND win_price IS NOT NULL
+                  AND di_price  IS NOT NULL
+                ORDER BY timestamp ASC
+                """,
+                (date_str,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+    with _pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT timestamp, win_price, di_price
+                FROM bar_history
+                WHERE date_str <= %s
+                  AND win_price IS NOT NULL
+                  AND di_price  IS NOT NULL
+                ORDER BY timestamp ASC
+                """,
+                (date_str,),
+            )
+            return _pg_rows_as_dicts(cur)
+
+
+def select_timestamps_by_date(date_str: str, *, backend: str | None = None) -> list[int]:
+    """Return the `timestamp` PKs for a given session date, ASC."""
+    b = _read_backend(backend)
+    if b == "sqlite":
+        with _sqlite_conn(readonly=True) as conn:
+            cur = conn.execute(
+                "SELECT timestamp FROM bar_history WHERE date_str = ? ORDER BY timestamp",
+                (date_str,),
+            )
+            return [int(r[0]) for r in cur.fetchall()]
+    with _pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT timestamp FROM bar_history WHERE date_str = %s ORDER BY timestamp",
+                (date_str,),
+            )
+            return [int(r[0]) for r in cur.fetchall()]
 
 
 def select_eg_warmup(date_str: str, *, backend: str | None = None) -> list[dict]:

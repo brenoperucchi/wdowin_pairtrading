@@ -454,6 +454,49 @@ def test_parse_args_accepts_runtime_overrides():
     assert args.eg_strategies == "CONS_BASE,WDO_NWE"
 
 
+def test_main_skips_source_db_existence_check_under_postgres_backend(
+    tmp_path, monkeypatch, capsys
+):
+    """Slice 6 regression: in `BAR_HISTORY_BACKEND=postgres`, `--source` (the
+    SQLite file) is unused; the CLI must not refuse to run just because that
+    file doesn't exist in the working directory.
+    """
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    captured = {}
+
+    def fake_run_replay(*, date_str, source_db, out_dir, config_path, overrides):
+        captured["source_db"] = source_db
+        captured["date_str"] = date_str
+        return {"replay_date": date_str, "bars_total": 0, "bars_processed": 0}
+
+    monkeypatch.setattr(replay, "run_replay", fake_run_replay)
+    rc = replay.main([
+        "--date", REPLAY_DATE,
+        "--source", str(tmp_path / "does-not-exist.db"),
+        "--out", str(tmp_path / "out"),
+    ])
+
+    assert rc == 0
+    assert captured["source_db"] is None  # not forwarded under postgres
+    err = capsys.readouterr().err
+    assert "source DB not found" not in err
+
+
+def test_main_validates_source_db_under_sqlite_backend(tmp_path, monkeypatch, capsys):
+    """Sibling of the postgres test: in sqlite mode, the existence check stays."""
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    missing = tmp_path / "missing.db"
+
+    rc = replay.main([
+        "--date", REPLAY_DATE,
+        "--source", str(missing),
+        "--out", str(tmp_path / "out"),
+    ])
+
+    assert rc == 2
+    assert "source DB not found" in capsys.readouterr().err
+
+
 def test_resolve_replay_profile_applies_eg_strategies_override():
     profile = replay.resolve_replay_profile(
         overrides={"eg_strategies": ["CONS_BASE"]},
