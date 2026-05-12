@@ -457,3 +457,57 @@ PGPASSWORD=pairtrading_dev psql -h localhost -U pairtrading -d pairtrading \
 - `test_save_bar_history_default_backend_skips_pg` — sem env, `bhdb.upsert_bar`/`init_schema` nunca são chamados.
 - `test_save_bar_history_dual_backend_mirrors_to_pg` — com `dual`, recebe a row com **todas as 19 colunas** preenchidas via `kwargs={"backend": "postgres"}`.
 - `test_save_bar_history_dual_pg_failure_does_not_break_sqlite` — exceção em `bhdb.upsert_bar` apenas loga `[ERRO PG]`; SQLite é gravado normalmente.
+
+## 15. Slice 5 — read cutover (`BAR_HISTORY_BACKEND=postgres`)
+
+Slice 5 troca o **read path** em `server.py` para o hypertable. Daqui em diante, `BAR_HISTORY_BACKEND=postgres` faz a app inteira ler de Postgres; `dual` e `sqlite` continuam lendo de SQLite (o wrapper já cuidava disso em `_read_backend`).
+
+**Importante:** writes continuam indo para **ambos** backends em modo `postgres` — não só para PG. A diferença entre `dual` e `postgres` é só o read path. Isso preserva rollback por env var (basta voltar para `dual` ou `sqlite` que SQLite ainda tem as barras mais recentes) e evita a janela de cutover quebrada onde reads vão para PG enquanto writes ficam só em SQLite.
+
+| backend  | write SQLite | write PG | read     |
+|----------|--------------|----------|----------|
+| `sqlite` | ✅           | —        | SQLite   |
+| `dual`   | ✅           | ✅       | SQLite   |
+| `postgres` | ✅         | ✅       | Postgres |
+
+### 15.1 O que mudou
+
+- `server.py:save_bar_history` → o guard de dual-write agora é `bhdb.get_backend() in ("dual", "postgres")`. Sem isso, depois do cutover read PG ficaria stale (reads no PG, writes só em SQLite).
+- `server.py:load_bar_history` → quando `bhdb.get_backend() == "postgres"`, busca rows via `bhdb.select_window(days=days, backend="postgres")` em vez de abrir SQLite. O loop subsequente é backend-agnostic (rows tanto de SQLite quanto de PG são `dict` com as mesmas chaves).
+- `server.py:do_backfill_if_empty` → em modo `postgres`, o `COUNT(*)` passa por `bhdb.count_rows(backend="postgres")` em vez de `sqlite3.connect("trades.db")`.
+- `db_path` continua sendo aceito como parâmetro (tests usam `tmp_path`), mas é **ignorado** pelas leituras em modo `postgres`. Writes ainda gravam na SQLite indicada por `db_path`.
+
+### 15.2 Como ativar o cutover read
+
+```bash
+# Pré-requisito: ter rodado dual-write (Slice 4) por uma janela suficiente
+#   para PG estar com paridade contra SQLite, idealmente confirmada por
+#   `scripts/migrate_bar_history_to_pg.py --no-verify-headers-only` (ou
+#   re-rodar a migração com --force-refresh).
+
+export BAR_HISTORY_BACKEND=postgres
+export PG_URI="postgresql://pairtrading:pairtrading_dev@localhost:5432/pairtrading"
+systemctl --user restart pairtrading-server.service
+
+# Rollback imediato em caso de divergência:
+export BAR_HISTORY_BACKEND=dual   # ou sqlite
+systemctl --user restart pairtrading-server.service
+```
+
+### 15.3 Cobertura de teste
+
+Sem PG (sempre roda):
+- `test_load_bar_history_default_unaffected_by_wrapper` — sem env, `bhdb.select_window` não é chamado.
+- `test_do_backfill_if_empty_uses_postgres_count` — modo `postgres` roteia `COUNT(*)` para `bhdb.count_rows(backend="postgres")`.
+- `test_save_bar_history_mirrors_to_pg_when_backend_dual_or_postgres` (parametrizado `dual`/`postgres`) — **regression do cutover**: em ambos modos, `bhdb.upsert_bar(backend="postgres")` é invocado E o SQLite também é gravado. Garante que postgres mode não vira write-only-to-SQLite.
+- `test_save_bar_history_pg_failure_does_not_break_sqlite` (parametrizado) — em ambos modos, PG falha → SQLite continua coerente.
+- `test_save_bar_history_skips_pg_when_sqlite_fails` (parametrizado) — em ambos modos, SQLite falha → PG não é tocado (preserva parity).
+
+Gated em `PG_TEST_URI` (skip clean quando ausente):
+- `test_load_bar_history_reads_from_postgres_when_backend_postgres` — seed via wrapper, lê via `load_bar_history(db_path="/ghost.db")`; rows vêm do PG, db_path é ignorado.
+- `test_load_bar_history_dual_still_reads_from_sqlite` — em modo `dual`, leitura continua na SQLite (preserva a baseline durante o período dual).
+
+### 15.4 Não escopo (próximas slices)
+
+- Scripts (`scripts/replay_execution_timeline.py`, `scripts/backfill_*`) ainda leem SQLite direto. Slice 6 troca para o wrapper.
+- Validação A/B de replay em data X (mesmos resultados em sqlite vs postgres) é responsabilidade do Slice 6.

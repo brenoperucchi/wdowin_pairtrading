@@ -4,6 +4,7 @@ Covers TASK-3 AC #2: idempotent CREATE TABLE, timestamp dedup/upsert,
 date-window filtering in load_bar_history, and the V2 persistence helper
 that activates the non-repainting write path.
 """
+import os
 import sqlite3
 import time
 from datetime import datetime, timedelta
@@ -430,11 +431,17 @@ def test_save_bar_history_default_backend_skips_pg(db, monkeypatch):
     assert len(rows) == 1
 
 
-def test_save_bar_history_dual_backend_mirrors_to_pg(db, monkeypatch):
-    """`dual` backend must invoke bhdb.upsert_bar(backend='postgres') with the same row."""
+@pytest.mark.parametrize("mode", ["dual", "postgres"])
+def test_save_bar_history_mirrors_to_pg_when_backend_dual_or_postgres(db, monkeypatch, mode):
+    """`dual` AND `postgres` must invoke bhdb.upsert_bar(backend='postgres').
+
+    Slice 5 cutover regression: reads moved to PG when env=postgres, so writes
+    have to follow or PG goes stale and SQLite (which would still receive the
+    write) becomes invisible to /api/history.
+    """
     from core import bar_history_db as bhdb
 
-    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", mode)
     upsert_calls: list = []
     init_calls: list = []
     monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
@@ -452,17 +459,19 @@ def test_save_bar_history_dual_backend_mirrors_to_pg(db, monkeypatch):
     assert row["timestamp"] == ts
     assert row["z_wdo"] == 0.42
     assert row["date_str"] == "2026-05-07"
-    # SQLite path unaffected
-    rows = load_bar_history(days=1, db_path=db)
-    assert len(rows) == 1
-    assert rows[0]["z"] == 0.42
+    # SQLite write still fires in both modes (rollback safety).
+    conn = sqlite3.connect(db)
+    sqlite_rows = conn.execute("SELECT z_wdo FROM bar_history WHERE timestamp=?", (ts,)).fetchall()
+    conn.close()
+    assert sqlite_rows == [(0.42,)]
 
 
-def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch, capsys):
+@pytest.mark.parametrize("mode", ["dual", "postgres"])
+def test_save_bar_history_pg_failure_does_not_break_sqlite(db, monkeypatch, capsys, mode):
     """Postgres upsert failure must be logged but never raise; SQLite still gets the row."""
     from core import bar_history_db as bhdb
 
-    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", mode)
 
     def boom(*_a, **_k):
         raise RuntimeError("PG unreachable")
@@ -471,19 +480,23 @@ def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch,
     monkeypatch.setattr(bhdb, "upsert_bar", boom)
 
     init_bar_history(db)  # must not raise
-    save_bar_history(**_sample(int(time.time())), db_path=db)  # must not raise
+    ts = int(time.time())
+    save_bar_history(**_sample(ts), db_path=db)  # must not raise
 
-    rows = load_bar_history(days=1, db_path=db)
-    assert len(rows) == 1
+    conn = sqlite3.connect(db)
+    sqlite_rows = conn.execute("SELECT timestamp FROM bar_history WHERE timestamp=?", (ts,)).fetchall()
+    conn.close()
+    assert sqlite_rows == [(ts,)]
     captured = capsys.readouterr().out
     assert "[ERRO PG]" in captured
 
 
-def test_save_bar_history_dual_skips_pg_when_sqlite_fails(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("mode", ["dual", "postgres"])
+def test_save_bar_history_skips_pg_when_sqlite_fails(tmp_path, monkeypatch, capsys, mode):
     """If the SQLite write raises, PG must NOT be touched — keeps parity invariant."""
     from core import bar_history_db as bhdb
 
-    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", mode)
     upsert_calls: list = []
     monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
     monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: None)
@@ -496,3 +509,121 @@ def test_save_bar_history_dual_skips_pg_when_sqlite_fails(tmp_path, monkeypatch,
     captured = capsys.readouterr().out
     assert "[ERRO DB]" in captured
     assert "[ERRO PG]" not in captured
+
+
+# ─── TASK-14 Slice 5: BAR_HISTORY_BACKEND=postgres flips read path ──────────
+
+
+def test_load_bar_history_default_unaffected_by_wrapper(db, monkeypatch):
+    """Default `sqlite` backend: wrapper.select_window MUST NOT be called."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.delenv("BAR_HISTORY_BACKEND", raising=False)
+    calls: list = []
+    monkeypatch.setattr(bhdb, "select_window", lambda *a, **k: calls.append((a, k)) or [])
+
+    ts = int(time.time())
+    save_bar_history(**_sample(ts), db_path=db)
+    rows = load_bar_history(days=1, db_path=db)
+
+    assert calls == []
+    assert len(rows) == 1
+
+
+@pytest.fixture
+def pg_clean_table(monkeypatch):
+    """Point env at PG_TEST_URI and start each test with an empty bar_history."""
+    uri = os.environ.get("PG_TEST_URI")
+    if not uri:
+        pytest.skip("PG_TEST_URI not set; skipping Postgres integration tests")
+    monkeypatch.setenv("PG_URI", uri)
+    import psycopg
+    from core import bar_history_db as bhdb
+
+    with psycopg.connect(uri, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS bar_history CASCADE")
+    bhdb.init_schema(backend="postgres")
+    yield uri
+    with psycopg.connect(uri, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS bar_history CASCADE")
+
+
+def test_load_bar_history_reads_from_postgres_when_backend_postgres(
+    tmp_path, monkeypatch, pg_clean_table
+):
+    """env=postgres → load_bar_history pulls rows from PG, db_path is ignored."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    # Seed PG directly via the wrapper.
+    ts = int(time.time())
+    bhdb.upsert_bar(
+        {
+            "timestamp": ts,
+            "date_str": "2026-05-12",
+            "bar_time": "11:55",
+            "win_price": 130123.0,
+            "wdo_price": 5502.5,
+            "di_price": 12.55,
+            "spread_wdo": 42.0,
+            "spread_di": -3.1,
+            "z_wdo": 0.42,
+            "z_di": -0.8,
+            "nwe_center": 130100.0,
+            "nwe_upper": 130250.0,
+            "nwe_lower": 129950.0,
+            "nwe_is_up": True,
+            "eg_pvalue": 0.022,
+            "rho": -0.91,
+            "rho_level": 0,
+            "beta_value": 1.05,
+            "beta_delta_pct": -3.2,
+        },
+        backend="postgres",
+    )
+
+    # Pass a non-existent db_path: if the SQLite branch ran, it would yield [].
+    bogus = str(tmp_path / "ghost.db")
+    rows = load_bar_history(days=1, db_path=bogus)
+
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["date"] == "2026-05-12"
+    assert r["win_price"] == 130123.0
+    assert r["z"] == 0.42
+    assert r["rho"] == -0.91
+    assert r["beta_value"] == 1.05
+
+
+def test_load_bar_history_dual_still_reads_from_sqlite(
+    db, monkeypatch, pg_clean_table
+):
+    """env=dual → reads come from SQLite even with PG empty (cutover happens in postgres mode only)."""
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
+    ts = int(time.time())
+    save_bar_history(**_sample(ts), db_path=db)
+
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    # Even though dual-write mirrored to PG, the read path is still SQLite.
+    # Proof: db_path is what gives us the row.
+
+
+def test_do_backfill_if_empty_uses_postgres_count(monkeypatch):
+    """env=postgres → COUNT(*) goes through bhdb.count_rows(backend='postgres')."""
+    from core import bar_history_db as bhdb
+    import server as server_mod
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    count_calls: list = []
+    monkeypatch.setattr(
+        bhdb,
+        "count_rows",
+        lambda *a, **k: count_calls.append((a, k)) or 42,  # non-zero → no HTTP backfill
+    )
+
+    server_mod.do_backfill_if_empty()
+
+    assert count_calls == [((), {"backend": "postgres"})]

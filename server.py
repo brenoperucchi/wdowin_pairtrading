@@ -603,10 +603,12 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
     except Exception as e:
         print(f"[ERRO DB] falha ao salvar bar_history: {e}")
 
-    # TASK-14 Slice 4: mirror to Postgres only after the authoritative SQLite
-    # write committed. Skipping on SQLite failure prevents PG from holding
-    # a bar that the source-of-truth rejected.
-    if sqlite_ok and bhdb.get_backend() == "dual":
+    # TASK-14 Slice 4/5: mirror to Postgres after the authoritative SQLite
+    # write committed. `dual` and `postgres` both write to PG — they differ
+    # only in the *read* path (Slice 5 flips reads in load_bar_history).
+    # Keeping SQLite writes in `postgres` mode preserves rollback by env var.
+    # The sqlite_ok guard prevents PG from holding a bar SQLite rejected.
+    if sqlite_ok and bhdb.get_backend() in ("dual", "postgres"):
         try:
             bhdb.upsert_bar(
                 {
@@ -683,14 +685,21 @@ def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
 
 def load_bar_history(days=30, db_path: str = "trades.db"):
     try:
-        conn = sqlite3.connect(db_path, timeout=10.0)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        ts_limit = int(time.time()) - days * 86400
-        c.execute("SELECT * FROM bar_history WHERE timestamp >= ? ORDER BY timestamp ASC", (ts_limit,))
-        rows = c.fetchall()
-        conn.close()
-        
+        # TASK-14 Slice 5: route reads to Postgres when backend=postgres.
+        # `dual`/`sqlite` keep the in-process SQLite path so the db_path arg
+        # (used by tests) still applies. PG rows are dicts with the same
+        # column names, so the row-loop below is backend-agnostic.
+        if bhdb.get_backend() == "postgres":
+            rows = bhdb.select_window(days=days, backend="postgres")
+        else:
+            conn = sqlite3.connect(db_path, timeout=10.0)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            ts_limit = int(time.time()) - days * 86400
+            c.execute("SELECT * FROM bar_history WHERE timestamp >= ? ORDER BY timestamp ASC", (ts_limit,))
+            rows = c.fetchall()
+            conn.close()
+
         from datetime import datetime
         history = []
         for i, r in enumerate(rows):
@@ -774,11 +783,16 @@ def load_bar_history(days=30, db_path: str = "trades.db"):
 
 def do_backfill_if_empty():
     try:
-        conn = sqlite3.connect("trades.db", timeout=10.0)
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM bar_history")
-        count = c.fetchone()[0]
-        conn.close()
+        # TASK-14 Slice 5: count via wrapper so postgres mode looks at the
+        # right DB. `dual` reads SQLite per the wrapper contract.
+        if bhdb.get_backend() == "postgres":
+            count = bhdb.count_rows(backend="postgres")
+        else:
+            conn = sqlite3.connect("trades.db", timeout=10.0)
+            c = conn.cursor()
+            c.execute("SELECT COUNT(*) FROM bar_history")
+            count = c.fetchone()[0]
+            conn.close()
         if count > 0:
             print(f"[OK] bar_history possui {count} registros.")
             return
