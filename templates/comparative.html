@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<title>Comparativo WDOWIN x Miqueias</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #2d333b;
+    --fg: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font-family: -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
+  h1 { margin: 0 0 6px; font-size: 19px; font-weight: 650; }
+  .meta { color: var(--muted); font-size: 11px; margin-bottom: 14px; }
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  .topbar label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
+  input { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 4px 6px; font-size: 12px; }
+  input.url { width: 240px; }
+  input.small { width: 74px; }
+  button { border: none; border-radius: 3px; padding: 5px 12px; background: var(--accent); color: #000; font-weight: 700; cursor: pointer; }
+  button.secondary { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .statusline { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .statusline.bad { color: var(--bad); }
+  .statusline.ok { color: var(--ok); }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .card { border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow: hidden; }
+  .card h2 { margin: 0; padding: 9px 11px; background: var(--panel-2); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .card .body { padding: 10px 11px; }
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .metric { padding: 8px; border: 1px solid var(--border); border-radius: 5px; background: rgba(255,255,255,0.02); min-height: 54px; }
+  .metric span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  .metric b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 9px; }
+  .action { padding: 7px 8px; border: 1px solid var(--border); border-radius: 5px; background: rgba(255,255,255,0.02); }
+  .action span { color: var(--muted); font-size: 11px; display: block; }
+  .action b { font-size: 13px; }
+  .action.buy b, .action.sell b { color: var(--ok); }
+  .action.wait b { color: var(--muted); }
+  .reasons { margin-top: 9px; color: var(--warn); min-height: 17px; }
+  .summary { padding: 10px 12px; margin-bottom: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); }
+  .summary.ok { border-color: rgba(63,185,80,0.45); background: rgba(63,185,80,0.08); }
+  .summary.bad { border-color: rgba(248,81,73,0.45); background: rgba(248,81,73,0.08); }
+  .summary b { margin-right: 6px; }
+  .decision-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+  .decision-cell { padding: 7px 8px; border-radius: 5px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); }
+  .decision-cell span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  .decision-cell b { display: block; font-size: 13px; }
+  .decision-cell.ok b { color: var(--ok); }
+  .decision-cell.bad b { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }
+  th, td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  td { font-variant-numeric: tabular-nums; }
+  td.path { font-family: ui-monospace, monospace; color: var(--accent); }
+  td.value { white-space: pre-wrap; word-break: break-word; max-width: 420px; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: rgba(88,166,255,0.06); }
+  tr.signal-bad { background: rgba(248,81,73,0.06); }
+  .pill { display: inline-block; min-width: 46px; padding: 2px 5px; border-radius: 999px; border: 1px solid var(--border); text-align: center; font-size: 11px; color: var(--muted); }
+  .pill.bad { color: var(--bad); border-color: rgba(248,81,73,0.45); background: rgba(248,81,73,0.08); }
+  .pill.ok { color: var(--ok); border-color: rgba(63,185,80,0.45); background: rgba(63,185,80,0.08); }
+  .history-head { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; }
+  .history-head h2 { margin: 0; font-size: 15px; }
+  .history-head .meta { margin: 0; }
+  .detail-box { padding: 10px; background: #0f141d; border: 1px solid var(--border); border-radius: 5px; }
+  .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .detail-grid div { padding: 8px; border: 1px solid var(--border); border-radius: 5px; background: rgba(255,255,255,0.02); }
+  .detail-grid span { color: var(--muted); display: block; font-size: 11px; margin-bottom: 3px; }
+  pre.diff-list { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; color: var(--fg); font-size: 12px; }
+  .empty { padding: 20px; text-align: center; color: var(--muted); }
+  @media (max-width: 920px) {
+    .grid { grid-template-columns: 1fr; }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .statusline { width: 100%; margin-left: 0; }
+    input.url { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<h1>Comparativo WDOWIN x Miqueias</h1>
+<div class="meta">
+  Pagina renderizada em <b>{{ rendered_at }}</b> · snapshots em <b>audits/live_compare</b>
+</div>
+
+<div class="topbar">
+  <label>nosso <input id="ours" class="url" value="{{ ours_url }}"></label>
+  <label>miqueias <input id="ref" class="url" value="{{ ref_url }}"></label>
+  <label>refresh(s) <input id="refresh" class="small" type="number" min="0" max="3600" value="{{ refresh }}"></label>
+  <button id="refreshNow">Atualizar</button>
+  <button id="pause" class="secondary">Pausar</button>
+  <span id="status" class="statusline">iniciando...</span>
+</div>
+
+<div id="summary" class="summary">Aguardando snapshot.</div>
+<div id="decision" class="summary">Aguardando decisão por estratégia.</div>
+
+<div class="grid">
+  <section class="card">
+    <h2>Nosso 8080</h2>
+    <div id="oursCard" class="body"></div>
+  </section>
+  <section class="card">
+    <h2>Miqueias 8081</h2>
+    <div id="refCard" class="body"></div>
+  </section>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>campo</th>
+      <th>nosso</th>
+      <th>miqueias</th>
+    </tr>
+  </thead>
+  <tbody id="diffBody">
+    <tr><td class="empty" colspan="3">Sem snapshot carregado.</td></tr>
+  </tbody>
+</table>
+
+<div class="history-head">
+  <h2>Comparativos intraday</h2>
+  <span id="historyStatus" class="meta">carregando...</span>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>hora</th>
+      <th>sinal</th>
+      <th>CONS</th>
+      <th>WDO</th>
+      <th>DI</th>
+      <th>z wdo</th>
+      <th>z di</th>
+      <th>rho</th>
+      <th>EG</th>
+      <th>diffs</th>
+    </tr>
+  </thead>
+  <tbody id="historyBody">
+    <tr><td class="empty" colspan="10">Sem histórico carregado.</td></tr>
+  </tbody>
+</table>
+
+<script>
+const DEFAULT_REFRESH = Number({{ refresh }});
+let timer = null;
+let paused = false;
+
+function fmt(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function esc(value) {
+  return fmt(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function timeOnly(ts) {
+  return fmt(ts).split("T").pop().slice(0, 8);
+}
+
+function actionClass(action) {
+  const a = String(action || "WAIT").toLowerCase();
+  if (a.includes("buy")) return "buy";
+  if (a.includes("sell")) return "sell";
+  return "wait";
+}
+
+function renderCard(el, business) {
+  const actions = business.strategy_actions || {};
+  const reasons = business.risk_gate_reasons || [];
+  el.innerHTML = `
+    <div class="metrics">
+      <div class="metric"><span>Z WDO</span><b>${fmt(business.current_z_wdo)}</b></div>
+      <div class="metric"><span>Z DI</span><b>${fmt(business.current_z_di)}</b></div>
+      <div class="metric"><span>rho</span><b>${fmt(business.current_rho)}</b></div>
+      <div class="metric"><span>EG</span><b>${fmt(business.eg_pvalue)}</b></div>
+    </div>
+    <div class="actions">
+      ${["CONS_BASE", "WDO_NWE", "DI_NWE"].map((s) => `
+        <div class="action ${actionClass(actions[s])}">
+          <span>${s}</span><b>${fmt(actions[s] || "WAIT")}</b>
+        </div>
+      `).join("")}
+    </div>
+    <div class="reasons">${reasons.length ? reasons.join(", ") : "sem reasons publicados"}</div>
+  `;
+}
+
+function renderDiffs(diffs) {
+  const body = document.getElementById("diffBody");
+  if (!diffs.length) {
+    body.innerHTML = '<tr><td class="empty" colspan="3">Sem divergencias no snapshot.</td></tr>';
+    return;
+  }
+  body.innerHTML = diffs.map((d) => `
+    <tr>
+      <td class="path">${fmt(d.path)}</td>
+      <td class="value">${fmt(d.ours)}</td>
+      <td class="value">${fmt(d.ref)}</td>
+    </tr>
+  `).join("");
+}
+
+function metricCell(pair) {
+  if (!pair) return "";
+  const delta = pair.delta === null || pair.delta === undefined ? "" : ` (${fmt(pair.delta)})`;
+  return `${fmt(pair.ours)} / ${fmt(pair.ref)}${delta}`;
+}
+
+function actionPair(actions, strategy) {
+  const ours = (actions.ours || {})[strategy] || "WAIT";
+  const ref = (actions.ref || {})[strategy] || "WAIT";
+  const bad = ours !== ref;
+  return `<span class="pill ${bad ? "bad" : "ok"}">${esc(ours)} / ${esc(ref)}</span>`;
+}
+
+function renderHistory(rows) {
+  const body = document.getElementById("historyBody");
+  const status = document.getElementById("historyStatus");
+  status.textContent = `${rows.length} snapshot(s) hoje`;
+  if (!rows.length) {
+    body.innerHTML = '<tr><td class="empty" colspan="10">Sem snapshots intraday.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map((row, idx) => {
+    if (row.error) {
+      return `<tr><td>${esc(row.run_id)}</td><td class="value" colspan="9">${esc(row.error)}</td></tr>`;
+    }
+    const m = row.metrics || {};
+    const signalBad = Boolean(row.signal_mismatch);
+    const signalText = signalBad ? "DIVERGENTE" : "IGUAL";
+    const detail = `
+      <tr id="detail-${idx}" style="display:none">
+        <td colspan="10">
+          <div class="detail-box">
+            <div class="detail-grid">
+              <div><span>run</span><b>${esc(row.run_id)}</b></div>
+              <div><span>arquivo</span><b>${esc(row.summary_path)}</b></div>
+              <div><span>gate nosso</span><b>${esc((row.risk_gate_reasons || {}).ours || [])}</b></div>
+            </div>
+            <pre class="diff-list">${esc(JSON.stringify(row.differences || [], null, 2))}</pre>
+          </div>
+        </td>
+      </tr>`;
+    return `
+      <tr class="clickable ${signalBad ? "signal-bad" : ""}" onclick="toggleDetail(${idx})">
+        <td>${esc(timeOnly(row.timestamp))}</td>
+        <td><span class="pill ${signalBad ? "bad" : "ok"}">${signalText}</span></td>
+        <td>${actionPair(row.actions || {}, "CONS_BASE")}</td>
+        <td>${actionPair(row.actions || {}, "WDO_NWE")}</td>
+        <td>${actionPair(row.actions || {}, "DI_NWE")}</td>
+        <td>${esc(metricCell(m.z_wdo))}</td>
+        <td>${esc(metricCell(m.z_di))}</td>
+        <td>${esc(metricCell(m.rho))}</td>
+        <td>${esc(metricCell(m.eg_pvalue))}</td>
+        <td>${esc(row.diff_count)}</td>
+      </tr>${detail}`;
+  }).join("");
+}
+
+function toggleDetail(idx) {
+  const row = document.getElementById(`detail-${idx}`);
+  if (!row) return;
+  row.style.display = row.style.display === "none" ? "table-row" : "none";
+}
+
+async function loadHistory() {
+  const status = document.getElementById("historyStatus");
+  status.textContent = "carregando...";
+  try {
+    const res = await fetch("/api/comparative/history?limit=250");
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
+    renderHistory(body.rows || []);
+  } catch (err) {
+    status.textContent = err.message || String(err);
+  }
+}
+
+function renderDecision(decision) {
+  const el = document.getElementById("decision");
+  const rows = decision.strategies || [];
+  const mismatch = Boolean(decision.has_signal_mismatch);
+  const engine = decision.engine || {};
+  el.className = `summary ${mismatch ? "bad" : "ok"}`;
+  el.innerHTML = `
+    <b>${mismatch ? "SINAL DIVERGENTE" : "SINAL IGUAL"}</b>
+    engine: nosso=${fmt(engine.ours_action || "WAIT")} · miqueias=${fmt(engine.ref_action || "WAIT")}
+    · diffs numericos=${fmt(decision.indicator_diff_count || 0)}
+    · erros fetch=${fmt(decision.fetch_error_count || 0)}
+    <div class="decision-grid">
+      ${rows.map((r) => `
+        <div class="decision-cell ${r.matches ? "ok" : "bad"}">
+          <span>${r.strategy}</span>
+          <b>${fmt(r.ours_action || "WAIT")} / ${fmt(r.ref_action || "WAIT")}</b>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function render(data) {
+  const status = document.getElementById("status");
+  const summary = document.getElementById("summary");
+  const diffs = data.differences || [];
+  const decision = data.decision || {};
+  const ours = (data.business && data.business.ours) || {};
+  const ref = (data.business && data.business.ref) || {};
+
+  renderCard(document.getElementById("oursCard"), ours);
+  renderCard(document.getElementById("refCard"), ref);
+  renderDecision(decision);
+  renderDiffs(diffs);
+
+  summary.className = `summary ${decision.has_signal_mismatch ? "bad" : "ok"}`;
+  summary.innerHTML = `<b>${diffs.length} divergencia(s) totais</b> · ${fmt(data.timestamp)} · ${fmt(data.output_dir)}`;
+  status.className = "statusline ok";
+  status.textContent = `ultimo snapshot ${fmt(data.timestamp)}`;
+}
+
+async function loadSnapshot() {
+  const status = document.getElementById("status");
+  status.className = "statusline";
+  status.textContent = "coletando...";
+  const params = new URLSearchParams({
+    ours: document.getElementById("ours").value,
+    ref: document.getElementById("ref").value,
+    tag: "comparative-page",
+  });
+  try {
+    const res = await fetch(`/api/comparative?${params.toString()}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
+    render(body);
+    loadHistory();
+  } catch (err) {
+    status.className = "statusline bad";
+    status.textContent = err.message || String(err);
+  }
+}
+
+function schedule() {
+  if (timer) clearInterval(timer);
+  const seconds = Number(document.getElementById("refresh").value || DEFAULT_REFRESH);
+  if (!paused && seconds > 0) timer = setInterval(loadSnapshot, seconds * 1000);
+}
+
+document.getElementById("refreshNow").addEventListener("click", loadSnapshot);
+document.getElementById("refresh").addEventListener("change", schedule);
+document.getElementById("pause").addEventListener("click", () => {
+  paused = !paused;
+  document.getElementById("pause").textContent = paused ? "Retomar" : "Pausar";
+  schedule();
+});
+
+loadSnapshot();
+loadHistory();
+schedule();
+</script>
+</body>
+</html>

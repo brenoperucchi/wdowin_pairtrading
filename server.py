@@ -3,12 +3,14 @@
 FastAPI server for WIN×WDO pair trading regime monitoring.
 All computation logic lives in core/ modules.
 """
+import json
 import logging
 import time
 import sqlite3
 import threading
 import numpy as np
 import MetaTrader5 as mt5
+from dataclasses import asdict
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -1561,6 +1563,177 @@ def execution_timeline_endpoint(
             "current_live_issue": current_live_issue(db_path),
         },
     }
+
+
+COMPARATIVE_DEFAULT_OURS = os.environ.get("COMPARATIVE_OURS_URL", "http://127.0.0.1:8080")
+COMPARATIVE_DEFAULT_REF = os.environ.get("COMPARATIVE_REF_URL", "http://127.0.0.1:8081")
+COMPARATIVE_OUT_DIR = os.environ.get("COMPARATIVE_OUT_DIR", "audits/live_compare")
+
+
+def _run_comparative_snapshot(
+    *,
+    ours: str,
+    ref: str,
+    tag: str,
+    timeout: float,
+) -> dict:
+    from scripts.compare_miqueias_live import _output_dir, run_compare
+
+    run = run_compare(
+        ours_base=ours,
+        ref_base=ref,
+        out_dir=_output_dir(COMPARATIVE_OUT_DIR, tag),
+        timeout=timeout,
+    )
+    payload = asdict(run)
+    for system, endpoints in (payload.get("fetch") or {}).items():
+        for name, result in (endpoints or {}).items():
+            payload["fetch"][system][name] = {
+                "ok": result.get("ok"),
+                "url": result.get("url"),
+                "status_code": result.get("status_code"),
+                "error": result.get("error"),
+                "elapsed_ms": result.get("elapsed_ms"),
+            }
+    return payload
+
+
+def _comparative_metric_pair(business: dict, key: str) -> dict:
+    ours = (business.get("ours") or {}).get(key)
+    ref = (business.get("ref") or {}).get(key)
+    delta = None
+    try:
+        if ours is not None and ref is not None:
+            delta = round(float(ours) - float(ref), 6)
+    except (TypeError, ValueError):
+        delta = None
+    return {"ours": ours, "ref": ref, "delta": delta}
+
+
+def _compact_comparative_summary(summary: dict, summary_path: str) -> dict:
+    business = summary.get("business") or {}
+    decision = summary.get("decision") or {}
+    differences = summary.get("differences") or []
+    run_id = os.path.basename(os.path.dirname(summary_path))
+    return {
+        "run_id": run_id,
+        "timestamp": summary.get("timestamp"),
+        "output_dir": summary.get("output_dir") or os.path.dirname(summary_path),
+        "summary_path": summary_path,
+        "diff_count": len(differences),
+        "decision": decision,
+        "signal_mismatch": bool(decision.get("has_signal_mismatch")),
+        "actions": {
+            "ours": (business.get("ours") or {}).get("strategy_actions") or {},
+            "ref": (business.get("ref") or {}).get("strategy_actions") or {},
+        },
+        "metrics": {
+            "z_wdo": _comparative_metric_pair(business, "current_z_wdo"),
+            "z_di": _comparative_metric_pair(business, "current_z_di"),
+            "rho": _comparative_metric_pair(business, "current_rho"),
+            "eg_pvalue": _comparative_metric_pair(business, "eg_pvalue"),
+            "di_eg_pvalue": _comparative_metric_pair(business, "di_eg_pvalue"),
+            "beta_delta_pct": _comparative_metric_pair(business, "beta_delta_pct"),
+        },
+        "risk_gate_reasons": {
+            "ours": (business.get("ours") or {}).get("risk_gate_reasons"),
+            "ref": (business.get("ref") or {}).get("risk_gate_reasons"),
+        },
+        "differences": differences,
+    }
+
+
+def _comparative_history_rows(date: str | None, limit: int) -> list[dict]:
+    base = COMPARATIVE_OUT_DIR
+    if not os.path.isdir(base):
+        return []
+
+    if date:
+        try:
+            prefix = datetime.strptime(date, "%Y-%m-%d").strftime("%Y%m%d-")
+        except ValueError:
+            return []
+    else:
+        prefix = datetime.now().strftime("%Y%m%d-")
+
+    candidates = []
+    for name in os.listdir(base):
+        if not name.startswith(prefix):
+            continue
+        summary_path = os.path.join(base, name, "summary.json")
+        if os.path.isfile(summary_path):
+            candidates.append(summary_path)
+
+    rows = []
+    for summary_path in sorted(candidates, reverse=True)[:max(1, min(limit, 1000))]:
+        try:
+            with open(summary_path, encoding="utf-8") as fh:
+                summary = json.load(fh)
+            rows.append(_compact_comparative_summary(summary, summary_path))
+        except Exception as exc:
+            rows.append({
+                "run_id": os.path.basename(os.path.dirname(summary_path)),
+                "summary_path": summary_path,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+    return rows
+
+
+@app.get("/api/comparative")
+def comparative_endpoint(
+    ours: str = COMPARATIVE_DEFAULT_OURS,
+    ref: str = COMPARATIVE_DEFAULT_REF,
+    tag: str = "comparative-page",
+    timeout: float = 8.0,
+):
+    """Capture one WDOWIN x Miqueias comparison snapshot and persist it."""
+    try:
+        return _run_comparative_snapshot(
+            ours=ours,
+            ref=ref,
+            tag=tag,
+            timeout=max(0.5, min(timeout, 30.0)),
+        )
+    except Exception as exc:
+        logger.exception("comparative_snapshot_failed")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "COMPARATIVE_SNAPSHOT_FAILED",
+                "message": f"{type(exc).__name__}: {exc}",
+            },
+        )
+
+
+@app.get("/api/comparative/history")
+def comparative_history_endpoint(
+    date: str | None = None,
+    limit: int = 200,
+):
+    """Intraday table of persisted WDOWIN x Miqueias snapshots."""
+    return {
+        "date": date or datetime.now().strftime("%Y-%m-%d"),
+        "out_dir": COMPARATIVE_OUT_DIR,
+        "rows": _comparative_history_rows(date, limit),
+    }
+
+
+@app.get("/comparative", response_class=HTMLResponse)
+def comparative_html(
+    request: Request,
+    refresh: int = 300,
+):
+    """Standalone WDOWIN x Miqueias live comparison page."""
+    return templates.TemplateResponse(
+        request,
+        "comparative.html",
+        {
+            "ours_url": COMPARATIVE_DEFAULT_OURS,
+            "ref_url": COMPARATIVE_DEFAULT_REF,
+            "refresh": max(0, min(refresh, 3600)),
+            "rendered_at": datetime.now().isoformat(timespec="seconds"),
+        },
+    )
 
 
 @app.post("/api/execution-timeline/generate")
