@@ -11,6 +11,7 @@ import time
 
 import pytest
 
+import scripts.replay_execution_timeline as replay
 from scripts.replay_execution_timeline import (
     REQUIRED_BAR_FIELDS,
     ReplayStats,
@@ -24,6 +25,7 @@ from server import init_bar_history, save_bar_history
 
 
 REPLAY_DATE = "2026-05-07"
+PREV_DATE = "2026-05-06"
 
 
 def _seed_bar(
@@ -31,6 +33,7 @@ def _seed_bar(
     *,
     bar_time: str,
     ts: int,
+    date_str=REPLAY_DATE,
     win_price=130000.0,
     wdo_price=5500.0,
     di_price=12.5,
@@ -44,7 +47,7 @@ def _seed_bar(
 ):
     save_bar_history(
         timestamp=ts,
-        date_str=REPLAY_DATE,
+        date_str=date_str,
         bar_time=bar_time,
         win_price=win_price,
         wdo_price=wdo_price,
@@ -66,9 +69,9 @@ def _seed_bar(
     )
 
 
-def _ts_for(bar_time: str) -> int:
-    """Stable epoch for a HH:MM on REPLAY_DATE."""
-    return int(time.mktime(time.strptime(f"{REPLAY_DATE} {bar_time}", "%Y-%m-%d %H:%M")))
+def _ts_for(bar_time: str, date_str: str = REPLAY_DATE) -> int:
+    """Stable epoch for a HH:MM on `date_str`."""
+    return int(time.mktime(time.strptime(f"{date_str} {bar_time}", "%Y-%m-%d %H:%M")))
 
 
 def _events(replay_db: str, **filters) -> list[dict]:
@@ -96,6 +99,30 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
+def _seed_bar_sequence(
+    db_path: str,
+    *,
+    date_str: str,
+    start_time: str,
+    count: int,
+    win_start: float = 130000.0,
+    wdo_start: float = 5500.0,
+) -> None:
+    start_ts = _ts_for(start_time, date_str)
+    for i in range(count):
+        ts = start_ts + i * 300
+        _seed_bar(
+            db_path,
+            date_str=date_str,
+            bar_time=time.strftime("%H:%M", time.localtime(ts)),
+            ts=ts,
+            win_price=win_start + i * 10.0,
+            wdo_price=wdo_start + i * 0.5,
+            z_wdo=0.2,
+            z_di=-0.2,
+        )
+
+
 @pytest.fixture
 def source_db(tmp_path):
     p = tmp_path / "source.db"
@@ -110,9 +137,25 @@ def out_dir(tmp_path):
     return str(d)
 
 
+@pytest.fixture
+def persisted_eg(monkeypatch):
+    """Keep legacy small fixtures focused on timeline behavior, not EG math."""
+    monkeypatch.setattr(
+        replay.ReplayEgComputer,
+        "pvalue_for",
+        lambda _self, row: row.get("eg_pvalue"),
+    )
+
+
+def _replay_profile(**overrides):
+    profile = dict(replay.runtime_config.DEFAULTS["replay"])
+    profile.update(overrides)
+    return profile
+
+
 # ─── Happy path ─────────────────────────────────────────────────────────────
 
-def test_replay_valid_day_emits_full_funnel(source_db, out_dir):
+def test_replay_valid_day_emits_full_funnel(source_db, out_dir, persisted_eg):
     _seed_bar(source_db, bar_time="10:00", ts=_ts_for("10:00"))
     _seed_bar(source_db, bar_time="10:05", ts=_ts_for("10:05"), z_wdo=-0.2)
 
@@ -154,7 +197,7 @@ def test_replay_valid_day_emits_full_funnel(source_db, out_dir):
     ]
 
 
-def test_replay_uses_bar_clock_for_trades_and_pnl(source_db, out_dir):
+def test_replay_uses_bar_clock_for_trades_and_pnl(source_db, out_dir, persisted_eg):
     _seed_bar(
         source_db,
         bar_time="10:00",
@@ -194,7 +237,7 @@ def test_replay_uses_bar_clock_for_trades_and_pnl(source_db, out_dir):
     assert all(r[1].startswith(REPLAY_DATE) for r in timeline_rows)
 
 
-def test_replay_counts_open_trade_once_while_holding(source_db, out_dir):
+def test_replay_counts_open_trade_once_while_holding(source_db, out_dir, persisted_eg):
     _seed_bar(
         source_db,
         bar_time="10:00",
@@ -242,17 +285,18 @@ def test_replay_missing_di_price_emits_missing_event(source_db, out_dir):
     assert _events(replay_db, phase="INDICATORS") == []
 
 
-def test_replay_missing_eg_pvalue_emits_missing_event(source_db, out_dir):
+def test_replay_missing_eg_pvalue_processes_bar_as_eg_unavailable(source_db, out_dir):
     _seed_bar(source_db, bar_time="10:00", ts=_ts_for("10:00"), eg_pvalue=None)
 
     summary = run_replay(date_str=REPLAY_DATE, source_db=source_db, out_dir=out_dir)
     replay_db = os.path.join(out_dir, f"execution_timeline_{REPLAY_DATE}.db")
 
-    assert summary["bars_skipped_missing"] == 1
-    assert summary["missing_by_field"].get("eg_pvalue") == 1
+    assert summary["bars_processed"] == 1
+    assert summary["bars_skipped_missing"] == 0
+    assert summary["missing_by_field"].get("eg_pvalue") is None
 
-    miss = _events(replay_db, phase="DATA", event="MISSING_EG_PVALUE")
-    assert len(miss) == 1
+    blocked = _events(replay_db, phase="ELIGIBILITY", event="EG_UNAVAILABLE")
+    assert len(blocked) == 1
 
 
 def test_replay_corrupt_timestamp_emits_missing_timestamp(tmp_path):
@@ -295,14 +339,136 @@ def test_replay_required_fields_match_ac(source_db):
     # Sanity check that AC #5's listed fields are exactly what the replay enforces.
     assert set(REQUIRED_BAR_FIELDS) == {
         "win_price", "wdo_price", "di_price",
-        "eg_pvalue", "rho", "rho_level",
+        "rho", "rho_level",
         "beta_value", "beta_delta_pct",
     }
 
 
+# ─── Runtime EG recomputation ───────────────────────────────────────────────
+
+def test_replay_recomputes_eg_with_runtime_window_and_threshold(
+    source_db, out_dir, monkeypatch
+):
+    _seed_bar_sequence(source_db, date_str=REPLAY_DATE, start_time="09:00", count=65)
+    call_lengths = []
+
+    def fake_eg(win, wdo, bar_ts):
+        call_lengths.append((len(win), len(wdo), bar_ts))
+        return 0.20
+
+    monkeypatch.setattr(replay, "compute_engle_granger_pvalue", fake_eg)
+
+    summary = run_replay(
+        date_str=REPLAY_DATE,
+        source_db=source_db,
+        out_dir=out_dir,
+        runtime_profile=_replay_profile(
+            eg_threshold=0.30,
+            eg_bars=60,
+            eg_recalc="bar",
+        ),
+    )
+    replay_db = os.path.join(out_dir, f"execution_timeline_{REPLAY_DATE}.db")
+
+    assert summary["bars_processed"] == 65
+    assert summary["runtime_profile"]["eg_threshold"] == 0.30
+    assert summary["runtime_profile"]["eg_bars"] == 60
+    assert call_lengths
+    assert {win_len for win_len, _wdo_len, _ts in call_lengths} == {60}
+    assert _events(replay_db, event="EG_NOT_COINTEGRATED") == []
+
+
+def test_replay_daily_eg_recalc_reuses_one_pvalue_per_date(
+    source_db, out_dir, monkeypatch
+):
+    _seed_bar_sequence(source_db, date_str=PREV_DATE, start_time="09:00", count=60)
+    _seed_bar_sequence(source_db, date_str=REPLAY_DATE, start_time="10:00", count=3)
+    calls = []
+
+    def fake_eg(win, wdo, bar_ts):
+        calls.append(bar_ts)
+        return 0.04
+
+    monkeypatch.setattr(replay, "compute_engle_granger_pvalue", fake_eg)
+
+    summary = run_replay(
+        date_str=REPLAY_DATE,
+        source_db=source_db,
+        out_dir=out_dir,
+        runtime_profile=_replay_profile(
+            eg_threshold=0.10,
+            eg_bars=60,
+            eg_recalc="daily",
+        ),
+    )
+
+    assert summary["bars_processed"] == 3
+    assert len(calls) == 1
+
+
+def test_replay_daily_eg_does_not_cache_initial_unavailable(
+    source_db, out_dir, monkeypatch
+):
+    _seed_bar_sequence(source_db, date_str=REPLAY_DATE, start_time="09:00", count=61)
+    calls = []
+
+    def fake_eg(win, wdo, bar_ts):
+        calls.append(bar_ts)
+        return 0.04
+
+    monkeypatch.setattr(replay, "compute_engle_granger_pvalue", fake_eg)
+
+    summary = run_replay(
+        date_str=REPLAY_DATE,
+        source_db=source_db,
+        out_dir=out_dir,
+        runtime_profile=_replay_profile(
+            eg_threshold=0.10,
+            eg_bars=60,
+            eg_recalc="daily",
+        ),
+    )
+
+    assert summary["bars_processed"] == 61
+    assert len(calls) == 1
+
+
+def test_parse_args_accepts_runtime_overrides():
+    args = replay._parse_args(
+        [
+            "--date", REPLAY_DATE,
+            "--eg-threshold", "0.30",
+            "--eg-bars", "2240",
+            "--eg-recalc", "daily",
+            "--rho-breakdown-level", "3",
+            "--beta-delta-max", "40",
+            "--eg-strategies", "CONS_BASE,WDO_NWE",
+        ]
+    )
+
+    assert args.eg_threshold == 0.30
+    assert args.eg_bars == 2240
+    assert args.eg_recalc == "daily"
+    assert args.rho_breakdown_level == 3
+    assert args.beta_delta_max == 40.0
+    assert args.eg_strategies == "CONS_BASE,WDO_NWE"
+
+
+def test_resolve_replay_profile_applies_eg_strategies_override():
+    profile = replay.resolve_replay_profile(
+        overrides={"eg_strategies": ["CONS_BASE"]},
+    )
+    assert profile.eg_strategies == ("CONS_BASE",)
+
+
+def test_resolve_replay_profile_accepts_empty_eg_strategies():
+    profile = replay.resolve_replay_profile(overrides={"eg_strategies": []})
+    assert profile.eg_strategies == ()
+
+
 # ─── No-MT5 guarantee ───────────────────────────────────────────────────────
 
-def test_replay_does_not_import_metatrader5(source_db, out_dir, monkeypatch):
+def test_replay_does_not_import_metatrader5(source_db, out_dir, monkeypatch, persisted_eg):
     """AC #6: replay must not invoke or import MetaTrader5.
 
     conftest.py pre-loads a stub. We tag the stub with a sentinel and then
@@ -324,7 +490,7 @@ def test_replay_does_not_import_metatrader5(source_db, out_dir, monkeypatch):
     assert getattr(after, sentinel, None) == "untouched"
 
 
-def test_replay_never_calls_mt5_order_send(source_db, out_dir, monkeypatch):
+def test_replay_never_calls_mt5_order_send(source_db, out_dir, monkeypatch, persisted_eg):
     mt5_stub = sys.modules.get("MetaTrader5")
     assert mt5_stub is not None, "conftest.py should have stubbed MetaTrader5"
     calls = []
@@ -349,7 +515,7 @@ def test_replay_never_calls_mt5_order_send(source_db, out_dir, monkeypatch):
 
 # ─── Source-DB integrity ────────────────────────────────────────────────────
 
-def test_replay_does_not_mutate_source_db(source_db, out_dir):
+def test_replay_does_not_mutate_source_db(source_db, out_dir, persisted_eg):
     _seed_bar(source_db, bar_time="10:00", ts=_ts_for("10:00"))
     before_hash = _sha256(source_db)
     before_mtime = os.path.getmtime(source_db)
@@ -365,7 +531,7 @@ def test_replay_does_not_mutate_source_db(source_db, out_dir):
     assert after_size == before_size
 
 
-def test_replay_three_consecutive_runs_keep_source_db_hash_intact(source_db, out_dir):
+def test_replay_three_consecutive_runs_keep_source_db_hash_intact(source_db, out_dir, persisted_eg):
     _seed_bar(source_db, bar_time="10:00", ts=_ts_for("10:00"))
     _seed_bar(source_db, bar_time="10:05", ts=_ts_for("10:05"), z_wdo=-0.2)
     before_hash = _sha256(source_db)
@@ -378,7 +544,7 @@ def test_replay_three_consecutive_runs_keep_source_db_hash_intact(source_db, out
     assert os.path.getmtime(source_db) == before_mtime
 
 
-def test_replay_rerun_recreates_output_db(source_db, out_dir):
+def test_replay_rerun_recreates_output_db(source_db, out_dir, persisted_eg):
     _seed_bar(source_db, bar_time="10:00", ts=_ts_for("10:00"))
     run_replay(date_str=REPLAY_DATE, source_db=source_db, out_dir=out_dir)
     replay_db = os.path.join(out_dir, f"execution_timeline_{REPLAY_DATE}.db")

@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import time
 from datetime import datetime
@@ -30,12 +31,16 @@ def _replay_timeline_db(tmp_path, monkeypatch, date="2026-05-08"):
     return db, date
 
 
-def _trade_result(action="WAIT"):
+def _trade_result(action="WAIT", gate_reasons=None):
+    """Mirror TradeEngine.evaluate output. ``gate_reasons`` is the per-strategy
+    list (post EG-bypass filter); pass the same list for all 3 slots when EG
+    bypass isn't being exercised."""
+    reasons = list(gate_reasons) if gate_reasons else []
     return {
         "strategies": {
-            "CONS_BASE": {"action": action},
-            "WDO_NWE": {"action": action},
-            "DI_NWE": {"action": action},
+            "CONS_BASE": {"action": action, "gate_reasons": list(reasons)},
+            "WDO_NWE": {"action": action, "gate_reasons": list(reasons)},
+            "DI_NWE": {"action": action, "gate_reasons": list(reasons)},
         }
     }
 
@@ -156,7 +161,9 @@ def test_emit_closed_bar_timeline_records_gate_reasons_and_skips_bar_not_closed(
             "allowed": False,
             "reasons": ["BAR_NOT_CLOSED", "EG_NOT_COINTEGRATED", "MAX_TRADES_REACHED"],
         },
-        trade_result=_trade_result(),
+        trade_result=_trade_result(
+            gate_reasons=["EG_NOT_COINTEGRATED", "MAX_TRADES_REACHED"],
+        ),
         z_wdo=1.5,
         z_di=1.2,
         rho=-0.93,
@@ -184,15 +191,54 @@ def test_emit_closed_bar_timeline_records_gate_reasons_and_skips_bar_not_closed(
     assert eg["operator"] == "<"
     assert eg["distance"] == pytest.approx(0.54)
     assert eg["ratio_to_threshold"] == pytest.approx(6.4)
+    assert "Bloqueado por Engle-Granger" in eg["message"]
+    assert "0.64" in eg["message"]
+    assert "0.1" in eg["message"]
 
     risk = events["MAX_TRADES_REACHED"]
     assert risk["phase"] == "RISK"
     assert risk["severity"] == "operational_block"
+    assert "limite diario de trades" in risk["message"]
 
     skipped = [r for r in rows if r["phase"] == "SIGNAL" and r["event"] == "SKIPPED"]
     assert {r["strategy"] for r in skipped} == {"CONS_BASE", "WDO_NWE", "DI_NWE"}
     payload = json.loads(skipped[0]["payload_json"])
     assert payload["gate_reasons"] == ["EG_NOT_COINTEGRATED", "MAX_TRADES_REACHED"]
+
+
+def test_emit_closed_bar_timeline_uses_per_strategy_gate_reasons(tmp_path, monkeypatch):
+    """When EG bypass strips a reason for one slot, that slot must NOT show
+    EG in its SIGNAL payload — even though the global gate had it."""
+    db = _timeline_db(tmp_path, monkeypatch)
+
+    trade_result = {
+        "strategies": {
+            "CONS_BASE": {"action": "WAIT", "gate_reasons": ["EG_NOT_COINTEGRATED"]},
+            "WDO_NWE":   {"action": "WAIT", "gate_reasons": ["EG_NOT_COINTEGRATED"]},
+            "DI_NWE":    {"action": "WAIT", "gate_reasons": []},  # bypassed EG
+        }
+    }
+    emit_closed_bar_timeline(
+        closed_bar_ts=1778245200,
+        gate={"allowed": False, "reasons": ["EG_NOT_COINTEGRATED"]},
+        trade_result=trade_result,
+        z_wdo=0.5, z_di=-1.1, rho=-0.57, rho_level=1,
+        beta_delta_pct=1.0, eg_pvalue=0.79, joh_open=False,
+        mt5_connected=True, trades_today_count=0, daily_pnl_brl=0.0,
+        minutes_since_last_loss=None,
+        now_dt=datetime.fromisoformat("2026-05-08T10:00:00"),
+        db_path=db,
+    )
+
+    rows = load_timeline(db, limit=20)
+    by_strat = {r["strategy"]: r for r in rows if r["phase"] == "SIGNAL"}
+    # CONS_BASE / WDO_NWE blocked by EG → SKIPPED
+    assert by_strat["CONS_BASE"]["event"] == "SKIPPED"
+    assert by_strat["WDO_NWE"]["event"] == "SKIPPED"
+    # DI_NWE bypassed EG → WAIT (no gate reasons)
+    assert by_strat["DI_NWE"]["event"] == "WAIT"
+    di_payload = json.loads(by_strat["DI_NWE"]["payload_json"])
+    assert di_payload["gate_reasons"] == []
 
 
 def test_emit_closed_bar_timeline_dedupes_same_closed_bar(tmp_path, monkeypatch):
@@ -247,17 +293,68 @@ def test_execution_timeline_endpoint_returns_events_summary_and_filters(tmp_path
     )
 
     client = TestClient(server.app)
-    response = client.get("/api/execution-timeline", params={"phase": "ELIGIBILITY"})
+    response = client.get(
+        "/api/execution-timeline",
+        params={"phase": "ELIGIBILITY", "market_hours": "0"},
+    )
 
     assert response.status_code == 200
     data = response.json()
     assert [e["phase"] for e in data["events"]] == ["ELIGIBILITY"]
+    assert "Bloqueado por Engle-Granger" in data["events"][0]["message"]
     assert data["summary"]["current_bottleneck"]["event"] == "EG_NOT_COINTEGRATED"
+    assert "0.64" in data["summary"]["current_bottleneck"]["message"]
     assert data["summary"]["current_live_issue"] is None
 
-    alias_response = client.get("/api/execution_timeline", params={"phase": "ELIGIBILITY"})
+    alias_response = client.get(
+        "/api/execution_timeline",
+        params={"phase": "ELIGIBILITY", "market_hours": "0"},
+    )
     assert alias_response.status_code == 200
     assert alias_response.json()["events"] == data["events"]
+
+
+def test_execution_timeline_endpoint_defaults_to_market_hours(tmp_path, monkeypatch):
+    db = _timeline_db(tmp_path, monkeypatch)
+    record_event(
+        db,
+        dedupe_key="bar:1:GLOBAL:ELIGIBILITY:EG",
+        closed_bar_ts=1,
+        phase="ELIGIBILITY",
+        event="EG_NOT_COINTEGRATED",
+        status="BLOCKED",
+        timestamp="2026-05-08T10:00:00",
+    )
+    record_event(
+        db,
+        dedupe_key="bar:2:GLOBAL:ELIGIBILITY:OUT",
+        closed_bar_ts=2,
+        phase="ELIGIBILITY",
+        event="OUT_OF_SESSION",
+        status="BLOCKED",
+        timestamp="2026-05-08T18:25:00",
+    )
+
+    client = TestClient(server.app)
+    default = client.get("/api/execution-timeline")
+    all_hours = client.get("/api/execution-timeline", params={"market_hours": "0"})
+
+    assert default.status_code == 200
+    default_body = default.json()
+    assert default_body["market_hours"] is True
+    assert default_body["market_window"] == {"start": "08:50", "end": "18:20"}
+    assert [e["event"] for e in default_body["events"]] == ["EG_NOT_COINTEGRATED"]
+    assert default_body["summary"]["current_bottleneck"]["event"] == "EG_NOT_COINTEGRATED"
+
+    assert all_hours.status_code == 200
+    all_body = all_hours.json()
+    assert all_body["market_hours"] is False
+    assert all_body["market_window"] == {"start": None, "end": None}
+    assert [e["event"] for e in all_body["events"]] == [
+        "OUT_OF_SESSION",
+        "EG_NOT_COINTEGRATED",
+    ]
+    assert all_body["summary"]["current_bottleneck"]["event"] == "OUT_OF_SESSION"
 
 
 def test_execution_timeline_endpoint_reads_replay_db_and_summary(tmp_path, monkeypatch):
@@ -291,7 +388,12 @@ def test_execution_timeline_endpoint_reads_replay_db_and_summary(tmp_path, monke
     client = TestClient(server.app)
     response = client.get(
         "/api/execution-timeline",
-        params={"mode": "replay", "date": replay_date, "phase": "ELIGIBILITY"},
+        params={
+            "mode": "replay",
+            "date": replay_date,
+            "phase": "ELIGIBILITY",
+            "market_hours": "0",
+        },
     )
 
     assert response.status_code == 200
@@ -354,7 +456,7 @@ def test_execution_timeline_html_page_renders_summary_and_rows(tmp_path, monkeyp
     )
 
     client = TestClient(server.app)
-    response = client.get("/execution-timeline")
+    response = client.get("/execution-timeline", params={"market_hours": "0"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
@@ -388,8 +490,8 @@ def test_execution_timeline_html_filters_by_phase_and_disables_refresh(tmp_path,
 
     client = TestClient(server.app)
     response = client.get(
-        "/execution-timeline",
-        params={"phase": "ELIGIBILITY", "refresh": 0},
+            "/execution-timeline",
+            params={"phase": "ELIGIBILITY", "refresh": 0, "market_hours": "0"},
     )
 
     assert response.status_code == 200
@@ -422,7 +524,12 @@ def test_execution_timeline_html_replay_mode_renders_replay_db(tmp_path, monkeyp
     client = TestClient(server.app)
     response = client.get(
         "/execution-timeline",
-        params={"mode": "replay", "date": replay_date, "refresh": 5},
+        params={
+            "mode": "replay",
+            "date": replay_date,
+            "refresh": 5,
+            "market_hours": "0",
+        },
     )
 
     assert response.status_code == 200
@@ -674,15 +781,19 @@ def test_runtime_config_post_persists_and_returns_normalised(tmp_path, monkeypat
             "eg_threshold": 0.05,
             "eg_bars": 250,
             "eg_recalc": "bar",
+            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
             "rho_breakdown_level": 2,
             "beta_delta_max": 25.0,
+            "z_anomaly": 4.0,
         },
         "replay": {
             "eg_threshold": 0.10,
             "eg_bars": 2240,
             "eg_recalc": "daily",
+            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
             "rho_breakdown_level": 2,
             "beta_delta_max": 30.0,
+            "z_anomaly": 4.0,
         },
     }
     client = TestClient(server.app)
@@ -708,15 +819,19 @@ def test_runtime_config_post_rejects_invalid_payload(tmp_path, monkeypatch):
             "eg_threshold": 0.10,
             "eg_bars": 10,  # below floor
             "eg_recalc": "bar",
+            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
             "rho_breakdown_level": 2,
             "beta_delta_max": 25.0,
+            "z_anomaly": 4.0,
         },
         "replay": {
             "eg_threshold": 0.10,
             "eg_bars": 500,
             "eg_recalc": "daily",
+            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
             "rho_breakdown_level": 2,
             "beta_delta_max": 25.0,
+            "z_anomaly": 4.0,
         },
     }
     client = TestClient(server.app)
@@ -740,3 +855,154 @@ def test_runtime_config_post_rejects_invalid_json(tmp_path, monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["error"] == "INVALID_JSON"
+
+
+# ─── Slice D: live engine hot-reload of runtime profile ─────────────────────
+
+
+def _live_profile(eg_recalc="bar", eg_bars=2240, eg_threshold=0.10):
+    return {
+        "eg_threshold": eg_threshold,
+        "eg_bars": eg_bars,
+        "eg_recalc": eg_recalc,
+        "rho_breakdown_level": 2,
+        "beta_delta_max": 25.0,
+        "eg_strategies": ["CONS_BASE", "WDO_NWE"],
+        "z_anomaly": 4.0,
+    }
+
+
+def test_compute_live_eg_pvalue_bar_mode_calls_through(monkeypatch):
+    """eg_recalc='bar' just delegates to compute_engle_granger_pvalue."""
+    server.reset_live_eg_daily_cache()
+    calls = []
+
+    def fake_eg(win, wdo, ts):
+        calls.append((len(win), len(wdo), ts))
+        return 0.05
+
+    monkeypatch.setattr(server, "compute_engle_granger_pvalue", fake_eg)
+
+    win = list(range(500))
+    wdo = list(range(500))
+    pv = server._compute_live_eg_pvalue(
+        live_profile=_live_profile(eg_recalc="bar", eg_bars=100),
+        win_closes=win, wdo_closes=wdo,
+        bar_ts=1_700_000_000, date_str="2026-05-08",
+    )
+    assert pv == 0.05
+    # eg_bars=100 must trim the inputs before calling
+    assert calls == [(100, 100, 1_700_000_000)]
+
+
+def test_compute_live_eg_pvalue_daily_caches_first_pvalue(monkeypatch):
+    """eg_recalc='daily' computes once per date_str, then reuses."""
+    server.reset_live_eg_daily_cache()
+    call_count = {"n": 0}
+
+    def fake_eg(win, wdo, ts):
+        call_count["n"] += 1
+        return 0.07
+
+    monkeypatch.setattr(server, "compute_engle_granger_pvalue", fake_eg)
+
+    win = [1.0] * 300
+    wdo = [2.0] * 300
+    profile = _live_profile(eg_recalc="daily", eg_bars=100)
+
+    # First poll on 05-08 → computes
+    pv1 = server._compute_live_eg_pvalue(
+        live_profile=profile, win_closes=win, wdo_closes=wdo,
+        bar_ts=1_700_000_000, date_str="2026-05-08",
+    )
+    # Subsequent polls on the same date → cached, no recompute
+    pv2 = server._compute_live_eg_pvalue(
+        live_profile=profile, win_closes=win, wdo_closes=wdo,
+        bar_ts=1_700_000_300, date_str="2026-05-08",
+    )
+    pv3 = server._compute_live_eg_pvalue(
+        live_profile=profile, win_closes=win, wdo_closes=wdo,
+        bar_ts=1_700_000_600, date_str="2026-05-08",
+    )
+    assert pv1 == pv2 == pv3 == 0.07
+    assert call_count["n"] == 1
+
+    # New date → recomputes
+    server._compute_live_eg_pvalue(
+        live_profile=profile, win_closes=win, wdo_closes=wdo,
+        bar_ts=1_700_086_400, date_str="2026-05-09",
+    )
+    assert call_count["n"] == 2
+
+
+def test_compute_live_eg_pvalue_daily_invalidates_when_eg_bars_changes(monkeypatch):
+    """Mid-day hot-reload of eg_bars must recompute, not serve the stale value.
+
+    Cache key is (date_str, eg_bars) — so flipping the window via
+    /api/runtime-config invalidates the cached pvalue on the next poll
+    without waiting for the next session.
+    """
+    server.reset_live_eg_daily_cache()
+    pvalues = iter([0.07, 0.40])  # different windows → different pvalues
+
+    def fake_eg(win, wdo, ts):
+        return next(pvalues)
+
+    monkeypatch.setattr(server, "compute_engle_granger_pvalue", fake_eg)
+    win = [1.0] * 1000
+    wdo = [2.0] * 1000
+
+    pv1 = server._compute_live_eg_pvalue(
+        live_profile=_live_profile(eg_recalc="daily", eg_bars=250),
+        win_closes=win, wdo_closes=wdo,
+        bar_ts=1_700_000_000, date_str="2026-05-08",
+    )
+    pv2 = server._compute_live_eg_pvalue(
+        live_profile=_live_profile(eg_recalc="daily", eg_bars=2240),
+        win_closes=win, wdo_closes=wdo,
+        bar_ts=1_700_000_300, date_str="2026-05-08",
+    )
+    assert pv1 == 0.07
+    assert pv2 == 0.40  # not 0.07 — the change in eg_bars triggered recompute
+
+
+def test_compute_live_eg_pvalue_daily_does_not_cache_none(monkeypatch):
+    """A None pvalue (insufficient history) must retry on the next bar."""
+    server.reset_live_eg_daily_cache()
+    results = iter([None, 0.02])
+
+    def fake_eg(win, wdo, ts):
+        return next(results)
+
+    monkeypatch.setattr(server, "compute_engle_granger_pvalue", fake_eg)
+    profile = _live_profile(eg_recalc="daily", eg_bars=100)
+
+    pv1 = server._compute_live_eg_pvalue(
+        live_profile=profile, win_closes=[1] * 50, wdo_closes=[2] * 50,
+        bar_ts=1, date_str="2026-05-08",
+    )
+    assert pv1 is None
+    pv2 = server._compute_live_eg_pvalue(
+        live_profile=profile, win_closes=[1] * 200, wdo_closes=[2] * 200,
+        bar_ts=2, date_str="2026-05-08",
+    )
+    assert pv2 == 0.02
+
+
+def test_live_engine_falls_back_to_defaults_when_runtime_config_invalid(
+    tmp_path, monkeypatch,
+):
+    """A malformed runtime.json must not 500 the live engine — it falls back
+    to DEFAULTS so all 5 fields stay defined for the gate."""
+    target = tmp_path / "runtime.json"
+    target.write_text("not json{", encoding="utf-8")
+    monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)
+
+    # Sanity: get_profile raises on this file.
+    with pytest.raises(ValueError):
+        server.runtime_config.get_profile("live")
+
+    # The fallback path used in regime_v2 must produce a complete profile.
+    fallback = copy.deepcopy(server.runtime_config.DEFAULTS["live"])
+    for field in server.runtime_config.FIELDS:
+        assert field in fallback

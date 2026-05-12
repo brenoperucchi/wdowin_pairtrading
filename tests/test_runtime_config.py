@@ -98,6 +98,11 @@ def test_load_rejects_malformed_json(tmp_path):
         ("beta_delta_max", -1.0),
         ("beta_delta_max", 200.0),
         ("beta_delta_max", "25"),
+        ("z_anomaly", 0.0),
+        ("z_anomaly", -1.0),
+        ("z_anomaly", 10.5),
+        ("z_anomaly", "4.0"),
+        ("z_anomaly", True),
     ],
 )
 def test_validation_rejects_bad_values(tmp_path, field, value):
@@ -147,7 +152,7 @@ def test_get_profile_returns_validated_section(tmp_path):
 
     live = runtime_config.get_profile("live", target)
     replay = runtime_config.get_profile("replay", target)
-    assert live["eg_bars"] == 250
+    assert live["eg_bars"] == runtime_config.DEFAULTS["live"]["eg_bars"]
     assert replay["eg_bars"] == 1000
 
 
@@ -166,3 +171,117 @@ def test_save_normalises_int_to_float(tmp_path):
     assert isinstance(saved["live"]["beta_delta_max"], float)
     on_disk = json.loads(target.read_text(encoding="utf-8"))
     assert on_disk["live"]["eg_threshold"] == 1.0
+
+
+def test_validate_runtime_config_normalises_without_writing(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["replay"]["eg_threshold"] = 1
+
+    validated = runtime_config.validate_runtime_config(payload)
+
+    assert validated["replay"]["eg_threshold"] == 1.0
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "CONS_BASE",          # not a list
+        ["CONS_BASE", 1],     # entry not a string
+        ["CONS_BASE", "FOO"], # unknown strategy
+        ["CONS_BASE", "CONS_BASE"],  # duplicate
+    ],
+)
+def test_validation_rejects_bad_eg_strategies(tmp_path, value):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["eg_strategies"] = value
+    with pytest.raises(ValueError):
+        runtime_config.save_runtime_config(payload, target)
+
+
+def test_validation_accepts_empty_eg_strategies(tmp_path):
+    """Empty list = EG bypassed for ALL strategies (legitimate config)."""
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["eg_strategies"] = []
+    saved = runtime_config.save_runtime_config(payload, target)
+    assert saved["live"]["eg_strategies"] == []
+
+
+def test_validation_accepts_full_eg_strategies(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["eg_strategies"] = list(runtime_config.VALID_STRATEGIES)
+    saved = runtime_config.save_runtime_config(payload, target)
+    assert saved["live"]["eg_strategies"] == list(runtime_config.VALID_STRATEGIES)
+
+
+def test_defaults_eg_strategies_match_miqueias_split():
+    """Live + replay default to checking EG only on CONS_BASE and WDO_NWE."""
+    expected = ["CONS_BASE", "WDO_NWE"]
+    assert runtime_config.DEFAULTS["live"]["eg_strategies"] == expected
+    assert runtime_config.DEFAULTS["replay"]["eg_strategies"] == expected
+
+
+def test_defaults_beta_delta_max_aligned_with_upstream():
+    """Both profiles default to 15.0 — matches upstream `beta_status.level < 2`."""
+    assert runtime_config.DEFAULTS["live"]["beta_delta_max"] == 15.0
+    assert runtime_config.DEFAULTS["replay"]["beta_delta_max"] == 15.0
+
+
+def test_defaults_z_anomaly_matches_core_config():
+    """Both profiles default to 4.0 — same as core.config.Z_ANOMALY fallback."""
+    assert runtime_config.DEFAULTS["live"]["z_anomaly"] == 4.0
+    assert runtime_config.DEFAULTS["replay"]["z_anomaly"] == 4.0
+
+
+def test_load_backfills_missing_fields_from_defaults(tmp_path):
+    """An on-disk config from an older slice (no eg_strategies) must still load."""
+    target = tmp_path / "runtime.json"
+    legacy = {
+        "live": {
+            "eg_threshold": 0.05,
+            "eg_bars": 250,
+            "eg_recalc": "bar",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+        },
+        "replay": {
+            "eg_threshold": 0.10,
+            "eg_bars": 2240,
+            "eg_recalc": "daily",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+        },
+    }
+    target.write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = runtime_config.load_runtime_config(target)
+
+    # Original fields preserved
+    assert loaded["live"]["eg_threshold"] == 0.05
+    assert loaded["replay"]["eg_bars"] == 2240
+    # Missing field backfilled from DEFAULTS
+    assert loaded["live"]["eg_strategies"] == runtime_config.DEFAULTS["live"]["eg_strategies"]
+    assert loaded["replay"]["eg_strategies"] == runtime_config.DEFAULTS["replay"]["eg_strategies"]
+
+
+def test_save_does_not_backfill_missing_fields(tmp_path):
+    """POST stays strict — payloads missing required fields must still be rejected."""
+    target = tmp_path / "runtime.json"
+    incomplete = {
+        "live": {
+            "eg_threshold": 0.10,
+            "eg_bars": 250,
+            "eg_recalc": "bar",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+            # eg_strategies missing — save() must reject
+        },
+        "replay": copy.deepcopy(runtime_config.DEFAULTS["replay"]),
+    }
+    with pytest.raises(ValueError):
+        runtime_config.save_runtime_config(incomplete, target)
+    assert not target.exists()

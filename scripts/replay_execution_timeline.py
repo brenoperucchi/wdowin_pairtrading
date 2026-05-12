@@ -32,13 +32,18 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from core.config import LIVE_ORDERS  # noqa: E402
+from core import runtime_config  # noqa: E402
 from core.execution_timeline import (  # noqa: E402
     current_bottleneck,
     current_live_issue,
     init_timeline_table,
     record_event,
 )
-from core.risk_gate import risk_gate  # noqa: E402
+from core.risk_gate import (  # noqa: E402
+    compute_engle_granger_pvalue,
+    reset_eg_cache,
+    risk_gate,
+)
 from core.timeline_emit import (  # noqa: E402
     TIMELINE_RISK_REASONS,
     emit_closed_bar_timeline,
@@ -50,12 +55,34 @@ REQUIRED_BAR_FIELDS = (
     "win_price",
     "wdo_price",
     "di_price",
-    "eg_pvalue",
     "rho",
     "rho_level",
     "beta_value",
     "beta_delta_pct",
 )
+
+
+@dataclass(frozen=True)
+class ReplayRuntimeProfile:
+    eg_threshold: float
+    eg_bars: int
+    eg_recalc: str
+    rho_breakdown_level: int
+    beta_delta_max: float
+    eg_strategies: tuple[str, ...]
+    z_anomaly: float
+
+    @classmethod
+    def from_mapping(cls, payload: dict) -> "ReplayRuntimeProfile":
+        return cls(
+            eg_threshold=float(payload["eg_threshold"]),
+            eg_bars=int(payload["eg_bars"]),
+            eg_recalc=str(payload["eg_recalc"]),
+            rho_breakdown_level=int(payload["rho_breakdown_level"]),
+            beta_delta_max=float(payload["beta_delta_max"]),
+            eg_strategies=tuple(payload["eg_strategies"]),
+            z_anomaly=float(payload["z_anomaly"]),
+        )
 
 
 @dataclass
@@ -69,6 +96,7 @@ class ReplayStats:
     trades_closed: int = 0
     pnl_paper: float = 0.0
     last_bar_ts_iso: str | None = None
+    runtime_profile: ReplayRuntimeProfile | None = None
 
     def __post_init__(self):
         if self.missing_by_field is None:
@@ -101,6 +129,31 @@ def load_bars_for_date(source_db: str, date_str: str) -> list[dict]:
         conn.close()
 
 
+def load_eg_source_rows(source_db: str, date_str: str) -> list[dict]:
+    """Read all bar_history rows up to `date_str` for EG recomputation.
+
+    Replay processes only the requested date, but EG windows can be larger
+    than one session. Prior rows are therefore warmup data, not emitted bars.
+    """
+    abs_path = os.path.abspath(source_db)
+    uri = f"file:{abs_path}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=10.0)
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT timestamp, date_str, bar_time, win_price, wdo_price
+            FROM bar_history
+            WHERE date_str <= ?
+            ORDER BY timestamp ASC
+            """,
+            (date_str,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def _missing_required_fields(row: dict) -> list[str]:
     missing: list[str] = []
     for field in REQUIRED_BAR_FIELDS:
@@ -108,6 +161,77 @@ def _missing_required_fields(row: dict) -> list[str]:
         if field not in row or row.get(field) is None:
             missing.append(field)
     return missing
+
+
+def resolve_replay_profile(
+    *,
+    config_path: str | None = None,
+    overrides: dict | None = None,
+    runtime_profile: dict | ReplayRuntimeProfile | None = None,
+) -> ReplayRuntimeProfile:
+    """Load runtime_config['replay'] and apply CLI/test overrides."""
+    if isinstance(runtime_profile, ReplayRuntimeProfile):
+        return runtime_profile
+
+    if runtime_profile is None:
+        full_config = runtime_config.load_runtime_config(config_path)
+    else:
+        full_config = {
+            name: dict(values)
+            for name, values in runtime_config.DEFAULTS.items()
+        }
+        full_config["replay"] = dict(runtime_profile)
+
+    replay = dict(full_config["replay"])
+    for key, value in (overrides or {}).items():
+        if value is not None:
+            replay[key] = value
+
+    full_config["replay"] = replay
+    normalised = runtime_config.validate_runtime_config(full_config)
+    return ReplayRuntimeProfile.from_mapping(normalised["replay"])
+
+
+class ReplayEgComputer:
+    """Recompute Engle-Granger pvalues from bar_history prices."""
+
+    def __init__(self, rows: list[dict], profile: ReplayRuntimeProfile):
+        self.profile = profile
+        self._daily_cache: dict[str, float | None] = {}
+        self._valid_rows: list[dict] = []
+        for row in rows:
+            try:
+                self._valid_rows.append(
+                    {
+                        "timestamp": int(row["timestamp"]),
+                        "date_str": row["date_str"],
+                        "win_price": float(row["win_price"]),
+                        "wdo_price": float(row["wdo_price"]),
+                    }
+                )
+            except (TypeError, ValueError, KeyError):
+                continue
+
+    def pvalue_for(self, row: dict) -> float | None:
+        ts = int(row["timestamp"])
+        date_str = str(row.get("date_str") or "")
+        if self.profile.eg_recalc == "daily" and date_str in self._daily_cache:
+            return self._daily_cache[date_str]
+
+        window = [
+            item for item in self._valid_rows
+            if item["timestamp"] <= ts
+        ][-self.profile.eg_bars:]
+        if len(window) < 60:
+            pvalue = None
+        else:
+            win = [item["win_price"] for item in window]
+            wdo = [item["wdo_price"] for item in window]
+            pvalue = compute_engle_granger_pvalue(win, wdo, ts)
+
+        if self.profile.eg_recalc == "daily" and pvalue is not None:
+            self._daily_cache[date_str] = pvalue
+        return pvalue
 
 
 # ─── Per-bar emission ───────────────────────────────────────────────────────
@@ -153,12 +277,18 @@ def _row_timestamp_label(row: dict) -> str:
         return f"{date_str} {bar_time}"
 
 
+WIN_BETA_UNSTABLE_PCT = 15.0  # mirrors server.py `_win_beta_state` threshold
+
+
 def _process_bar(
     row: dict,
     *,
     engine: TradeEngine,
     replay_db: str,
     stats: ReplayStats,
+    runtime_profile: ReplayRuntimeProfile | None = None,
+    eg_computer: ReplayEgComputer | None = None,
+    beta_state: dict | None = None,
 ) -> None:
     bar_time = row.get("bar_time") or "00:00"
     try:
@@ -216,15 +346,37 @@ def _process_bar(
     rho_level = int(row["rho_level"])
     beta_value = float(row["beta_value"])
     beta_delta_pct = float(row["beta_delta_pct"])
-    eg_pvalue = float(row["eg_pvalue"])
+    if eg_computer is not None:
+        eg_pvalue = eg_computer.pvalue_for(row)
+    elif row.get("eg_pvalue") is None:
+        eg_pvalue = None
+    else:
+        eg_pvalue = float(row["eg_pvalue"])
     nwe_upper = float(row.get("nwe_upper") or 0.0)
     nwe_lower = float(row.get("nwe_lower") or 0.0)
     nwe_is_up = bool(row.get("nwe_is_up") or 0)
+
+    if runtime_profile is None:
+        runtime_profile = ReplayRuntimeProfile.from_mapping(
+            runtime_config.DEFAULTS["replay"]
+        )
 
     today_str = now_dt.strftime("%Y-%m-%d")
     trades_today_count = engine.count_trades_today(today_str)
     daily_pnl_brl = engine.pnl_today(today_str)
     minutes_since_last_loss = engine.minutes_since_last_loss(now=now_dt)
+
+    # Bar-over-bar Kalman beta state machine — parity with live server.py
+    # `_win_beta_state`. First bar has no predecessor → unstable=False.
+    if beta_state is None:
+        beta_state = {"previous_beta": None, "unstable": False}
+    prev_beta = beta_state.get("previous_beta")
+    if prev_beta is not None and prev_beta != 0:
+        beta_change_pct = (beta_value - prev_beta) / abs(prev_beta) * 100
+        beta_state["unstable"] = abs(beta_change_pct) > WIN_BETA_UNSTABLE_PCT
+    else:
+        beta_state["unstable"] = False
+    beta_state["previous_beta"] = beta_value
 
     pre_entry_gate = risk_gate(
         z_wdo=z_wdo,
@@ -241,6 +393,11 @@ def _process_bar(
         mt5_connected=True,
         joh_open=None,
         hmm_state=None,
+        eg_threshold=runtime_profile.eg_threshold,
+        rho_breakdown_level=runtime_profile.rho_breakdown_level,
+        beta_delta_max=runtime_profile.beta_delta_max,
+        z_anomaly=runtime_profile.z_anomaly,
+        beta_unstable=bool(beta_state["unstable"]),
     )
 
     trade_result = engine.evaluate(
@@ -261,6 +418,7 @@ def _process_bar(
         entry_win_price=win_price,
         entry_wdo_price=wdo_price,
         now_dt=now_dt,
+        eg_strategies=list(runtime_profile.eg_strategies),
     )
 
     emit_closed_bar_timeline(
@@ -321,6 +479,9 @@ def _summarize(stats: ReplayStats, *, engine: TradeEngine, replay_date: str) -> 
         "trades_closed": stats.trades_closed,
         "pnl_paper_brl": round(pnl_paper, 2),
         "last_bar_timestamp": stats.last_bar_ts_iso,
+        "runtime_profile": (
+            stats.runtime_profile.__dict__ if stats.runtime_profile else None
+        ),
         "current_bottleneck": _strip_payload(bottleneck),
         "current_live_issue": _strip_payload(live_issue),
     }
@@ -368,6 +529,16 @@ def _print_summary(summary: dict) -> None:
     print(f"  trades_opened:        {summary['trades_opened']}")
     print(f"  trades_closed:        {summary['trades_closed']}")
     print(f"  pnl_paper_brl:        {summary['pnl_paper_brl']}")
+    if summary.get("runtime_profile"):
+        prof = summary["runtime_profile"]
+        eg_strats = prof.get("eg_strategies") or []
+        print(
+            "  replay_profile:       "
+            f"EG<{prof['eg_threshold']} bars={prof['eg_bars']} "
+            f"recalc={prof['eg_recalc']} rho<L{prof['rho_breakdown_level']} "
+            f"beta<{prof['beta_delta_max']}% "
+            f"eg_for=[{','.join(eg_strats) or 'none'}]"
+        )
     bn = summary.get("current_bottleneck")
     li = summary.get("current_live_issue")
     if bn:
@@ -388,6 +559,9 @@ def run_replay(
     date_str: str,
     source_db: str,
     out_dir: str,
+    config_path: str | None = None,
+    runtime_profile: dict | ReplayRuntimeProfile | None = None,
+    overrides: dict | None = None,
 ) -> dict:
     """Run the replay. Returns the summary dict (also emitted as META event)."""
     if LIVE_ORDERS:
@@ -404,6 +578,13 @@ def run_replay(
             file=sys.stderr,
         )
 
+    profile = resolve_replay_profile(
+        config_path=config_path,
+        runtime_profile=runtime_profile,
+        overrides=overrides,
+    )
+    reset_eg_cache()
+
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     replay_db = os.path.join(out_dir, f"execution_timeline_{date_str}.db")
     _reset_replay_db(replay_db)
@@ -412,10 +593,21 @@ def run_replay(
     engine = TradeEngine(db_path=replay_db)
 
     rows = load_bars_for_date(source_db, date_str)
-    stats = ReplayStats(bars_total=len(rows))
+    eg_rows = load_eg_source_rows(source_db, date_str)
+    eg_computer = ReplayEgComputer(eg_rows, profile)
+    stats = ReplayStats(bars_total=len(rows), runtime_profile=profile)
 
+    beta_state = {"previous_beta": None, "unstable": False}
     for row in rows:
-        _process_bar(row, engine=engine, replay_db=replay_db, stats=stats)
+        _process_bar(
+            row,
+            engine=engine,
+            replay_db=replay_db,
+            stats=stats,
+            runtime_profile=profile,
+            eg_computer=eg_computer,
+            beta_state=beta_state,
+        )
 
     summary = _summarize(stats, engine=engine, replay_date=date_str)
     _emit_meta_event(db_path=replay_db, summary=summary)
@@ -447,6 +639,50 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         "--out", default="replays",
         help="Output directory for replay DB (default: replays/).",
     )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Runtime config JSON path (default: config/runtime.json).",
+    )
+    parser.add_argument(
+        "--eg-threshold",
+        type=float,
+        default=None,
+        help="Override replay eg_threshold.",
+    )
+    parser.add_argument(
+        "--eg-bars",
+        type=int,
+        default=None,
+        help="Override replay eg_bars.",
+    )
+    parser.add_argument(
+        "--eg-recalc",
+        choices=runtime_config.EG_RECALC_VALUES,
+        default=None,
+        help="Override replay eg_recalc.",
+    )
+    parser.add_argument(
+        "--rho-breakdown-level",
+        type=int,
+        default=None,
+        help="Override replay rho_breakdown_level.",
+    )
+    parser.add_argument(
+        "--beta-delta-max",
+        type=float,
+        default=None,
+        help="Override replay beta_delta_max.",
+    )
+    parser.add_argument(
+        "--eg-strategies",
+        default=None,
+        help=(
+            "Comma-separated list of strategies that check EG (subset of "
+            f"{list(runtime_config.VALID_STRATEGIES)}). Use 'none' to bypass "
+            "EG for all strategies."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -462,7 +698,33 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(f"[ERRO] source DB not found: {args.source}", file=sys.stderr)
         return 2
 
-    summary = run_replay(date_str=args.date, source_db=args.source, out_dir=args.out)
+    eg_strategies_override: list[str] | None = None
+    if args.eg_strategies is not None:
+        raw = args.eg_strategies.strip()
+        if raw.lower() == "none" or raw == "":
+            eg_strategies_override = []
+        else:
+            eg_strategies_override = [s.strip() for s in raw.split(",") if s.strip()]
+
+    overrides = {
+        "eg_threshold": args.eg_threshold,
+        "eg_bars": args.eg_bars,
+        "eg_recalc": args.eg_recalc,
+        "rho_breakdown_level": args.rho_breakdown_level,
+        "beta_delta_max": args.beta_delta_max,
+        "eg_strategies": eg_strategies_override,
+    }
+    try:
+        summary = run_replay(
+            date_str=args.date,
+            source_db=args.source,
+            out_dir=args.out,
+            config_path=args.config,
+            overrides=overrides,
+        )
+    except ValueError as exc:
+        print(f"[ERRO] invalid runtime config: {exc}", file=sys.stderr)
+        return 2
     print(f"\nWrote replay DB: {os.path.join(args.out, f'execution_timeline_{args.date}.db')}")
     print(f"Summary JSON: {json.dumps(summary, default=str)[:200]}...")
     return 0

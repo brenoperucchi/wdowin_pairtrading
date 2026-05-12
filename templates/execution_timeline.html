@@ -57,7 +57,11 @@
   tr.bad { background: rgba(248,81,73,0.06); }
   tr.skip td.status { color: var(--skip); }
   tr.warn td.status { color: var(--warn); }
-  td.msg { white-space: normal; max-width: 320px; color: var(--muted); font-size: 12px; }
+  td.msg { color: var(--muted); font-size: 12px; position: relative; }
+  .msg-ref { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; vertical-align: top; color: var(--accent); border-bottom: 1px dotted rgba(88,166,255,0.55); cursor: help; }
+  .msg-ref::after { content: "?"; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(88,166,255,0.5); color: var(--accent); font-size: 10px; flex: 0 0 auto; }
+  .tooltip { display: none; position: absolute; z-index: 20; top: 28px; right: 0; width: min(420px, 70vw); white-space: normal; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: #0f141d; color: var(--fg); box-shadow: 0 12px 30px rgba(0,0,0,0.38); line-height: 1.4; }
+  td.msg:hover .tooltip, td.msg:focus-within .tooltip { display: block; }
   td.num { font-variant-numeric: tabular-nums; text-align: right; }
   td.corr { font-family: ui-monospace, monospace; color: var(--muted); font-size: 11px; }
   .empty { padding: 24px; text-align: center; color: var(--muted); }
@@ -69,6 +73,7 @@
   Renderizado em <b>{{ rendered_at }}</b>
   · {{ events|length }} evento(s){% if filters_active %} (filtrados){% endif %}
   · modo: <b>{{ mode }}</b>{% if mode == 'replay' and (replay_date or filters.date) %} {{ replay_date or filters.date }}{% endif %}
+  · mercado: {% if filters.market_hours == '1' %}<b>{{ market_window.start }}–{{ market_window.end }}</b>{% else %}<b>todos os horarios</b>{% endif %}
   · auto-refresh: {% if refresh and refresh > 0 %}{{ refresh }}s{% else %}off{% endif %}
   <a href="/api/execution-timeline{% if query_string %}?{{ query_string }}{% endif %}">JSON</a>
 </div>
@@ -124,6 +129,12 @@
   </label>
   <label>date
     <input type="date" name="date" value="{{ filters.date or '' }}">
+  </label>
+  <label>horário
+    <select name="market_hours">
+      <option value="1"{% if filters.market_hours == '1' %} selected{% endif %}>Mercado</option>
+      <option value="0"{% if filters.market_hours == '0' %} selected{% endif %}>Todos</option>
+    </select>
   </label>
   {% if filters.mode == 'replay' %}
   <button type="button" id="generate-replay-btn" class="generate" {% if not filters.date %}disabled title="escolha uma data"{% endif %}>Gerar replay</button>
@@ -188,7 +199,12 @@
       <td class="num">{% if e.value is not none %}{{ "%.4g"|format(e.value) }}{% endif %}</td>
       <td class="num">{% if e.threshold is not none %}{{ e.operator or '' }} {{ "%.4g"|format(e.threshold) }}{% endif %}</td>
       <td class="num">{% if e.distance is not none %}{{ "%+.4g"|format(e.distance) }}{% endif %}</td>
-      <td class="msg">{{ (e.message or '')[:160] }}</td>
+      <td class="msg">
+        {% if e.message %}
+          <span class="msg-ref" tabindex="0">{{ e.event }}</span>
+          <span class="tooltip">{{ e.message }}</span>
+        {% endif %}
+      </td>
       <td class="corr">{{ (e.correlation_id or '')[:16] }}</td>
     </tr>
   {% else %}

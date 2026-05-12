@@ -5,6 +5,7 @@ import ZScoreChart from "./components/ZScoreChart";
 import RegimeHealthPanel from "./components/RegimeHealthPanel";
 import PerformancePanel from "./components/PerformancePanel";
 import ExecutionTimelinePanel from "./components/ExecutionTimelinePanel";
+import RuntimeConfigSlideover from "./components/RuntimeConfigSlideover";
 import TradingGuide from "./components/TradingGuide";
 import SignalHistogram from "./components/SignalHistogram";
 import IndexChart from "./components/IndexChart";
@@ -122,6 +123,7 @@ export default function App() {
     const [lastSignalId, setLastSignalId] = useState("neutro");
     const [diData, setDiData] = useState(null);
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
+    const [configOpen, setConfigOpen] = useState(false);
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
     const [, setHistLoading] = useState(false);
@@ -627,8 +629,27 @@ export default function App() {
                         </span>
                     </div>
                     <span style={{ fontSize: 13, color: "#c8a444", minWidth: 70, textAlign: "right" }}>{clock}</span>
+                    <button
+                        type="button"
+                        onClick={() => setConfigOpen(true)}
+                        title="Runtime config (live + replay)"
+                        style={{
+                            padding: "4px 10px", fontSize: 10, fontFamily: "monospace", fontWeight: "bold",
+                            letterSpacing: 2, cursor: "pointer", color: "#c8a444",
+                            background: "rgba(200,164,68,0.08)", border: "1px solid rgba(200,164,68,0.4)",
+                            borderRadius: 4,
+                        }}
+                    >
+                        CONFIG
+                    </button>
                 </div>
             </div>
+
+            <RuntimeConfigSlideover
+                isOpen={configOpen}
+                onClose={() => setConfigOpen(false)}
+                defaultReplayDate={selectedDate}
+            />
 
             {/* ── Banners ─────────────────────────────────────────────────────────── */}
             {error && (

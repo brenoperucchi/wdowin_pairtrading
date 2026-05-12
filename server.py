@@ -3,6 +3,7 @@
 FastAPI server for WIN×WDO pair trading regime monitoring.
 All computation logic lives in core/ modules.
 """
+import copy
 import json
 import logging
 import time
@@ -86,6 +87,7 @@ from core.risk_gate import (
 )
 from core.timeline_emit import (
     emit_closed_bar_timeline,
+    reason_message,
     timeline_minute_key,
     timeline_ts,
 )
@@ -297,6 +299,72 @@ _di_beta_state = {
     "unstable": False,
 }
 _di_coint_cache = {"date": None, "is_coint": False, "pvalue": 1.0}
+
+# WIN×WDO beta state machine — mirrors `_di_beta_state` but for the primary
+# pair feeding `risk_gate`. Updated only on confirmed bar close so the
+# bar-over-bar change percentage is real (multiple polls inside the same M5
+# bar would otherwise compare a value against itself). `unstable=True` is a
+# hard block in risk_gate (BETA_UNSTABLE reason), mirroring Miqueias upstream
+# `safe_to_trade and not beta_unstable`.
+_win_beta_state = {
+    "current_beta": None,
+    "previous_beta": None,
+    "last_closed_bar_ts": None,
+    "unstable": False,
+}
+WIN_BETA_UNSTABLE_PCT = 15.0  # |Δβ bar-over-bar| > this → unstable
+
+# Live EG pvalue cache for eg_recalc="daily". Keyed by (date_str, eg_bars)
+# so the value computed at the first qualifying bar of the day is reused for
+# the rest of the session (mirrors Miqueias's gestor reference). Including
+# eg_bars in the key means a hot-reload that changes the window invalidates
+# the stale pvalue on the very next poll — without the operator having to
+# wait for the next session. The "bar" mode bypasses this cache.
+_live_eg_daily_cache: dict[tuple[str, int], float] = {}
+_live_eg_daily_lock = threading.Lock()
+
+
+def _compute_live_eg_pvalue(
+    *,
+    live_profile: dict,
+    win_closes,
+    wdo_closes,
+    bar_ts,
+    date_str: str,
+) -> float | None:
+    """Resolve EG pvalue honoring eg_bars (window) + eg_recalc (cadence).
+
+    "bar"   → recompute on every bar (compute_engle_granger_pvalue still
+              dedupes within the same bar via its bar_ts cache).
+    "daily" → reuse the first computed value for the rest of (date_str,
+              eg_bars). Only finite values are cached; None results retry on
+              the next bar so a transient short-history miss self-heals.
+    """
+    eg_bars = int(live_profile.get("eg_bars", 0)) or 0
+    if eg_bars > 0 and win_closes is not None and len(win_closes) > eg_bars:
+        win_closes = win_closes[-eg_bars:]
+        wdo_closes = wdo_closes[-eg_bars:]
+
+    eg_recalc = live_profile.get("eg_recalc", "bar")
+    if eg_recalc == "daily":
+        cache_key = (date_str, eg_bars)
+        with _live_eg_daily_lock:
+            cached = _live_eg_daily_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        pvalue = compute_engle_granger_pvalue(win_closes, wdo_closes, bar_ts)
+        if pvalue is not None:
+            with _live_eg_daily_lock:
+                _live_eg_daily_cache[cache_key] = pvalue
+        return pvalue
+
+    return compute_engle_granger_pvalue(win_closes, wdo_closes, bar_ts)
+
+
+def reset_live_eg_daily_cache() -> None:
+    """Test helper — drop the daily cache so the next call recomputes."""
+    with _live_eg_daily_lock:
+        _live_eg_daily_cache.clear()
 
 # DI Kalman filter (persistent across requests)
 _di_kalman = KalmanBetaFilter(
@@ -510,6 +578,7 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
             ON CONFLICT(timestamp) DO UPDATE SET
                 wdo_price = COALESCE(bar_history.wdo_price, excluded.wdo_price),
                 di_price = COALESCE(bar_history.di_price, excluded.di_price),
+                z_di = COALESCE(excluded.z_di, bar_history.z_di),
                 eg_pvalue = COALESCE(bar_history.eg_pvalue, excluded.eg_pvalue),
                 rho = COALESCE(bar_history.rho, excluded.rho),
                 rho_level = COALESCE(bar_history.rho_level, excluded.rho_level),
@@ -1065,8 +1134,45 @@ def regime_v2():
     daily_pnl_brl = _trade_engine.pnl_today(today_str)
     minutes_since_last_loss = _trade_engine.minutes_since_last_loss(now=now_dt)
 
+    # ── Live runtime profile (hot-reloaded each poll) ──
+    # Operator can flip any of the 5 tunables via POST /api/runtime-config and
+    # the next poll picks them up without a restart. Falls back to DEFAULTS
+    # when the on-disk file is malformed so a bad save doesn't 500 the engine.
+    try:
+        live_profile = runtime_config.get_profile("live")
+    except ValueError:
+        live_profile = copy.deepcopy(runtime_config.DEFAULTS["live"])
+    live_eg_strategies = live_profile["eg_strategies"]
+
     # ── Centralized risk gate ──
-    eg_pvalue = compute_engle_granger_pvalue(eg_input_a, eg_input_b, closed_bar_ts)
+    eg_pvalue = _compute_live_eg_pvalue(
+        live_profile=live_profile,
+        win_closes=eg_input_a,
+        wdo_closes=eg_input_b,
+        bar_ts=closed_bar_ts,
+        date_str=today_str,
+    )
+
+    # WIN beta state machine — only advance on confirmed bar close so the
+    # bar-over-bar change is real. `previous_beta` is None on cold start;
+    # `beta_change_pct_closed` stays 0 for the first closed bar of the
+    # session and unstable=False (no prior to compare against).
+    beta_change_pct_closed = 0.0
+    if (
+        bar_close_confirmed
+        and closed_bar_ts is not None
+        and closed_bar_ts != _win_beta_state["last_closed_bar_ts"]
+    ):
+        prev_beta = _win_beta_state["current_beta"]
+        if prev_beta is not None and prev_beta != 0:
+            beta_change_pct_closed = (beta_closed - prev_beta) / abs(prev_beta) * 100
+            _win_beta_state["unstable"] = abs(beta_change_pct_closed) > WIN_BETA_UNSTABLE_PCT
+        else:
+            _win_beta_state["unstable"] = False
+        _win_beta_state["previous_beta"] = prev_beta
+        _win_beta_state["current_beta"] = beta_closed
+        _win_beta_state["last_closed_bar_ts"] = closed_bar_ts
+    win_beta_unstable = bool(_win_beta_state["unstable"])
 
     def _build_gate(trades_today, daily_pnl, mins_since_loss):
         # Closure captures all market-side inputs, which don't change
@@ -1088,6 +1194,11 @@ def regime_v2():
             mt5_connected=mt5.terminal_info() is not None,
             joh_open=joh_open,
             hmm_state=hmm.current_hmm_regime,
+            eg_threshold=live_profile["eg_threshold"],
+            rho_breakdown_level=live_profile["rho_breakdown_level"],
+            beta_delta_max=live_profile["beta_delta_max"],
+            z_anomaly=live_profile["z_anomaly"],
+            beta_unstable=win_beta_unstable,
         )
 
     pre_entry_gate = _build_gate(trades_today_count, daily_pnl_brl, minutes_since_last_loss)
@@ -1101,6 +1212,7 @@ def regime_v2():
         nwe_is_up=nwe_is_up_closed, nwe_upper=nwe_upper_closed, nwe_lower=nwe_lower_closed,
         closed_bar_ts=closed_bar_ts,
         now_dt=now_dt,
+        eg_strategies=live_eg_strategies,
     )
 
     # Refresh the gate post-evaluate so the published payload reflects
@@ -1209,7 +1321,7 @@ def regime_v2():
 
     res = _build_response(
         current_z, current_rho, 0, min(100.0, abs(current_z) / 4.0 * 100.0),
-        beta_current, beta_ref_20d, beta_delta_pct, 0.0, beta_status_d["level"] >= 2,
+        beta_current, beta_ref_20d, beta_delta_pct, beta_change_pct_closed, win_beta_unstable,
         rho_status, beta_status_d, safe_to_trade,
         trade_result, history, signal=sig_data, version="v2_kalman",
     )
@@ -1521,6 +1633,47 @@ def _resolve_timeline_db(mode: str | None, date: str | None) -> dict:
     }
 
 
+_EXPLAINED_TIMELINE_EVENTS = {
+    "EG_NOT_COINTEGRATED",
+    "EG_UNAVAILABLE",
+    "RHO_BREAKDOWN",
+    "BETA_DRIFT",
+    "BETA_UNSTABLE",
+    "Z_ANOMALY",
+    "OUT_OF_SESSION",
+    "MAX_TRADES_REACHED",
+    "DAILY_LOSS_LIMIT",
+    "LOSS_COOLDOWN",
+    "MT5_DISCONNECTED",
+}
+
+
+def _enrich_timeline_message(row: dict | None) -> dict | None:
+    if not row or row.get("event") not in _EXPLAINED_TIMELINE_EVENTS:
+        return row
+    out = dict(row)
+    out["message"] = reason_message(
+        str(row.get("event")),
+        str(row.get("phase") or ""),
+        row,
+    )
+    return out
+
+
+def _enrich_timeline_messages(rows: list[dict]) -> list[dict]:
+    return [_enrich_timeline_message(row) or row for row in rows]
+
+
+def _minute_to_hhmm(total_minutes: int) -> str:
+    return f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+
+
+def _timeline_market_bounds(market_hours: bool) -> tuple[str | None, str | None]:
+    if not market_hours:
+        return None, None
+    return _minute_to_hhmm(SESSION_START), _minute_to_hhmm(SESSION_END)
+
+
 @app.get("/api/execution-timeline")
 @app.get("/api/execution_timeline")
 def execution_timeline_endpoint(
@@ -1532,6 +1685,7 @@ def execution_timeline_endpoint(
     since: str | None = None,
     mode: str = "live",
     date: str | None = None,
+    market_hours: bool = True,
 ):
     """Structured operational funnel events for the dashboard."""
     resolved = _resolve_timeline_db(mode, date)
@@ -1544,23 +1698,34 @@ def execution_timeline_endpoint(
         return JSONResponse(status_code=resolved["status_code"], content=content)
 
     db_path = resolved["db_path"]
+    market_start, market_end = _timeline_market_bounds(market_hours)
 
-    events = load_timeline(
-        db_path,
-        limit=limit,
-        phase=phase,
-        status=status,
-        strategy=strategy,
-        event=event,
-        since=since,
+    events = _enrich_timeline_messages(
+        load_timeline(
+            db_path,
+            limit=limit,
+            phase=phase,
+            status=status,
+            strategy=strategy,
+            event=event,
+            since=since,
+            time_start=market_start,
+            time_end=market_end,
+        )
     )
     return {
         "mode": resolved["mode"],
         "date": resolved["date"],
+        "market_hours": bool(market_hours),
+        "market_window": {"start": market_start, "end": market_end},
         "events": events,
         "summary": {
-            "current_bottleneck": current_bottleneck(db_path),
-            "current_live_issue": current_live_issue(db_path),
+            "current_bottleneck": _enrich_timeline_message(
+                current_bottleneck(db_path, time_start=market_start, time_end=market_end)
+            ),
+            "current_live_issue": _enrich_timeline_message(
+                current_live_issue(db_path, time_start=market_start, time_end=market_end)
+            ),
         },
     }
 
@@ -1805,6 +1970,7 @@ def execution_timeline_html(
     refresh: int = 5,
     mode: str = "live",
     date: str | None = None,
+    market_hours: bool = True,
 ):
     """Standalone server-rendered HTML view of the execution timeline."""
     resolved = _resolve_timeline_db(mode, date)
@@ -1818,6 +1984,7 @@ def execution_timeline_html(
 
     if resolved["ok"]:
         db_path = resolved["db_path"]
+        market_start, market_end = _timeline_market_bounds(market_hours)
         events = load_timeline(
             db_path,
             limit=limit,
@@ -1825,10 +1992,18 @@ def execution_timeline_html(
             status=status or None,
             strategy=strategy or None,
             event=event or None,
+            time_start=market_start,
+            time_end=market_end,
         )
-        current_bottleneck_obj = current_bottleneck(db_path)
-        current_live_issue_obj = current_live_issue(db_path)
+        events = _enrich_timeline_messages(events)
+        current_bottleneck_obj = _enrich_timeline_message(
+            current_bottleneck(db_path, time_start=market_start, time_end=market_end)
+        )
+        current_live_issue_obj = _enrich_timeline_message(
+            current_live_issue(db_path, time_start=market_start, time_end=market_end)
+        )
     else:
+        market_start, market_end = _timeline_market_bounds(market_hours)
         events = []
         current_bottleneck_obj = None
         current_live_issue_obj = None
@@ -1862,11 +2037,13 @@ def execution_timeline_html(
         "strategy": strategy or "",
         "event": event or "",
         "limit": limit,
+        "market_hours": "1" if market_hours else "0",
     }
     filters_active = (
         filters["mode"] != "live"
         or bool(filters["date"])
-        or any(v for k, v in filters.items() if k not in {"limit", "mode", "date"})
+        or filters["market_hours"] != "1"
+        or any(v for k, v in filters.items() if k not in {"limit", "mode", "date", "market_hours"})
         or limit != 200
     )
     qs = request.url.query
@@ -1885,6 +2062,7 @@ def execution_timeline_html(
             "phase_options": _TIMELINE_PHASE_OPTIONS,
             "status_options": _TIMELINE_STATUS_OPTIONS,
             "refresh": refresh,
+            "market_window": {"start": market_start, "end": market_end},
             "rendered_at": datetime.now().isoformat(timespec="seconds"),
             "row_class": _timeline_row_class,
             "query_string": qs,
@@ -2000,17 +2178,15 @@ def history_endpoint(days: int = 30):
             di_t = times_di[-min_di:]
             win_for_di = ac[-min_di:]
 
-            # DI Kalman filter
-            kf_di = KalmanBetaFilter(
-                initial_beta=DI_BETA_INITIAL,
-                trans_cov=DI_KALMAN_Q,
-                obs_cov=DI_KALMAN_R,
+            # Keep historical DI aligned with /api/di-regime; Kalman flips this signal.
+            ref_window = min(DI_BETA_REF_BARS, len(win_for_di))
+            beta_di = calc_beta_ols(
+                win_for_di[-ref_window:], di_c[-ref_window:], window=ref_window
             )
-            di_spreads = []
-            for y, x in zip(win_for_di, di_c):
-                _, spread_t, _ = kf_di.update(float(y), float(x))
-                di_spreads.append(spread_t)
-            z_di_arr = KalmanBetaFilter.rolling_zscore(di_spreads, window=DI_KALMAN_W)
+            _, z_di_arr, _ = calc_zscore(
+                win_for_di, di_c, beta=beta_di,
+                window=DI_KALMAN_W, max_bars=len(win_for_di)
+            )
 
             for i, t in enumerate(di_t):
                 local_ts = int(t) + TIME_OFFSET

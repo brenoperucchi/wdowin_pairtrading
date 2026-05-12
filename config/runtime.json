@@ -1,15 +1,23 @@
 {
   "live": {
     "beta_delta_max": 25.0,
-    "eg_bars": 250,
-    "eg_recalc": "bar",
+    "eg_bars": 2240,
+    "eg_recalc": "daily",
+    "eg_strategies": [
+      "CONS_BASE",
+      "WDO_NWE"
+    ],
     "eg_threshold": 0.10,
     "rho_breakdown_level": 2
   },
   "replay": {
-    "beta_delta_max": 25.0,
-    "eg_bars": 500,
+    "beta_delta_max": 15.0,
+    "eg_bars": 2240,
     "eg_recalc": "daily",
+    "eg_strategies": [
+      "CONS_BASE",
+      "WDO_NWE"
+    ],
     "eg_threshold": 0.10,
     "rho_breakdown_level": 2
   }

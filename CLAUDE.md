@@ -101,11 +101,14 @@ All use inline `style={{}}` objects and Recharts for visualization. Dark financi
 
 **DI as macro filter:** `DI1$N` (Selic futures) is used as a third vector for regime confirmation in `DI_NWE` and `CONS_BASE` strategies, which is non-obvious and unique to B3.
 
-**Regime health gates** (checked before any entry):
-- `ρ > -0.40` → block (correlation breakdown)
-- `Δβ > 25%` vs 20d moving average → block (hedge ratio drift)
-- Engle-Granger p-value ≥ 0.10 → zero contracts
-- `|z| ≥ 4.0` → block (anomaly)
+**Regime health gates** (checked before any entry — aligned with Miqueias upstream `server.py:608` `safe_to_trade`):
+- `rho_status.level ≥ 2` → block. Equivalent to `ρ > -0.55`. Level table in `core/signals.py:get_rho_status`: 0=`ρ≤-0.70`, 1=`ρ≤-0.55`, 2=`ρ≤-0.40`, 3=`ρ>-0.40`. Tunable via `runtime_config.rho_breakdown_level` (default 2).
+- `|Δβ| ≥ 15%` vs 20d moving average → block. Comes from upstream `beta_status.level < 2`. Tunable via `runtime_config.beta_delta_max` (default 15.0 on both live and replay profiles).
+- Engle-Granger p-value ≥ `runtime_config.eg_threshold` (default 0.10) → block. Per-strategy via `eg_strategies`.
+- `|z| ≥ runtime_config.z_anomaly` (default 4.0, falls back to `core.config.Z_ANOMALY`) → block (anomaly). Enforced inside `risk_gate` and `TradeEngine.evaluate`.
+- `beta_unstable=True` → block. Bar-over-bar Kalman beta state machine (`server.py:_win_beta_state`, threshold `WIN_BETA_UNSTABLE_PCT=15.0`); replay mirrors it across `_process_bar` iterations. Mirrors upstream `safe_to_trade and not beta_unstable`.
+
+If you tighten/loosen any of these in code or runtime config, mirror the change here.
 
 ## Critical Constraints
 

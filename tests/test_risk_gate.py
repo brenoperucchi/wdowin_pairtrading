@@ -92,6 +92,20 @@ def test_beta_drift_at_25pct_blocks():
     assert "BETA_DRIFT" in out["reasons"]
 
 
+def test_beta_drift_blocks_at_runtime_config_15_default():
+    """With the upstream-aligned 15.0 default from runtime_config, 20% drift blocks.
+
+    Pre-TASK-13.1 this case (beta_delta_pct=20, beta_delta_max=15) was being passed
+    25.0 from DEFAULTS.live and silently allowed.
+    """
+    out = risk_gate(**_ok_kwargs(beta_delta_pct=20.0, beta_delta_max=15.0))
+    assert "BETA_DRIFT" in out["reasons"]
+
+    # Sanity: same drift at the old 25.0 threshold did not block.
+    out_old = risk_gate(**_ok_kwargs(beta_delta_pct=20.0, beta_delta_max=25.0))
+    assert "BETA_DRIFT" not in out_old["reasons"]
+
+
 def test_beta_drift_negative_direction_also_blocks():
     """Both positive and negative drift must trip the gate."""
     out = risk_gate(**_ok_kwargs(beta_delta_pct=-30.0))
@@ -121,6 +135,42 @@ def test_z_anomaly_on_either_leg_blocks():
     assert "Z_ANOMALY" in out_di["reasons"]
 
 
+def test_z_anomaly_kwarg_overrides_default():
+    """live_profile.z_anomaly=3.5 must trip at |z|=3.7 even though core.config.Z_ANOMALY=4.0."""
+    out = risk_gate(**_ok_kwargs(z_wdo=3.7, z_anomaly=3.5))
+    assert "Z_ANOMALY" in out["reasons"]
+
+    # Sanity: same |z|=3.7 at the unchanged 4.0 threshold does not block.
+    out_default = risk_gate(**_ok_kwargs(z_wdo=3.7))
+    assert "Z_ANOMALY" not in out_default["reasons"]
+
+
+def test_z_anomaly_kwarg_can_loosen_threshold():
+    """live_profile.z_anomaly=5.0 lets |z|=4.5 pass when the static default would block."""
+    out = risk_gate(**_ok_kwargs(z_wdo=4.5, z_anomaly=5.0))
+    assert "Z_ANOMALY" not in out["reasons"]
+
+
+def test_beta_unstable_true_blocks_with_reason():
+    """`beta_unstable=True` mirrors upstream `not beta_unstable` → BETA_UNSTABLE."""
+    out = risk_gate(**_ok_kwargs(beta_unstable=True))
+    assert out["allowed"] is False
+    assert "BETA_UNSTABLE" in out["reasons"]
+    assert out["checks"]["beta_state"] is False
+
+
+def test_beta_unstable_false_does_not_block():
+    out = risk_gate(**_ok_kwargs(beta_unstable=False))
+    assert "BETA_UNSTABLE" not in out["reasons"]
+    assert out["checks"]["beta_state"] is True
+
+
+def test_beta_unstable_default_does_not_block():
+    """Omitting the kwarg keeps prior callers unaffected (default False)."""
+    out = risk_gate(**_ok_kwargs())
+    assert "BETA_UNSTABLE" not in out["reasons"]
+
+
 def test_eg_unavailable_blocks_with_explicit_reason():
     out = risk_gate(**_ok_kwargs(eg_pvalue=None))
     assert out["allowed"] is False
@@ -136,6 +186,27 @@ def test_eg_above_threshold_blocks():
 def test_eg_just_below_threshold_passes():
     out = risk_gate(**_ok_kwargs(eg_pvalue=EG_PVALUE_THRESHOLD - 1e-9))
     assert out["checks"]["engle_granger"] is True
+
+
+def test_threshold_overrides_are_applied_without_changing_defaults():
+    relaxed = risk_gate(
+        **_ok_kwargs(
+            eg_pvalue=0.20,
+            rho_level=2,
+            beta_delta_pct=30.0,
+            eg_threshold=0.30,
+            rho_breakdown_level=3,
+            beta_delta_max=40.0,
+        )
+    )
+    assert "EG_NOT_COINTEGRATED" not in relaxed["reasons"]
+    assert "RHO_BREAKDOWN" not in relaxed["reasons"]
+    assert "BETA_DRIFT" not in relaxed["reasons"]
+
+    default = risk_gate(**_ok_kwargs(eg_pvalue=0.20, rho_level=2, beta_delta_pct=30.0))
+    assert "EG_NOT_COINTEGRATED" in default["reasons"]
+    assert "RHO_BREAKDOWN" in default["reasons"]
+    assert "BETA_DRIFT" in default["reasons"]
 
 
 # ─── Composite ──────────────────────────────────────────────────────────────

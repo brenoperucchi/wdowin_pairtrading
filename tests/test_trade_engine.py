@@ -131,6 +131,96 @@ def test_blocked_gate_with_session_reason_returns_wait(engine):
     assert result["action"] == "WAIT"
 
 
+# ── Per-strategy EG bypass (Slice C) ─────────────────────────────────────────
+
+def test_eg_strategies_none_blocks_all_strategies(engine):
+    """Default behaviour (eg_strategies=None): EG_NOT_COINTEGRATED blocks every slot."""
+    result = engine.evaluate(
+        z_wdo=2.5, z_di=2.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(allowed=False, reasons=["EG_NOT_COINTEGRATED"]),
+        hmm_state="CHOP", hour=11, minute=0,
+        eg_strategies=None,
+    )
+    for strat in ("CONS_BASE", "WDO_NWE", "DI_NWE"):
+        assert "EG_NOT_COINTEGRATED" in result["strategies"][strat]["gate_reasons"]
+        assert result["strategies"][strat]["open_trade"] is None
+
+
+def test_eg_strategies_subset_strips_eg_for_excluded_slots(engine):
+    """Strategies absent from eg_strategies should not see EG reasons."""
+    result = engine.evaluate(
+        z_wdo=2.5, z_di=2.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(allowed=False, reasons=["EG_NOT_COINTEGRATED"]),
+        hmm_state="CHOP", hour=11, minute=0,
+        nwe_is_up=True, nwe_upper=130100.0, nwe_lower=129900.0,
+        eg_strategies=["CONS_BASE", "WDO_NWE"],
+    )
+    # Listed strategies still blocked by EG
+    assert "EG_NOT_COINTEGRATED" in result["strategies"]["CONS_BASE"]["gate_reasons"]
+    assert "EG_NOT_COINTEGRATED" in result["strategies"]["WDO_NWE"]["gate_reasons"]
+    # DI_NWE bypasses EG: gate_reasons (if present) must not include it.
+    di_reasons = result["strategies"]["DI_NWE"].get("gate_reasons", [])
+    assert "EG_NOT_COINTEGRATED" not in di_reasons
+
+
+def test_eg_strategies_empty_bypasses_eg_for_all_slots(engine):
+    """eg_strategies=[] means EG never blocks — strategies pass the gate (CONS_BASE opens)."""
+    result = engine.evaluate(
+        z_wdo=2.5, z_di=2.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(allowed=False, reasons=["EG_NOT_COINTEGRATED"]),
+        hmm_state="CHOP", hour=11, minute=0,
+        nwe_is_up=True, nwe_upper=130100.0, nwe_lower=129900.0,
+        eg_strategies=[],
+    )
+    # CONS_BASE bypasses EG and reaches its strategy logic → SELL_WIN opens
+    assert result["strategies"]["CONS_BASE"]["open_trade"] is not None
+    # No slot may report EG as a blocking reason when EG is bypassed for all.
+    for strat in ("CONS_BASE", "WDO_NWE", "DI_NWE"):
+        reasons = result["strategies"][strat].get("gate_reasons", [])
+        assert "EG_NOT_COINTEGRATED" not in reasons
+
+
+def test_eg_strategies_bypass_does_not_strip_other_reasons(engine):
+    """EG bypass must only strip EG_* reasons, not BETA_DRIFT or RHO_BREAKDOWN."""
+    result = engine.evaluate(
+        z_wdo=2.5, z_di=2.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(
+            allowed=False,
+            reasons=["EG_NOT_COINTEGRATED", "BETA_DRIFT"],
+        ),
+        hmm_state="CHOP", hour=11, minute=0,
+        eg_strategies=["CONS_BASE"],  # WDO_NWE and DI_NWE bypass EG
+    )
+    # CONS_BASE sees both
+    assert "EG_NOT_COINTEGRATED" in result["strategies"]["CONS_BASE"]["gate_reasons"]
+    assert "BETA_DRIFT" in result["strategies"]["CONS_BASE"]["gate_reasons"]
+    # The bypassed slots still see BETA_DRIFT (only EG is stripped)
+    for strat in ("WDO_NWE", "DI_NWE"):
+        assert "EG_NOT_COINTEGRATED" not in result["strategies"][strat]["gate_reasons"]
+        assert "BETA_DRIFT" in result["strategies"][strat]["gate_reasons"]
+
+
+def test_eg_unavailable_also_filtered_for_excluded_strategies(engine):
+    """Both EG_REASONS members (EG_UNAVAILABLE + EG_NOT_COINTEGRATED) are stripped."""
+    result = engine.evaluate(
+        z_wdo=2.5, z_di=2.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(allowed=False, reasons=["EG_UNAVAILABLE"]),
+        hmm_state="CHOP", hour=11, minute=0,
+        nwe_is_up=True, nwe_upper=130100.0, nwe_lower=129900.0,
+        eg_strategies=["CONS_BASE", "WDO_NWE"],
+    )
+    assert "EG_UNAVAILABLE" in result["strategies"]["CONS_BASE"]["gate_reasons"]
+    assert "EG_UNAVAILABLE" in result["strategies"]["WDO_NWE"]["gate_reasons"]
+    di_reasons = result["strategies"]["DI_NWE"].get("gate_reasons", [])
+    assert "EG_UNAVAILABLE" not in di_reasons
+
+
 # ── Exit conditions (gate is allowed; entries open then exits trigger) ───────
 
 def test_stop_loss_buy(engine):

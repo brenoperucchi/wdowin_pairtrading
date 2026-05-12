@@ -36,6 +36,11 @@ EG_PVALUE_THRESHOLD = 0.10  # block when pvalue >= this
 EG_MIN_BARS = 60  # minimum bars for a meaningful coint test
 RHO_BREAKDOWN_LEVEL = 2  # block when rho_status['level'] >= this
 
+# Reasons emitted by risk_gate that come from the cointegration check.
+# `TradeEngine.evaluate()` uses this set to filter EG out for strategies
+# configured to bypass it (e.g. DI_NWE in Miqueias's design).
+EG_REASONS = frozenset({"EG_NOT_COINTEGRATED", "EG_UNAVAILABLE"})
+
 
 # ─── Engle-Granger pvalue cache (keyed by last_bar_ts) ──────────────────────
 # FastAPI runs sync endpoints in a threadpool (not the event loop), so
@@ -176,6 +181,11 @@ def risk_gate(
     mt5_connected: bool = True,
     joh_open: Optional[bool] = None,
     hmm_state: Optional[str] = None,
+    eg_threshold: Optional[float] = None,
+    rho_breakdown_level: Optional[int] = None,
+    beta_delta_max: Optional[float] = None,
+    z_anomaly: Optional[float] = None,
+    beta_unstable: bool = False,
 ) -> dict:
     """Run all hard gates and return a structured decision.
 
@@ -190,20 +200,28 @@ def risk_gate(
     Blocking gates (any False → not allowed):
       - bar_close: entries fire only on confirmed bar close
       - session:   inside ENTRY_START..ENTRY_END
-      - rho:       rho_status level < 2 (correlation healthy)
-      - beta:      |beta_delta_pct| < BETA_DELTA_MAX
+      - rho:       rho_status level < rho_breakdown_level (correlation healthy)
+      - beta:      |beta_delta_pct| < beta_delta_max
+      - beta_state: not beta_unstable (bar-over-bar Kalman drift state machine)
       - z_anomaly: max(|z_wdo|, |z_di|) < Z_ANOMALY
-      - engle_granger: eg_pvalue is finite AND < 0.10
+      - engle_granger: eg_pvalue is finite AND < eg_threshold
       - max_trades: trades_today_count < MAX_TRADES_PER_DAY
       - daily_loss: daily_pnl_brl > -DAILY_LOSS_LIMIT_BRL
       - loss_cooldown: minutes_since_last_loss is None OR >= LOSS_COOLDOWN_MIN
       - mt5_connection: mt5_connected (skipped if BLOCK_ON_MT5_DISCONNECT=False)
 
     Reasons emitted:
-      BAR_NOT_CLOSED, OUT_OF_SESSION, RHO_BREAKDOWN, BETA_DRIFT,
+      BAR_NOT_CLOSED, OUT_OF_SESSION, RHO_BREAKDOWN, BETA_DRIFT, BETA_UNSTABLE,
       Z_ANOMALY, EG_UNAVAILABLE, EG_NOT_COINTEGRATED,
       MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN, MT5_DISCONNECTED.
     """
+    eg_threshold = EG_PVALUE_THRESHOLD if eg_threshold is None else eg_threshold
+    rho_breakdown_level = (
+        RHO_BREAKDOWN_LEVEL if rho_breakdown_level is None else rho_breakdown_level
+    )
+    beta_delta_max = BETA_DELTA_MAX if beta_delta_max is None else beta_delta_max
+    z_anomaly_threshold = Z_ANOMALY if z_anomaly is None else z_anomaly
+
     reasons: list[str] = []
     checks: dict[str, bool] = {}
 
@@ -215,22 +233,26 @@ def risk_gate(
     if not checks["session"]:
         reasons.append("OUT_OF_SESSION")
 
-    checks["rho"] = rho_level < RHO_BREAKDOWN_LEVEL
+    checks["rho"] = rho_level < rho_breakdown_level
     if not checks["rho"]:
         reasons.append("RHO_BREAKDOWN")
 
-    checks["beta"] = abs(beta_delta_pct) < BETA_DELTA_MAX
+    checks["beta"] = abs(beta_delta_pct) < beta_delta_max
     if not checks["beta"]:
         reasons.append("BETA_DRIFT")
 
-    checks["z_anomaly"] = abs(z_wdo) < Z_ANOMALY and abs(z_di) < Z_ANOMALY
+    checks["beta_state"] = not bool(beta_unstable)
+    if not checks["beta_state"]:
+        reasons.append("BETA_UNSTABLE")
+
+    checks["z_anomaly"] = abs(z_wdo) < z_anomaly_threshold and abs(z_di) < z_anomaly_threshold
     if not checks["z_anomaly"]:
         reasons.append("Z_ANOMALY")
 
     if eg_pvalue is None:
         checks["engle_granger"] = False
         reasons.append("EG_UNAVAILABLE")
-    elif eg_pvalue >= EG_PVALUE_THRESHOLD:
+    elif eg_pvalue >= eg_threshold:
         checks["engle_granger"] = False
         reasons.append("EG_NOT_COINTEGRATED")
     else:

@@ -233,6 +233,42 @@ def test_load_timeline_clamps_non_positive_limit(db):
     assert len(et.load_timeline(db, limit=0)) == 1
 
 
+def test_load_timeline_filters_by_intraday_time_window(db):
+    et.bulk_record_events(
+        db,
+        [
+            {
+                "dedupe_key": "bar:1:ELIGIBILITY:PRE",
+                "closed_bar_ts": 1,
+                "phase": "ELIGIBILITY",
+                "event": "PRE_MARKET",
+                "status": "BLOCKED",
+                "timestamp": "2026-05-08T08:45:00",
+            },
+            {
+                "dedupe_key": "bar:2:ELIGIBILITY:OPEN",
+                "closed_bar_ts": 2,
+                "phase": "ELIGIBILITY",
+                "event": "IN_MARKET",
+                "status": "BLOCKED",
+                "timestamp": "2026-05-08T09:05:00",
+            },
+            {
+                "dedupe_key": "bar:3:ELIGIBILITY:AFTER",
+                "closed_bar_ts": 3,
+                "phase": "ELIGIBILITY",
+                "event": "AFTER_MARKET",
+                "status": "BLOCKED",
+                "timestamp": "2026-05-08T18:25:00",
+            },
+        ],
+    )
+
+    rows = et.load_timeline(db, time_start="08:50", time_end="18:20")
+
+    assert [r["event"] for r in rows] == ["IN_MARKET"]
+
+
 # ─── current_bottleneck ──────────────────────────────────────────────────────
 
 def test_current_bottleneck_picks_first_blocked_in_funnel_order(db):
@@ -289,6 +325,36 @@ def test_current_bottleneck_uses_latest_bar_only(db):
     assert et.current_bottleneck(db) is None  # latest bar passed clean
 
 
+def test_current_bottleneck_can_ignore_after_market_rows(db):
+    et.bulk_record_events(
+        db,
+        [
+            {
+                "dedupe_key": "bar:1:ELIGIBILITY:EG",
+                "closed_bar_ts": 1,
+                "phase": "ELIGIBILITY",
+                "event": "EG_NOT_COINTEGRATED",
+                "status": "BLOCKED",
+                "timestamp": "2026-05-08T10:00:00",
+            },
+            {
+                "dedupe_key": "bar:2:ELIGIBILITY:OUT",
+                "closed_bar_ts": 2,
+                "phase": "ELIGIBILITY",
+                "event": "OUT_OF_SESSION",
+                "status": "BLOCKED",
+                "timestamp": "2026-05-08T18:25:00",
+            },
+        ],
+    )
+
+    market = et.current_bottleneck(db, time_start="08:50", time_end="18:20")
+    all_hours = et.current_bottleneck(db)
+
+    assert market["event"] == "EG_NOT_COINTEGRATED"
+    assert all_hours["event"] == "OUT_OF_SESSION"
+
+
 def test_current_bottleneck_none_when_no_closed_bar_events(db):
     # only a critical live event (closed_bar_ts NULL)
     et.record_event(
@@ -335,6 +401,38 @@ def test_current_live_issue_returns_latest_failed_without_bar(db):
     issue = et.current_live_issue(db, now=datetime.fromisoformat("2026-05-08T10:06:00"))
     assert issue is not None
     assert issue["event"] == "BARS_FETCH_FAILED"
+
+
+def test_current_live_issue_can_ignore_after_market_failure(db):
+    et.bulk_record_events(
+        db,
+        [
+            {
+                "dedupe_key": "crit:DATA:MT5_DISCONNECTED:market",
+                "phase": "DATA",
+                "event": "MT5_DISCONNECTED",
+                "status": "FAILED",
+                "timestamp": "2026-05-08T10:00:00",
+            },
+            {
+                "dedupe_key": "crit:DATA:MT5_DISCONNECTED:after",
+                "phase": "DATA",
+                "event": "MT5_DISCONNECTED",
+                "status": "FAILED",
+                "timestamp": "2026-05-08T18:25:00",
+            },
+        ],
+    )
+
+    issue = et.current_live_issue(
+        db,
+        now=datetime.fromisoformat("2026-05-08T10:01:00"),
+        max_age_seconds=None,
+        time_start="08:50",
+        time_end="18:20",
+    )
+
+    assert issue["timestamp"] == "2026-05-08T10:00:00"
 
 
 def test_current_live_issue_expires_old_failed_without_bar(db):

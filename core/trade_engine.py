@@ -26,7 +26,7 @@ from core.config import (
     LIVE_ORDERS, LIVE_SYMBOL_WIN, LIVE_DEVIATION, MAGIC_BY_STRATEGY,
 )
 from core.execution_timeline import init_timeline_table, record_event
-from core.risk_gate import operational_checks, WITHIN_POLL_OP_REASONS
+from core.risk_gate import EG_REASONS, operational_checks, WITHIN_POLL_OP_REASONS
 
 STRATEGIES = ["CONS_BASE", "WDO_NWE", "DI_NWE"]
 
@@ -147,7 +147,8 @@ class TradeEngine:
                  closed_bar_ts: int | None = None,
                  entry_win_price: float | None = None,
                  entry_wdo_price: float | None = None,
-                 now_dt: datetime | None = None) -> dict:
+                 now_dt: datetime | None = None,
+                 eg_strategies: list[str] | None = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -172,6 +173,14 @@ class TradeEngine:
         ``now_dt`` defaults to wall-clock time for live operation. Replay
         passes the closed bar timestamp here so daily limits, cooldown, and
         persisted trade timestamps follow the replayed session clock.
+
+        ``eg_strategies`` is the subset of STRATEGIES that should still be
+        blocked by EG_NOT_COINTEGRATED / EG_UNAVAILABLE. Strategies absent
+        from the list have those reasons stripped from their per-slot reason
+        list before the entry check (mirrors Miqueias's DI endpoint, which
+        bypasses the coint gate entirely). ``None`` means "EG applies to all"
+        — backward compatible behaviour for callers that haven't been wired
+        to runtime_config yet.
         """
         entry_win_price = win_price if entry_win_price is None else entry_win_price
         entry_wdo_price = wdo_price if entry_wdo_price is None else entry_wdo_price
@@ -220,7 +229,15 @@ class TradeEngine:
                 # if any, is already in market_reasons via the input gate.
                 mt5_connected=True,
             )
-            all_reasons = market_reasons + ops_reasons
+            # Per-strategy EG bypass (Miqueias's DI endpoint design):
+            # strategies absent from eg_strategies don't see EG reasons.
+            if eg_strategies is None or strat in eg_strategies:
+                strat_market_reasons = market_reasons
+            else:
+                strat_market_reasons = [
+                    r for r in market_reasons if r not in EG_REASONS
+                ]
+            all_reasons = strat_market_reasons + ops_reasons
             if all_reasons:
                 action = "ANOMALY" if "Z_ANOMALY" in all_reasons else "WAIT"
                 # BAR_NOT_CLOSED and OUT_OF_SESSION fire on every poll tick

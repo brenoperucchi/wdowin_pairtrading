@@ -106,6 +106,74 @@ def reason_fields(
     return {}
 
 
+def _fmt_num(value: float | int | None, digits: int = 4) -> str:
+    if value is None:
+        return "indisponivel"
+    return f"{float(value):.{digits}g}"
+
+
+def reason_message(reason: str, phase: str, fields: dict) -> str:
+    """Human explanation for operator-facing timeline rows."""
+    if reason == "EG_NOT_COINTEGRATED":
+        return (
+            "Bloqueado por Engle-Granger: o p-value "
+            f"{_fmt_num(fields.get('value'))} ficou acima do limite "
+            f"{_fmt_num(fields.get('threshold'))}. Isso indica que o spread "
+            "WINxWDO nao esta com reversao a media estatisticamente confiavel "
+            "nesta janela."
+        )
+    if reason == "EG_UNAVAILABLE":
+        return (
+            "Bloqueado porque o Engle-Granger nao conseguiu calcular um "
+            "p-value valido para a barra fechada. Sem esse teste, o motor nao "
+            "confirma a premissa de co-integracao."
+        )
+    if reason == "RHO_BREAKDOWN":
+        return (
+            "Bloqueado por correlacao fraca: rho_level "
+            f"{_fmt_num(fields.get('value'), 0)} precisa ficar abaixo de "
+            f"{_fmt_num(fields.get('threshold'), 0)} para permitir entrada."
+        )
+    if reason == "BETA_DRIFT":
+        return (
+            "Bloqueado por drift de beta: variacao absoluta "
+            f"{_fmt_num(fields.get('value'))}% excede o maximo "
+            f"{_fmt_num(fields.get('threshold'))}% configurado."
+        )
+    if reason == "BETA_UNSTABLE":
+        return "Bloqueado porque o beta esta instavel no state machine operacional."
+    if reason == "Z_ANOMALY":
+        return (
+            "Bloqueado por anomalia de Z-score: |z| maximo "
+            f"{_fmt_num(fields.get('value'))} excede o limite "
+            f"{_fmt_num(fields.get('threshold'))}. O motor evita entrar em "
+            "outlier extremo."
+        )
+    if reason == "OUT_OF_SESSION":
+        return "Bloqueado porque a barra esta fora da janela operacional de entrada."
+    if reason == "MAX_TRADES_REACHED":
+        return (
+            "Bloqueado pelo limite diario de trades: "
+            f"{_fmt_num(fields.get('value'), 0)} trade(s) hoje contra limite "
+            f"{_fmt_num(fields.get('threshold'), 0)}."
+        )
+    if reason == "DAILY_LOSS_LIMIT":
+        return (
+            "Bloqueado pelo limite de perda diaria: PnL "
+            f"R$ {_fmt_num(fields.get('value'))} esta abaixo do limite "
+            f"R$ {_fmt_num(fields.get('threshold'))}."
+        )
+    if reason == "LOSS_COOLDOWN":
+        return (
+            "Bloqueado por cooldown apos perda: passaram "
+            f"{_fmt_num(fields.get('value'))} min, precisa de pelo menos "
+            f"{_fmt_num(fields.get('threshold'))} min."
+        )
+    if reason == "MT5_DISCONNECTED":
+        return "Bloqueado porque o MT5 nao esta conectado no momento da avaliacao."
+    return f"{phase} bloqueado por {reason}."
+
+
 def emit_closed_bar_timeline(
     *,
     db_path: str,
@@ -165,6 +233,17 @@ def emit_closed_bar_timeline(
     gate_reasons = [r for r in gate.get("reasons", []) if r != "BAR_NOT_CLOSED"]
     for reason in gate_reasons:
         phase = "RISK" if reason in TIMELINE_RISK_REASONS else "ELIGIBILITY"
+        fields = reason_fields(
+            reason,
+            z_wdo=z_wdo,
+            z_di=z_di,
+            rho_level=rho_level,
+            beta_delta_pct=beta_delta_pct,
+            eg_pvalue=eg_pvalue,
+            trades_today_count=trades_today_count,
+            daily_pnl_brl=daily_pnl_brl,
+            minutes_since_last_loss=minutes_since_last_loss,
+        )
         event: dict[str, Any] = {
             "timestamp": ts,
             "closed_bar_ts": closed_bar_ts,
@@ -174,28 +253,20 @@ def emit_closed_bar_timeline(
             "event": reason,
             "status": "BLOCKED",
             "severity": severity_for_reason(reason),
-            "message": f"{phase} blocked by {reason}",
+            "message": reason_message(reason, phase, fields),
         }
-        event.update(
-            reason_fields(
-                reason,
-                z_wdo=z_wdo,
-                z_di=z_di,
-                rho_level=rho_level,
-                beta_delta_pct=beta_delta_pct,
-                eg_pvalue=eg_pvalue,
-                trades_today_count=trades_today_count,
-                daily_pnl_brl=daily_pnl_brl,
-                minutes_since_last_loss=minutes_since_last_loss,
-            )
-        )
+        event.update(fields)
         events.append(event)
 
     strategies = trade_result.get("strategies") or {}
     for strategy in STRATEGIES:
         strat_result = strategies.get(strategy) or {}
         action = strat_result.get("action", "WAIT")
-        if gate_reasons:
+        # Use the per-strategy gate_reasons so EG bypass (eg_strategies in
+        # runtime_config) is reflected: a slot that bypassed EG won't show
+        # EG_NOT_COINTEGRATED here, even when the global gate did block it.
+        strat_gate_reasons = list(strat_result.get("gate_reasons", []))
+        if strat_gate_reasons:
             signal_event = "SKIPPED"
             status = "SKIPPED"
             message = "Gate blocked before strategy evaluation"
@@ -220,7 +291,7 @@ def emit_closed_bar_timeline(
             "message": message,
             "payload_json": {
                 "action": action,
-                "gate_reasons": gate_reasons,
+                "gate_reasons": strat_gate_reasons,
             },
         })
 

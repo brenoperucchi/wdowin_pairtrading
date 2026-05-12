@@ -271,6 +271,8 @@ def load_timeline(
     strategy: str | None = None,
     event: str | None = None,
     since: str | None = None,
+    time_start: str | None = None,
+    time_end: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return events newest-first, with optional filters."""
     bounded_limit = _clamp_limit(limit)
@@ -291,6 +293,9 @@ def load_timeline(
     if since:
         where.append("timestamp >= ?")
         params.append(since)
+    if time_start and time_end:
+        where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+        params.extend([time_start, time_end])
 
     sql = "SELECT * FROM execution_timeline"
     if where:
@@ -308,7 +313,12 @@ def load_timeline(
         conn.close()
 
 
-def current_bottleneck(db_path: str) -> dict[str, Any] | None:
+def current_bottleneck(
+    db_path: str,
+    *,
+    time_start: str | None = None,
+    time_end: str | None = None,
+) -> dict[str, Any] | None:
     """First BLOCKED/FAILED event of the most recent closed bar, by funnel order.
 
     Returns None if the latest closed bar has no blocking events (funnel passed)
@@ -317,9 +327,15 @@ def current_bottleneck(db_path: str) -> dict[str, Any] | None:
     conn = sqlite3.connect(db_path, timeout=10.0)
     try:
         c = conn.cursor()
+        where = ["closed_bar_ts IS NOT NULL"]
+        params: list[Any] = []
+        if time_start and time_end:
+            where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+            params.extend([time_start, time_end])
         c.execute(
             "SELECT MAX(closed_bar_ts) FROM execution_timeline "
-            "WHERE closed_bar_ts IS NOT NULL"
+            "WHERE " + " AND ".join(where),
+            params,
         )
         row = c.fetchone()
         latest = row[0] if row else None
@@ -327,10 +343,14 @@ def current_bottleneck(db_path: str) -> dict[str, Any] | None:
             return None
 
         placeholders = ", ".join(["?"] * len(_BLOCKING_STATUSES))
+        candidate_where = [f"closed_bar_ts = ? AND status IN ({placeholders})"]
+        candidate_params: list[Any] = [latest, *_BLOCKING_STATUSES]
+        if time_start and time_end:
+            candidate_where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+            candidate_params.extend([time_start, time_end])
         c.execute(
-            f"SELECT * FROM execution_timeline "
-            f"WHERE closed_bar_ts = ? AND status IN ({placeholders})",
-            (latest, *_BLOCKING_STATUSES),
+            "SELECT * FROM execution_timeline WHERE " + " AND ".join(candidate_where),
+            candidate_params,
         )
         candidates = [_row_to_dict(c, r) for r in c.fetchall()]
         if not candidates:
@@ -362,6 +382,8 @@ def current_live_issue(
     *,
     max_age_seconds: int | None = _DEFAULT_LIVE_ISSUE_MAX_AGE_SECONDS,
     now: datetime | None = None,
+    time_start: str | None = None,
+    time_end: str | None = None,
 ) -> dict[str, Any] | None:
     """Most recent unresolved DATA failure with no closed_bar_ts.
 
@@ -373,10 +395,15 @@ def current_live_issue(
     conn = sqlite3.connect(db_path, timeout=10.0)
     try:
         c = conn.cursor()
+        where = ["closed_bar_ts IS NULL", "phase = 'DATA'"]
+        params: list[Any] = []
+        if time_start and time_end:
+            where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+            params.extend([time_start, time_end])
         c.execute(
             "SELECT * FROM execution_timeline "
-            "WHERE closed_bar_ts IS NULL AND phase = 'DATA' "
-            "ORDER BY id DESC LIMIT 1"
+            "WHERE " + " AND ".join(where) + " ORDER BY id DESC LIMIT 1",
+            params,
         )
         row = c.fetchone()
         if not row:
