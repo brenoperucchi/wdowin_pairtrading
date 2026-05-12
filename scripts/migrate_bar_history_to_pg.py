@@ -4,9 +4,13 @@ TASK-14 Slice 3. Idempotent bootstrap + import:
 
   1. Ensures Postgres schema (hypertable + date index) via core.bar_history_db.
   2. Enables columnar compression + policy (>= 90 days) on the hypertable.
-  3. Streams rows from trades.db (read-only) into Postgres in batches with
-     INSERT ... ON CONFLICT(timestamp) DO NOTHING so reruns are no-ops.
-  4. Verifies parity: row totals and per-date COUNT + SUM(timestamp) checksum.
+  3. Streams rows from trades.db (read-only) into Postgres in batches.
+     Default: ON CONFLICT(timestamp) DO NOTHING (idempotent reruns).
+     With --force-refresh: ON CONFLICT(timestamp) DO UPDATE (overwrite drift).
+  4. Verifies parity at the cell level — SHA-256 over every column of every
+     row, grouped by date_str. Catches the case where timestamps match but
+     z_di/rho/beta/price/etc. drifted (which DO NOTHING leaves stale).
+     On mismatch suggests rerunning with --force-refresh.
   5. Prints a summary: rows, days covered, first/last timestamp, elapsed.
 
 Usage:
@@ -18,12 +22,15 @@ Flags:
     --batch-size N          rows per executemany batch (default 5000)
     --dry-run               run DDL + verification only, no INSERTs
     --skip-compression      do not configure TimescaleDB compression
-    --no-verify             skip post-import counts/checksum
+    --no-verify             skip post-import content-hash verification
+    --force-refresh         overwrite PG rows on timestamp conflict
+                            (use when verify reports drift)
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sqlite3
 import sys
@@ -56,12 +63,26 @@ _COMPRESSION_CHECK = (
     "WHERE hypertable_name = 'bar_history'"
 )
 
-# Migration uses DO NOTHING (not the wrapper's DO UPDATE) so reruns leave
-# existing rows untouched — strict snapshot copy of the SQLite source.
-_PG_INSERT_NO_MERGE = (
+# Default insert mode: DO NOTHING keeps reruns no-op when PG already matches
+# SQLite. It does NOT repair drift — if a row in PG has stale values for the
+# same timestamp, it stays. The content-hash verification below catches that
+# case and exits non-zero; use --force-refresh to switch to DO UPDATE.
+_PG_INSERT_DO_NOTHING = (
     f"INSERT INTO bar_history ({bhdb._COLS_SQL}) "
     f"VALUES ({bhdb._PG_PLACEHOLDERS}) "
     f"ON CONFLICT(timestamp) DO NOTHING"
+)
+
+# Force-refresh insert mode: overwrites every non-PK column with the SQLite
+# snapshot. Explicit column list (vs `EXCLUDED.*`) so adding a column later
+# fails loudly here instead of silently dropping it from the overwrite set.
+_OVERWRITE_ASSIGNMENTS = ", ".join(
+    f"{c} = EXCLUDED.{c}" for c in bhdb.BAR_COLUMNS if c != "timestamp"
+)
+_PG_INSERT_OVERWRITE = (
+    f"INSERT INTO bar_history ({bhdb._COLS_SQL}) "
+    f"VALUES ({bhdb._PG_PLACEHOLDERS}) "
+    f"ON CONFLICT(timestamp) DO UPDATE SET {_OVERWRITE_ASSIGNMENTS}"
 )
 
 
@@ -94,38 +115,90 @@ def _enable_compression(pg_cur) -> None:
     pg_cur.execute(_COMPRESSION_POLICY)
 
 
-def _per_date_checksum_sqlite(conn: sqlite3.Connection) -> dict[str, tuple[int, int]]:
+def _row_signature(row: dict) -> bytes:
+    """Stable byte representation of one bar_history row.
+
+    Uses `repr()` on Python natives — both SQLite and psycopg map our
+    columns to (int|float|str|None), so the repr is identical on both
+    sides byte-for-byte. We pin the column order to `bhdb.BAR_COLUMNS`
+    so that schema column-order drift is detected too.
+    """
+    parts: list[str] = []
+    for col in bhdb.BAR_COLUMNS:
+        v = row.get(col)
+        parts.append("∅" if v is None else repr(v))
+    return "|".join(parts).encode("utf-8")
+
+
+def _content_hash_by_date_sqlite(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:
     cur = conn.execute(
-        "SELECT date_str, COUNT(*), COALESCE(SUM(timestamp), 0) "
-        "FROM bar_history GROUP BY date_str"
+        f"SELECT {bhdb._COLS_SQL} FROM bar_history ORDER BY date_str, timestamp"
     )
-    return {d: (int(c), int(s)) for d, c, s in cur.fetchall()}
+    return _accumulate_hashes(dict(r) for r in cur)
 
 
-def _per_date_checksum_pg(pg_cur) -> dict[str, tuple[int, int]]:
+def _content_hash_by_date_pg(pg_cur) -> dict[str, tuple[int, str]]:
     pg_cur.execute(
-        "SELECT date_str, COUNT(*), COALESCE(SUM(timestamp), 0) "
-        "FROM bar_history GROUP BY date_str"
+        f"SELECT {bhdb._COLS_SQL} FROM bar_history ORDER BY date_str, timestamp"
     )
-    return {d: (int(c), int(s)) for d, c, s in pg_cur.fetchall()}
+    colnames = [d[0] for d in pg_cur.description]
+    return _accumulate_hashes(dict(zip(colnames, r)) for r in pg_cur)
+
+
+def _accumulate_hashes(rows: Iterator[dict]) -> dict[str, tuple[int, str]]:
+    result: dict[str, tuple[int, str]] = {}
+    current_date: str | None = None
+    current_hash: hashlib._Hash | None = None
+    current_count = 0
+    for r in rows:
+        d = r["date_str"]
+        if d != current_date:
+            if current_date is not None and current_hash is not None:
+                result[current_date] = (current_count, current_hash.hexdigest())
+            current_date = d
+            current_hash = hashlib.sha256()
+            current_count = 0
+        assert current_hash is not None
+        current_hash.update(_row_signature(r))
+        current_count += 1
+    if current_date is not None and current_hash is not None:
+        result[current_date] = (current_count, current_hash.hexdigest())
+    return result
 
 
 def _verify(sqlite_conn: sqlite3.Connection, pg_cur) -> tuple[bool, list[str]]:
+    """Verify SQLite ≡ Postgres at the cell level.
+
+    Computes a SHA-256 over every column of every row, grouped by date_str.
+    Catches the case where a row's `timestamp` matches but its `z_di`,
+    `rho`, price columns, etc. drift — which `ON CONFLICT DO NOTHING`
+    will silently keep stale on rerun. Suggest --force-refresh on failure.
+    """
     src_total = sqlite_conn.execute("SELECT COUNT(*) FROM bar_history").fetchone()[0]
     pg_cur.execute("SELECT COUNT(*) FROM bar_history")
     pg_total = int(pg_cur.fetchone()[0])
 
-    src_by_date = _per_date_checksum_sqlite(sqlite_conn)
-    pg_by_date = _per_date_checksum_pg(pg_cur)
+    src_by_date = _content_hash_by_date_sqlite(sqlite_conn)
+    pg_by_date = _content_hash_by_date_pg(pg_cur)
 
     issues: list[str] = []
     if src_total != pg_total:
         issues.append(f"row count: sqlite={src_total} pg={pg_total}")
-    all_dates = sorted(set(src_by_date) | set(pg_by_date))
-    for d in all_dates:
-        if src_by_date.get(d) != pg_by_date.get(d):
+    for d in sorted(set(src_by_date) | set(pg_by_date)):
+        s = src_by_date.get(d)
+        p = pg_by_date.get(d)
+        if s == p:
+            continue
+        if s is None:
+            issues.append(f"date {d}: missing in sqlite, pg has {p[0]} rows")
+        elif p is None:
+            issues.append(f"date {d}: missing in pg, sqlite has {s[0]} rows")
+        elif s[0] != p[0]:
+            issues.append(f"date {d}: row count sqlite={s[0]} pg={p[0]}")
+        else:
             issues.append(
-                f"date {d}: sqlite={src_by_date.get(d)} pg={pg_by_date.get(d)}"
+                f"date {d}: content hash differs (rows={s[0]}, "
+                f"sqlite={s[1][:12]}.. pg={p[1][:12]}..)"
             )
     print(
         f"  sqlite total={src_total} dates={len(src_by_date)} | "
@@ -141,6 +214,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-compression", action="store_true")
     parser.add_argument("--no-verify", action="store_true")
+    parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="Overwrite every column on conflicting timestamps (ON CONFLICT "
+             "DO UPDATE). Default is DO NOTHING, which leaves drift in place. "
+             "Use this when content-hash verification fails.",
+    )
     args = parser.parse_args(argv)
 
     if not os.environ.get("PG_URI"):
@@ -167,15 +247,20 @@ def main(argv: list[str] | None = None) -> int:
                 if args.dry_run:
                     print("[dry-run] skipping INSERTs")
                 else:
-                    print(
-                        f"[import] batch_size={args.batch_size} "
-                        f"(ON CONFLICT DO NOTHING)"
+                    insert_sql = (
+                        _PG_INSERT_OVERWRITE if args.force_refresh
+                        else _PG_INSERT_DO_NOTHING
                     )
+                    mode_label = (
+                        "ON CONFLICT DO UPDATE (force-refresh)"
+                        if args.force_refresh else "ON CONFLICT DO NOTHING"
+                    )
+                    print(f"[import] batch_size={args.batch_size} ({mode_label})")
                     imported = 0
                     next_log = max(args.batch_size, 10_000)
                     for batch in _iter_batches(src, args.batch_size):
                         values = [bhdb._values_tuple(dict(r)) for r in batch]
-                        cur.executemany(_PG_INSERT_NO_MERGE, values)
+                        cur.executemany(insert_sql, values)
                         imported += len(values)
                         if imported >= next_log or imported == src_total:
                             print(f"  ... {imported}/{src_total}")
@@ -187,14 +272,21 @@ def main(argv: list[str] | None = None) -> int:
                 if args.no_verify:
                     print("[verify] skipped (--no-verify)")
                 else:
-                    print("[verify] counts + per-date checksum")
+                    print("[verify] counts + per-date SHA-256 over all columns")
                     ok, issues = _verify(src, cur)
                     if not ok:
                         print(f"  MISMATCH ({len(issues)}):")
-                        for line in issues:
+                        for line in issues[:20]:
                             print(f"    {line}")
+                        if len(issues) > 20:
+                            print(f"    ... and {len(issues) - 20} more")
+                        if not args.force_refresh:
+                            print(
+                                "  HINT: rerun with --force-refresh to overwrite "
+                                "PG rows with SQLite values."
+                            )
                     else:
-                        print("  OK — totals + per-date checksums match")
+                        print("  OK — every cell in every row matches SQLite")
 
                 cur.execute(
                     "SELECT MIN(timestamp), MAX(timestamp), "

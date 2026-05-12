@@ -245,22 +245,33 @@ systemctl --user restart pairtrading-server
 
 `scratch/` e `research/` confirmados sem referências a `bar_history` — fora de escopo.
 
-## 9. Migração / bootstrap (preview — implementação em Slice 3)
+## 9. Migração / bootstrap (implementação em Slice 3)
 
-Pseudo-fluxo do `scripts/migrate_bar_history_to_pg.py`:
+Fluxo do `scripts/migrate_bar_history_to_pg.py`:
 
 ```
 1. Conecta em PG, garante: extension timescaledb, schema, hypertable, índices, política de compressão.
 2. Conecta em SQLite (trades.db) read-only.
-3. Em transação única no PG:
-   - COPY bar_history FROM stdin com binário, ou
-   - INSERT ... ON CONFLICT DO NOTHING em batches de 5k linhas.
-4. Conta linhas (PG vs SQLite). Falha se divergir.
-5. Para cada date_str distinto: checksum (SUM(timestamp) FILTER...) compara.
-6. Imprime relatório: primeiro/último ts, total, dias cobertos, tempo decorrido.
+3. Em transação única no PG, insere em batches de 5k linhas:
+   - Default: ON CONFLICT(timestamp) DO NOTHING (idempotente).
+   - --force-refresh: ON CONFLICT(timestamp) DO UPDATE SET col = EXCLUDED.col, ... (repara drift).
+4. Verifica linha-por-linha via SHA-256 sobre todas as colunas, agrupado por date_str.
+5. Imprime relatório: total, dias, primeiro/último ts, tempo. Sai com código 1 se houver drift.
 ```
 
-Idempotência: `INSERT ... ON CONFLICT (timestamp) DO NOTHING` torna a re-execução um no-op.
+### 9.1 Por que content-hash, não apenas COUNT + SUM(timestamp)
+
+A primeira versão do verify usava `COUNT(*) + SUM(timestamp)` por dia. Esse checksum **não detecta drift por célula**: se uma linha já está no Postgres com `z_di`, `rho`, `beta_value` ou preços divergentes do SQLite, `ON CONFLICT DO NOTHING` mantém o valor stale e o checksum continua batendo (timestamps e contagem são idênticos).
+
+Cenário concreto: corrompemos `z_di` de um timestamp no `pairtrading_test`, rodamos a migração — verify imprimiu "OK" e o valor stale ficou no PG. Para cutover de cutover esse silêncio é o pior dos mundos: a migração "passa" enquanto esconde exatamente o tipo de drift que estamos tentando eliminar.
+
+Solução implementada: o verify computa um SHA-256 que **incorpora todas as colunas de todas as linhas**, agrupado por `date_str`. `repr()` em Python serializa floats com round-trip lossless, então SQLite e Postgres produzem bytes idênticos para o mesmo valor. Drift por célula em qualquer coluna muda o hash do dia.
+
+### 9.2 Quando usar `--force-refresh`
+
+- Default permanece `DO NOTHING` para preservar a idempotência (re-rodar a migração não bate Postgres à toa).
+- Use `--force-refresh` quando o verify reportar `content hash differs`. Faz `INSERT ... ON CONFLICT DO UPDATE` reescrevendo cada coluna não-PK com o snapshot SQLite.
+- Em produção / cutover real, considerar rodar o `--force-refresh` na janela imediatamente anterior ao flip do `BAR_HISTORY_BACKEND` para garantir paridade exata.
 
 ## 10. Aceitação do Slice 0
 
