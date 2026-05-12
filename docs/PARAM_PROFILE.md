@@ -28,7 +28,7 @@ a different timeframe.
 | Constant     | Value | Notes |
 |--------------|-------|-------|
 | `TIMEFRAME`  | 5     | `mt5.TIMEFRAME_M5` enum (5 == M5; M15 == 15, etc.) |
-| `WINDOW`     | 90    | OLS rolling window (bars) |
+| `WINDOW`     | 240   | OLS rolling window (bars) |
 | `BARS`       | 250   | bars fetched per MT5 poll (WIN×WDO) |
 | `DI_BARS`    | 250   | bars fetched per MT5 poll (DI) |
 
@@ -127,8 +127,8 @@ convert gross point P&L into realized BRL P&L.
 |-----------------|-------|-------|
 | `ENTRY_START_H` | 9     | entry window start hour |
 | `ENTRY_START_M` | 0     | entry window start minute |
-| `ENTRY_END_H`   | 15    | entry window end hour |
-| `ENTRY_END_M`   | 0     | entry window end minute |
+| `ENTRY_END_H`   | 17    | entry window end hour |
+| `ENTRY_END_M`   | 25    | entry window end minute |
 | `FORCE_CLOSE_H` | 17    | force-close hour |
 | `FORCE_CLOSE_M` | 40    | force-close minute |
 

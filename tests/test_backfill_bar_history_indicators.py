@@ -15,6 +15,14 @@ from server import init_bar_history, save_bar_history
 TEST_DATE = "2026-05-08"
 
 
+@pytest.fixture(autouse=True)
+def _pin_window(monkeypatch):
+    # Asserts here count rows past the rolling WINDOW gate. Pin WINDOW so the
+    # arithmetic (seed 95 → 5 computed past gate; n_prev 100 warms gate) stays
+    # stable across `core.config.WINDOW` tuning.
+    monkeypatch.setattr(backfill, "WINDOW", 90)
+
+
 def _ts_for(i: int) -> int:
     base = int(time.mktime(time.strptime(f"{TEST_DATE} 09:00", "%Y-%m-%d %H:%M")))
     return base + i * 300
