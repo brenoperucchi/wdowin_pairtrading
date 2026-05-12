@@ -44,11 +44,11 @@ npm run build      # Production build
 npm run lint       # ESLint
 ```
 
-### Production (PM2)
+### Production (systemd --user)
 ```bash
-pm2 start ecosystem.config.js
-pm2 logs
-pm2 save
+systemctl --user start pairtrading-server pairtrading-frontend
+systemctl --user status pairtrading-server
+journalctl --user -u pairtrading-server -f
 ```
 
 ## Architecture

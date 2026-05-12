@@ -130,6 +130,44 @@ O dashboard cruza sinais probabilísticos com regras duras de regime estacionár
 
 ---
 
+## 🗄 Backend de `bar_history` (Postgres/TimescaleDB)
+
+A tabela `bar_history` está sendo migrada de SQLite para TimescaleDB (TASK-14). O backend é escolhido por env var em runtime — não há flag de compilação.
+
+| `BAR_HISTORY_BACKEND` | Comportamento | Quando usar |
+| --- | --- | --- |
+| `sqlite` (default) | Lê/escreve `trades.db` (caminho via `BAR_HISTORY_SQLITE_PATH`). | Setup local sem Postgres. |
+| `dual` | Live server: SQLite continua autoritativo + espelho PG. Wrapper/scripts: leem SQLite, escrevem ambos. | Janela de cutover — paridade contínua. |
+| `postgres` | **Wrapper/scripts** (replay, backfill, seeders): só Postgres. **Live server** (`save_bar_history`, Slice 4/5) ainda escreve SQLite primeiro e espelha para PG, preservando rollback por env. O write-through SQLite só desliga no Slice 9. Requer `PG_URI`. | Cutover em andamento; reads já vêm de PG, writes live ainda dual até Slice 9. |
+
+```bash
+# Setup mínimo Postgres+Timescale (WSL/Linux). Veja docs/migration_bar_history_timescale.md §3.
+export BAR_HISTORY_BACKEND=dual
+export PG_URI="postgresql://pairtrading@localhost:5432/pairtrading"
+systemctl --user restart pairtrading-server
+
+# Rollback imediato (sem deploy):
+unset BAR_HISTORY_BACKEND
+systemctl --user restart pairtrading-server
+```
+
+Copie `.env.example` → `.env.local` (já no `.gitignore`) e preencha `PG_URI`. Senhas reais ficam fora do repo (`~/.pgpass` ou `.env.local`).
+
+### Testes de integração (opt-in)
+
+A suíte default (`pytest tests/`) roda SQLite-only e não requer Postgres. Para rodar as integrações Postgres:
+
+```bash
+export PG_TEST_URI="postgresql://pairtrading@localhost:5432/pairtrading_test"
+pytest tests/test_bar_history_db.py tests/test_bar_history.py tests/test_backfill_bar_history_indicators.py
+```
+
+Sem `PG_TEST_URI` definido, esses testes chamam `pytest.skip()` automaticamente — a suíte segue verde em ambientes sem Postgres.
+
+Detalhes completos do plano de migração: [`docs/migration_bar_history_timescale.md`](./docs/migration_bar_history_timescale.md).
+
+---
+
 ## 🚨 Troubleshooting Frequente
 
 | Sintoma Visualizado | Causa Comum e Solução |

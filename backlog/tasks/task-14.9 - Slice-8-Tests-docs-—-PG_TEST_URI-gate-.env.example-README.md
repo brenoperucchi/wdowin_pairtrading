@@ -1,9 +1,10 @@
 ---
 id: TASK-14.9
 title: '[Slice 8] Tests + docs — PG_TEST_URI gate, .env.example, README'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-12 03:26'
+updated_date: '2026-05-12 07:45'
 labels:
   - migration
   - timescaledb

@@ -24,6 +24,7 @@ beta_ultimo.json
 .env
 .env.local
 .env.*
+!.env.example
 .gemini/
 serviceAccountKey.json
 .firebase/
