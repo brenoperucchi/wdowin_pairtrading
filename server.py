@@ -576,6 +576,41 @@ TF_NAMES = {
 def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue=None, rho=None, rho_level=None, beta_value=None, beta_delta_pct=None, db_path: str = "trades.db"):
     nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
     rho_level_val = int(rho_level) if rho_level is not None else None
+
+    row = {
+        "timestamp": int(timestamp),
+        "date_str": date_str,
+        "bar_time": bar_time,
+        "win_price": win_price,
+        "wdo_price": wdo_price,
+        "di_price": di_price,
+        "spread_wdo": spread_wdo,
+        "spread_di": spread_di,
+        "z_wdo": z_wdo,
+        "z_di": z_di,
+        "nwe_center": nwe_center,
+        "nwe_upper": nwe_upper,
+        "nwe_lower": nwe_lower,
+        "nwe_is_up": nwe_is_up_val,
+        "eg_pvalue": eg_pvalue,
+        "rho": rho,
+        "rho_level": rho_level_val,
+        "beta_value": beta_value,
+        "beta_delta_pct": beta_delta_pct,
+    }
+    backend = bhdb.get_backend()
+
+    # TASK-14 Slice 9: under BAR_HISTORY_BACKEND=postgres the SQLite
+    # write-through is gone — PG is the only writer. The wrapper's
+    # `mode='merge'` reproduces the COALESCE semantics this function used
+    # inline (see core/bar_history_db.py:_CONFLICT_POSTGRES).
+    if backend == "postgres":
+        try:
+            bhdb.upsert_bar(row, backend="postgres", mode="merge")
+        except Exception as exc:
+            print(f"[ERRO PG] save_bar_history ts={int(timestamp)}: {exc}")
+        return
+
     sqlite_ok = False
     try:
         conn = sqlite3.connect(db_path, timeout=10.0)
@@ -603,37 +638,12 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
     except Exception as e:
         print(f"[ERRO DB] falha ao salvar bar_history: {e}")
 
-    # TASK-14 Slice 4/5: mirror to Postgres after the authoritative SQLite
-    # write committed. `dual` and `postgres` both write to PG — they differ
-    # only in the *read* path (Slice 5 flips reads in load_bar_history).
-    # Keeping SQLite writes in `postgres` mode preserves rollback by env var.
-    # The sqlite_ok guard prevents PG from holding a bar SQLite rejected.
-    if sqlite_ok and bhdb.get_backend() in ("dual", "postgres"):
+    # `dual`: mirror to PG only after the authoritative SQLite write
+    # committed. The sqlite_ok guard preserves rollback-by-env: if SQLite
+    # rejects a bar, PG must not hold it either.
+    if sqlite_ok and backend == "dual":
         try:
-            bhdb.upsert_bar(
-                {
-                    "timestamp": int(timestamp),
-                    "date_str": date_str,
-                    "bar_time": bar_time,
-                    "win_price": win_price,
-                    "wdo_price": wdo_price,
-                    "di_price": di_price,
-                    "spread_wdo": spread_wdo,
-                    "spread_di": spread_di,
-                    "z_wdo": z_wdo,
-                    "z_di": z_di,
-                    "nwe_center": nwe_center,
-                    "nwe_upper": nwe_upper,
-                    "nwe_lower": nwe_lower,
-                    "nwe_is_up": nwe_is_up_val,
-                    "eg_pvalue": eg_pvalue,
-                    "rho": rho,
-                    "rho_level": rho_level_val,
-                    "beta_value": beta_value,
-                    "beta_delta_pct": beta_delta_pct,
-                },
-                backend="postgres",
-            )
+            bhdb.upsert_bar(row, backend="postgres", mode="merge")
         except Exception as exc:
             print(f"[ERRO PG] dual-write bar_history ts={int(timestamp)}: {exc}")
 

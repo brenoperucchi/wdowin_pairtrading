@@ -431,17 +431,11 @@ def test_save_bar_history_default_backend_skips_pg(db, monkeypatch):
     assert len(rows) == 1
 
 
-@pytest.mark.parametrize("mode", ["dual", "postgres"])
-def test_save_bar_history_mirrors_to_pg_when_backend_dual_or_postgres(db, monkeypatch, mode):
-    """`dual` AND `postgres` must invoke bhdb.upsert_bar(backend='postgres').
-
-    Slice 5 cutover regression: reads moved to PG when env=postgres, so writes
-    have to follow or PG goes stale and SQLite (which would still receive the
-    write) becomes invisible to /api/history.
-    """
+def test_save_bar_history_dual_writes_sqlite_then_mirrors_pg(db, monkeypatch):
+    """`dual`: SQLite is authoritative (rollback gatekeeper) + PG mirror after success."""
     from core import bar_history_db as bhdb
 
-    monkeypatch.setenv("BAR_HISTORY_BACKEND", mode)
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
     upsert_calls: list = []
     init_calls: list = []
     monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
@@ -454,24 +448,57 @@ def test_save_bar_history_mirrors_to_pg_when_backend_dual_or_postgres(db, monkey
     assert init_calls == [((), {"backend": "postgres"})]
     assert len(upsert_calls) == 1
     args, kwargs = upsert_calls[0]
-    assert kwargs == {"backend": "postgres"}
+    assert kwargs == {"backend": "postgres", "mode": "merge"}
     row = args[0]
     assert row["timestamp"] == ts
     assert row["z_wdo"] == 0.42
     assert row["date_str"] == "2026-05-07"
-    # SQLite write still fires in both modes (rollback safety).
+    # SQLite still authoritative in dual.
     conn = sqlite3.connect(db)
     sqlite_rows = conn.execute("SELECT z_wdo FROM bar_history WHERE timestamp=?", (ts,)).fetchall()
     conn.close()
     assert sqlite_rows == [(0.42,)]
 
 
-@pytest.mark.parametrize("mode", ["dual", "postgres"])
-def test_save_bar_history_pg_failure_does_not_break_sqlite(db, monkeypatch, capsys, mode):
-    """Postgres upsert failure must be logged but never raise; SQLite still gets the row."""
+def test_save_bar_history_postgres_writes_pg_only_no_sqlite(db, monkeypatch):
+    """Slice 9 contract: `postgres` writes ONLY to PG. SQLite must not be touched.
+
+    Regression guard: before Slice 9, save_bar_history kept a SQLite write-through
+    in `postgres` mode to preserve env-flip rollback. With Slice 9 the rollback
+    window closes and SQLite is silent under postgres.
+    """
     from core import bar_history_db as bhdb
 
-    monkeypatch.setenv("BAR_HISTORY_BACKEND", mode)
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    upsert_calls: list = []
+    init_calls: list = []
+    monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
+    monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: init_calls.append((a, k)))
+
+    init_bar_history(db)
+    ts = int(time.time())
+    save_bar_history(**_sample(ts, z_wdo=0.42), db_path=db)
+
+    assert init_calls == [((), {"backend": "postgres"})]
+    assert len(upsert_calls) == 1
+    args, kwargs = upsert_calls[0]
+    assert kwargs == {"backend": "postgres", "mode": "merge"}
+    row = args[0]
+    assert row["timestamp"] == ts
+    assert row["z_wdo"] == 0.42
+    # SQLite file is the one init_bar_history created (it owns the schema +
+    # legacy ALTERs), but `save_bar_history` itself wrote nothing into it.
+    conn = sqlite3.connect(db)
+    sqlite_rows = conn.execute("SELECT timestamp FROM bar_history WHERE timestamp=?", (ts,)).fetchall()
+    conn.close()
+    assert sqlite_rows == [], "Slice 9: SQLite must NOT receive any row under postgres mode"
+
+
+def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch, capsys):
+    """`dual`: PG upsert failure is logged but never raises; SQLite still has the row."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
 
     def boom(*_a, **_k):
         raise RuntimeError("PG unreachable")
@@ -491,12 +518,39 @@ def test_save_bar_history_pg_failure_does_not_break_sqlite(db, monkeypatch, caps
     assert "[ERRO PG]" in captured
 
 
-@pytest.mark.parametrize("mode", ["dual", "postgres"])
-def test_save_bar_history_skips_pg_when_sqlite_fails(tmp_path, monkeypatch, capsys, mode):
-    """If the SQLite write raises, PG must NOT be touched — keeps parity invariant."""
+def test_save_bar_history_postgres_pg_failure_is_logged_and_swallowed(db, monkeypatch, capsys):
+    """`postgres`: a PG failure must log `[ERRO PG]` and not raise.
+
+    There is no SQLite fallback in this mode (Slice 9) — a failed bar is lost.
+    The function must still never propagate the exception to the caller, which
+    would otherwise kill the polling loop in server.py.
+    """
     from core import bar_history_db as bhdb
 
-    monkeypatch.setenv("BAR_HISTORY_BACKEND", mode)
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("PG unreachable")
+
+    monkeypatch.setattr(bhdb, "init_schema", boom)
+    monkeypatch.setattr(bhdb, "upsert_bar", boom)
+
+    init_bar_history(db)  # must not raise
+    ts = int(time.time())
+    save_bar_history(**_sample(ts), db_path=db)  # must not raise
+
+    captured = capsys.readouterr().out
+    assert "[ERRO PG]" in captured
+    # No SQLite fallback means no row anywhere (and no [ERRO DB] either, since
+    # SQLite was never attempted under postgres).
+    assert "[ERRO DB]" not in captured
+
+
+def test_save_bar_history_dual_skips_pg_when_sqlite_fails(tmp_path, monkeypatch, capsys):
+    """`dual`: if the SQLite write raises, PG must NOT be touched — gatekeeper invariant."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
     upsert_calls: list = []
     monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
     monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: None)
@@ -509,6 +563,20 @@ def test_save_bar_history_skips_pg_when_sqlite_fails(tmp_path, monkeypatch, caps
     captured = capsys.readouterr().out
     assert "[ERRO DB]" in captured
     assert "[ERRO PG]" not in captured
+
+
+def test_save_bar_history_postgres_ignores_bad_db_path(tmp_path, monkeypatch):
+    """`postgres`: SQLite is bypassed entirely, so a broken `db_path` is irrelevant."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    upsert_calls: list = []
+    monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
+
+    bad_path = str(tmp_path / "nonexistent_dir" / "trades.db")
+    save_bar_history(**_sample(int(time.time())), db_path=bad_path)
+
+    assert len(upsert_calls) == 1, "PG must fire even when db_path is unwritable"
 
 
 # ─── TASK-14 Slice 5: BAR_HISTORY_BACKEND=postgres flips read path ──────────
