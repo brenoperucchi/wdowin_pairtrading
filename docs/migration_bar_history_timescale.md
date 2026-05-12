@@ -119,12 +119,16 @@ ALTER TABLE bar_history SET (
     timescaledb.compress_orderby   = 'timestamp'
 );
 
-SELECT add_compression_policy('bar_history', INTERVAL '90 days');
+-- BIGINT time column → compress_after deve ser integer-seconds, não INTERVAL.
+-- 7_776_000 = 90 * 86_400. INTERVAL '90 days' falha com
+-- `invalid value for parameter compress_after`.
+SELECT add_compression_policy('bar_history', BIGINT '7776000', if_not_exists => TRUE);
 ```
 
 - **`segmentby = date_str`** agrupa linhas do mesmo dia → leituras `WHERE date_str = ?` pulam descompressão de outros dias.
 - **`orderby = timestamp`** preserva a ordem natural dentro do segmento → melhora compressão (delta encoding).
 - Política automática só comprime chunks com >= 90 dias de idade — preserva a janela quente (EG=2240 barras ≈ 30 dias) sempre descomprimida.
+- **Exige edition Community (TSL)** — a Debian Apache strip (`+dfsg`) não inclui o engine de compressão. Ver §13.
 
 ### 3.5 Nullability
 
@@ -338,3 +342,60 @@ sudo apt-get remove postgresql-17-timescaledb
 2. **`psycopg3` vs `asyncpg`:** confirmar sync (psycopg3). asyncpg só faz sentido se o server.py migrar para async em outra trilha.
 3. **`compress_segmentby`:** `date_str` é a escolha óbvia para o predicado mais comum; alguma janela de leitura adicional que devêssemos otimizar (ex.: por mês)?
 4. **Bootstrap em DDL:** preferência de gerenciar schema via `scripts/migrate_bar_history_to_pg.py` apenas, ou também via Alembic/Flyway? (Recomendação: script simples; volume de DDL é mínimo.)
+
+---
+
+## 13. TSL (Community) edition — pré-requisito de compressão (Slice 3)
+
+**O que descobrimos durante o Slice 3:** a Debian trixie distribui o pacote `postgresql-17-timescaledb 2.19.3+dfsg-1+deb13u1`, que é a **Apache 2.0 edition**. Ela retira o engine TSL: `ALTER TABLE ... SET (timescaledb.compress, ...)` e `add_compression_policy(...)` retornam:
+
+```
+FeatureNotSupported: functionality not supported under the current "apache" license
+```
+
+Sem compressão, perdemos o benefício prático mais visível (linhas mais antigas que 90 dias ficam 5–10× maiores em disco) e o agendador interno. A política de compressão é parte do contrato do §3.4 e do critério de aceitação.
+
+**Decisão (2026-05-12):** instalar a **Community/TSL edition** do repo `packagecloud.io/timescale/timescaledb`. Script: `scripts/setup_timescale_tsl.sh`.
+
+### 13.1 Diferença entre edições
+
+| Feature | Debian `+dfsg` (Apache) | Timescale TSL (Community) |
+| --- | --- | --- |
+| Hypertables / chunks | ✅ | ✅ |
+| Continuous aggregates | parcial | ✅ |
+| **Compressão colunar** | ❌ | ✅ |
+| **Job scheduler (policies)** | ❌ | ✅ |
+| Retention policy | ❌ | ✅ |
+| Licença | Apache 2.0 | Timescale License (source available, gratuita para uso interno) |
+
+### 13.2 Procedimento (one-shot)
+
+```bash
+sudo bash scripts/setup_timescale_tsl.sh
+```
+
+O script:
+
+1. Adiciona o repo `packagecloud.io/timescale/timescaledb` para o codename do Debian detectado, com fallback para `bookworm`.
+2. Remove `postgresql-17-timescaledb` (Apache) se presente.
+3. Instala `timescaledb-2-postgresql-17` (TSL, atualmente 2.26.4).
+4. Reinicia o cluster.
+5. Tenta `ALTER EXTENSION timescaledb UPDATE` em cada DB. **Se o loader não conseguir abrir o `.so` da versão antiga** (cenário típico quando se pula da `2.19.3` para `2.26.x` sem versão intermediária instalada), o script aborta com instruções para `ALLOW_DESTRUCTIVE_UPGRADE=1`.
+6. Com a flag: `DROP DATABASE ... WITH (FORCE)` + `CREATE DATABASE` + `CREATE EXTENSION timescaledb` em cada DB.
+
+### 13.3 Caveats
+
+- **Recovery destrutivo:** se a extensão estiver presa em uma versão cujo `.so` foi removido, **o único caminho é dropar o database**. Isso vale porque o TimescaleDB faz dlopen na conexão, antes do primeiro `SELECT`. Para essa instalação dev (DBs ainda vazios fora de `bar_history`), aceitável. **Em produção** o caminho seria instalar uma versão intermediária via apt pin antes de rodar `ALTER EXTENSION UPDATE`.
+- **`shared_preload_libraries`:** ambos os pacotes usam `'timescaledb'` — não precisa re-patchar `postgresql.conf` na troca.
+- **`compress_after` em integer-seconds:** ver §3.4. INTERVAL falha para hypertables com coluna de tempo BIGINT.
+
+### 13.4 Verificação
+
+```bash
+sudo -u postgres psql -d pairtrading_test -c "SHOW timescaledb.license;"
+# esperado:  timescale   (não  apache)
+
+PG_URI="postgresql://pairtrading:pairtrading_dev@localhost:5432/pairtrading_test" \
+python3 scripts/migrate_bar_history_to_pg.py --source-db trades.db
+# esperado:  "OK — totals + per-date checksums match"
+```
