@@ -17,7 +17,8 @@
 Executar **antes da abertura do mercado** (antes das 9:00 BRT) ou assim que a B3 liberar o arquivo.
 O engine usa dados sincronizados do **último pregão às 17h00**:
 - Preços (F_WIN, S_IBOV): Vela `M5` das `16:55` (cujo fechamento é a fotografia exata do fechamento do IBOV à vista às 17:00).
-- Open Interest: CSV da B3 (posições em aberto correspondentes).
+- **Atenção ao Fuso Horário:** O motor está programado para ler o Timestamp do MT5 usando `timezone.utc` nativo, ignorando o fuso local do Windows. Isso garante que a barra exata do fechamento seja encontrada, mesmo se você rodar na manhã do dia seguinte. Nunca volte a usar `fromtimestamp()` sem o `timezone.utc`!
+- Open Interest: CSV da B3 (posições em aberto correspondentes, filtradas automaticamente para o Front-Month).
 
 ---
 
