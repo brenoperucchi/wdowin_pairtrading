@@ -2,17 +2,25 @@
 
 This is a repair tool for bars captured before TASK-8 Slice A started
 persisting `eg_pvalue`, `rho`, `rho_level`, `beta_value`, and
-`beta_delta_pct`. It reads local `bar_history`, recomputes the indicators from
-persisted WIN/WDO closes, and writes only missing indicator fields by default.
+`beta_delta_pct`. It reads `bar_history` via `core.bar_history_db` (so it
+honors BAR_HISTORY_BACKEND=sqlite|postgres|dual), recomputes the indicators
+from persisted WIN/WDO closes, and writes only missing indicator fields by
+default.
 
 By default it is fully offline. With `--fetch-mt5`, it also reads historical
 WIN/WDO/DI M5 closes from MT5 to fill missing prices and warm-up context before
 recomputing indicators. It never sends orders and does not touch
 execution_timeline or matador_ops.
+
+TASK-14 Slice 7: all bar_history I/O routes through `core.bar_history_db`.
+`--source` and the SQLite `.bak` backup remain meaningful when the active
+backend is sqlite/dual; under postgres-only the source path is ignored and the
+file backup is skipped (use `pg_dump` externally before risky overwrites).
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -21,7 +29,7 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Iterator
 
 import numpy as np
 
@@ -30,6 +38,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from core import bar_history_db as bhdb  # noqa: E402
 from core.config import (  # noqa: E402
     BARS,
     BETA_INITIAL,
@@ -87,25 +96,39 @@ class BackfillStats:
     price_fields_updated: int = 0
 
 
-def ensure_indicator_columns(conn: sqlite3.Connection) -> None:
-    """Idempotently add replay indicator columns to an existing bar_history."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(bar_history)").fetchall()}
-    alters = {
-        "eg_pvalue": "ALTER TABLE bar_history ADD COLUMN eg_pvalue REAL",
-        "rho": "ALTER TABLE bar_history ADD COLUMN rho REAL",
-        "rho_level": "ALTER TABLE bar_history ADD COLUMN rho_level INTEGER",
-        "beta_value": "ALTER TABLE bar_history ADD COLUMN beta_value REAL",
-        "beta_delta_pct": "ALTER TABLE bar_history ADD COLUMN beta_delta_pct REAL",
-    }
-    for col, sql in alters.items():
-        if col not in existing:
-            conn.execute(sql)
+def ensure_indicator_columns(*, backend: str | None = None) -> None:
+    """Idempotently add replay indicator columns to legacy SQLite bar_history.
+
+    The Postgres schema (managed by `bar_history_db.init_schema`) already
+    declares every indicator column, so this ALTER pass only runs when the
+    active backend touches SQLite.
+    """
+    b = (backend or bhdb.get_backend()).lower()
+    if b not in ("sqlite", "dual"):
+        return
+    sqlite_path = os.environ.get("BAR_HISTORY_SQLITE_PATH", "trades.db")
+    conn = sqlite3.connect(sqlite_path, timeout=30.0)
+    try:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(bar_history)").fetchall()}
+        alters = {
+            "eg_pvalue": "ALTER TABLE bar_history ADD COLUMN eg_pvalue REAL",
+            "rho": "ALTER TABLE bar_history ADD COLUMN rho REAL",
+            "rho_level": "ALTER TABLE bar_history ADD COLUMN rho_level INTEGER",
+            "beta_value": "ALTER TABLE bar_history ADD COLUMN beta_value REAL",
+            "beta_delta_pct": "ALTER TABLE bar_history ADD COLUMN beta_delta_pct REAL",
+        }
+        for col, sql in alters.items():
+            if col not in existing:
+                conn.execute(sql)
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def load_rows(conn: sqlite3.Connection) -> list[dict]:
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT * FROM bar_history ORDER BY timestamp ASC").fetchall()
-    return [dict(r) for r in rows]
+def load_rows(*, backend: str | None = None) -> list[dict]:
+    """Return every bar_history row ordered by timestamp via the active backend."""
+    # since_ts=0 == "all rows" because timestamps are positive epoch seconds.
+    return bhdb.select_window(since_ts=0, backend=backend)
 
 
 # ─── Optional MT5 price backfill ────────────────────────────────────────────
@@ -251,53 +274,46 @@ def merge_rows_with_prices(
 
 
 def apply_price_rows(
-    conn: sqlite3.Connection,
     rows: list[dict],
     price_rows: list[dict],
     *,
     overwrite: bool = False,
+    backend: str | None = None,
 ) -> dict:
-    """Insert/update price rows. Default preserves existing non-NULL prices."""
+    """Insert/update price rows via `bar_history_db`. Preserves non-NULL prices by default."""
     plan = _price_change_plan(rows, price_rows, overwrite=overwrite)
     existing = {int(r["timestamp"]): r for r in rows}
 
+    new_bars: list[dict] = []
     for item in price_rows:
         ts = int(item["timestamp"])
         row = existing.get(ts)
         if row is None:
-            conn.execute(
-                """
-                INSERT INTO bar_history
-                (timestamp, date_str, bar_time, win_price, wdo_price, di_price)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(timestamp) DO NOTHING
-                """,
-                (
-                    ts,
-                    item["date_str"],
-                    item["bar_time"],
-                    item.get("win_price"),
-                    item.get("wdo_price"),
-                    item.get("di_price"),
-                ),
+            new_bars.append(
+                {
+                    "timestamp": ts,
+                    "date_str": item["date_str"],
+                    "bar_time": item["bar_time"],
+                    "win_price": item.get("win_price"),
+                    "wdo_price": item.get("wdo_price"),
+                    "di_price": item.get("di_price"),
+                }
             )
             continue
 
-        set_parts: list[str] = []
-        params: list[float] = []
+        cols_to_set: dict[str, float] = {}
         for field in PRICE_COLUMNS:
             value = item.get(field)
             if value is None:
                 continue
             if overwrite or row.get(field) is None:
-                set_parts.append(f"{field} = ?")
-                params.append(value)
-        if set_parts:
-            params.append(ts)
-            conn.execute(
-                f"UPDATE bar_history SET {', '.join(set_parts)} WHERE timestamp = ?",
-                params,
-            )
+                cols_to_set[field] = value
+        if cols_to_set:
+            bhdb.update_columns(ts, backend=backend, **cols_to_set)
+
+    if new_bars:
+        # Brand-new bars: no conflict, so `merge` mode acts as a plain INSERT.
+        bhdb.upsert_bars_batch(new_bars, mode="merge", backend=backend)
 
     return plan
 
@@ -389,61 +405,66 @@ def compute_backfill_updates(rows: list[dict], date: str | None = None) -> tuple
 
 
 def apply_updates(
-    conn: sqlite3.Connection,
+    rows: list[dict],
     updates: list[dict],
     *,
     overwrite: bool = False,
+    backend: str | None = None,
 ) -> int:
-    """Write computed indicators. Default preserves existing non-NULL values."""
+    """Write computed indicators via `bar_history_db`. Preserves non-NULL by default.
+
+    In default mode each indicator field is only written when the in-memory row
+    snapshot shows it as NULL — mirrors the original `COALESCE(... WHERE x IS
+    NULL OR ...)` semantics without round-tripping the conflict logic through
+    SQL on each backend. Rows whose 5 indicators are already non-NULL are
+    skipped (no SET → no UPDATE → not counted), preserving the prior rowcount.
+    """
+    rows_by_ts = {int(r["timestamp"]): r for r in rows}
     updated = 0
     for item in updates:
-        params = (
-            item["eg_pvalue"],
-            item["rho"],
-            item["rho_level"],
-            item["beta_value"],
-            item["beta_delta_pct"],
-            item["timestamp"],
-        )
-        if overwrite:
-            cur = conn.execute(
-                """
-                UPDATE bar_history
-                SET eg_pvalue = ?,
-                    rho = ?,
-                    rho_level = ?,
-                    beta_value = ?,
-                    beta_delta_pct = ?
-                WHERE timestamp = ?
-                """,
-                params,
-            )
-        else:
-            cur = conn.execute(
-                """
-                UPDATE bar_history
-                SET eg_pvalue = COALESCE(eg_pvalue, ?),
-                    rho = COALESCE(rho, ?),
-                    rho_level = COALESCE(rho_level, ?),
-                    beta_value = COALESCE(beta_value, ?),
-                    beta_delta_pct = COALESCE(beta_delta_pct, ?)
-                WHERE timestamp = ?
-                  AND (
-                    eg_pvalue IS NULL OR rho IS NULL OR rho_level IS NULL
-                    OR beta_value IS NULL OR beta_delta_pct IS NULL
-                  )
-                """,
-                params,
-            )
-        updated += cur.rowcount
+        ts = int(item["timestamp"])
+        row = rows_by_ts.get(ts, {})
+        cols_to_set: dict[str, object] = {}
+        for col in INDICATOR_COLUMNS:
+            if overwrite or row.get(col) is None:
+                cols_to_set[col] = item[col]
+        if not cols_to_set:
+            continue
+        bhdb.update_columns(ts, backend=backend, **cols_to_set)
+        updated += 1
     return updated
 
 
-def create_backup(db_path: str) -> str:
+def create_backup(db_path: str, *, backend: str | None = None) -> str | None:
+    """Copy the active SQLite DB to a `.bak`. Returns None under postgres-only.
+
+    The Postgres backend has no file-level snapshot equivalent here; rely on
+    `pg_dump` or Timescale base backups before destructive runs.
+    """
+    b = (backend or bhdb.get_backend()).lower()
+    if b not in ("sqlite", "dual"):
+        return None
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_path = f"{db_path}.backfill-{ts}.bak"
     shutil.copy2(db_path, backup_path)
     return backup_path
+
+
+@contextlib.contextmanager
+def _sqlite_path_override(source_db: str, backend: str) -> Iterator[None]:
+    """Point the bar_history wrapper at `source_db` for sqlite/dual runs."""
+    if backend not in ("sqlite", "dual"):
+        yield
+        return
+    prev = os.environ.get("BAR_HISTORY_SQLITE_PATH")
+    os.environ["BAR_HISTORY_SQLITE_PATH"] = source_db
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("BAR_HISTORY_SQLITE_PATH", None)
+        else:
+            os.environ["BAR_HISTORY_SQLITE_PATH"] = prev
 
 
 def run_backfill(
@@ -457,19 +478,21 @@ def run_backfill(
     mt5_warmup_days: int = 3,
     mt5_fetcher: Mt5Fetcher | None = None,
 ) -> dict:
-    if not os.path.exists(source_db):
-        raise FileNotFoundError(source_db)
     if fetch_mt5 and date is None:
         raise ValueError("--fetch-mt5 requires --date")
 
-    backup_path = None
-    if backup and not dry_run:
-        backup_path = create_backup(source_db)
+    backend = bhdb.get_backend()
+    sqlite_relevant = backend in ("sqlite", "dual")
+    if sqlite_relevant and not os.path.exists(source_db):
+        raise FileNotFoundError(source_db)
 
-    conn = sqlite3.connect(source_db, timeout=30.0)
-    try:
-        ensure_indicator_columns(conn)
-        rows = load_rows(conn)
+    with _sqlite_path_override(source_db, backend):
+        backup_path = None
+        if backup and not dry_run:
+            backup_path = create_backup(source_db, backend=backend)
+
+        ensure_indicator_columns(backend=backend)
+        rows = load_rows(backend=backend)
         price_rows: list[dict] = []
         price_plan = {
             "price_rows_inserted": 0,
@@ -486,18 +509,18 @@ def run_backfill(
             price_plan = _price_change_plan(rows, price_rows, overwrite=overwrite)
             if not dry_run:
                 price_plan = apply_price_rows(
-                    conn,
                     rows,
                     price_rows,
                     overwrite=overwrite,
+                    backend=backend,
                 )
                 # The indicator pass below must see the freshly inserted warmup rows.
-                rows = load_rows(conn)
+                rows = load_rows(backend=backend)
             else:
                 rows = merge_rows_with_prices(rows, price_rows, overwrite=overwrite)
 
         updates, stats = compute_backfill_updates(rows, date=date)
-        stats.source_db = source_db
+        stats.source_db = source_db if sqlite_relevant else f"<postgres:{backend}>"
         stats.dry_run = dry_run
         stats.overwrite = overwrite
         stats.backup_path = backup_path
@@ -508,16 +531,12 @@ def run_backfill(
         stats.price_rows_updated = price_plan["price_rows_updated"]
         stats.price_fields_updated = price_plan["price_fields_updated"]
         if not dry_run:
-            stats.rows_updated = apply_updates(conn, updates, overwrite=overwrite)
-            conn.commit()
+            stats.rows_updated = apply_updates(
+                rows, updates, overwrite=overwrite, backend=backend
+            )
         else:
             stats.rows_updated = 0
         return asdict(stats)
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 def _print_summary(summary: dict) -> None:

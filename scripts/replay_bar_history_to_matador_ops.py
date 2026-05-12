@@ -4,6 +4,10 @@
 This intentionally writes synthetic rows only when --commit is passed. Rows are
 tagged with z_source='REPLAY_*' so they can be distinguished from real paper/live
 trades and safely replaced later.
+
+Bar reads route through `core.bar_history_db` (TASK-14 Slice 7) and honor
+BAR_HISTORY_BACKEND. matador_ops writes still go to the `--db` SQLite file
+(matador_ops migration is TASK-15, out of scope here).
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from core import bar_history_db as bhdb
 from core import config as cfg
 
 
@@ -71,29 +76,29 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def bar_minutes(row: sqlite3.Row) -> int:
+def bar_minutes(row: dict) -> int:
     hour, minute = [int(x) for x in row["bar_time"].split(":")[:2]]
     return hour * 60 + minute
 
 
-def timestamp_for(row: sqlite3.Row) -> str:
+def timestamp_for(row: dict) -> str:
     return f"{row['date_str']} {row['bar_time']}:00"
 
 
-def in_entry_session(row: sqlite3.Row) -> bool:
+def in_entry_session(row: dict) -> bool:
     t = bar_minutes(row)
     start = cfg.ENTRY_START_H * 60 + cfg.ENTRY_START_M
     end = cfg.ENTRY_END_H * 60 + cfg.ENTRY_END_M
     return start <= t <= end
 
 
-def is_force_close(row: sqlite3.Row) -> bool:
+def is_force_close(row: dict) -> bool:
     t = bar_minutes(row)
     fc = cfg.FORCE_CLOSE_H * 60 + cfg.FORCE_CLOSE_M
     return t >= fc
 
 
-def nwe_pass(row: sqlite3.Row, direction: str) -> bool:
+def nwe_pass(row: dict, direction: str) -> bool:
     win_price = float(row["win_price"])
     upper = float(row["nwe_upper"] or 0.0)
     lower = float(row["nwe_lower"] or 0.0)
@@ -115,7 +120,7 @@ def nwe_pass(row: sqlite3.Row, direction: str) -> bool:
     return True
 
 
-def signal_for(row: sqlite3.Row, strategy: str) -> tuple[str, float, str] | None:
+def signal_for(row: dict, strategy: str) -> tuple[str, float, str] | None:
     z_wdo = float(row["z_wdo"])
     z_di = float(row["z_di"] or 0.0)
 
@@ -146,7 +151,7 @@ def signal_for(row: sqlite3.Row, strategy: str) -> tuple[str, float, str] | None
     return None
 
 
-def close_if_needed(trade: Trade, row: sqlite3.Row) -> bool:
+def close_if_needed(trade: Trade, row: dict) -> bool:
     is_buy = trade.direction == "BUY"
     win_price = float(row["win_price"])
     pts_favor = (
@@ -186,15 +191,12 @@ def close_if_needed(trade: Trade, row: sqlite3.Row) -> bool:
     return True
 
 
-def load_rows(conn: sqlite3.Connection, date_str: str) -> list[sqlite3.Row]:
-    conn.row_factory = sqlite3.Row
-    return conn.execute(
-        "SELECT * FROM bar_history WHERE date_str = ? ORDER BY timestamp ASC",
-        (date_str,),
-    ).fetchall()
+def load_rows(date_str: str) -> list[dict]:
+    """Read bar_history for `date_str` via the active backend (sqlite/postgres)."""
+    return bhdb.select_by_date(date_str)
 
 
-def replay(rows: list[sqlite3.Row], mode: str) -> tuple[list[Trade], list[Trade]]:
+def replay(rows: list[dict], mode: str) -> tuple[list[Trade], list[Trade]]:
     open_trades: dict[str, Trade | None] = {s: None for s in STRATEGIES}
     closed: list[Trade] = []
     entries_today = 0
@@ -371,44 +373,53 @@ def insert_trades(
 
 def main() -> int:
     args = parse_args()
-    db_path = Path(args.db)
-    conn = sqlite3.connect(db_path)
 
-    rows = load_rows(conn, args.date)
+    rows = load_rows(args.date)
     if not rows:
-        raise SystemExit(f"No bar_history rows found for {args.date} in {db_path}")
+        raise SystemExit(
+            f"No bar_history rows found for {args.date} "
+            f"(backend={bhdb.get_backend()})"
+        )
 
     print(
         "WARNING: this replay cannot reconstruct rho/EG/beta/bar-close state "
         "from bar_history; use it for dashboard trajectory inspection only."
     )
     print(
-        f"Source: {db_path} bar_history date={args.date} bars={len(rows)} "
-        f"first={rows[0]['bar_time']} last={rows[-1]['bar_time']} mode={args.mode}"
+        f"Source: bar_history backend={bhdb.get_backend()} date={args.date} "
+        f"bars={len(rows)} first={rows[0]['bar_time']} last={rows[-1]['bar_time']} "
+        f"mode={args.mode}"
     )
     closed, still_open = replay(rows, args.mode)
     summarize(closed, still_open)
 
     if not args.commit:
         print("\nDry-run only. Re-run with --commit to populate matador_ops.")
-        conn.close()
         return 0
 
-    assert_can_write(
-        conn,
-        args.date,
-        replace_replay=args.replace_replay,
-        allow_mix_real=args.allow_mix_real,
-    )
-    backup = backup_db(db_path)
-    insert_trades(
-        conn,
-        args.date,
-        closed,
-        still_open,
-        replace_replay=args.replace_replay,
-    )
-    conn.close()
+    # matador_ops still lives in SQLite (TASK-15 will migrate it). The --db
+    # path is only required when actually writing trades.
+    db_path = Path(args.db)
+    if not db_path.exists():
+        raise SystemExit(f"--commit requested but matador_ops DB not found: {db_path}")
+    conn = sqlite3.connect(db_path)
+    try:
+        assert_can_write(
+            conn,
+            args.date,
+            replace_replay=args.replace_replay,
+            allow_mix_real=args.allow_mix_real,
+        )
+        backup = backup_db(db_path)
+        insert_trades(
+            conn,
+            args.date,
+            closed,
+            still_open,
+            replace_replay=args.replace_replay,
+        )
+    finally:
+        conn.close()
     print(f"\nInserted {len(closed) + len(still_open)} REPLAY rows.")
     print(f"Backup created: {backup}")
     return 0

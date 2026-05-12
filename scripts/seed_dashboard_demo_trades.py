@@ -20,6 +20,11 @@ from datetime import datetime
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from core import bar_history_db as bhdb  # noqa: E402
+
 DEFAULT_DB = str(_REPO_ROOT / "trades.db")
 
 
@@ -27,31 +32,17 @@ def _today_str() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def _has_bars(db_path: str, date_str: str) -> int:
-    conn = sqlite3.connect(db_path)
-    try:
-        return int(
-            conn.execute(
-                "SELECT COUNT(*) FROM bar_history WHERE date_str = ?",
-                (date_str,),
-            ).fetchone()[0]
-        )
-    finally:
-        conn.close()
+def _has_bars(date_str: str) -> int:
+    """bar_history row count for `date_str` via the active backend wrapper."""
+    return bhdb.count_rows(date_str=date_str)
 
 
-def _bar_window(db_path: str, date_str: str) -> tuple[str, str] | None:
-    conn = sqlite3.connect(db_path)
-    try:
-        row = conn.execute(
-            "SELECT MIN(bar_time), MAX(bar_time) FROM bar_history WHERE date_str = ?",
-            (date_str,),
-        ).fetchone()
-    finally:
-        conn.close()
-    if not row or not row[0] or not row[1]:
+def _bar_window(date_str: str) -> tuple[str, str] | None:
+    """(MIN, MAX) bar_time for `date_str`, or None when the session is empty."""
+    lo, hi = bhdb.bar_time_range(date_str)
+    if not lo or not hi:
         return None
-    return row[0], row[1]
+    return lo, hi
 
 
 def seed(db_path: str, date_str: str) -> list[int]:
@@ -122,8 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"removed {n} DEMO_* row(s) from {args.db}")
         return 0
 
-    bars = _has_bars(args.db, args.date)
-    print(f"date={args.date} bar_history rows={bars}", file=sys.stderr)
+    bars = _has_bars(args.date)
+    print(f"date={args.date} bar_history rows={bars} (backend={bhdb.get_backend()})", file=sys.stderr)
     if bars == 0:
         print(
             "warning: no bar_history for this date. Markers will only render "
@@ -133,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
     else:
-        window = _bar_window(args.db, args.date)
+        window = _bar_window(args.date)
         if window:
             print(f"bar window {window[0]}–{window[1]}", file=sys.stderr)
 

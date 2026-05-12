@@ -566,3 +566,59 @@ Os 18 testes existentes de `tests/test_replay_execution_timeline.py` continuam p
 - Slice 7: `backfill_bar_history_indicators.py`, `replay_bar_history_to_matador_ops.py`, `seed_dashboard_demo_trades.py`.
 - Slice 8: docs (`.env.example`, README, CLAUDE.md) + gate `PG_TEST_URI` em CI.
 - Slice 9: stop-write SQLite quando `BAR_HISTORY_BACKEND=postgres` + `DROP TABLE bar_history` em `trades.db`.
+
+## 17. Slice 7 — scripts secundários via wrapper
+
+Migra os três scripts restantes para enxergar `bar_history` apenas via `core.bar_history_db`. A meta de Slice 7 é fechar o front: nenhum caller produtivo abre mais `sqlite3.connect("trades.db")` para ler/escrever `bar_history`.
+
+### 17.1 Mudanças
+
+| Script | Antes | Depois |
+| --- | --- | --- |
+| `scripts/seed_dashboard_demo_trades.py` | `sqlite3` direto para checar bars + escrever DEMO trades | `bhdb.count_rows(date_str=...)` e `bhdb.bar_time_range(...)` para a leitura; `matador_ops` continua em SQLite (TASK-15) |
+| `scripts/replay_bar_history_to_matador_ops.py` | `load_rows(conn)` em SQLite + abertura imediata do `--db` | `bhdb.select_by_date(date)` para reads; a conexão SQLite só abre no caminho `--commit` (matador_ops segue SQLite por enquanto) |
+| `scripts/backfill_bar_history_indicators.py` | `ensure_indicator_columns(conn)`, `apply_price_rows(conn, ...)`, `apply_updates(conn, ...)` | `apply_price_rows(rows, price_rows, backend=...)` e `apply_updates(rows, updates, backend=...)` usando `bhdb.upsert_bars_batch(mode="merge")` + `bhdb.update_columns(...)`; `ensure_indicator_columns` é no-op em postgres; `create_backup` retorna `None` em postgres |
+
+A semântica "preserve non-NULL" continua igual: `apply_price_rows`/`apply_updates` filtram em memória (`overwrite or row[col] is None`) antes de chamar o wrapper. Isso evita depender da cláusula `ON CONFLICT DO UPDATE` do backend e mantém parity exata entre SQLite/PG.
+
+### 17.2 Source-DB e backup
+
+`run_backfill(source_db=...)` continua aceitando o caminho legacy, mas:
+- Sob `BAR_HISTORY_BACKEND` em `sqlite`/`dual` → exige que o arquivo exista, mantém o backup `.bak`, exporta `BAR_HISTORY_SQLITE_PATH=source_db` enquanto a função roda (context manager, restaurado no `finally`).
+- Sob `postgres` → ignora o caminho, pula o backup (use `pg_dump`/Timescale base backup externamente), e o resumo registra `source_db="<postgres:postgres>"` para auditoria.
+
+Idem para `replay_bar_history_to_matador_ops.py`: o `--db` agora só é validado/aberto quando `--commit` é passado, então `--dry-run` em ambiente PG-only não falha mais.
+
+### 17.3 Validação A/B (data 2026-05-08)
+
+Smoke test back-to-back nos dois backends mostrou paridade:
+
+```
+$ BAR_HISTORY_BACKEND=sqlite   ./replay_bar_history_to_matador_ops.py --date 2026-05-08 --mode ops
+$ BAR_HISTORY_BACKEND=postgres ./replay_bar_history_to_matador_ops.py --date 2026-05-08 --mode ops
+# diff -q saídas (ignorando o label "backend=..."): byte-equivalent
+
+$ BAR_HISTORY_BACKEND=sqlite   ./backfill_bar_history_indicators.py --date 2026-05-08 --dry-run --no-backup
+$ BAR_HISTORY_BACKEND=postgres ./backfill_bar_history_indicators.py --date 2026-05-08 --dry-run --no-backup
+# rows_total=54293, rows_in_scope=115, rows_with_pair_prices=113, rows_computed=113 nos dois.
+```
+
+`seed_dashboard_demo_trades.py --date 2026-05-08` lê `bar_history` via PG (a partir de `/tmp/`, fora do repo) sem precisar de `trades.db` local; a inserção em `matador_ops` falha como esperado quando o `--db` SQLite não existe.
+
+### 17.4 Cobertura de teste
+
+`tests/test_backfill_bar_history_indicators.py`:
+- 11 testes SQLite originais continuam passando inalterados.
+- +4 testes novos:
+  - `test_run_backfill_skips_source_existence_check_under_postgres` — postgres-only não checa nem repassa `source_db`.
+  - `test_run_backfill_still_requires_source_db_under_sqlite` — sqlite mantém `FileNotFoundError`.
+  - `test_create_backup_skips_under_postgres` — retorna `None` em vez de tentar copiar arquivo.
+  - `test_ensure_indicator_columns_is_noop_under_postgres` — não tenta abrir SQLite quando backend é PG.
+- +2 testes PG-gated (gated em `PG_TEST_URI`):
+  - `test_backfill_updates_missing_indicators_postgres` — full pipeline contra Timescale.
+  - `test_backfill_preserves_existing_values_postgres` — verifica que `eg_pvalue` previamente populado sobrevive a um run sem `--overwrite`.
+
+### 17.5 Não escopo (próximas slices)
+
+- Slice 8: docs operacionais (`.env.example`, README/CLAUDE.md), gate `PG_TEST_URI` em CI, atualização do runbook de migration.
+- Slice 9: cutover final — desliga o write SQLite de `bar_history` quando `BAR_HISTORY_BACKEND=postgres`, então `DROP TABLE bar_history` em `trades.db`. Apenas Postgres permanece para dados temporais.

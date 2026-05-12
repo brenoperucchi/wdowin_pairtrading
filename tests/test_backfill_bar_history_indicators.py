@@ -1,9 +1,13 @@
 import math
+import os
 import sqlite3
 import sys
 import time
 
+import pytest
+
 import scripts.backfill_bar_history_indicators as backfill
+from core import bar_history_db as bhdb
 from core.config import DI_SYMBOL, SYMBOL_A, SYMBOL_B, TIME_OFFSET
 from server import init_bar_history, save_bar_history
 
@@ -330,6 +334,159 @@ def test_backfill_fetch_mt5_can_overwrite_existing_prices(tmp_path, monkeypatch)
     ).fetchone()[0]
     conn.close()
     assert value > 6000.0
+
+
+# ── TASK-14 Slice 7: backend-aware behavior ─────────────────────────────────
+
+
+def test_run_backfill_skips_source_existence_check_under_postgres(monkeypatch):
+    """Postgres-only runs must not require a local SQLite trades.db."""
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    monkeypatch.delenv("BAR_HISTORY_SQLITE_PATH", raising=False)
+    captured: dict = {}
+
+    def fake_load_rows(*, backend=None):
+        captured["backend"] = backend
+        captured["sqlite_path_env"] = os.environ.get("BAR_HISTORY_SQLITE_PATH")
+        return []
+
+    monkeypatch.setattr(backfill, "load_rows", fake_load_rows)
+    summary = backfill.run_backfill(
+        source_db="/nonexistent/should-not-be-checked.db",
+        date=TEST_DATE,
+        dry_run=True,
+        backup=False,
+    )
+    assert captured["backend"] == "postgres"
+    # The env override only fires for sqlite/dual; postgres leaves it untouched.
+    assert captured["sqlite_path_env"] is None
+    assert summary["source_db"].startswith("<postgres:")
+    assert summary["backup_path"] is None
+
+
+def test_run_backfill_still_requires_source_db_under_sqlite(monkeypatch, tmp_path):
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    missing = tmp_path / "does-not-exist.db"
+    with pytest.raises(FileNotFoundError):
+        backfill.run_backfill(source_db=str(missing), date=TEST_DATE, backup=False)
+
+
+def test_create_backup_skips_under_postgres(monkeypatch, tmp_path):
+    """Postgres backend has no file-level snapshot → backup must return None."""
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    # Path doesn't even exist; shouldn't matter.
+    assert backfill.create_backup(str(tmp_path / "irrelevant.db")) is None
+
+
+def test_ensure_indicator_columns_is_noop_under_postgres(monkeypatch):
+    """Postgres schema already has indicator columns — function must short-circuit."""
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    # If it tried to open SQLite, it would raise (env points nowhere meaningful).
+    monkeypatch.delenv("BAR_HISTORY_SQLITE_PATH", raising=False)
+    backfill.ensure_indicator_columns()  # must not raise
+
+
+@pytest.fixture
+def pg_clean_table(monkeypatch):
+    """Drop+recreate Postgres bar_history. Skips when PG_TEST_URI is unset."""
+    uri = os.environ.get("PG_TEST_URI")
+    if not uri:
+        pytest.skip("PG_TEST_URI not set; skipping Postgres integration tests")
+    monkeypatch.setenv("PG_URI", uri)
+    import psycopg
+
+    with psycopg.connect(uri, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS bar_history CASCADE")
+    bhdb.init_schema(backend="postgres")
+    yield uri
+    with psycopg.connect(uri, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS bar_history CASCADE")
+
+
+def _seed_rows_pg(n: int = 95, *, missing_wdo_at: set[int] | None = None) -> None:
+    missing_wdo_at = missing_wdo_at or set()
+    rows = []
+    for i in range(n):
+        ts = _ts_for(i)
+        hour = 9 + (i * 5) // 60
+        minute = (i * 5) % 60
+        rows.append(
+            {
+                "timestamp": ts,
+                "date_str": TEST_DATE,
+                "bar_time": f"{hour:02d}:{minute:02d}",
+                "win_price": 130000.0 + i * 12.0,
+                "wdo_price": None if i in missing_wdo_at else 5500.0 + i * 0.7,
+                "di_price": 12.5,
+                "spread_wdo": 10.0,
+                "spread_di": 1.0,
+                "z_wdo": 0.1,
+                "z_di": 0.2,
+                "nwe_center": 130000.0,
+                "nwe_upper": 130200.0,
+                "nwe_lower": 129800.0,
+                "nwe_is_up": True,
+            }
+        )
+    bhdb.upsert_bars_batch(rows, mode="merge", backend="postgres")
+
+
+def test_backfill_updates_missing_indicators_postgres(monkeypatch, pg_clean_table):
+    """Mirror of test_backfill_updates_missing_indicators against Postgres."""
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    _seed_rows_pg()
+    monkeypatch.setattr(backfill, "compute_engle_granger_pvalue", lambda *_args: 0.04)
+
+    summary = backfill.run_backfill(
+        source_db="<unused-under-pg>",
+        date=TEST_DATE,
+        backup=False,
+    )
+    assert summary["rows_total"] == 95
+    assert summary["rows_in_scope"] == 95
+    assert summary["rows_computed"] == 5
+    assert summary["rows_updated"] == 5
+
+    import psycopg
+    with psycopg.connect(pg_clean_table) as conn:
+        cur = conn.execute(
+            "SELECT eg_pvalue, rho, rho_level, beta_value, beta_delta_pct "
+            "FROM bar_history WHERE eg_pvalue IS NOT NULL "
+            "ORDER BY timestamp DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    assert row[0] == 0.04
+    assert math.isfinite(row[1])
+    assert row[2] in {0, 1, 2, 3}
+    assert math.isfinite(row[3])
+    assert math.isfinite(row[4])
+
+
+def test_backfill_preserves_existing_values_postgres(monkeypatch, pg_clean_table):
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    _seed_rows_pg()
+    target_ts = _ts_for(94)
+    bhdb.update_columns(target_ts, eg_pvalue=0.99, backend="postgres")
+    monkeypatch.setattr(backfill, "compute_engle_granger_pvalue", lambda *_args: 0.04)
+
+    summary = backfill.run_backfill(
+        source_db="<unused-under-pg>",
+        date=TEST_DATE,
+        backup=False,
+    )
+    assert summary["rows_updated"] == 5
+
+    import psycopg
+    with psycopg.connect(pg_clean_table) as conn:
+        cur = conn.execute(
+            "SELECT eg_pvalue, rho FROM bar_history WHERE timestamp = %s",
+            (target_ts,),
+        )
+        eg, rho = cur.fetchone()
+    assert eg == 0.99
+    assert rho is not None
 
 
 def test_backfill_fetch_mt5_never_calls_order_send(tmp_path, monkeypatch):
