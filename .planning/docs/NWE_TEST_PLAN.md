@@ -1,32 +1,53 @@
-# Integração do Filtro Nadaraya-Watson Envelope (NWE) ao Setup Matador
+# Integração e Otimização do Filtro Nadaraya-Watson Envelope (NWE)
 
 ## Objetivo
 Testar estatisticamente se a adição do filtro NWE (Nadaraya-Watson Envelope) melhora a performance do "Setup Matador" atual, filtrando sinais com base na inclinação da curva de preço suavizada do índice WIN.
 
-## Como Funcionaria o NWE no Backtest?
+## Fases de Implementação e Limites de Parâmetros
 
-O NWE é um algoritmo de regressão de kernel que cria uma linha suavizada não-paramétrica que persegue o preço, isolando a tendência principal (ruído é ignorado).
+### Fase 1: Replicação Matemática do NWE em Python
+**Objetivo:** Traduzir a função `calc_nwe()` do Javascript (Dashboard) para Python, garantindo correspondência exata 1:1 com cálculos vetorizados (Pandas/NumPy).
+**Parâmetros do Kernel NWE a serem expostos:**
+*   **Janela de Lookback (`h`):** Define o tamanho do "horizonte" do kernel de regressão.
+    *   *Limite Inferior:* 50 barras.
+    *   *Limite Superior:* 300 barras.
+    *   *Passo (Step) da Busca:* 50 barras.
+*   **Bandwidth (`bw` ou `sigma`):** Define a "suavidade" do kernel Gaussiano.
+    *   *Limite Inferior:* 3.
+    *   *Limite Superior:* 15.
+    *   *Passo (Step) da Busca:* 1.
 
-Na nossa arquitetura, teríamos duas formas de usar a inclinação (Slope) do NWE como filtro de bloqueio:
+### Fase 2: Otimização da Lógica de Filtro (Trend vs. Counter-Trend)
+**Objetivo:** Testar duas lógicas comportamentais conflitantes contra o histórico, sem viés humano.
+**Parâmetro Categórico (Modo de Operação):**
+1.  **Modo "Fader" (Contra-Tendência):** Comprar apenas se a macro-tendência (NWE) estiver caindo (vermelha). Vender se NWE estiver subindo (verde). *Atualmente é o que o Dashboard desenha nas entrelinhas.*
+2.  **Modo "Seguidor" (A Favor da Tendência):** Comprar apenas se NWE estiver verde. Vender apenas se NWE estiver vermelho. *Logicamente faz mais sentido para pair-trading.*
+3.  **Modo "Desligado" (Baseline):** Para medir qual seria o resultado sem a interferência do NWE, estabelecendo uma linha de base.
 
-1.  **Filtro "A Favor da Tendência" (Trend-Following):**
-    *   Sinal de COMPRA do Consenso (WDO+DI) só é autorizado se o NWE estiver **VERDE** (Subindo / Slope > 0). *Lógica: Comprar as quedas do spread apenas se o mercado macro do dia estiver subindo.*
-    *   Sinal de VENDA do Consenso só é autorizado se o NWE estiver **VERMELHO** (Caindo / Slope < 0). *Lógica: Vender o topo do spread apenas se o mercado macro do dia estiver caindo.*
+### Fase 3: Integração com as Variáveis do Setup Matador
+**Objetivo:** Combinar o filtro NWE com os gatilhos já existentes de Z-Score e DI.
+**Parâmetros de Gatilho para Otimização Múltipla:**
+*   **Alvo de Z-Score de Entrada (`z_entry`):**
+    *   *Limites:* 0.8 a 2.0 desvios.
+    *   *Passo:* 0.2.
+*   **Filtro Direcional de Juros (`di_threshold`):**
+    *   *Limites:* 0.5 a 2.5.
+    *   *Passo:* 0.5.
 
-2.  **Filtro "Contra a Tendência" (Mean-Reversion Fader):**
-    *   Sinal de COMPRA só autorizado se o NWE estiver VERMELHO.
-    *   Sinal de VENDA só autorizado se o NWE estiver VERDE.
-    *(No Frontend do Dashboard, o código Javascript atualmente faz essa segunda opção, apagando os sinais a favor da tendência).*
+### Fase 4: Otimização de Força Bruta (Grid Search)
+**Objetivo:** Rodar uma matriz testando todas as permutações dos parâmetros das Fases 1 a 3.
+**Passos da Execução:**
+1.  Baixar e tratar base de dados com mínimo de 15.000 barras.
+2.  Aplicar função Gaussiana do NWE sobre toda a série histórica.
+3.  Calcular o vetor de inclinação (Slope).
+4.  Iterar sobre todas as permutações gerando uma tabela unificada de performance.
+5.  Gravar métricas por permutação: Taxa de Acerto (Win Rate %), Profit Factor (Fator de Lucro), Max Drawdown e Número de Trades (excluindo combinações com < 30 amostras por irrelevância estatística).
 
-## Perguntas Abertas para Aprovação
-
-1. No Javascript do painel, o Filtro NWE hoje apaga o sinal VERDE de compra quando a tendência está VERDE (Subindo). Ou seja, ele age como "Fader/Contra-Tendência". Você quer que eu teste essa lógica "Contra-Tendência", a lógica tradicional de "Comprar junto com a Tendência", ou ambas para compararmos?
-2. O kernel no dashboard usa Janela de Lookback de 100 barras e Bandwidth 8. Posso replicar esses exatos parâmetros no motor de teste em Python?
-
-## Etapas Técnicas
-
-1.  Criar `research/optimize_nwe.py`.
-2.  Traduzir a função matemática Javascript `calc_nwe()` exatamente para Python.
-3.  Puxar 15.000 barras do banco de dados e processar `z_wdo`, `z_di` e `nwe_slope`.
-4.  Cruzar as matrizes e apresentar se o lucro sobe ou desce com o filtro.
-5.  Se aprovar, implementamos direto no robô de produção.
+### Fase 5: Validação e Injeção em Produção
+**Objetivo:** Escolher os melhores valores, garantir que não houve over-fitting e aplicar no bot real.
+**Passos da Execução:**
+1.  Identificar as zonas de parâmetros onde o Fator de Lucro é consistentemente superior ao *Baseline* (Superfície Plana, não "Picos" isolados).
+2.  Definir os valores ótimos definitivos.
+3.  Atualizar o arquivo `config.json` com a nova estrutura de parâmetros do NWE.
+4.  Inserir a condição de Slope no arquivo principal do robô em Python.
+5.  Opcional: Sincronizar os mesmos parâmetros ótimos no Kernel do Frontend React.

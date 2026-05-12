@@ -1,37 +1,134 @@
-import { useMemo } from "react";
-import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, ReferenceLine, Tooltip } from "recharts";
+import { useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from "react";
+import { createChart, LineSeries, LineStyle, CrosshairMode } from "lightweight-charts";
 
-// Shared chart margins for X-axis alignment across all 3 charts
 const CHART_MARGIN = { top: 8, right: 12, bottom: 0, left: 0 };
 const Y_AXIS_WIDTH = 38;
-const Z_CLAMP = 5; // Truncate Z values beyond ±5
+const Z_CLAMP = 5;
 
-export default function ZScoreChart({ history, sigColor = "#00e87a", currentZ = 0, useV2 = false, hideXAxis = false }) {
-    const chartData = useMemo(() => {
-        if (!history || history.length === 0) return [];
-        return history.map(d => {
+function timeStrToTimestamp(timeStr) {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
+}
+
+const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, useV2 = false, hideXAxis = false }, ref) => {
+    const chartContainerRef = useRef();
+    const chartRef = useRef(null);
+    const seriesRefs = useRef({});
+
+    useImperativeHandle(ref, () => ({
+        getChart: () => chartRef.current,
+        getMainSeries: () => seriesRefs.current.zSeries,
+    }));
+
+    useEffect(() => {
+        if (!chartContainerRef.current) return;
+
+        const chart = createChart(chartContainerRef.current, {
+            layout: {
+                background: { type: "solid", color: "#0c1218" },
+                textColor: "#4a6070",
+                fontSize: 9,
+            },
+            localization: {
+                timeFormatter: (time) => {
+                    const d = new Date(time * 1000);
+                    return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+                },
+            },
+            grid: {
+                vertLines: { visible: false },
+                horzLines: { visible: false },
+            },
+            crosshair: {
+                mode: CrosshairMode.Normal,
+                vertLine: { color: "#c8a444", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#c8a444" },
+                horzLine: { visible: false, labelVisible: true, labelBackgroundColor: "#c8a444" },
+            },
+            timeScale: {
+                visible: !hideXAxis,
+                timeVisible: true,
+                secondsVisible: false,
+                tickMarkFormatter: (time) => {
+                    const d = new Date(time * 1000);
+                    return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+                },
+            },
+            rightPriceScale: {
+                borderColor: "#1a2530",
+                autoScale: false,
+                minValue: -Z_CLAMP,
+                maxValue: Z_CLAMP,
+                minimumWidth: 60,
+            },
+            autoSize: true,
+        });
+        chartRef.current = chart;
+
+        const zSeries = chart.addSeries(LineSeries, { color: "#c8a444", lineWidth: 2, crosshairMarkerVisible: true, priceLineVisible: false });
+        const diSeries = chart.addSeries(LineSeries, { color: "#8a6dff", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false, priceLineVisible: false });
+
+        // Reference lines
+        const lines = [
+            { price: 4, color: "#ff386044", style: LineStyle.Dashed, width: 1 },
+            { price: -4, color: "#ff386044", style: LineStyle.Dashed, width: 1 },
+            { price: 1.4, color: "#ff386088", style: LineStyle.Dotted, width: 1, title: "VENDA" },
+            { price: -1.4, color: "#00e87a88", style: LineStyle.Dotted, width: 1, title: "COMPRA" },
+            { price: 1.2, color: "#f5a62344", style: LineStyle.Dotted, width: 1 },
+            { price: -1.2, color: "#f5a62344", style: LineStyle.Dotted, width: 1 },
+            { price: 0, color: "#3a5060", style: LineStyle.Solid, width: 1 },
+        ];
+        lines.forEach(l => {
+            zSeries.createPriceLine({
+                price: l.price,
+                color: l.color,
+                lineWidth: l.width,
+                lineStyle: l.style,
+                axisLabelVisible: !!l.title,
+                title: l.title || "",
+            });
+        });
+
+        seriesRefs.current = { zSeries, diSeries };
+
+        return () => {
+            chart.remove();
+        };
+    }, [hideXAxis]);
+
+    useEffect(() => {
+        if (!chartRef.current || !history || history.length === 0) return;
+
+        const { zSeries, diSeries } = seriesRefs.current;
+        const zData = [];
+        const diData = [];
+
+        history.forEach(d => {
+            if (!d.bar_time) return;
+            const t = timeStrToTimestamp(d.bar_time);
+            if (t === 0) return;
+
             let z = d.z ?? d.z_raw_wdo ?? null;
             let z_di = d.z_di ?? d.z_raw_di ?? null;
-            // Guard against NaN/Infinity and clamp to ±5
-            if (z != null && !isFinite(z)) z = null;
-            if (z_di != null && !isFinite(z_di)) z_di = null;
-            if (z != null) z = Math.max(-Z_CLAMP, Math.min(Z_CLAMP, z));
-            if (z_di != null) z_di = Math.max(-Z_CLAMP, Math.min(Z_CLAMP, z_di));
-            return { bar_time: d.bar_time, z, z_di };
-        });
-    }, [history]);
+            
+            if (z != null && isFinite(z)) zData.push({ time: t, value: Math.max(-Z_CLAMP, Math.min(Z_CLAMP, z)) });
+            else zData.push({ time: t }); // whitespace
 
-    if (chartData.length === 0) {
-        return (
-            <div style={{ width: "100%", height: 200, background: "#0c1218", borderRadius: "8px 8px 0 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO (09:00)</span>
-            </div>
-        );
-    }
+            if (useV2) {
+                if (z_di != null && isFinite(z_di)) diData.push({ time: t, value: Math.max(-Z_CLAMP, Math.min(Z_CLAMP, z_di)) });
+                else diData.push({ time: t }); // whitespace
+            }
+        });
+
+        const sortData = (arr) => arr.sort((a,b) => a.time - b.time).filter((v,i,a) => i===0 || v.time > a[i-1].time);
+
+        zSeries.setData(sortData(zData));
+        if (useV2) diSeries.setData(sortData(diData));
+
+    }, [history, useV2]);
 
     return (
-        <div style={{ width: "100%", background: "#0c1218", borderRadius: "8px 8px 0 0" }}>
-            {/* Legend */}
+        <div style={{ width: "100%", background: "#0c1218", borderRadius: "8px 8px 0 0", position: "relative" }}>
             <div style={{
                 display: "flex", alignItems: "center", gap: 16,
                 padding: "6px 12px 0px", paddingLeft: Y_AXIS_WIDTH,
@@ -48,67 +145,14 @@ export default function ZScoreChart({ history, sigColor = "#00e87a", currentZ = 
                     </span>
                 )}
             </div>
-
-            {/* Chart */}
-            <div style={{ width: "100%", height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={chartData} margin={CHART_MARGIN} syncId="pair-trading">
-                        <defs>
-                            <linearGradient id="zFillPos" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#ff3860" stopOpacity={0.12} />
-                                <stop offset="50%" stopColor="#ff3860" stopOpacity={0} />
-                            </linearGradient>
-                            <linearGradient id="zFillNeg" x1="0" y1="1" x2="0" y2="0">
-                                <stop offset="0%" stopColor="#00e87a" stopOpacity={0.12} />
-                                <stop offset="50%" stopColor="#00e87a" stopOpacity={0} />
-                            </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1a2530" vertical={false} />
-                        <XAxis dataKey="bar_time" hide={true} padding={{ left: 0, right: 0 }} />
-                        <YAxis
-                            tick={{ fontSize: 9, fill: "#4a6070" }}
-                            tickLine={false} axisLine={false}
-                            domain={[-Z_CLAMP, Z_CLAMP]}
-                            ticks={[-5, -4, -2, -1.4, -1.2, 0, 1.2, 1.4, 2, 4, 5]}
-                            width={Y_AXIS_WIDTH}
-                        />
-                        <Tooltip
-                            contentStyle={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 6, fontSize: 10, fontFamily: "monospace", padding: "6px 10px" }}
-                            labelStyle={{ color: "#6f8a9c", marginBottom: 4 }}
-                            formatter={(v, name) => {
-                                if (v == null) return [null, null];
-                                const label = name === "z" ? "Z WDO" : name === "z_di" ? "Z DI" : name;
-                                return [v.toFixed(3), label];
-                            }}
-                        />
-
-                        {/* Zone shading: anomalia (|z|≥4) */}
-                        <ReferenceLine y={4} stroke="#ff386044" strokeDasharray="2 4" strokeWidth={0.5} />
-                        <ReferenceLine y={-4} stroke="#ff386044" strokeDasharray="2 4" strokeWidth={0.5} />
-
-                        {/* Entry zones ±1.4 */}
-                        <ReferenceLine y={1.4} stroke="#ff386088" strokeDasharray="6 3" strokeWidth={0.8}
-                            label={{ value: "VENDA 1.4", position: "right", fill: "#ff386088", fontSize: 8 }} />
-                        <ReferenceLine y={-1.4} stroke="#00e87a88" strokeDasharray="6 3" strokeWidth={0.8}
-                            label={{ value: "COMPRA -1.4", position: "right", fill: "#00e87a88", fontSize: 8 }} />
-
-                        {/* Attention zones ±1.2 */}
-                        <ReferenceLine y={1.2} stroke="#f5a62344" strokeDasharray="4 4" strokeWidth={0.5} />
-                        <ReferenceLine y={-1.2} stroke="#f5a62344" strokeDasharray="4 4" strokeWidth={0.5} />
-
-                        {/* Zero line — center */}
-                        <ReferenceLine y={0} stroke="#3a5060" strokeWidth={1} />
-
-                        {/* WDO Z-Score line */}
-                        <Line type="monotone" dataKey="z" name="z" stroke="#c8a444" strokeWidth={1.8} dot={false} connectNulls={false} isAnimationActive={false} />
-
-                        {/* DI Z-Score line (dashed) */}
-                        {useV2 && (
-                            <Line type="monotone" dataKey="z_di" name="z_di" stroke="#8a6dff" strokeWidth={1.2} dot={false} connectNulls={false} isAnimationActive={false} strokeDasharray="4 2" />
-                        )}
-                    </ComposedChart>
-                </ResponsiveContainer>
-            </div>
+            <div ref={chartContainerRef} style={{ width: "100%", height: "200px", paddingLeft: Y_AXIS_WIDTH }} />
+            {(!history || history.length === 0) && (
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", borderRadius: "8px 8px 0 0", zIndex: 10 }}>
+                    <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO (09:00)</span>
+                </div>
+            )}
         </div>
     );
-}
+});
+ZScoreChart.displayName = 'ZScoreChart';
+export default ZScoreChart;

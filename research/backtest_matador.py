@@ -18,15 +18,16 @@ WDO_KALMAN_R = 1e2
 DI_KALMAN_W = 40
 DI_BETA_REF_BARS = 2240
 
-Z_ENTRY = 2.0
-Z_ATTENTION = 1.4
+Z_ENTRY_DEFAULT = 2.0
+Z_ATTENTION_DEFAULT = 1.4
 
-BARS_TO_FETCH = 20000  # Approximately 4 months of 5M bars
+BARS_TO_FETCH = 50000  # Aproximadamente 1 ano de barras M5
 
 SCENARIOS = [
-    {"name": "Scalp", "sl": 250, "tp": 300, "max_bars": None, "end_of_day": False},
-    {"name": "Tempo de Tela", "sl": 510, "tp": 600, "max_bars": 5, "end_of_day": False},
-    {"name": "Carregamento Intraday", "sl": 560, "tp": 99999, "max_bars": None, "end_of_day": True},
+    {"name": "Matador Original", "sl": 300, "tp": 800, "be_act": 300, "be_lock": 0, "max_bars": None, "end_of_day": True, "z_entry": 1.4, "z_att": 1.2},
+    {"name": "Scalp (Novo)", "sl": 250, "tp": 300, "be_act": 0, "be_lock": 0, "max_bars": None, "end_of_day": False, "z_entry": 2.0, "z_att": 1.4},
+    {"name": "Tempo de Tela (Novo)", "sl": 510, "tp": 600, "be_act": 0, "be_lock": 0, "max_bars": 5, "end_of_day": False, "z_entry": 2.0, "z_att": 1.4},
+    {"name": "Carregamento Intraday (Novo)", "sl": 560, "tp": 99999, "be_act": 0, "be_lock": 0, "max_bars": None, "end_of_day": True, "z_entry": 2.0, "z_att": 1.4},
 ]
 
 def fetch_data():
@@ -87,51 +88,28 @@ def generate_signals(df):
     z_wdo = KalmanBetaFilter.rolling_zscore(spreads_wdo, window=WDO_KALMAN_W)
     df['z_wdo'] = z_wdo
     
-    # DI OLS Z-Score
-    z_di = np.zeros(len(df))
-    # We must compute a rolling OLS beta over 2240 bars, but for speed in backtest
-    # we can use a simpler rolling window approach or just calc it efficiently
-    # To keep it identical to server.py:
-    # beta_ref_20d = calc_beta_ols(closes_win[-2240:], closes_di[-2240:])
-    # calc_zscore(...)
+    # DI Kalman Z-Score
+    print("Calculating rolling DI Z-Scores (Kalman Puro)...")
+    b, a = np.polyfit(di[:100], win[:100], 1)
+    kf_di = KalmanBetaFilter(initial_beta=b, initial_alpha=a, trans_cov=1e-3, obs_cov=1e1)
     
-    print("Calculating rolling DI Z-Scores...")
-    # Pre-calculate rolling DI beta and zscore
-    # This might be slow if done naive loop, so we vectorize
-    # For backtest simulation, we will use a rolling window of DI_BETA_REF_BARS for beta
-    
-    # Simple vectorization for DI beta over rolling window (avoid exact 2240 loop if too slow, but let's try it)
-    beta_di_arr = np.zeros(len(df))
-    for i in range(len(df)):
-        if i < DI_KALMAN_W:
-            beta_di_arr[i] = -100 # arbitrary
-            continue
-            
-        start_idx = max(0, i - DI_BETA_REF_BARS)
-        w_win = win[start_idx:i+1]
-        w_di = di[start_idx:i+1]
+    spreads_di = []
+    for y, x in zip(win, di):
+        beta, spread, _ = kf_di.update(float(y), float(x))
+        spreads_di.append(spread)
         
-        # Simple OLS: Cov(X, Y) / Var(X)
-        if len(w_win) > 2:
-            cov = np.cov(w_di, w_win)[0][1]
-            var = np.var(w_di)
-            beta = cov / var if var > 0 else -100
-        else:
-            beta = -100
-        beta_di_arr[i] = beta
-        
-    df['beta_di'] = beta_di_arr
-    df['spread_di'] = win - (beta_di_arr * di)
-    df['z_di'] = (df['spread_di'] - df['spread_di'].rolling(DI_KALMAN_W).mean()) / df['spread_di'].rolling(DI_KALMAN_W).std()
+    z_di = KalmanBetaFilter.rolling_zscore(spreads_di, window=DI_KALMAN_W)
+    df['z_di'] = z_di
     
-    # Consensus Signal
-    # BUY: (z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION) or (z_wdo <= -Z_ATTENTION and z_di <= -Z_ENTRY)
-    # SELL: (z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION) or (z_wdo >= Z_ATTENTION and z_di >= Z_ENTRY)
-    df['sig_wdo'] = np.where(df['z_wdo'] <= -Z_ATTENTION, 1, np.where(df['z_wdo'] >= Z_ATTENTION, -1, 0))
-    df['sig_di'] = np.where(df['z_di'] <= -Z_ATTENTION, 1, np.where(df['z_di'] >= Z_ATTENTION, -1, 0))
+    return df
+
+def generate_signals_for_scenario(df, z_entry, z_att):
+    df = df.copy()
+    df['sig_wdo'] = np.where(df['z_wdo'] <= -z_att, 1, np.where(df['z_wdo'] >= z_att, -1, 0))
+    df['sig_di'] = np.where(df['z_di'] <= -z_att, 1, np.where(df['z_di'] >= z_att, -1, 0))
     
-    df['sig_wdo_strong'] = np.where(df['z_wdo'] <= -Z_ENTRY, 1, np.where(df['z_wdo'] >= Z_ENTRY, -1, 0))
-    df['sig_di_strong'] = np.where(df['z_di'] <= -Z_ENTRY, 1, np.where(df['z_di'] >= Z_ENTRY, -1, 0))
+    df['sig_wdo_strong'] = np.where(df['z_wdo'] <= -z_entry, 1, np.where(df['z_wdo'] >= z_entry, -1, 0))
+    df['sig_di_strong'] = np.where(df['z_di'] <= -z_entry, 1, np.where(df['z_di'] >= z_entry, -1, 0))
     
     df['signal'] = 0
     # Buy
@@ -140,12 +118,14 @@ def generate_signals(df):
     # Sell
     sell_mask = ((df['sig_wdo_strong'] == -1) & (df['sig_di'] == -1)) | ((df['sig_wdo'] == -1) & (df['sig_di_strong'] == -1))
     df.loc[sell_mask, 'signal'] = -1
-    
     return df
 
-def run_backtest(df, scenario):
+def run_backtest(df_base, scenario):
+    df = generate_signals_for_scenario(df_base, scenario['z_entry'], scenario['z_att'])
     sl_pts = scenario['sl']
     tp_pts = scenario['tp']
+    be_act = scenario.get('be_act', 0)
+    be_lock = scenario.get('be_lock', 0)
     max_bars = scenario['max_bars']
     end_of_day = scenario['end_of_day']
     
@@ -170,17 +150,34 @@ def run_backtest(df, scenario):
             
             hit_sl = False
             hit_tp = False
+            hit_be = False
             exit_price = None
             exit_reason = ""
+            
+            # Update max favor
+            if direction == 1:
+                pts_favor = row['win_high'] - entry_price
+            else:
+                pts_favor = entry_price - row['win_low']
+                
+            if pts_favor > open_trade['max_favor']:
+                open_trade['max_favor'] = pts_favor
+                
+            if be_act > 0 and open_trade['max_favor'] >= be_act:
+                open_trade['be_active'] = True
             
             if direction == 1: # BUY
                 if row['win_low'] <= entry_price - sl_pts:
                     hit_sl, exit_price, exit_reason = True, entry_price - sl_pts, "SL"
+                elif open_trade['be_active'] and row['win_low'] <= entry_price + be_lock:
+                    hit_be, exit_price, exit_reason = True, entry_price + be_lock, "BE"
                 elif row['win_high'] >= entry_price + tp_pts:
                     hit_tp, exit_price, exit_reason = True, entry_price + tp_pts, "TP"
             else: # SELL
                 if row['win_high'] >= entry_price + sl_pts:
                     hit_sl, exit_price, exit_reason = True, entry_price + sl_pts, "SL"
+                elif open_trade['be_active'] and row['win_high'] >= entry_price - be_lock:
+                    hit_be, exit_price, exit_reason = True, entry_price - be_lock, "BE"
                 elif row['win_low'] <= entry_price - tp_pts:
                     hit_tp, exit_price, exit_reason = True, entry_price - tp_pts, "TP"
                     
@@ -192,7 +189,7 @@ def run_backtest(df, scenario):
             if end_of_day and dt.time() >= time(17, 30):
                 hit_time, exit_price, exit_reason = True, row['win'], "TIME_EOD"
                 
-            if hit_sl or hit_tp or hit_time:
+            if hit_sl or hit_tp or hit_be or hit_time:
                 open_trade['exit_price'] = exit_price
                 open_trade['exit_time'] = dt
                 open_trade['exit_reason'] = exit_reason
@@ -208,15 +205,21 @@ def run_backtest(df, scenario):
                 
         # Check Entries
         if open_trade is None and row['signal'] != 0:
-            # Avoid opening entries at the very end of the day
-            if end_of_day and dt.time() >= time(17, 0):
+            # Avoid opening entries outside of allowed hours
+            # Matador original allowed hours: 09:00 to 15:00
+            # For the new scenarios, let's keep the general 09:00 to 17:00
+            allowed_end = time(15, 0) if scenario['name'] == "Matador Original" else time(17, 0)
+            
+            if dt.time() < time(9, 0) or dt.time() >= allowed_end:
                 continue
                 
             open_trade = {
                 'entry_time': dt,
                 'direction': row['signal'],
                 'entry_price': row['win'],
-                'bars_held': 0
+                'bars_held': 0,
+                'max_favor': 0,
+                'be_active': False
             }
             
     return trades

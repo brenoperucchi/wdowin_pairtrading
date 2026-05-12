@@ -202,7 +202,7 @@ BEGIN
   line12Color := clMidWall;
   line12Width := 1;
   line12Style := 0;
-  line13 := 182391.075;
+  line13 := 182326.794;
   line13Color := clMinGamma;
   line13Width := 3;
   line13Style := 0;
@@ -216,7 +216,7 @@ BEGIN
   line15Style := 0;
   line16 := 183645.023;
   line16Color := clWall;
-  line16Width := 1;
+  line16Width := 2;
   line16Style := 0;
   line17 := 184152.329;
   line17Color := clMidWall;
@@ -240,7 +240,7 @@ BEGIN
   line21Style := 0;
   line22 := 187703.476;
   line22Color := clWall;
-  line22Width := 2;
+  line22Width := 1;
   line22Style := 0;
   line23 := 188210.783;
   line23Color := clMidWall;
@@ -266,7 +266,7 @@ BEGIN
   line28Color := clWall;
   line28Width := 1;
   line28Style := 0;
-  line29 := 191375.589;
+  line29 := 191573.848;
   line29Color := clFlip;
   line29Width := 2;
   line29Style := 0;
@@ -286,12 +286,12 @@ BEGIN
   line33Color := clWall;
   line33Width := 1;
   line33Style := 0;
-  line34 := 206116.744;
+  line34 := 206414.683;
   line34Color := clMaxGamma;
   line34Width := 3;
   line34Style := 0;
 
- if (((Date = ELDate(2026, 05, 11)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
+ if (((Date = ELDate(2026, 05, 12)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
   begin
     SetPlotColor(1, line1Color);
     SetPlotWidth(1, line1Width);

@@ -21,8 +21,8 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Salvando historico no Git...
-git add gex/data/Posi*.csv gex/docs/jumba_neologica
-git commit -m "chore(gex): atualizacao diaria do jumba walls (automacao)"
+git add gex/data/Posi*.csv gex/docs/jumba_neologica gex/docs/DAILY_REPORT.txt
+git commit -m "chore(gex): atualizacao diaria do jumba walls e relatorio de tendencia"
 
 echo.
 echo ==================================================

@@ -10,7 +10,7 @@ Logica de sincronizacao:
 
 import re
 import MetaTrader5 as mt5
-from datetime import datetime
+from datetime import datetime, timezone
 
 MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
 SYMBOL_IBOV = "IBOV"
@@ -98,7 +98,7 @@ def get_mt5_prices():
     # Caso o MT5 esteja sem dados até as 17h, fallback para a última vela do IBOV e sincroniza o WIN
     target_ibov = rates_ibov[-1]
     for b in reversed(rates_ibov):
-        dt = datetime.fromtimestamp(b[0])
+        dt = datetime.fromtimestamp(b[0], timezone.utc)
         if dt.hour == 16 and dt.minute == 55:
             target_ibov = b
             break
@@ -114,8 +114,8 @@ def get_mt5_prices():
     s_ibov = float(target_ibov[4])  # Close
     f_win = float(target_win[4])  # Close
     
-    ibov_time = datetime.fromtimestamp(target_ibov[0])
-    win_bar_time = datetime.fromtimestamp(target_win[0])
+    ibov_time = datetime.fromtimestamp(target_ibov[0], timezone.utc)
+    win_bar_time = datetime.fromtimestamp(target_win[0], timezone.utc)
     sync_method = f"M5 Close das {ibov_time.strftime('%H:%M')}"
     
     # --- Output ---
@@ -161,7 +161,7 @@ def get_option_price(ticker, target_hour=16, target_minute=55):
     found_exact = False
     
     for b in reversed(rates):
-        dt = datetime.fromtimestamp(b[0])
+        dt = datetime.fromtimestamp(b[0], timezone.utc)
         if dt.hour == target_hour and dt.minute == target_minute:
             target_bar = b
             found_exact = True

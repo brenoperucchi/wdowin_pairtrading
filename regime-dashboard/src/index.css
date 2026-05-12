@@ -210,3 +210,13 @@ code {
 .text-danger { color: #ff3860; }
 .text-warning { color: #f5a623; }
 .text-highlight { color: #c8a444; }
+
+/* Hide TradingView Watermark/Logo from lightweight-charts */
+#tv-attr-logo,
+a[href*="tradingview.com"],
+.tv-lightweight-charts-watermark {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+}

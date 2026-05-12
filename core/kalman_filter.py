@@ -1,16 +1,16 @@
 import numpy as np
 
 class KalmanBetaFilter:
-    def __init__(self, initial_beta: float = 0.0, trans_cov: float = 5e-5, obs_cov: float = 1e2):
+    def __init__(self, initial_beta: float = 0.0, initial_alpha: float = 0.0, trans_cov: float = 5e-5, obs_cov: float = 1e2):
         """
-        Filtro de Kalman para estimação online do hedge-ratio (beta).
+        Filtro de Kalman para estimação online do hedge-ratio (beta) e intercepto (alpha).
         
         Parâmetros calibrados para escala WIN (~130k-190k) vs WDO (~5k-6k):
           - trans_cov: ruído de transição do estado (quanto o beta pode mudar barra-a-barra)
           - obs_cov:   variância esperada do spread residual (~centenas de pontos)
         """
         # State: [alpha, beta]
-        self.state_mean = np.array([[0.0], [initial_beta]])
+        self.state_mean = np.array([[initial_alpha], [initial_beta]])
         self.state_cov = np.eye(2) * 1.0
         self.trans_cov = np.eye(2) * trans_cov
         self.obs_cov = obs_cov

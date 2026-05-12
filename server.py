@@ -848,7 +848,7 @@ def di_regime():
         return {"error": "MT5 nao disponivel.", "current_z": 0, "signal": _get_di_signal(0), "history": []}
 
     # Fetch data — need enough for Kalman + Johansen gate
-    needed = max(DI_BARS, DI_BETA_REF_BARS, JOH_WINDOW) + DI_KALMAN_W + 10
+    needed = max(KALMAN_BURN_IN, DI_BETA_REF_BARS, JOH_WINDOW) + DI_KALMAN_W + 10
     closes_win, times_win = fetch_bars(SYMBOL_A, needed)
     closes_di, times_di = fetch_bars(DI_SYMBOL, needed)
 
@@ -868,18 +868,27 @@ def di_regime():
         closes_win, closes_di, _joh_di_state, len(closes_win)
     )
 
-    # ── DI OLS z-score (Kalman fails here due to inverse correlation forcing positive beta) ──
-    ref_window = min(DI_BETA_REF_BARS, len(closes_win))
-    beta_ref_20d = calc_beta_ols(closes_win[-ref_window:], closes_di[-ref_window:], window=ref_window)
+    # ── DI Kalman z-score (Restored to Kalman Pure) ──
+    # Para evitar que o Kalman inverta a correlação (beta positivo) devido à diferença de escala absurda,
+    # inicializamos o intercepto (alpha) e o beta baseados no OLS inicial.
+    if len(closes_win) > 100:
+        b, a = np.polyfit(closes_di[:100], closes_win[:100], 1)
+        init_beta, init_alpha = b, a
+    else:
+        init_beta, init_alpha = DI_BETA_INITIAL, 260000.0
+
+    kf_di = KalmanBetaFilter(initial_beta=init_beta, initial_alpha=init_alpha, trans_cov=DI_KALMAN_Q, obs_cov=DI_KALMAN_R)
+    spreads = []
+    kf_betas = []
+    for y, x in zip(closes_win, closes_di):
+        beta, spread, _ = kf_di.update(float(y), float(x))
+        spreads.append(spread)
+        kf_betas.append(beta)
+        
+    beta_current = kf_betas[-1]
     
-    # We must use the OLS beta which correctly finds the negative correlation
-    beta_current = beta_ref_20d
-    spread_arr_full, z_arr_full, rho_arr_full = calc_zscore(
-        closes_win, closes_di, beta=beta_current, window=DI_KALMAN_W, max_bars=len(closes_win)
-    )
-    
-    spreads = spread_arr_full.tolist()
-    z_arr = z_arr_full
+    spread_arr = np.array(spreads)
+    z_arr = KalmanBetaFilter.rolling_zscore(spreads, window=DI_KALMAN_W)
     current_z = float(z_arr[-1]) if len(z_arr) > 0 else 0.0
 
     # NaN protection
@@ -929,6 +938,7 @@ def di_regime():
     n_z = len(z_arr)
     history = _build_history(times_win[-n_z:], z_arr, spread_arr[-n_z:])
 
+    # Force signal from Kalman Z
     signal = _get_di_signal(current_z)
 
     now = datetime.now()

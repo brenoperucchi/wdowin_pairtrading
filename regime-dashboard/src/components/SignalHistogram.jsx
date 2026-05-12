@@ -1,7 +1,6 @@
-import { useMemo } from "react";
-import { ResponsiveContainer, ComposedChart, Bar, Cell, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
+import { useEffect, useRef, useState, useMemo, forwardRef, useImperativeHandle } from "react";
+import { createChart, CandlestickSeries, LineStyle, CrosshairMode } from "lightweight-charts";
 
-// Shared margins to align X-axis with other charts
 const CHART_MARGIN = { top: 0, right: 12, bottom: 0, left: 0 };
 const Y_AXIS_WIDTH = 38;
 
@@ -10,10 +9,10 @@ const Z_ATT = 1.2;
 
 function getBarColor(z) {
     if (z == null || z === 0) return "#1e2a36";
-    if (z <= -Z_ENT) return "#00e87a";           // COMPRA forte
-    if (z <= -Z_ATT) return "#00e87a88";          // ATENÇÃO compra
-    if (z >= Z_ENT)  return "#ff3860";            // VENDA forte
-    if (z >= Z_ATT)  return "#ff386088";          // ATENÇÃO venda
+    if (z <= -Z_ENT) return "#00e87a";
+    if (z <= -Z_ATT) return "#00e87a88";
+    if (z >= Z_ENT)  return "#ff3860";
+    if (z >= Z_ATT)  return "#ff386088";
     return "#1e2a36";
 }
 
@@ -29,30 +28,21 @@ function getConsensusColor(zw, zd) {
     return "#1e2a36";
 }
 
-export default function SignalHistogram({ data }) {
-    const bars = useMemo(() => {
-        if (!data || data.length === 0) return [];
-        return data.map(d => {
-            const wdo = d.z_raw_wdo ?? d.z ?? null;
-            const di = d.z_raw_di ?? d.z_di ?? null;
-            // Consensus uses RAW z-scores (no NWE filter, matching CONS_BASE in trade engine)
-            const consWdo = d.z_unfiltered_wdo ?? d.z ?? null;
-            const consDi = d.z_unfiltered_di ?? d.z_di ?? null;
-            
-            const hasData = d.z != null;
+function timeStrToTimestamp(timeStr) {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
+}
 
-            return {
-                bar_time: d.bar_time,
-                wdo_z: wdo ?? 0,
-                di_z: di ?? 0,
-                cons_wdo_z: consWdo ?? 0,
-                cons_di_z: consDi ?? 0,
-                wdo_nwe: hasData ? 1 : 0,
-                di_nwe: hasData ? 1 : 0,
-                wdo_di: hasData ? 1 : 0,
-            };
-        });
-    }, [data]);
+const SignalHistogram = forwardRef(({ data }, ref) => {
+    const chartContainerRef = useRef();
+    const chartRef = useRef(null);
+    const seriesRefs = useRef({});
+
+    useImperativeHandle(ref, () => ({
+        getChart: () => chartRef.current,
+        getMainSeries: () => seriesRefs.current.wdoSeries,
+    }));
 
     const activeColors = useMemo(() => {
         let wdoColor = "#5a7a90";
@@ -80,17 +70,106 @@ export default function SignalHistogram({ data }) {
         return { wdoColor, diColor, consColor };
     }, [data]);
 
-    if (bars.length === 0) {
-        return (
-            <div style={{ width: "100%", height: 80, background: "#0c1218", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
-            </div>
-        );
-    }
+    useEffect(() => {
+        if (!chartContainerRef.current) return;
+
+        const chart = createChart(chartContainerRef.current, {
+            layout: {
+                background: { type: "solid", color: "#0c1218" },
+                textColor: "transparent", // Hide right axis text
+            },
+            grid: {
+                vertLines: { visible: false },
+                horzLines: { visible: false },
+            },
+            crosshair: {
+                mode: CrosshairMode.Normal,
+                vertLine: { color: "#c8a444", width: 1, style: LineStyle.Solid, labelVisible: false },
+                horzLine: { visible: false, labelVisible: false },
+            },
+            timeScale: {
+                visible: false, // hide time scale, syncing via App.jsx
+            },
+            rightPriceScale: {
+                borderColor: "transparent",
+                scaleMargins: { top: 0, bottom: 0 },
+                autoScale: false,
+                minimumWidth: 60,
+            },
+            autoSize: true,
+            handleScroll: false,
+            handleScale: false,
+        });
+        chartRef.current = chart;
+
+        // Custom price scale fixed from 0 to 3 to simulate 3 stacked rows
+        chart.priceScale('right').applyOptions({
+            autoScale: false,
+            minValue: 0,
+            maxValue: 3,
+        });
+
+        const wdoSeries = chart.addSeries(CandlestickSeries, { 
+            upColor: '#1e2a36', downColor: '#1e2a36', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
+        });
+        const diSeries = chart.addSeries(CandlestickSeries, { 
+            upColor: '#1e2a36', downColor: '#1e2a36', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
+        });
+        const consSeries = chart.addSeries(CandlestickSeries, { 
+            upColor: '#1e2a36', downColor: '#1e2a36', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
+        });
+
+        // Add reference lines between layers
+        wdoSeries.createPriceLine({ price: 1, color: '#1a2530', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: false });
+        wdoSeries.createPriceLine({ price: 2, color: '#1a2530', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: false });
+
+        seriesRefs.current = { wdoSeries, diSeries, consSeries };
+
+        return () => {
+            chart.remove();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!chartRef.current || !data || data.length === 0) return;
+
+        const { wdoSeries, diSeries, consSeries } = seriesRefs.current;
+
+        const wdoData = [];
+        const diData = [];
+        const consData = [];
+
+        data.forEach(d => {
+            if (!d.bar_time) return;
+            const t = timeStrToTimestamp(d.bar_time);
+            if (t === 0) return;
+
+            const wdoZ = d.z_raw_wdo ?? d.z ?? 0;
+            const diZ = d.z_raw_di ?? d.z_di ?? 0;
+            const consWdo = d.z_unfiltered_wdo ?? d.z ?? 0;
+            const consDi = d.z_unfiltered_di ?? d.z_di ?? 0;
+
+            const wCol = getBarColor(wdoZ);
+            const dCol = getBarColor(diZ);
+            const cCol = getConsensusColor(consWdo, consDi);
+
+            // Use Candlestick data format to draw solid non-overlapping blocks
+            wdoData.push({ time: t, open: 2.1, high: 2.9, low: 2.1, close: 2.9, color: wCol, borderColor: wCol, wickColor: wCol });
+            diData.push({ time: t, open: 1.1, high: 1.9, low: 1.1, close: 1.9, color: dCol, borderColor: dCol, wickColor: dCol });
+            consData.push({ time: t, open: 0.1, high: 0.9, low: 0.1, close: 0.9, color: cCol, borderColor: cCol, wickColor: cCol });
+        });
+
+        const sortData = (arr) => arr.sort((a,b) => a.time - b.time).filter((v,i,a) => i===0 || v.time > a[i-1].time);
+
+        wdoSeries.setData(sortData(wdoData));
+        diSeries.setData(sortData(diData));
+        consSeries.setData(sortData(consData));
+
+    }, [data]);
 
     return (
         <div style={{ width: "100%", height: 80, background: "#0c1218", position: "relative" }}>
-            {/* Fixed labels */}
+            {/* Fixed labels matching Y-axis spacing */}
             <div style={{
                 position: "absolute", top: 0, left: 2, bottom: 0,
                 width: Y_AXIS_WIDTH - 2, display: "flex", flexDirection: "column",
@@ -101,59 +180,16 @@ export default function SignalHistogram({ data }) {
                 <span style={{ fontSize: 7, color: activeColors.diColor, fontFamily: "monospace", fontWeight: activeColors.diColor !== "#5a7a90" ? "bold" : "normal" }}>DI NWE</span>
                 <span style={{ fontSize: 7, color: activeColors.consColor, fontFamily: "monospace", fontWeight: activeColors.consColor !== "#5a7a90" ? "bold" : "normal" }}>WDO DI</span>
             </div>
-
-            <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={bars} margin={CHART_MARGIN} syncId="pair-trading" barGap={0} barCategoryGap={0}>
-                    <XAxis dataKey="bar_time" hide={true} padding={{ left: 0, right: 0 }} />
-                    <YAxis domain={[0, 3]} hide={false} axisLine={false} tickLine={false} tick={false} width={Y_AXIS_WIDTH} />
-                    <Tooltip
-                        cursor={{ stroke: "rgba(255,255,255,0.1)", strokeWidth: 1 }}
-                        content={({ active, payload, label }) => {
-                            if (active && payload && payload.length) {
-                                const p = payload[0].payload;
-                                const wColor = p.wdo_z <= -Z_ENT ? "#00e87a" : p.wdo_z >= Z_ENT ? "#ff3860" : "#5a7a90";
-                                const dColor = p.di_z <= -Z_ENT ? "#00e87a" : p.di_z >= Z_ENT ? "#ff3860" : "#5a7a90";
-                                
-                                const cw = p.cons_wdo_z, cd = p.cons_di_z;
-                                const sb = (cw <= -Z_ENT && cd <= -Z_ATT) || (cd <= -Z_ENT && cw <= -Z_ATT);
-                                const ss = (cw >= Z_ENT && cd >= Z_ATT) || (cd >= Z_ENT && cw >= Z_ATT);
-                                const cColor = sb ? "#00e87a" : ss ? "#ff3860" : "#5a7a90";
-                                const consStatus = sb ? "COMPRA" : ss ? "VENDA" : "—";
-                                
-                                return (
-                                    <div style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 6, fontSize: 10, fontFamily: "monospace", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                                        <div style={{ color: "#6f8a9c", borderBottom: "1px solid #21262d", paddingBottom: 4, marginBottom: 2 }}>{label}</div>
-                                        <div style={{ color: wColor, fontWeight: wColor !== "#5a7a90" ? "bold" : "normal" }}>WDO NWE Z : {p.wdo_z.toFixed(3)}</div>
-                                        <div style={{ color: dColor, fontWeight: dColor !== "#5a7a90" ? "bold" : "normal" }}>DI NWE Z  : {p.di_z.toFixed(3)}</div>
-                                        <div style={{ color: cColor, fontWeight: cColor !== "#5a7a90" ? "bold" : "normal" }}>Consenso (W:{cw.toFixed(2)} D:{cd.toFixed(2)}) : {consStatus}</div>
-                                    </div>
-                                );
-                            }
-                            return null;
-                        }}
-                    />
-                    <ReferenceLine y={1} stroke="#1a2530" strokeWidth={1} />
-                    <ReferenceLine y={2} stroke="#1a2530" strokeWidth={1} />
-                    {/* Bottom: WDO DI (consensus) — y: 0 to 1 */}
-                    <Bar dataKey="wdo_di" stackId="hist" isAnimationActive={false}>
-                        {bars.map((entry, index) => (
-                            <Cell key={`cons-${index}`} fill={getConsensusColor(entry.cons_wdo_z, entry.cons_di_z)} />
-                        ))}
-                    </Bar>
-                    {/* Middle: DI NWE — y: 1 to 2 */}
-                    <Bar dataKey="di_nwe" stackId="hist" isAnimationActive={false}>
-                        {bars.map((entry, index) => (
-                            <Cell key={`di-${index}`} fill={getBarColor(entry.di_z)} />
-                        ))}
-                    </Bar>
-                    {/* Top: WDO NWE — y: 2 to 3 */}
-                    <Bar dataKey="wdo_nwe" stackId="hist" isAnimationActive={false}>
-                        {bars.map((entry, index) => (
-                            <Cell key={`wdo-${index}`} fill={getBarColor(entry.wdo_z)} />
-                        ))}
-                    </Bar>
-                </ComposedChart>
-            </ResponsiveContainer>
+            {/* Chart Area */}
+            <div style={{ width: "100%", height: "80px", paddingLeft: Y_AXIS_WIDTH }} ref={chartContainerRef} />
+            {(!data || data.length === 0) && (
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", zIndex: 10 }}>
+                    <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
+                </div>
+            )}
         </div>
     );
-}
+});
+
+SignalHistogram.displayName = 'SignalHistogram';
+export default SignalHistogram;

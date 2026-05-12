@@ -7,6 +7,7 @@ import PerformancePanel from "./components/PerformancePanel";
 import TradingGuide from "./components/TradingGuide";
 import SignalHistogram from "./components/SignalHistogram";
 import IndexChart from "./components/IndexChart";
+import SetupMatadorPanel from "./components/SetupMatadorPanel";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -95,8 +96,28 @@ export default function App() {
     const [fullHistory, setFullHistory] = useState([]);
     const flashTimerRef = useRef(null);
     const audioCtxRef = useRef(null);
+    const zScoreChartRef = useRef(null);
+    const histogramChartRef = useRef(null);
+    const indexChartRef = useRef(null);
+    const [showSetup, setShowSetup] = useState(false);
+    const [gexWalls, setGexWalls] = useState([]);
 
     const isViewingHistory = selectedDate !== "";
+
+    // Firebase Listener for GEX Walls
+    useEffect(() => {
+        const wallsRef = ref(db, 'daily_levels/win_gex/walls');
+        const unsub = onValue(wallsRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                setGexWalls(data);
+            } else {
+                setGexWalls([]);
+            }
+        });
+        return () => unsub();
+    }, []);
+
 
     // Relógio
     useEffect(() => {
@@ -378,6 +399,116 @@ export default function App() {
         return unique;
     }, [mergedSignals]);
 
+    // Sync Time Scales & Crosshairs
+    useEffect(() => {
+        const zChart = zScoreChartRef.current?.getChart();
+        const hChart = histogramChartRef.current?.getChart();
+        const iChart = indexChartRef.current?.getChart();
+
+        const zSeries = zScoreChartRef.current?.getMainSeries?.();
+        const hSeries = histogramChartRef.current?.getMainSeries?.();
+        const iSeries = indexChartRef.current?.getMainSeries?.();
+
+        if (!zChart || !hChart || !iChart) return;
+
+        const charts = [
+            { chart: zChart, series: zSeries },
+            { chart: hChart, series: hSeries },
+            { chart: iChart, series: iSeries }
+        ];
+
+        // TIME SCALE SYNC
+        let isSyncingTime = false;
+        function getTimeSyncHandler(sourceChart) {
+            return (logicalRange) => {
+                if (!logicalRange || isSyncingTime) return;
+                isSyncingTime = true;
+                charts.forEach(c => {
+                    if (c.chart !== sourceChart) {
+                        c.chart.timeScale().setVisibleLogicalRange(logicalRange);
+                    }
+                });
+                isSyncingTime = false;
+            };
+        }
+
+        const zTimeHandler = getTimeSyncHandler(zChart);
+        const hTimeHandler = getTimeSyncHandler(hChart);
+        const iTimeHandler = getTimeSyncHandler(iChart);
+
+        zChart.timeScale().subscribeVisibleLogicalRangeChange(zTimeHandler);
+        hChart.timeScale().subscribeVisibleLogicalRangeChange(hTimeHandler);
+        iChart.timeScale().subscribeVisibleLogicalRangeChange(iTimeHandler);
+
+        // MAP DATA FOR CROSSHAIR PRICES
+        function timeStrToTimestamp(timeStr) {
+            if (!timeStr) return 0;
+            const [h, m] = timeStr.split(':').map(Number);
+            return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
+        }
+
+        const timeToZPrice = new Map();
+        const timeToIPrice = new Map();
+        const timeToHPrice = new Map();
+
+        paddedSignals.forEach(s => {
+            if (!s.bar_time) return;
+            const t = timeStrToTimestamp(s.bar_time);
+            if (t === 0) return;
+            timeToZPrice.set(t, s.z_raw_wdo ?? s.z ?? 0);
+            timeToIPrice.set(t, s.win_price ?? 0);
+            timeToHPrice.set(t, 3);
+        });
+
+        // CROSSHAIR SYNC
+        let isSyncingCrosshair = false;
+        function getCrosshairHandler(sourceChart) {
+            return (param) => {
+                if (isSyncingCrosshair) return;
+                isSyncingCrosshair = true;
+                
+                if (!param.time) {
+                    charts.forEach(c => {
+                        if (c.chart !== sourceChart) c.chart.clearCrosshairPosition();
+                    });
+                } else {
+                    const t = param.time;
+                    charts.forEach(c => {
+                        if (c.chart !== sourceChart && c.series) {
+                            let price = 0;
+                            if (c.chart === zChart) price = timeToZPrice.get(t) ?? 0;
+                            if (c.chart === iChart) price = timeToIPrice.get(t) ?? 0;
+                            if (c.chart === hChart) price = timeToHPrice.get(t) ?? 3;
+                            
+                            try {
+                                c.chart.setCrosshairPosition(price, t, c.series);
+                            } catch(e) {}
+                        }
+                    });
+                }
+                isSyncingCrosshair = false;
+            };
+        }
+
+        const zCrosshairHandler = getCrosshairHandler(zChart);
+        const hCrosshairHandler = getCrosshairHandler(hChart);
+        const iCrosshairHandler = getCrosshairHandler(iChart);
+
+        zChart.subscribeCrosshairMove(zCrosshairHandler);
+        hChart.subscribeCrosshairMove(hCrosshairHandler);
+        iChart.subscribeCrosshairMove(iCrosshairHandler);
+
+        return () => {
+            zChart.timeScale().unsubscribeVisibleLogicalRangeChange(zTimeHandler);
+            hChart.timeScale().unsubscribeVisibleLogicalRangeChange(hTimeHandler);
+            iChart.timeScale().unsubscribeVisibleLogicalRangeChange(iTimeHandler);
+
+            zChart.unsubscribeCrosshairMove(zCrosshairHandler);
+            hChart.unsubscribeCrosshairMove(hCrosshairHandler);
+            iChart.unsubscribeCrosshairMove(iCrosshairHandler);
+        };
+    }, [paddedSignals]); // Re-bind when data updates chart instances
+
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
         if (sig && sig.id !== lastSignalId) {
@@ -454,7 +585,23 @@ export default function App() {
                     <span className="text-xs text-muted" style={{ letterSpacing: 2 }}>
                         {meta.symbol_a} x {meta.symbol_b}  ·  STAT ARB  ·  {meta.timeframe}
                     </span>
-                    <span className="text-xxs text-highlight font-bold" style={{ background: "rgba(200,164,68,0.15)", border: "1px solid #c8a44455", borderRadius: 4, padding: "3px 8px", marginLeft: 15, letterSpacing: 1 }}>MATADOR</span>
+                    <span 
+                        className="text-xxs text-highlight font-bold" 
+                        style={{ 
+                            background: showSetup ? "rgba(200,164,68,0.3)" : "rgba(200,164,68,0.15)", 
+                            border: "1px solid #c8a44455", 
+                            borderRadius: 4, 
+                            padding: "3px 8px", 
+                            marginLeft: 15, 
+                            letterSpacing: 1,
+                            cursor: "pointer",
+                            transition: "background 0.2s"
+                        }}
+                        onClick={() => setShowSetup(s => !s)}
+                        title="Ver regras do Setup Matador V6"
+                    >
+                        MATADOR
+                    </span>
                 </div>
                 <div className="topbar-right">
                     {lastUpdate && (
@@ -605,6 +752,8 @@ export default function App() {
             {/* ——— Main content ———————————————————————————————————————————————————————————— */}
             <div style={{ flex: 1, padding: "14px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
 
+                {showSetup && <SetupMatadorPanel tradeEngine={data?.trade_engine} />}
+
                 {/* History mode banner */}
                 {isViewingHistory && (
                     <div style={{
@@ -626,16 +775,15 @@ export default function App() {
                 {/* Z-Score Chart + Signal Histogram (grouped) */}
                 <div>
                     <ZScoreChart
+                        ref={zScoreChartRef}
                         history={paddedSignals}
                         sigColor={isViewingHistory ? "#00e87a" : sig.color}
                         currentZ={isViewingHistory ? 0 : currentZ}
                         useV2={true}
                         hideXAxis={true}
                     />
-                    <SignalHistogram data={paddedSignals} />
-                    <IndexChart
-                        history={paddedSignals}
-                    />
+                    <SignalHistogram ref={histogramChartRef} data={paddedSignals} />
+                    <IndexChart ref={indexChartRef} history={paddedSignals} walls={gexWalls} />
                 </div>
 
                 {/* Regime Health */}
