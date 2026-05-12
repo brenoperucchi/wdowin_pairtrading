@@ -405,3 +405,94 @@ def test_persist_closed_bars_threads_indicators(db):
     earlier = by_time[history[0]["bar_time"]]
     assert earlier["eg_pvalue"] is None
     assert earlier["rho"] is None
+
+
+# ─── TASK-14 Slice 4: BAR_HISTORY_BACKEND=dual mirror to Postgres ───────────
+
+
+def test_save_bar_history_default_backend_skips_pg(db, monkeypatch):
+    """Default `sqlite` backend must not call bhdb.upsert_bar / init_schema."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.delenv("BAR_HISTORY_BACKEND", raising=False)
+    upsert_calls: list = []
+    init_calls: list = []
+    monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
+    monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: init_calls.append((a, k)))
+
+    init_bar_history(db)
+    save_bar_history(**_sample(int(time.time())), db_path=db)
+
+    assert upsert_calls == []
+    assert init_calls == []
+    # SQLite still written
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+
+
+def test_save_bar_history_dual_backend_mirrors_to_pg(db, monkeypatch):
+    """`dual` backend must invoke bhdb.upsert_bar(backend='postgres') with the same row."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
+    upsert_calls: list = []
+    init_calls: list = []
+    monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
+    monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: init_calls.append((a, k)))
+
+    init_bar_history(db)
+    ts = int(time.time())
+    save_bar_history(**_sample(ts, z_wdo=0.42), db_path=db)
+
+    assert init_calls == [((), {"backend": "postgres"})]
+    assert len(upsert_calls) == 1
+    args, kwargs = upsert_calls[0]
+    assert kwargs == {"backend": "postgres"}
+    row = args[0]
+    assert row["timestamp"] == ts
+    assert row["z_wdo"] == 0.42
+    assert row["date_str"] == "2026-05-07"
+    # SQLite path unaffected
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    assert rows[0]["z"] == 0.42
+
+
+def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch, capsys):
+    """Postgres upsert failure must be logged but never raise; SQLite still gets the row."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("PG unreachable")
+
+    monkeypatch.setattr(bhdb, "init_schema", boom)
+    monkeypatch.setattr(bhdb, "upsert_bar", boom)
+
+    init_bar_history(db)  # must not raise
+    save_bar_history(**_sample(int(time.time())), db_path=db)  # must not raise
+
+    rows = load_bar_history(days=1, db_path=db)
+    assert len(rows) == 1
+    captured = capsys.readouterr().out
+    assert "[ERRO PG]" in captured
+
+
+def test_save_bar_history_dual_skips_pg_when_sqlite_fails(tmp_path, monkeypatch, capsys):
+    """If the SQLite write raises, PG must NOT be touched — keeps parity invariant."""
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
+    upsert_calls: list = []
+    monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
+    monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: None)
+
+    # Point save_bar_history at a path it cannot write to (parent does not exist).
+    bad_path = str(tmp_path / "nonexistent_dir" / "trades.db")
+    save_bar_history(**_sample(int(time.time())), db_path=bad_path)
+
+    assert upsert_calls == [], "PG mirror must not run when SQLite write fails"
+    captured = capsys.readouterr().out
+    assert "[ERRO DB]" in captured
+    assert "[ERRO PG]" not in captured

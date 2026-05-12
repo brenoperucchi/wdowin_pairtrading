@@ -410,3 +410,50 @@ PG_URI="postgresql://pairtrading:pairtrading_dev@localhost:5432/pairtrading_test
 python3 scripts/migrate_bar_history_to_pg.py --source-db trades.db
 # esperado:  "OK — totals + per-date checksums match"
 ```
+
+## 14. Slice 4 — dual-write live (`BAR_HISTORY_BACKEND=dual`)
+
+Após o Slice 3 (snapshot one-shot), o `server.py` agora espelha cada bar para Postgres em tempo real **quando** `BAR_HISTORY_BACKEND=dual`. SQLite continua **autoritativo** — reads (`load_bar_history`, `/api/history`) ainda vêm dele. O switch para Postgres como source-of-truth é o Slice 5.
+
+### 14.1 O que mudou
+
+- `server.py:init_bar_history` → após criar a tabela em SQLite, chama `bhdb.init_schema(backend="postgres")` quando o backend ativo é `dual` ou `postgres`. Falha (e.g. `PG_URI` ausente) só loga `[ERRO PG]`, não levanta.
+- `server.py:save_bar_history` → após o `INSERT ... ON CONFLICT` em SQLite, chama `bhdb.upsert_bar(row, backend="postgres")` quando backend == `dual` **e somente se o commit SQLite teve sucesso** (`sqlite_ok` guard). Isso evita inserir em PG uma barra que SQLite (source-of-truth) rejeitou. Exceções no path PG são engolidas com log `[ERRO PG] dual-write bar_history ts=...`.
+- O wrapper (`core/bar_history_db.py`) aplica em PG **exatamente** o mesmo contrato de UPSERT do §4 — `z_di` overwrite, demais COALESCE (preserva first non-NULL).
+- Default (`BAR_HISTORY_BACKEND` unset) é byte-equivalente ao baseline pré-TASK-14.
+
+### 14.2 Modo de falha tolerado
+
+A poll loop **não pode** parar se o Postgres cair. Por design o dual-write captura toda exceção do wrapper e segue adiante mantendo SQLite como verdade. Isso significa que durante uma janela de PG-down, o Postgres acumula gap — o Slice 8 (cron/manual de paridade) precisa lidar com isso via `migrate_bar_history_to_pg.py --force-refresh` agendado.
+
+### 14.3 Como ativar / desativar em dev
+
+```bash
+# Ativa espelho live:
+export BAR_HISTORY_BACKEND=dual
+export PG_URI="postgresql://pairtrading:pairtrading_dev@localhost:5432/pairtrading"
+systemctl --user restart pairtrading-server.service
+
+# Reverte (volta a baseline):
+unset BAR_HISTORY_BACKEND
+systemctl --user restart pairtrading-server.service
+```
+
+### 14.4 Smoke test manual
+
+Com PG levantado e o servidor em modo `dual`, depois de pelo menos uma barra M5 fechada:
+
+```bash
+sqlite3 trades.db "SELECT COUNT(*), MAX(timestamp) FROM bar_history;"
+PGPASSWORD=pairtrading_dev psql -h localhost -U pairtrading -d pairtrading \
+    -c "SELECT COUNT(*), MAX(timestamp) FROM bar_history;"
+# esperado: ambos retornam o mesmo COUNT e o mesmo MAX(timestamp).
+```
+
+### 14.5 Cobertura de teste
+
+`tests/test_bar_history.py` (novos casos):
+
+- `test_save_bar_history_default_backend_skips_pg` — sem env, `bhdb.upsert_bar`/`init_schema` nunca são chamados.
+- `test_save_bar_history_dual_backend_mirrors_to_pg` — com `dual`, recebe a row com **todas as 19 colunas** preenchidas via `kwargs={"backend": "postgres"}`.
+- `test_save_bar_history_dual_pg_failure_does_not_break_sqlite` — exceção em `bhdb.upsert_bar` apenas loga `[ERRO PG]`; SQLite é gravado normalmente.

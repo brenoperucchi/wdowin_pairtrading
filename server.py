@@ -93,6 +93,7 @@ from core.timeline_emit import (
 )
 from core.trade_engine import STRATEGIES, TradeEngine
 from core import runtime_config
+from core import bar_history_db as bhdb
 import core.hmm_background as hmm
 
 
@@ -514,6 +515,16 @@ def init_bar_history(db_path: str = "trades.db") -> None:
     finally:
         conn.close()
 
+    # TASK-14 Slice 4: dual-write mirror to Postgres/TimescaleDB.
+    # SQLite is the source-of-truth until Slice 5 flips reads.
+    backend = bhdb.get_backend()
+    if backend in ("dual", "postgres"):
+        try:
+            bhdb.init_schema(backend="postgres")
+            print(f"[bar_history] backend={backend} — Postgres mirror initialised")
+        except Exception as exc:
+            print(f"[ERRO PG] init_schema(postgres) skipped: {exc}")
+
 
 def init_db(db_path: str = "trades.db"):
     conn = sqlite3.connect(db_path)
@@ -563,11 +574,12 @@ TF_NAMES = {
 
 
 def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue=None, rho=None, rho_level=None, beta_value=None, beta_delta_pct=None, db_path: str = "trades.db"):
+    nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
+    rho_level_val = int(rho_level) if rho_level is not None else None
+    sqlite_ok = False
     try:
         conn = sqlite3.connect(db_path, timeout=10.0)
         c = conn.cursor()
-        nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
-        rho_level_val = int(rho_level) if rho_level is not None else None
         # COALESCE on indicator columns so they get filled in by the poll
         # where the bar is the closed-bar (history[-2]); subsequent re-saves of
         # the same bar arrive with NULL indicators and must not erase them.
@@ -587,8 +599,41 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
         ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up_val, eg_pvalue, rho, rho_level_val, beta_value, beta_delta_pct))
         conn.commit()
         conn.close()
+        sqlite_ok = True
     except Exception as e:
         print(f"[ERRO DB] falha ao salvar bar_history: {e}")
+
+    # TASK-14 Slice 4: mirror to Postgres only after the authoritative SQLite
+    # write committed. Skipping on SQLite failure prevents PG from holding
+    # a bar that the source-of-truth rejected.
+    if sqlite_ok and bhdb.get_backend() == "dual":
+        try:
+            bhdb.upsert_bar(
+                {
+                    "timestamp": int(timestamp),
+                    "date_str": date_str,
+                    "bar_time": bar_time,
+                    "win_price": win_price,
+                    "wdo_price": wdo_price,
+                    "di_price": di_price,
+                    "spread_wdo": spread_wdo,
+                    "spread_di": spread_di,
+                    "z_wdo": z_wdo,
+                    "z_di": z_di,
+                    "nwe_center": nwe_center,
+                    "nwe_upper": nwe_upper,
+                    "nwe_lower": nwe_lower,
+                    "nwe_is_up": nwe_is_up_val,
+                    "eg_pvalue": eg_pvalue,
+                    "rho": rho,
+                    "rho_level": rho_level_val,
+                    "beta_value": beta_value,
+                    "beta_delta_pct": beta_delta_pct,
+                },
+                backend="postgres",
+            )
+        except Exception as exc:
+            print(f"[ERRO PG] dual-write bar_history ts={int(timestamp)}: {exc}")
 
 
 def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
