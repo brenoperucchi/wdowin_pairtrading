@@ -639,8 +639,9 @@ Cierre da fase de documentação antes do cutover. Sem mudanças de código: o o
 | `.env.example` | novo | Documenta `BAR_HISTORY_BACKEND`, `BAR_HISTORY_SQLITE_PATH`, `PG_URI`, `PG_TEST_URI`. Sem segredos. Copiado para `.env.local` (gitignored) na máquina. |
 | `.gitignore` | edit | Adiciona `!.env.example` após `.env.*` para permitir checkin do template. |
 | `README.md` | edit | Nova seção "🗄 Backend de `bar_history`" com tabela dos três modos, comando de ativação, rollback e instruções de teste opt-in. Link para o plano completo. |
-| `CLAUDE.md` | edit | Nova seção "bar_history backend (TASK-14)" — versão curta para o agente: regras invariantes (usar `core.bar_history_db`, env-driven dispatch, escopo limitado a `bar_history`). |
 | `docs/migration_bar_history_timescale.md` | edit | Esta §18 + ajustes pontuais no §6 / §16.4 / §17.5 marcando Slice 8 como entregue. |
+
+Nota: o block "bar_history backend (TASK-14)" originalmente planejado em `CLAUDE.md` foi descartado por decisão de escopo — CLAUDE.md cobre invariantes estáveis, não estado transitório de migração. Os invariantes (`core.bar_history_db`, env-driven dispatch) vivem no README e na memória do agente.
 
 ### 18.2 Gate `PG_TEST_URI`
 
@@ -668,17 +669,18 @@ Não há workflow de CI no repo (`.github/workflows/` ausente). O "gate" entregu
 
 ### 18.3 Rollback documentado
 
-Resumido em README + CLAUDE.md, detalhado no §7 deste doc. Comando único:
+Resumido em README, detalhado no §7 deste doc. Comando único:
 
 ```bash
 unset BAR_HISTORY_BACKEND   # ou export BAR_HISTORY_BACKEND=sqlite
 systemctl --user restart pairtrading-server
 ```
 
-O rollback continua barato **porque** `server.py:save_bar_history` ainda escreve SQLite mesmo sob `BAR_HISTORY_BACKEND=postgres` (linhas 576–638; o comentário em ~609 declara explicitamente "Keeping SQLite writes in `postgres` mode preserves rollback by env var"). Wrapper-driven I/O (`bhdb.upsert_*`, `select_*`) já respeita o backend selecionado de forma estrita; o write-through SQLite vive exclusivamente no caminho live. Essa assimetria é proposital até Slice 9 e está refletida no README §"Backend de `bar_history`" e no CLAUDE.md §"bar_history backend (TASK-14)".
+Pós-Slice 9 (commit a8e9833), o write-through SQLite no live path foi removido — `save_bar_history` sob `BAR_HISTORY_BACKEND=postgres` escreve apenas em PG. O comando acima volta o **read path** para SQLite, mas bars gravadas durante a janela `postgres` ficam invisíveis até um backfill explícito PG→SQLite. Wrapper-driven I/O (`bhdb.upsert_*`, `select_*`) já respeitava o backend selecionado de forma estrita desde Slice 2. A assimetria pré-Slice 9 está refletida no README §"Backend de `bar_history`".
 
-### 18.4 Não escopo (Slice 9)
+### 18.4 Pendências pós-Slice 9
 
-- **Stop-write SQLite no live path.** Hoje `bhdb` (wrapper) já é PG-only sob `BAR_HISTORY_BACKEND=postgres`; o ponto restante é `server.py:save_bar_history`, que mantém o write-through SQLite intencionalmente para garantir rollback por env. Slice 9 substitui esse bloco por uma chamada via `bhdb.upsert_bar(..., backend="postgres")` (≈10 linhas), depois de provar paridade num dia inteiro coletado direto via MT5→Timescale.
-- `DROP TABLE bar_history` em `trades.db` após janela de 30 dias de paridade verificada.
+- ~~Stop-write SQLite no live path~~ — entregue no commit a8e9833 (Slice 9). `save_bar_history` sob `BAR_HISTORY_BACKEND=postgres` agora chama `bhdb.upsert_bar(..., mode="merge")` e retorna; o bloco SQLite só roda em `sqlite` ou `dual`.
+- Remover branch SQLite legada de `server.py:save_bar_history` quando o `DROP TABLE` for confirmado.
+- `DROP TABLE bar_history` em `trades.db` após janela de paridade verificada (operacionalmente decisão do usuário).
 - Atualização da memória do agente registrando que `bar_history` agora vive em Postgres como source-of-truth.

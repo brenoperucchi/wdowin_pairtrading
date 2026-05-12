@@ -89,15 +89,15 @@ npm install
 npm install recharts
 ```
 
-Rodando o sistema via **PM2** (Recomendado para 24/7):
+Rodando o sistema via **systemd --user** (Recomendado para 24/7):
 
 ```bash
-# Iniciar backend e frontend e monitorar falhas
-pm2 start ecosystem.config.js
-pm2 save
+# Iniciar backend e frontend
+systemctl --user start pairtrading-server pairtrading-frontend
 
-# Para ver os logs:
-pm2 logs
+# Status e logs
+systemctl --user status pairtrading-server
+journalctl --user -u pairtrading-server -f
 ```
 
 Alternativamente (Modo Dev Manual):
@@ -138,7 +138,7 @@ A tabela `bar_history` está sendo migrada de SQLite para TimescaleDB (TASK-14).
 | --- | --- | --- |
 | `sqlite` (default) | Lê/escreve `trades.db` (caminho via `BAR_HISTORY_SQLITE_PATH`). | Setup local sem Postgres. |
 | `dual` | Live server: SQLite continua autoritativo + espelho PG. Wrapper/scripts: leem SQLite, escrevem ambos. | Janela de cutover — paridade contínua. |
-| `postgres` | **Wrapper/scripts** (replay, backfill, seeders): só Postgres. **Live server** (`save_bar_history`, Slice 4/5) ainda escreve SQLite primeiro e espelha para PG, preservando rollback por env. O write-through SQLite só desliga no Slice 9. Requer `PG_URI`. | Cutover em andamento; reads já vêm de PG, writes live ainda dual até Slice 9. |
+| `postgres` | Wrapper/scripts **e** live server (`save_bar_history`) escrevem só em Postgres. Reads também vêm de PG. Requer `PG_URI`. Rollback por env-flip muda o read path imediatamente, mas bars gravadas em modo `postgres` ficam invisíveis até um backfill PG→SQLite. | Cutover concluído (Slice 9). |
 
 ```bash
 # Setup mínimo Postgres+Timescale (WSL/Linux). Veja docs/migration_bar_history_timescale.md §3.
@@ -189,4 +189,4 @@ Consulte a pasta `.planning/` para documentação extensa:
 - [Especificações do Sistema](.planning/docs/SPEC.md)
 
 ---
-**Build:** v2.4.0 · **Stack:** FastAPI, React, Recharts, MT5 API, PM2
+**Build:** v2.4.0 · **Stack:** FastAPI, React, Recharts, MT5 API
