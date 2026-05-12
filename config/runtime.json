@@ -3,12 +3,9 @@
     "beta_delta_max": 15.0,
     "eg_bars": 2240,
     "eg_recalc": "daily",
-    "eg_strategies": [
-      "CONS_BASE",
-      "WDO_NWE"
-    ],
-    "eg_threshold": 0.10,
-    "rho_breakdown_level": 2,
+    "eg_strategies": [],
+    "eg_threshold": 0.1,
+    "rho_breakdown_level": 3,
     "z_anomaly": 4.0
   },
   "replay": {
@@ -19,7 +16,7 @@
       "CONS_BASE",
       "WDO_NWE"
     ],
-    "eg_threshold": 0.10,
+    "eg_threshold": 0.1,
     "rho_breakdown_level": 2,
     "z_anomaly": 4.0
   }

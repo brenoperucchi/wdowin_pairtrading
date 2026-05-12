@@ -45,7 +45,7 @@ SYMBOL_B = "WDO$N"
 
 # ─── Timeframe & Windows ────────────────────────────────────────────────────
 TIMEFRAME = mt5.TIMEFRAME_M5
-WINDOW = 90
+WINDOW = 240
 BARS = 250
 KALMAN_BURN_IN = 15000
 BETA_INITIAL = -22.5
@@ -113,8 +113,8 @@ B3_COST_PER_CONTRACT_RT = 1.00
 # ─── Session ────────────────────────────────────────────────────────────────
 ENTRY_START_H = 9
 ENTRY_START_M = 0
-ENTRY_END_H = 15
-ENTRY_END_M = 0
+ENTRY_END_H = 17
+ENTRY_END_M = 25
 FORCE_CLOSE_H = 17
 FORCE_CLOSE_M = 40
 
