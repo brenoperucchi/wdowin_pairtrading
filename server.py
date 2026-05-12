@@ -275,8 +275,26 @@ async def trade_eval_loop():
     finally:
         _set_eval_state(loop_running=False)
 
-DB_PATH = "trades.db"
+DB_PATH = bhdb.sqlite_path()
 REPLAY_DIR = os.environ.get("REPLAY_DIR", "replays")
+
+# Counters for postgres write/init failures under BAR_HISTORY_BACKEND=postgres.
+# Exposed in /health so the operator can tell when bars are being silently lost
+# (postgres mode no longer falls back to SQLite — see migration doc §15).
+_pg_write_failures: int = 0
+_last_pg_write_failure: dict | None = None
+
+
+def _record_pg_failure(ctx: str, exc: Exception) -> None:
+    global _pg_write_failures, _last_pg_write_failure
+    _pg_write_failures += 1
+    _last_pg_write_failure = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "context": ctx,
+        "error": f"{type(exc).__name__}: {exc}",
+    }
+    logger.error("bar_history PG write failed (%s): %s", ctx, exc)
+
 
 _trade_engine = TradeEngine(db_path=DB_PATH)
 init_timeline_table(DB_PATH)
@@ -470,7 +488,7 @@ def _compute_johansen_gate(closes_a, closes_b, state, bar_count):
 
 
 # ─── DB init ─────────────────────────────────────────────────────────────────
-def init_bar_history(db_path: str = "trades.db") -> None:
+def init_bar_history(db_path: str = DB_PATH) -> None:
     """Idempotent migration for the bar_history table.
 
     Schema mirrors the columns written by save_bar_history. timestamp is the
@@ -478,11 +496,11 @@ def init_bar_history(db_path: str = "trades.db") -> None:
     """
     backend = bhdb.get_backend()
     if backend == "postgres":
-        try:
-            bhdb.init_schema(backend="postgres")
-            print("[bar_history] backend=postgres — Postgres schema initialised")
-        except Exception as exc:
-            print(f"[ERRO PG] init_schema(postgres) skipped: {exc}")
+        # Fail-fast: if schema init fails in postgres mode, every subsequent
+        # save_bar_history will lose data silently (no SQLite fallback in this
+        # mode). Surface the failure at startup instead.
+        bhdb.init_schema(backend="postgres")
+        logger.info("bar_history backend=postgres — Postgres schema initialised")
         return
 
     conn = sqlite3.connect(db_path, timeout=10.0)
@@ -527,12 +545,14 @@ def init_bar_history(db_path: str = "trades.db") -> None:
     if backend == "dual":
         try:
             bhdb.init_schema(backend="postgres")
-            print(f"[bar_history] backend={backend} — Postgres mirror initialised")
+            logger.info("bar_history backend=%s — Postgres mirror initialised", backend)
         except Exception as exc:
-            print(f"[ERRO PG] init_schema(postgres) skipped: {exc}")
+            # Dual mode: keep SQLite as source of truth even if PG mirror is
+            # offline. Just record the failure so /health surfaces it.
+            _record_pg_failure("init_schema(postgres)", exc)
 
 
-def init_db(db_path: str = "trades.db"):
+def init_db(db_path: str = DB_PATH):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute('''
@@ -579,7 +599,7 @@ TF_NAMES = {
 }
 
 
-def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue=None, rho=None, rho_level=None, beta_value=None, beta_delta_pct=None, db_path: str = "trades.db"):
+def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue=None, rho=None, rho_level=None, beta_value=None, beta_delta_pct=None, db_path: str = DB_PATH):
     nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
     rho_level_val = int(rho_level) if rho_level is not None else None
 
@@ -612,7 +632,7 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
         try:
             bhdb.upsert_bar(row, backend="postgres", mode="merge")
         except Exception as exc:
-            print(f"[ERRO PG] save_bar_history ts={int(timestamp)}: {exc}")
+            _record_pg_failure(f"save_bar_history ts={int(timestamp)}", exc)
         return
 
     sqlite_ok = False
@@ -649,10 +669,10 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
         try:
             bhdb.upsert_bar(row, backend="postgres", mode="merge")
         except Exception as exc:
-            print(f"[ERRO PG] dual-write bar_history ts={int(timestamp)}: {exc}")
+            _record_pg_failure(f"dual-write ts={int(timestamp)}", exc)
 
 
-def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
+def _persist_closed_bars(history, db_path: str = DB_PATH) -> int:
     """Persist closed bars from a live history payload to bar_history.
 
     Skips the last entry (it is the still-forming bar; saving it would freeze
@@ -697,7 +717,7 @@ def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
             print(f"[ERRO DB] persist bar_history skip: {exc}")
     return saved
 
-def load_bar_history(days=30, db_path: str = "trades.db"):
+def load_bar_history(days=30, db_path: str = DB_PATH):
     try:
         # `dual`/`sqlite` keep the in-process SQLite path so the db_path arg
         # (used by tests) still applies. PG rows are dicts with the same
@@ -801,7 +821,7 @@ def do_backfill_if_empty():
         if bhdb.get_backend() == "postgres":
             count = bhdb.count_rows(backend="postgres")
         else:
-            conn = sqlite3.connect("trades.db", timeout=10.0)
+            conn = sqlite3.connect(DB_PATH, timeout=10.0)
             c = conn.cursor()
             c.execute("SELECT COUNT(*) FROM bar_history")
             count = c.fetchone()[0]
@@ -1651,6 +1671,12 @@ def health():
             "last_error_at": eval_state.get("last_error_at"),
             "last_result_error": eval_state.get("last_result_error"),
             "has_snapshot": _latest_regime_snapshot is not None,
+        },
+        "bar_history": {
+            "backend": bhdb.get_backend(),
+            "sqlite_path": bhdb.sqlite_path(),
+            "pg_write_failures": _pg_write_failures,
+            "last_pg_write_failure": _last_pg_write_failure,
         },
     }
 

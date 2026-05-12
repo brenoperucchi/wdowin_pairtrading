@@ -171,8 +171,13 @@ def _read_backend(backend: str | None) -> str:
     return "sqlite" if b == "dual" else b
 
 
-def _sqlite_path() -> str:
+def sqlite_path() -> str:
+    """Resolve the active SQLite path: ``BAR_HISTORY_SQLITE_PATH`` or default."""
     return os.environ.get("BAR_HISTORY_SQLITE_PATH", DEFAULT_SQLITE_PATH)
+
+
+# Backwards-compatible private alias (internal callers).
+_sqlite_path = sqlite_path
 
 
 def _pg_uri() -> str:

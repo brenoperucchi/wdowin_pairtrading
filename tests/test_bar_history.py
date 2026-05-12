@@ -496,8 +496,9 @@ def test_save_bar_history_postgres_writes_pg_only_no_sqlite(tmp_path, monkeypatc
     assert not os.path.exists(db_path)
 
 
-def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch, capsys):
-    """`dual`: PG upsert failure is logged but never raises; SQLite still has the row."""
+def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch, caplog):
+    """`dual`: PG upsert failure is logged + counted but never raises; SQLite still has the row."""
+    import server
     from core import bar_history_db as bhdb
 
     monkeypatch.setenv("BAR_HISTORY_BACKEND", "dual")
@@ -508,45 +509,58 @@ def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch,
     monkeypatch.setattr(bhdb, "init_schema", boom)
     monkeypatch.setattr(bhdb, "upsert_bar", boom)
 
-    init_bar_history(db)  # must not raise
+    failures_before = server._pg_write_failures
+    init_bar_history(db)  # must not raise (dual swallows init failures)
     ts = int(time.time())
-    save_bar_history(**_sample(ts), db_path=db)  # must not raise
+    with caplog.at_level("ERROR", logger="server"):
+        save_bar_history(**_sample(ts), db_path=db)  # must not raise
 
     conn = sqlite3.connect(db)
     sqlite_rows = conn.execute("SELECT timestamp FROM bar_history WHERE timestamp=?", (ts,)).fetchall()
     conn.close()
     assert sqlite_rows == [(ts,)]
-    captured = capsys.readouterr().out
-    assert "[ERRO PG]" in captured
+    assert server._pg_write_failures > failures_before
+    assert any("PG write failed" in rec.message for rec in caplog.records)
 
 
-def test_save_bar_history_postgres_pg_failure_is_logged_and_swallowed(tmp_path, monkeypatch, capsys):
-    """`postgres`: a PG failure must log `[ERRO PG]` and not raise.
+def test_init_bar_history_postgres_fails_fast_on_schema_error(tmp_path, monkeypatch):
+    """`postgres` init must fail-fast: server can't serve bars if PG schema is broken.
 
-    There is no SQLite fallback in this mode (Slice 9) — a failed bar is lost.
-    The function must still never propagate the exception to the caller, which
-    would otherwise kill the polling loop in server.py.
+    There is no SQLite fallback in this mode (Slice 9). Init swallowing the
+    failure would leave the polling loop writing into the void; the operator
+    must see the crash at startup instead.
     """
     from core import bar_history_db as bhdb
 
     monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    monkeypatch.setattr(bhdb, "init_schema", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("PG unreachable")))
 
-    def boom(*_a, **_k):
-        raise RuntimeError("PG unreachable")
+    with pytest.raises(RuntimeError, match="PG unreachable"):
+        init_bar_history(str(tmp_path / "pg_failure.db"))
 
-    monkeypatch.setattr(bhdb, "init_schema", boom)
-    monkeypatch.setattr(bhdb, "upsert_bar", boom)
+
+def test_save_bar_history_postgres_pg_failure_is_logged_and_swallowed(tmp_path, monkeypatch, caplog):
+    """`postgres`: a per-bar PG failure must be logged + counted and not raise.
+
+    Save-time failures (unlike init) must NEVER propagate, or they'd kill the
+    polling loop. There is no SQLite fallback in this mode (Slice 9) — the bar
+    is lost; /health surfaces the counter so the operator can spot it.
+    """
+    import server
+    from core import bar_history_db as bhdb
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    monkeypatch.setattr(bhdb, "upsert_bar", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("PG unreachable")))
 
     db_path = str(tmp_path / "pg_failure.db")
-    init_bar_history(db_path)  # must not raise
+    failures_before = server._pg_write_failures
     ts = int(time.time())
-    save_bar_history(**_sample(ts), db_path=db_path)  # must not raise
+    with caplog.at_level("ERROR", logger="server"):
+        save_bar_history(**_sample(ts), db_path=db_path)  # must not raise
 
-    captured = capsys.readouterr().out
-    assert "[ERRO PG]" in captured
-    # No SQLite fallback means no row anywhere (and no [ERRO DB] either, since
-    # SQLite was never attempted under postgres).
-    assert "[ERRO DB]" not in captured
+    assert server._pg_write_failures > failures_before
+    assert any("PG write failed" in rec.message for rec in caplog.records)
+    # No SQLite fallback means no row anywhere.
     assert not os.path.exists(db_path)
 
 
