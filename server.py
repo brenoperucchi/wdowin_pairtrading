@@ -1655,6 +1655,30 @@ def health():
     }
 
 
+@app.get("/api/mt5-account")
+def mt5_account():
+    if not connect_mt5():
+        return {"connected": False}
+    ai = mt5.account_info()
+    if ai is None:
+        return {"connected": True, "account_info": None, "error": str(mt5.last_error())}
+    return {
+        "connected": True,
+        "login": ai.login,
+        "name": ai.name,
+        "server": ai.server,
+        "company": ai.company,
+        "currency": ai.currency,
+        "balance": ai.balance,
+        "equity": ai.equity,
+        "trade_mode": ai.trade_mode,
+        "trade_mode_label": {0: "DEMO", 1: "CONTEST", 2: "REAL"}.get(ai.trade_mode, "?"),
+        "trade_allowed": ai.trade_allowed,
+        "trade_expert": ai.trade_expert,
+        "leverage": ai.leverage,
+    }
+
+
 @app.get("/api/performance")
 def get_performance():
     try:
