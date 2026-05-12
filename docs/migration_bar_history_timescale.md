@@ -467,20 +467,20 @@ PGPASSWORD=pairtrading_dev psql -h localhost -U pairtrading -d pairtrading \
 
 Slice 5 troca o **read path** em `server.py` para o hypertable. Daqui em diante, `BAR_HISTORY_BACKEND=postgres` faz a app inteira ler de Postgres; `dual` e `sqlite` continuam lendo de SQLite (o wrapper já cuidava disso em `_read_backend`).
 
-**Importante:** writes continuam indo para **ambos** backends em modo `postgres` — não só para PG. A diferença entre `dual` e `postgres` é só o read path. Isso preserva rollback por env var (basta voltar para `dual` ou `sqlite` que SQLite ainda tem as barras mais recentes) e evita a janela de cutover quebrada onde reads vão para PG enquanto writes ficam só em SQLite.
+**Importante (estado pós-Slice 9, TASK-14.10):** em `BAR_HISTORY_BACKEND=postgres` writes vão **apenas** para o hypertable — o write-through SQLite que existia até Slice 8 foi removido. `dual` continua sendo o modo de paridade (escreve em ambos, lê de SQLite); o caminho de rollback é `BAR_HISTORY_BACKEND=dual` ou `sqlite`, não mais "postgres com SQLite atrás".
 
-| backend  | write SQLite | write PG | read     |
-|----------|--------------|----------|----------|
-| `sqlite` | ✅           | —        | SQLite   |
-| `dual`   | ✅           | ✅       | SQLite   |
-| `postgres` | ✅         | ✅       | Postgres |
+| backend    | write SQLite | write PG | read     |
+|------------|--------------|----------|----------|
+| `sqlite`   | ✅           | —        | SQLite   |
+| `dual`     | ✅           | ✅       | SQLite   |
+| `postgres` | —            | ✅       | Postgres |
 
 ### 15.1 O que mudou
 
-- `server.py:save_bar_history` → o guard de dual-write agora é `bhdb.get_backend() in ("dual", "postgres")`. Sem isso, depois do cutover read PG ficaria stale (reads no PG, writes só em SQLite).
+- `server.py:save_bar_history` → em modo `postgres` chama apenas `bhdb.upsert_bar(backend="postgres", mode="merge")` (Slice 9). Em modo `dual` segue escrevendo SQLite primeiro e espelhando em PG. Falhas PG ficam contabilizadas em `bar_history.pg_write_failures` (exposto em `/health`).
 - `server.py:load_bar_history` → quando `bhdb.get_backend() == "postgres"`, busca rows via `bhdb.select_window(days=days, backend="postgres")` em vez de abrir SQLite. O loop subsequente é backend-agnostic (rows tanto de SQLite quanto de PG são `dict` com as mesmas chaves).
 - `server.py:do_backfill_if_empty` → em modo `postgres`, o `COUNT(*)` passa por `bhdb.count_rows(backend="postgres")` em vez de `sqlite3.connect("trades.db")`.
-- `db_path` continua sendo aceito como parâmetro (tests usam `tmp_path`), mas é **ignorado** pelas leituras em modo `postgres`. Writes ainda gravam na SQLite indicada por `db_path`.
+- `db_path` continua sendo aceito como parâmetro (tests usam `tmp_path`), mas é **ignorado** em modo `postgres` tanto na leitura quanto na escrita.
 
 ### 15.2 Como ativar o cutover read
 
