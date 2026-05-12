@@ -681,6 +681,7 @@ Pós-Slice 9 (commit a8e9833), o write-through SQLite no live path foi removido 
 ### 18.4 Pendências pós-Slice 9
 
 - ~~Stop-write SQLite no live path~~ — entregue no commit a8e9833 (Slice 9). `save_bar_history` sob `BAR_HISTORY_BACKEND=postgres` agora chama `bhdb.upsert_bar(..., mode="merge")` e retorna; o bloco SQLite só roda em `sqlite` ou `dual`.
+- ~~SQLite DDL em `init_bar_history` sob `postgres`~~ — follow-up pós-review: `init_bar_history` agora inicializa apenas o schema PG quando `BAR_HISTORY_BACKEND=postgres`; o arquivo SQLite de `bar_history` não é criado nesse modo.
 - Remover branch SQLite legada de `server.py:save_bar_history` quando o `DROP TABLE` for confirmado.
 - `DROP TABLE bar_history` em `trades.db` após janela de paridade verificada (operacionalmente decisão do usuário).
 - Atualização da memória do agente registrando que `bar_history` agora vive em Postgres como source-of-truth.

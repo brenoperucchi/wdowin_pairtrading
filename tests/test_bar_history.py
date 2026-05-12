@@ -460,38 +460,40 @@ def test_save_bar_history_dual_writes_sqlite_then_mirrors_pg(db, monkeypatch):
     assert sqlite_rows == [(0.42,)]
 
 
-def test_save_bar_history_postgres_writes_pg_only_no_sqlite(db, monkeypatch):
-    """Slice 9 contract: `postgres` writes ONLY to PG. SQLite must not be touched.
+def test_init_bar_history_postgres_initialises_pg_only(tmp_path, monkeypatch):
+    """`postgres`: init_bar_history must not create a SQLite bar_history file."""
+    from core import bar_history_db as bhdb
 
-    Regression guard: before Slice 9, save_bar_history kept a SQLite write-through
-    in `postgres` mode to preserve env-flip rollback. With Slice 9 the rollback
-    window closes and SQLite is silent under postgres.
-    """
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    init_calls: list = []
+    monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: init_calls.append((a, k)))
+
+    db_path = str(tmp_path / "pg_only_init.db")
+    init_bar_history(db_path)
+
+    assert init_calls == [((), {"backend": "postgres"})]
+    assert not os.path.exists(db_path)
+
+
+def test_save_bar_history_postgres_writes_pg_only_no_sqlite(tmp_path, monkeypatch):
+    """`postgres`: save_bar_history writes only to PG; SQLite stays untouched."""
     from core import bar_history_db as bhdb
 
     monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
     upsert_calls: list = []
-    init_calls: list = []
     monkeypatch.setattr(bhdb, "upsert_bar", lambda *a, **k: upsert_calls.append((a, k)))
-    monkeypatch.setattr(bhdb, "init_schema", lambda *a, **k: init_calls.append((a, k)))
 
-    init_bar_history(db)
+    db_path = str(tmp_path / "pg_only_save.db")
     ts = int(time.time())
-    save_bar_history(**_sample(ts, z_wdo=0.42), db_path=db)
+    save_bar_history(**_sample(ts, z_wdo=0.42), db_path=db_path)
 
-    assert init_calls == [((), {"backend": "postgres"})]
     assert len(upsert_calls) == 1
     args, kwargs = upsert_calls[0]
     assert kwargs == {"backend": "postgres", "mode": "merge"}
     row = args[0]
     assert row["timestamp"] == ts
     assert row["z_wdo"] == 0.42
-    # SQLite file is the one init_bar_history created (it owns the schema +
-    # legacy ALTERs), but `save_bar_history` itself wrote nothing into it.
-    conn = sqlite3.connect(db)
-    sqlite_rows = conn.execute("SELECT timestamp FROM bar_history WHERE timestamp=?", (ts,)).fetchall()
-    conn.close()
-    assert sqlite_rows == [], "Slice 9: SQLite must NOT receive any row under postgres mode"
+    assert not os.path.exists(db_path)
 
 
 def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch, capsys):
@@ -518,7 +520,7 @@ def test_save_bar_history_dual_pg_failure_does_not_break_sqlite(db, monkeypatch,
     assert "[ERRO PG]" in captured
 
 
-def test_save_bar_history_postgres_pg_failure_is_logged_and_swallowed(db, monkeypatch, capsys):
+def test_save_bar_history_postgres_pg_failure_is_logged_and_swallowed(tmp_path, monkeypatch, capsys):
     """`postgres`: a PG failure must log `[ERRO PG]` and not raise.
 
     There is no SQLite fallback in this mode (Slice 9) — a failed bar is lost.
@@ -535,15 +537,17 @@ def test_save_bar_history_postgres_pg_failure_is_logged_and_swallowed(db, monkey
     monkeypatch.setattr(bhdb, "init_schema", boom)
     monkeypatch.setattr(bhdb, "upsert_bar", boom)
 
-    init_bar_history(db)  # must not raise
+    db_path = str(tmp_path / "pg_failure.db")
+    init_bar_history(db_path)  # must not raise
     ts = int(time.time())
-    save_bar_history(**_sample(ts), db_path=db)  # must not raise
+    save_bar_history(**_sample(ts), db_path=db_path)  # must not raise
 
     captured = capsys.readouterr().out
     assert "[ERRO PG]" in captured
     # No SQLite fallback means no row anywhere (and no [ERRO DB] either, since
     # SQLite was never attempted under postgres).
     assert "[ERRO DB]" not in captured
+    assert not os.path.exists(db_path)
 
 
 def test_save_bar_history_dual_skips_pg_when_sqlite_fails(tmp_path, monkeypatch, capsys):

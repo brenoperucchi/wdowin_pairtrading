@@ -476,6 +476,15 @@ def init_bar_history(db_path: str = "trades.db") -> None:
     Schema mirrors the columns written by save_bar_history. timestamp is the
     PRIMARY KEY dedups when MT5 reissues an old M5 bar.
     """
+    backend = bhdb.get_backend()
+    if backend == "postgres":
+        try:
+            bhdb.init_schema(backend="postgres")
+            print("[bar_history] backend=postgres — Postgres schema initialised")
+        except Exception as exc:
+            print(f"[ERRO PG] init_schema(postgres) skipped: {exc}")
+        return
+
     conn = sqlite3.connect(db_path, timeout=10.0)
     try:
         c = conn.cursor()
@@ -497,8 +506,8 @@ def init_bar_history(db_path: str = "trades.db") -> None:
                 nwe_is_up   INTEGER
             )
         ''')
-        # TASK-8 Slice A: indicators required for replay parity. Idempotent
-        # ALTERs: ignore only the expected duplicate-column case.
+        # Replay indicators required for parity. Idempotent ALTERs ignore only
+        # the expected duplicate-column case.
         for ddl in (
             "ALTER TABLE bar_history ADD COLUMN eg_pvalue REAL",
             "ALTER TABLE bar_history ADD COLUMN rho REAL",
@@ -515,10 +524,7 @@ def init_bar_history(db_path: str = "trades.db") -> None:
     finally:
         conn.close()
 
-    # TASK-14 Slice 4: dual-write mirror to Postgres/TimescaleDB.
-    # SQLite is the source-of-truth until Slice 5 flips reads.
-    backend = bhdb.get_backend()
-    if backend in ("dual", "postgres"):
+    if backend == "dual":
         try:
             bhdb.init_schema(backend="postgres")
             print(f"[bar_history] backend={backend} — Postgres mirror initialised")
@@ -600,10 +606,8 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
     }
     backend = bhdb.get_backend()
 
-    # TASK-14 Slice 9: under BAR_HISTORY_BACKEND=postgres the SQLite
-    # write-through is gone — PG is the only writer. The wrapper's
-    # `mode='merge'` reproduces the COALESCE semantics this function used
-    # inline (see core/bar_history_db.py:_CONFLICT_POSTGRES).
+    # In postgres mode, PG is the only writer. The wrapper's merge mode
+    # reproduces the COALESCE semantics this function used inline.
     if backend == "postgres":
         try:
             bhdb.upsert_bar(row, backend="postgres", mode="merge")
@@ -695,7 +699,6 @@ def _persist_closed_bars(history, db_path: str = "trades.db") -> int:
 
 def load_bar_history(days=30, db_path: str = "trades.db"):
     try:
-        # TASK-14 Slice 5: route reads to Postgres when backend=postgres.
         # `dual`/`sqlite` keep the in-process SQLite path so the db_path arg
         # (used by tests) still applies. PG rows are dicts with the same
         # column names, so the row-loop below is backend-agnostic.
@@ -793,8 +796,8 @@ def load_bar_history(days=30, db_path: str = "trades.db"):
 
 def do_backfill_if_empty():
     try:
-        # TASK-14 Slice 5: count via wrapper so postgres mode looks at the
-        # right DB. `dual` reads SQLite per the wrapper contract.
+        # Count via wrapper so postgres mode looks at the right DB. `dual`
+        # reads SQLite per the wrapper contract.
         if bhdb.get_backend() == "postgres":
             count = bhdb.count_rows(backend="postgres")
         else:
