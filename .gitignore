@@ -12,8 +12,11 @@ trades.db-wal
 trades.db-shm
 trades.db.bak-*
 trades.db.backfill-*
+matador_ops.db
 replays/
+audits/
 reports/execution_smoke/
+logs/
 beta_ultimo.json
 
 # Environment
