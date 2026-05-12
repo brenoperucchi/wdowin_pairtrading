@@ -262,10 +262,16 @@ def _clamp_limit(limit: int) -> int:
     return max(1, min(out, _MAX_LOAD_LIMIT))
 
 
-def _market_time_expr() -> str:
+def _market_time_expr(closed_bar_offset_seconds: int = 0) -> str:
+    offset = int(closed_bar_offset_seconds or 0)
+    closed_bar_expr = (
+        f"closed_bar_ts + ({offset})"
+        if offset
+        else "closed_bar_ts"
+    )
     return (
         "COALESCE("
-        "strftime('%H:%M', closed_bar_ts, 'unixepoch', 'localtime'), "
+        f"strftime('%H:%M', {closed_bar_expr}, 'unixepoch', 'localtime'), "
         "substr(replace(timestamp, ' ', 'T'), 12, 5)"
         ")"
     )
@@ -282,6 +288,7 @@ def load_timeline(
     since: str | None = None,
     time_start: str | None = None,
     time_end: str | None = None,
+    closed_bar_offset_seconds: int = 0,
 ) -> list[dict[str, Any]]:
     """Return events newest-first, with optional filters."""
     bounded_limit = _clamp_limit(limit)
@@ -303,7 +310,9 @@ def load_timeline(
         where.append("timestamp >= ?")
         params.append(since)
     if time_start and time_end:
-        where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
+        where.append(
+            f"{_market_time_expr(closed_bar_offset_seconds)} BETWEEN ? AND ?"
+        )
         params.extend([time_start, time_end])
 
     sql = "SELECT * FROM execution_timeline"
@@ -327,6 +336,7 @@ def current_bottleneck(
     *,
     time_start: str | None = None,
     time_end: str | None = None,
+    closed_bar_offset_seconds: int = 0,
 ) -> dict[str, Any] | None:
     """First BLOCKED/FAILED event of the most recent closed bar, by funnel order.
 
@@ -339,7 +349,9 @@ def current_bottleneck(
         where = ["closed_bar_ts IS NOT NULL"]
         params: list[Any] = []
         if time_start and time_end:
-            where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
+            where.append(
+                f"{_market_time_expr(closed_bar_offset_seconds)} BETWEEN ? AND ?"
+            )
             params.extend([time_start, time_end])
         c.execute(
             "SELECT MAX(closed_bar_ts) FROM execution_timeline "
@@ -355,7 +367,9 @@ def current_bottleneck(
         candidate_where = [f"closed_bar_ts = ? AND status IN ({placeholders})"]
         candidate_params: list[Any] = [latest, *_BLOCKING_STATUSES]
         if time_start and time_end:
-            candidate_where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
+            candidate_where.append(
+                f"{_market_time_expr(closed_bar_offset_seconds)} BETWEEN ? AND ?"
+            )
             candidate_params.extend([time_start, time_end])
         c.execute(
             "SELECT * FROM execution_timeline WHERE " + " AND ".join(candidate_where),
@@ -393,6 +407,7 @@ def current_live_issue(
     now: datetime | None = None,
     time_start: str | None = None,
     time_end: str | None = None,
+    closed_bar_offset_seconds: int = 0,
 ) -> dict[str, Any] | None:
     """Most recent unresolved DATA failure with no closed_bar_ts.
 
@@ -407,7 +422,9 @@ def current_live_issue(
         where = ["closed_bar_ts IS NULL", "phase = 'DATA'"]
         params: list[Any] = []
         if time_start and time_end:
-            where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
+            where.append(
+                f"{_market_time_expr(closed_bar_offset_seconds)} BETWEEN ? AND ?"
+            )
             params.extend([time_start, time_end])
         c.execute(
             "SELECT * FROM execution_timeline "

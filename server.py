@@ -1678,6 +1678,10 @@ def _timeline_market_bounds(market_hours: bool) -> tuple[str | None, str | None]
     return _minute_to_hhmm(SESSION_START), _minute_to_hhmm(SESSION_END)
 
 
+def _timeline_closed_bar_offset(mode: str | None) -> int:
+    return TIME_OFFSET if (mode or "live").lower() == "live" else 0
+
+
 @app.get("/api/execution-timeline")
 @app.get("/api/execution_timeline")
 def execution_timeline_endpoint(
@@ -1703,6 +1707,7 @@ def execution_timeline_endpoint(
 
     db_path = resolved["db_path"]
     market_start, market_end = _timeline_market_bounds(market_hours)
+    closed_bar_offset = _timeline_closed_bar_offset(resolved["mode"])
 
     events = _enrich_timeline_messages(
         load_timeline(
@@ -1715,6 +1720,7 @@ def execution_timeline_endpoint(
             since=since,
             time_start=market_start,
             time_end=market_end,
+            closed_bar_offset_seconds=closed_bar_offset,
         )
     )
     return {
@@ -1725,10 +1731,20 @@ def execution_timeline_endpoint(
         "events": events,
         "summary": {
             "current_bottleneck": _enrich_timeline_message(
-                current_bottleneck(db_path, time_start=market_start, time_end=market_end)
+                current_bottleneck(
+                    db_path,
+                    time_start=market_start,
+                    time_end=market_end,
+                    closed_bar_offset_seconds=closed_bar_offset,
+                )
             ),
             "current_live_issue": _enrich_timeline_message(
-                current_live_issue(db_path, time_start=market_start, time_end=market_end)
+                current_live_issue(
+                    db_path,
+                    time_start=market_start,
+                    time_end=market_end,
+                    closed_bar_offset_seconds=closed_bar_offset,
+                )
             ),
         },
     }
@@ -1989,6 +2005,7 @@ def execution_timeline_html(
     if resolved["ok"]:
         db_path = resolved["db_path"]
         market_start, market_end = _timeline_market_bounds(market_hours)
+        closed_bar_offset = _timeline_closed_bar_offset(mode_norm)
         events = load_timeline(
             db_path,
             limit=limit,
@@ -1998,13 +2015,24 @@ def execution_timeline_html(
             event=event or None,
             time_start=market_start,
             time_end=market_end,
+            closed_bar_offset_seconds=closed_bar_offset,
         )
         events = _enrich_timeline_messages(events)
         current_bottleneck_obj = _enrich_timeline_message(
-            current_bottleneck(db_path, time_start=market_start, time_end=market_end)
+            current_bottleneck(
+                db_path,
+                time_start=market_start,
+                time_end=market_end,
+                closed_bar_offset_seconds=closed_bar_offset,
+            )
         )
         current_live_issue_obj = _enrich_timeline_message(
-            current_live_issue(db_path, time_start=market_start, time_end=market_end)
+            current_live_issue(
+                db_path,
+                time_start=market_start,
+                time_end=market_end,
+                closed_bar_offset_seconds=closed_bar_offset,
+            )
         )
     else:
         market_start, market_end = _timeline_market_bounds(market_hours)

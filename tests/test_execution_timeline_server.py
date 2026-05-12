@@ -26,6 +26,10 @@ def _epoch(iso_ts: str) -> int:
     return int(datetime.fromisoformat(iso_ts).timestamp())
 
 
+def _mt5_epoch(iso_ts: str) -> int:
+    return _epoch(iso_ts) - server.TIME_OFFSET
+
+
 def _replay_timeline_db(tmp_path, monkeypatch, date="2026-05-08"):
     replay_dir = tmp_path / "replays"
     replay_dir.mkdir(exist_ok=True)
@@ -365,7 +369,7 @@ def test_execution_timeline_endpoint_defaults_to_market_hours(tmp_path, monkeypa
     record_event(
         db,
         dedupe_key="bar:1:GLOBAL:ELIGIBILITY:EG",
-        closed_bar_ts=_epoch("2026-05-08T10:00:00"),
+        closed_bar_ts=_mt5_epoch("2026-05-08T10:00:00"),
         phase="ELIGIBILITY",
         event="EG_NOT_COINTEGRATED",
         status="BLOCKED",
@@ -374,7 +378,7 @@ def test_execution_timeline_endpoint_defaults_to_market_hours(tmp_path, monkeypa
     record_event(
         db,
         dedupe_key="bar:2:GLOBAL:ELIGIBILITY:OUT",
-        closed_bar_ts=_epoch("2026-05-08T18:25:00"),
+        closed_bar_ts=_mt5_epoch("2026-05-08T18:25:00"),
         phase="ELIGIBILITY",
         event="OUT_OF_SESSION",
         status="BLOCKED",

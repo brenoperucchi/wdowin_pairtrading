@@ -25,6 +25,10 @@ def _epoch(iso_ts: str) -> int:
     return int(datetime.fromisoformat(iso_ts).timestamp())
 
 
+def _mt5_epoch(iso_ts: str) -> int:
+    return _epoch(iso_ts) - 3 * 3600
+
+
 # ─── schema ──────────────────────────────────────────────────────────────────
 
 def test_init_timeline_table_is_idempotent(tmp_path):
@@ -279,6 +283,28 @@ def test_load_timeline_filters_by_intraday_time_window(db):
     rows = et.load_timeline(db, time_start="08:50", time_end="18:20")
 
     assert [r["event"] for r in rows] == ["LATE_POLL_IN_MARKET", "IN_MARKET"]
+
+
+def test_load_timeline_can_offset_live_mt5_closed_bar_time(db):
+    et.record_event(
+        db,
+        dedupe_key="bar:live:ELIGIBILITY:LATE_POLL",
+        closed_bar_ts=_mt5_epoch("2026-05-08T10:00:00"),
+        phase="ELIGIBILITY",
+        event="LATE_POLL_IN_MARKET",
+        status="BLOCKED",
+        timestamp="2026-05-08T19:30:00",
+    )
+
+    assert et.load_timeline(db, time_start="08:50", time_end="18:20") == []
+    rows = et.load_timeline(
+        db,
+        time_start="08:50",
+        time_end="18:20",
+        closed_bar_offset_seconds=3 * 3600,
+    )
+
+    assert [r["event"] for r in rows] == ["LATE_POLL_IN_MARKET"]
 
 
 # ─── current_bottleneck ──────────────────────────────────────────────────────
