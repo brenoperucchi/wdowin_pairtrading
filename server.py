@@ -1135,7 +1135,7 @@ def regime_v2():
     minutes_since_last_loss = _trade_engine.minutes_since_last_loss(now=now_dt)
 
     # ── Live runtime profile (hot-reloaded each poll) ──
-    # Operator can flip any of the 5 tunables via POST /api/runtime-config and
+    # Operator can flip runtime tunables via POST /api/runtime-config and
     # the next poll picks them up without a restart. Falls back to DEFAULTS
     # when the on-disk file is malformed so a bad save doesn't 500 the engine.
     try:
@@ -1252,6 +1252,10 @@ def regime_v2():
             daily_pnl_brl=daily_pnl_brl,
             minutes_since_last_loss=minutes_since_last_loss,
             now_dt=now_dt,
+            eg_threshold=live_profile["eg_threshold"],
+            rho_breakdown_level=live_profile["rho_breakdown_level"],
+            beta_delta_max=live_profile["beta_delta_max"],
+            z_anomaly=live_profile["z_anomaly"],
         )
         regime_v2._last_emitted_bar_ts = closed_bar_ts
 

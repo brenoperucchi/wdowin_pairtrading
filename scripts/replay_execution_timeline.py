@@ -438,6 +438,10 @@ def _process_bar(
         daily_pnl_brl=daily_pnl_brl,
         minutes_since_last_loss=minutes_since_last_loss,
         now_dt=now_dt,
+        eg_threshold=runtime_profile.eg_threshold,
+        rho_breakdown_level=runtime_profile.rho_breakdown_level,
+        beta_delta_max=runtime_profile.beta_delta_max,
+        z_anomaly=runtime_profile.z_anomaly,
     )
 
     for reason in pre_entry_gate.get("reasons", []):

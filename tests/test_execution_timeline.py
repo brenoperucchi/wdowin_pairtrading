@@ -21,6 +21,10 @@ def db(tmp_path):
     return path
 
 
+def _epoch(iso_ts: str) -> int:
+    return int(datetime.fromisoformat(iso_ts).timestamp())
+
+
 # ─── schema ──────────────────────────────────────────────────────────────────
 
 def test_init_timeline_table_is_idempotent(tmp_path):
@@ -239,34 +243,42 @@ def test_load_timeline_filters_by_intraday_time_window(db):
         [
             {
                 "dedupe_key": "bar:1:ELIGIBILITY:PRE",
-                "closed_bar_ts": 1,
+                "closed_bar_ts": _epoch("2026-05-08T08:45:00"),
                 "phase": "ELIGIBILITY",
                 "event": "PRE_MARKET",
                 "status": "BLOCKED",
-                "timestamp": "2026-05-08T08:45:00",
+                "timestamp": "2026-05-08T08:45:30",
             },
             {
                 "dedupe_key": "bar:2:ELIGIBILITY:OPEN",
-                "closed_bar_ts": 2,
+                "closed_bar_ts": _epoch("2026-05-08T09:05:00"),
                 "phase": "ELIGIBILITY",
                 "event": "IN_MARKET",
                 "status": "BLOCKED",
-                "timestamp": "2026-05-08T09:05:00",
+                "timestamp": "2026-05-08T09:05:30",
             },
             {
                 "dedupe_key": "bar:3:ELIGIBILITY:AFTER",
-                "closed_bar_ts": 3,
+                "closed_bar_ts": _epoch("2026-05-08T18:25:00"),
                 "phase": "ELIGIBILITY",
                 "event": "AFTER_MARKET",
                 "status": "BLOCKED",
-                "timestamp": "2026-05-08T18:25:00",
+                "timestamp": "2026-05-08T18:25:30",
+            },
+            {
+                "dedupe_key": "bar:4:ELIGIBILITY:LATE_POLL",
+                "closed_bar_ts": _epoch("2026-05-08T10:00:00"),
+                "phase": "ELIGIBILITY",
+                "event": "LATE_POLL_IN_MARKET",
+                "status": "BLOCKED",
+                "timestamp": "2026-05-08T19:30:00",
             },
         ],
     )
 
     rows = et.load_timeline(db, time_start="08:50", time_end="18:20")
 
-    assert [r["event"] for r in rows] == ["IN_MARKET"]
+    assert [r["event"] for r in rows] == ["LATE_POLL_IN_MARKET", "IN_MARKET"]
 
 
 # ─── current_bottleneck ──────────────────────────────────────────────────────
@@ -331,15 +343,15 @@ def test_current_bottleneck_can_ignore_after_market_rows(db):
         [
             {
                 "dedupe_key": "bar:1:ELIGIBILITY:EG",
-                "closed_bar_ts": 1,
+                "closed_bar_ts": _epoch("2026-05-08T10:00:00"),
                 "phase": "ELIGIBILITY",
                 "event": "EG_NOT_COINTEGRATED",
                 "status": "BLOCKED",
-                "timestamp": "2026-05-08T10:00:00",
+                "timestamp": "2026-05-08T19:30:00",
             },
             {
                 "dedupe_key": "bar:2:ELIGIBILITY:OUT",
-                "closed_bar_ts": 2,
+                "closed_bar_ts": _epoch("2026-05-08T18:25:00"),
                 "phase": "ELIGIBILITY",
                 "event": "OUT_OF_SESSION",
                 "status": "BLOCKED",

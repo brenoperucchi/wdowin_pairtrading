@@ -22,6 +22,10 @@ def _timeline_db(tmp_path, monkeypatch):
     return db
 
 
+def _epoch(iso_ts: str) -> int:
+    return int(datetime.fromisoformat(iso_ts).timestamp())
+
+
 def _replay_timeline_db(tmp_path, monkeypatch, date="2026-05-08"):
     replay_dir = tmp_path / "replays"
     replay_dir.mkdir(exist_ok=True)
@@ -241,6 +245,48 @@ def test_emit_closed_bar_timeline_uses_per_strategy_gate_reasons(tmp_path, monke
     assert di_payload["gate_reasons"] == []
 
 
+def test_emit_closed_bar_timeline_uses_runtime_thresholds(tmp_path, monkeypatch):
+    db = _timeline_db(tmp_path, monkeypatch)
+
+    emit_closed_bar_timeline(
+        closed_bar_ts=1778245200,
+        gate={
+            "allowed": False,
+            "reasons": [
+                "EG_NOT_COINTEGRATED",
+                "RHO_BREAKDOWN",
+                "BETA_DRIFT",
+                "Z_ANOMALY",
+            ],
+        },
+        trade_result=_trade_result(gate_reasons=["BETA_DRIFT"]),
+        z_wdo=3.7,
+        z_di=0.2,
+        rho=-0.44,
+        rho_level=3,
+        beta_delta_pct=20.0,
+        eg_pvalue=0.12,
+        joh_open=False,
+        mt5_connected=True,
+        trades_today_count=0,
+        daily_pnl_brl=0.0,
+        minutes_since_last_loss=None,
+        now_dt=datetime.fromisoformat("2026-05-08T10:00:00"),
+        db_path=db,
+        eg_threshold=0.15,
+        rho_breakdown_level=3,
+        beta_delta_max=15.0,
+        z_anomaly=3.5,
+    )
+
+    events = {r["event"]: r for r in load_timeline(db, limit=20)}
+    assert events["EG_NOT_COINTEGRATED"]["threshold"] == 0.15
+    assert events["RHO_BREAKDOWN"]["threshold"] == 3
+    assert events["BETA_DRIFT"]["threshold"] == 15.0
+    assert events["Z_ANOMALY"]["threshold"] == 3.5
+    assert "15" in events["BETA_DRIFT"]["message"]
+
+
 def test_emit_closed_bar_timeline_dedupes_same_closed_bar(tmp_path, monkeypatch):
     db = _timeline_db(tmp_path, monkeypatch)
     kwargs = dict(
@@ -319,16 +365,16 @@ def test_execution_timeline_endpoint_defaults_to_market_hours(tmp_path, monkeypa
     record_event(
         db,
         dedupe_key="bar:1:GLOBAL:ELIGIBILITY:EG",
-        closed_bar_ts=1,
+        closed_bar_ts=_epoch("2026-05-08T10:00:00"),
         phase="ELIGIBILITY",
         event="EG_NOT_COINTEGRATED",
         status="BLOCKED",
-        timestamp="2026-05-08T10:00:00",
+        timestamp="2026-05-08T19:30:00",
     )
     record_event(
         db,
         dedupe_key="bar:2:GLOBAL:ELIGIBILITY:OUT",
-        closed_bar_ts=2,
+        closed_bar_ts=_epoch("2026-05-08T18:25:00"),
         phase="ELIGIBILITY",
         event="OUT_OF_SESSION",
         status="BLOCKED",
@@ -993,7 +1039,7 @@ def test_live_engine_falls_back_to_defaults_when_runtime_config_invalid(
     tmp_path, monkeypatch,
 ):
     """A malformed runtime.json must not 500 the live engine — it falls back
-    to DEFAULTS so all 5 fields stay defined for the gate."""
+    to DEFAULTS so every runtime field stays defined for the gate."""
     target = tmp_path / "runtime.json"
     target.write_text("not json{", encoding="utf-8")
     monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)

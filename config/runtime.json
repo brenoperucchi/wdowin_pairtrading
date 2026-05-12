@@ -1,6 +1,6 @@
 {
   "live": {
-    "beta_delta_max": 25.0,
+    "beta_delta_max": 15.0,
     "eg_bars": 2240,
     "eg_recalc": "daily",
     "eg_strategies": [
@@ -8,7 +8,8 @@
       "WDO_NWE"
     ],
     "eg_threshold": 0.10,
-    "rho_breakdown_level": 2
+    "rho_breakdown_level": 2,
+    "z_anomaly": 4.0
   },
   "replay": {
     "beta_delta_max": 15.0,
@@ -19,6 +20,7 @@
       "WDO_NWE"
     ],
     "eg_threshold": 0.10,
-    "rho_breakdown_level": 2
+    "rho_breakdown_level": 2,
+    "z_anomaly": 4.0
   }
 }

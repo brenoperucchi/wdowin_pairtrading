@@ -57,29 +57,38 @@ def reason_fields(
     trades_today_count: int,
     daily_pnl_brl: float,
     minutes_since_last_loss: float | None,
+    eg_threshold: float = EG_PVALUE_THRESHOLD,
+    rho_breakdown_level: int = 2,
+    beta_delta_max: float = BETA_DELTA_MAX,
+    z_anomaly: float = Z_ANOMALY,
 ) -> dict:
     """Attach metric/threshold/operator context for known gate reasons."""
     if reason in {"EG_NOT_COINTEGRATED", "EG_UNAVAILABLE"}:
         return {
             "metric": "eg_pvalue",
             "value": eg_pvalue,
-            "threshold": EG_PVALUE_THRESHOLD,
+            "threshold": eg_threshold,
             "operator": "<",
         }
     if reason == "RHO_BREAKDOWN":
-        return {"metric": "rho_level", "value": rho_level, "threshold": 2, "operator": "<"}
+        return {
+            "metric": "rho_level",
+            "value": rho_level,
+            "threshold": rho_breakdown_level,
+            "operator": "<",
+        }
     if reason == "BETA_DRIFT":
         return {
             "metric": "abs_beta_delta_pct",
             "value": abs(beta_delta_pct),
-            "threshold": BETA_DELTA_MAX,
+            "threshold": beta_delta_max,
             "operator": "<",
         }
     if reason == "Z_ANOMALY":
         return {
             "metric": "max_abs_z",
             "value": max(abs(z_wdo), abs(z_di)),
-            "threshold": Z_ANOMALY,
+            "threshold": z_anomaly,
             "operator": "<",
         }
     if reason == "MAX_TRADES_REACHED":
@@ -192,6 +201,10 @@ def emit_closed_bar_timeline(
     daily_pnl_brl: float,
     minutes_since_last_loss: float | None,
     now_dt: datetime,
+    eg_threshold: float = EG_PVALUE_THRESHOLD,
+    rho_breakdown_level: int = 2,
+    beta_delta_max: float = BETA_DELTA_MAX,
+    z_anomaly: float = Z_ANOMALY,
 ) -> int:
     """Emit the full closed-bar funnel for INDICATORS / ELIGIBILITY / RISK / SIGNAL.
 
@@ -243,6 +256,10 @@ def emit_closed_bar_timeline(
             trades_today_count=trades_today_count,
             daily_pnl_brl=daily_pnl_brl,
             minutes_since_last_loss=minutes_since_last_loss,
+            eg_threshold=eg_threshold,
+            rho_breakdown_level=rho_breakdown_level,
+            beta_delta_max=beta_delta_max,
+            z_anomaly=z_anomaly,
         )
         event: dict[str, Any] = {
             "timestamp": ts,

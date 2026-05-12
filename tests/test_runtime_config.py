@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 
 import pytest
 
@@ -22,7 +23,7 @@ def test_defaults_returned_when_file_missing(tmp_path):
 
 
 def test_defaults_shape():
-    """DEFAULTS has both profiles and all five fields per profile."""
+    """DEFAULTS has both profiles and every runtime field per profile."""
     assert set(runtime_config.DEFAULTS) == set(runtime_config.PROFILES)
     for profile in runtime_config.PROFILES:
         assert set(runtime_config.DEFAULTS[profile]) == set(runtime_config.FIELDS)
@@ -235,6 +236,18 @@ def test_defaults_z_anomaly_matches_core_config():
     """Both profiles default to 4.0 — same as core.config.Z_ANOMALY fallback."""
     assert runtime_config.DEFAULTS["live"]["z_anomaly"] == 4.0
     assert runtime_config.DEFAULTS["replay"]["z_anomaly"] == 4.0
+
+
+def test_committed_runtime_json_matches_aligned_defaults():
+    target = Path(__file__).resolve().parents[1] / "config" / "runtime.json"
+    raw = json.loads(target.read_text(encoding="utf-8"))
+    loaded = runtime_config.load_runtime_config(target)
+
+    assert raw["live"]["beta_delta_max"] == runtime_config.DEFAULTS["live"]["beta_delta_max"]
+    assert raw["replay"]["beta_delta_max"] == runtime_config.DEFAULTS["replay"]["beta_delta_max"]
+    assert "z_anomaly" in raw["live"]
+    assert "z_anomaly" in raw["replay"]
+    assert loaded == raw
 
 
 def test_load_backfills_missing_fields_from_defaults(tmp_path):

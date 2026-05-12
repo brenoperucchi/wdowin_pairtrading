@@ -262,6 +262,15 @@ def _clamp_limit(limit: int) -> int:
     return max(1, min(out, _MAX_LOAD_LIMIT))
 
 
+def _market_time_expr() -> str:
+    return (
+        "COALESCE("
+        "strftime('%H:%M', closed_bar_ts, 'unixepoch', 'localtime'), "
+        "substr(replace(timestamp, ' ', 'T'), 12, 5)"
+        ")"
+    )
+
+
 def load_timeline(
     db_path: str,
     *,
@@ -294,7 +303,7 @@ def load_timeline(
         where.append("timestamp >= ?")
         params.append(since)
     if time_start and time_end:
-        where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+        where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
         params.extend([time_start, time_end])
 
     sql = "SELECT * FROM execution_timeline"
@@ -330,7 +339,7 @@ def current_bottleneck(
         where = ["closed_bar_ts IS NOT NULL"]
         params: list[Any] = []
         if time_start and time_end:
-            where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+            where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
             params.extend([time_start, time_end])
         c.execute(
             "SELECT MAX(closed_bar_ts) FROM execution_timeline "
@@ -346,7 +355,7 @@ def current_bottleneck(
         candidate_where = [f"closed_bar_ts = ? AND status IN ({placeholders})"]
         candidate_params: list[Any] = [latest, *_BLOCKING_STATUSES]
         if time_start and time_end:
-            candidate_where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+            candidate_where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
             candidate_params.extend([time_start, time_end])
         c.execute(
             "SELECT * FROM execution_timeline WHERE " + " AND ".join(candidate_where),
@@ -398,7 +407,7 @@ def current_live_issue(
         where = ["closed_bar_ts IS NULL", "phase = 'DATA'"]
         params: list[Any] = []
         if time_start and time_end:
-            where.append("substr(replace(timestamp, ' ', 'T'), 12, 5) BETWEEN ? AND ?")
+            where.append(f"{_market_time_expr()} BETWEEN ? AND ?")
             params.extend([time_start, time_end])
         c.execute(
             "SELECT * FROM execution_timeline "
