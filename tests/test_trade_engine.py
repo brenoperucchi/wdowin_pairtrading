@@ -517,6 +517,13 @@ def test_count_trades_today_live_only_filters_paper(engine):
     assert engine.count_trades_today(today, live_only=True) == 1
 
 
+def test_get_open_trades_live_only_hides_paper_open(engine):
+    _seed_trade(engine, status="OPEN", live=0, strategy="CONS_BASE")
+
+    assert engine._get_open_trades()["CONS_BASE"] is not None
+    assert engine._get_open_trades(live_only=True)["CONS_BASE"] is None
+
+
 def test_pnl_today_zero_when_no_closed_trades(engine):
     today = datetime.now().strftime("%Y-%m-%d")
     engine.evaluate(
@@ -563,6 +570,65 @@ def test_pnl_today_live_only_excludes_paper_losses(engine):
 
     assert engine.pnl_today(today) == -170.0
     assert engine.pnl_today(today, live_only=True) == 324.0
+
+
+def test_evaluate_live_only_unblocks_after_paper_daily_loss(engine):
+    today = "2026-05-13"
+    now = datetime.fromisoformat(f"{today}T15:00:00")
+    _seed_trade(
+        engine,
+        timestamp_in=f"{today}T14:15:05",
+        timestamp_out=f"{today}T15:12:20",
+        exit_reason="STOP_LOSS",
+        pnl_brl=-494.0,
+        live=0,
+    )
+
+    result = engine.evaluate(
+        z_wdo=-2.1,
+        z_di=-1.5,
+        win_price=130000,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=15,
+        minute=0,
+        now_dt=now,
+        live_only=True,
+    )
+
+    assert result["action"] == "BUY_WIN"
+    assert result["strategies"]["CONS_BASE"]["open_trade"] is not None
+
+
+def test_evaluate_default_live_only_false_preserves_legacy_blocking(engine):
+    today = "2026-05-13"
+    now = datetime.fromisoformat(f"{today}T15:00:00")
+    _seed_trade(
+        engine,
+        timestamp_in=f"{today}T14:15:05",
+        timestamp_out=f"{today}T15:12:20",
+        exit_reason="STOP_LOSS",
+        pnl_brl=-494.0,
+        live=0,
+    )
+
+    result = engine.evaluate(
+        z_wdo=-2.1,
+        z_di=-1.5,
+        win_price=130000,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=15,
+        minute=0,
+        now_dt=now,
+    )
+
+    assert result["action"] == "WAIT"
+    assert "DAILY_LOSS_LIMIT" in result["strategies"]["CONS_BASE"]["gate_reasons"]
 
 
 def test_minutes_since_last_loss_none_when_no_history(engine):

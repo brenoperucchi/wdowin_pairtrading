@@ -114,15 +114,23 @@ class TradeEngine:
         conn.close()
         init_timeline_table(self.db_path)
 
-    def _get_open_trades(self):
-        """Returns dict of open trades keyed by strategy."""
+    def _get_open_trades(self, *, live_only: bool = False):
+        """Returns dict of open trades keyed by strategy.
+
+        When ``live_only=True``, paper OPEN rows are intentionally omitted:
+        they stay OPEN in ``matador_ops`` for audit/history, but live mode
+        must not let orphaned paper rows block real entries or trigger exits.
+        """
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        where = "status='OPEN'"
+        if live_only:
+            where += " AND live = 1"
         c.execute(
             "SELECT id, direction, z_source, strategy, price_win_in, price_wdo_in, "
             "max_pts_favor, be_active, mt5_ticket_in, mt5_magic, live, "
             "sl_pts, tp_pts, be_act_pts, be_lock_pts "
-            "FROM matador_ops WHERE status='OPEN'"
+            f"FROM matador_ops WHERE {where}"
         )
         rows = c.fetchall()
         conn.close()
@@ -172,7 +180,9 @@ class TradeEngine:
                  win_low: float | None = None,
                  force_close_h: int | None = None,
                  force_close_m: int | None = None,
-                 engine_params: dict | None = None) -> dict:
+                 engine_params: dict | None = None,
+                 *,
+                 live_only: bool = False) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -205,12 +215,16 @@ class TradeEngine:
         bypasses the coint gate entirely). ``None`` means "EG applies to all"
         — backward compatible behaviour for callers that haven't been wired
         to runtime_config yet.
+
+        ``live_only=True`` makes open-position and within-poll operational
+        stats ignore paper rows. This is the read-side hook used by live mode
+        in later slices; default False preserves paper/replay behaviour.
         """
         entry_win_price = win_price if entry_win_price is None else entry_win_price
         entry_wdo_price = wdo_price if entry_wdo_price is None else entry_wdo_price
         now_dt = now_dt or datetime.now()
 
-        open_trades = self._get_open_trades()
+        open_trades = self._get_open_trades(live_only=live_only)
         results: dict = {}
         # Market-side reasons that do NOT change within a single poll.
         # Within-poll operational reasons get recomputed in phase 2 below.
@@ -237,9 +251,12 @@ class TradeEngine:
         # MUST see LOSS_COOLDOWN active. count/pnl/cooldown are queried fresh
         # against the just-committed db state.
         today_str = now_dt.strftime("%Y-%m-%d")
-        trades_today_now = self.count_trades_today(today_str)
-        daily_pnl_now = self.pnl_today(today_str)
-        minutes_since_loss_now = self.minutes_since_last_loss(now=now_dt)
+        trades_today_now = self.count_trades_today(today_str, live_only=live_only)
+        daily_pnl_now = self.pnl_today(today_str, live_only=live_only)
+        minutes_since_loss_now = self.minutes_since_last_loss(
+            now=now_dt,
+            live_only=live_only,
+        )
 
         # ── Phase 2: entries for slots without open trades ────────────────
         # `opens_this_poll` decrements the trade budget per actual open so

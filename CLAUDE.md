@@ -124,6 +124,7 @@ If you tighten/loosen any of these in code or runtime config, mirror the change 
 - **Paper trading only:** `mt5.order_send()` is not called anywhere. `TradeEngine` simulates trades via SQLite only.
 - **No position persistence across crashes:** In-memory trade state in `TradeEngine` is lost on server restart. On-disk state is only in `matador_ops` (closed trades). `beta_ultimo.json` exists on disk but is no longer read or written by V2 — beta is recomputed inline each poll.
 - **Symbol rollover:** `WIN$N`, `WDO$N`, `DI1$N` are continuous symbols requiring manual update each contract expiry.
+- **Paper OPEN orphans:** When live risk uses `live_only=True`, paper rows with `status='OPEN'` are deliberately ignored by `_get_open_trades`; they remain OPEN in `matador_ops` for audit/history and are not auto-closed by the live motor.
 
 <!-- BACKLOG.MD MCP GUIDELINES START -->
 

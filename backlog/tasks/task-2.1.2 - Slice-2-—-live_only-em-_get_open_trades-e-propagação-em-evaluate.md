@@ -1,7 +1,7 @@
 ---
 id: TASK-2.1.2
 title: Slice 2 — live_only em _get_open_trades e propagação em evaluate
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-13 20:25'
 labels:
