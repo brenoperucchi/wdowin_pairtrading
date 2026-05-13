@@ -1197,6 +1197,24 @@ def test_engine_params_z_entry_recorded_on_timeline_threshold(engine):
     assert signal_events[0]["threshold"] == custom_threshold
 
 
+def test_consensus_timeline_uses_attention_threshold_when_wdo_is_attention_leg(engine):
+    """CONS_BASE can open with WDO at z_attention while DI crosses z_entry."""
+    engine.evaluate(
+        z_wdo=1.3, z_di=1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=_engine_params(z_entry=1.4, z_attention=1.2),
+    )
+    signal_events = [
+        r for r in _timeline_rows(engine)
+        if r["phase"] == "SIGNAL" and r["strategy"] == "CONS_BASE"
+    ]
+    assert signal_events, "expected a CONS_BASE SIGNAL event"
+    assert signal_events[0]["value"] == 1.3
+    assert signal_events[0]["threshold"] == 1.2
+
+
 def test_engine_params_z_entry_none_falls_back_to_global(engine):
     """No engine_params: _eval_* and _open_trade use core.config Z_ENTRY/Z_ATTENTION."""
     # |z|=1.6 > Z_ENTRY=1.4 default → triggers under fallback.

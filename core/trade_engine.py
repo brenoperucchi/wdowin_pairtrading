@@ -315,22 +315,25 @@ class TradeEngine:
             float(engine_params["z_attention"]) if engine_params is not None else Z_ATTENTION
         )
 
-        # BUY
-        if (z_wdo <= -z_entry and z_di <= -z_attention) or \
-           (z_wdo <= -z_attention and z_di <= -z_entry):
+        buy_wdo_entry = z_wdo <= -z_entry and z_di <= -z_attention
+        buy_wdo_attention = z_wdo <= -z_attention and z_di <= -z_entry
+        if buy_wdo_entry or buy_wdo_attention:
             return self._open_trade("BUY", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
                                     closed_bar_ts, now_dt,
                                     simulation_profile=simulation_profile,
-                                    engine_params=engine_params)
-        # SELL
-        if (z_wdo >= z_entry and z_di >= z_attention) or \
-           (z_wdo >= z_attention and z_di >= z_entry):
+                                    engine_params=engine_params,
+                                    signal_threshold=z_entry if buy_wdo_entry else z_attention)
+
+        sell_wdo_entry = z_wdo >= z_entry and z_di >= z_attention
+        sell_wdo_attention = z_wdo >= z_attention and z_di >= z_entry
+        if sell_wdo_entry or sell_wdo_attention:
             return self._open_trade("SELL", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
                                     closed_bar_ts, now_dt,
                                     simulation_profile=simulation_profile,
-                                    engine_params=engine_params)
+                                    engine_params=engine_params,
+                                    signal_threshold=z_entry if sell_wdo_entry else z_attention)
 
         return self._result("WAIT", "CONS_BASE")
 
@@ -367,13 +370,15 @@ class TradeEngine:
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
                                     closed_bar_ts, now_dt,
                                     simulation_profile=simulation_profile,
-                                    engine_params=engine_params)
+                                    engine_params=engine_params,
+                                    signal_threshold=z_entry)
         if sig_sell:
             return self._open_trade("SELL", "WDO_KALMAN", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
                                     closed_bar_ts, now_dt,
                                     simulation_profile=simulation_profile,
-                                    engine_params=engine_params)
+                                    engine_params=engine_params,
+                                    signal_threshold=z_entry)
 
         return self._result("WAIT", "WDO_NWE")
 
@@ -410,13 +415,15 @@ class TradeEngine:
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
                                     closed_bar_ts, now_dt,
                                     simulation_profile=simulation_profile,
-                                    engine_params=engine_params)
+                                    engine_params=engine_params,
+                                    signal_threshold=z_entry)
         if sig_sell:
             return self._open_trade("SELL", "DI_JOHANSEN", z_di,
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
                                     closed_bar_ts, now_dt,
                                     simulation_profile=simulation_profile,
-                                    engine_params=engine_params)
+                                    engine_params=engine_params,
+                                    signal_threshold=z_entry)
 
         return self._result("WAIT", "DI_NWE")
 
@@ -450,7 +457,8 @@ class TradeEngine:
     def _open_trade(self, direction, z_source, z_val,
                      win_price, wdo_price, rho, beta, hmm_state, strategy,
                      closed_bar_ts=None, now_dt=None,
-                     simulation_profile=None, engine_params=None):
+                     simulation_profile=None, engine_params=None,
+                     signal_threshold=None):
         now_dt = now_dt or datetime.now()
         attempt_id = uuid4().hex
 
@@ -474,13 +482,15 @@ class TradeEngine:
             tp_pts = int(engine_params[f"{prefix}_tp"])
             be_act_pts = int(engine_params[f"{prefix}_be_act"])
             be_lock_pts = int(engine_params[f"{prefix}_be_lock"])
-            z_threshold = float(engine_params["z_entry"])
+            z_threshold = float(
+                signal_threshold if signal_threshold is not None else engine_params["z_entry"]
+            )
         else:
             sl_pts = BUY_SL if direction == "BUY" else SELL_SL
             tp_pts = BUY_TP if direction == "BUY" else SELL_TP
             be_act_pts = BUY_BE_ACT if direction == "BUY" else SELL_BE_ACT
             be_lock_pts = BUY_BE_LOCK if direction == "BUY" else SELL_BE_LOCK
-            z_threshold = Z_ENTRY
+            z_threshold = float(signal_threshold if signal_threshold is not None else Z_ENTRY)
 
         mt5_ticket_in = None
         mt5_magic = None
