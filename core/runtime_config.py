@@ -341,6 +341,46 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
     sell_be_act = _int_in("sell_be_act", 0, 5000)
     sell_be_lock = _int_in("sell_be_lock", 0, 5000)
 
+    # ── Cross-field validation ──────────────────────────────────────────────
+    # Hours must be ordered: entry_start < entry_end <= force_close.
+    # Equal start/end leaves the entry window empty (almost certainly a typo);
+    # entry_end == force_close is fine (entries close exactly when force-close
+    # fires).
+    start_min = entry_start_h * 60 + entry_start_m
+    end_min = entry_end_h * 60 + entry_end_m
+    fc_min = force_close_h * 60 + force_close_m
+    if start_min >= end_min:
+        raise ValueError(
+            f"{name}.entry_start ({entry_start_h:02d}:{entry_start_m:02d}) must be "
+            f"earlier than entry_end ({entry_end_h:02d}:{entry_end_m:02d})"
+        )
+    if end_min > fc_min:
+        raise ValueError(
+            f"{name}.entry_end ({entry_end_h:02d}:{entry_end_m:02d}) must be at or before "
+            f"force_close ({force_close_h:02d}:{force_close_m:02d})"
+        )
+
+    # BE / TP semantics per side:
+    #   be_lock <= be_act  — can't lock more than you've earned at activation
+    #   be_lock <  tp      — equal makes the lock identical to the target
+    #   be_act  <= tp      — BE should activate at or before the target
+    def _check_be_tp(side: str, tp: int, be_act: int, be_lock: int) -> None:
+        if be_lock > be_act:
+            raise ValueError(
+                f"{name}.{side}_be_lock ({be_lock}) must be <= {side}_be_act ({be_act})"
+            )
+        if be_lock >= tp:
+            raise ValueError(
+                f"{name}.{side}_be_lock ({be_lock}) must be < {side}_tp ({tp})"
+            )
+        if be_act > tp:
+            raise ValueError(
+                f"{name}.{side}_be_act ({be_act}) must be <= {side}_tp ({tp})"
+            )
+
+    _check_be_tp("buy", buy_tp, buy_be_act, buy_be_lock)
+    _check_be_tp("sell", sell_tp, sell_be_act, sell_be_lock)
+
     simulation = _validate_simulation(name, payload["simulation"])
 
     return {

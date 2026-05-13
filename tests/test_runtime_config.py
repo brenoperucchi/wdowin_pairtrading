@@ -633,7 +633,12 @@ def test_engine_params_accept_boundary_values(tmp_path):
     payload["live"]["window"] = 30          # lower bound (inclusive)
     payload["replay"]["window"] = 1000      # upper bound (inclusive)
     payload["live"]["z_entry"] = 5.0        # upper bound (inclusive)
+    # entry_end_m = 59 is field-bound max; bump force_close to match so the
+    # cross-field rule (entry_end <= force_close) still holds.
+    payload["replay"]["entry_end_h"] = 17
     payload["replay"]["entry_end_m"] = 59
+    payload["replay"]["force_close_h"] = 17
+    payload["replay"]["force_close_m"] = 59
     payload["live"]["buy_sl"] = 10
     payload["replay"]["sell_tp"] = 5000
     payload["live"]["buy_be_act"] = 0
@@ -641,6 +646,7 @@ def test_engine_params_accept_boundary_values(tmp_path):
     assert saved["live"]["window"] == 30
     assert saved["replay"]["window"] == 1000
     assert saved["live"]["z_entry"] == 5.0
+    assert saved["replay"]["entry_end_m"] == 59
 
 
 def test_committed_runtime_json_has_engine_params():
@@ -652,3 +658,89 @@ def test_committed_runtime_json_has_engine_params():
             assert field in raw[profile], f"missing {profile}.{field}"
         assert raw[profile]["window"] == runtime_config.DEFAULTS[profile]["window"]
         assert raw[profile]["z_entry"] == runtime_config.DEFAULTS[profile]["z_entry"]
+
+
+# ─── cross-field validators (review of A'.1) ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "overrides,error_substring",
+    [
+        # session hours: start >= end → reject
+        ({"entry_start_h": 18}, "entry_start"),
+        ({"entry_end_h": 8}, "entry_start"),
+        ({"entry_start_h": 17, "entry_start_m": 25}, "entry_start"),  # == end
+        ({"entry_start_h": 17, "entry_start_m": 30}, "entry_start"),  # > end
+        # session hours: end > force_close → reject
+        ({"entry_end_h": 18, "force_close_h": 17, "force_close_m": 40}, "entry_end"),
+        ({"entry_end_h": 17, "entry_end_m": 45, "force_close_m": 40}, "entry_end"),
+    ],
+)
+def test_validation_rejects_session_hours_out_of_order(tmp_path, overrides, error_substring):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"].update(overrides)
+    with pytest.raises(ValueError, match=error_substring):
+        runtime_config.save_runtime_config(payload, target)
+
+
+@pytest.mark.parametrize(
+    "side,overrides,error_substring",
+    [
+        # be_lock > be_act
+        ("buy", {"buy_be_act": 100, "buy_be_lock": 200}, "buy_be_lock"),
+        ("sell", {"sell_be_act": 100, "sell_be_lock": 200}, "sell_be_lock"),
+        # be_lock == tp (equal not allowed; must be strictly less)
+        ("buy", {"buy_be_lock": 800, "buy_be_act": 800}, "buy_be_lock"),
+        ("sell", {"sell_be_lock": 800, "sell_be_act": 800}, "sell_be_lock"),
+        # be_lock > tp
+        ("buy", {"buy_be_lock": 900, "buy_be_act": 900, "buy_tp": 800}, "buy_be_lock"),
+        # be_act > tp
+        ("buy", {"buy_be_act": 900, "buy_tp": 800}, "buy_be_act"),
+        ("sell", {"sell_be_act": 900, "sell_tp": 800}, "sell_be_act"),
+    ],
+)
+def test_validation_rejects_be_tp_inversions(tmp_path, side, overrides, error_substring):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"].update(overrides)
+    with pytest.raises(ValueError, match=error_substring):
+        runtime_config.save_runtime_config(payload, target)
+
+
+def test_validation_accepts_boundary_cross_field_values(tmp_path):
+    """Non-strict boundaries must validate: end == force_close, be_act == tp, be_lock == be_act."""
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    # entry_end == force_close (allowed)
+    payload["live"]["entry_end_h"] = 17
+    payload["live"]["entry_end_m"] = 40
+    payload["live"]["force_close_h"] = 17
+    payload["live"]["force_close_m"] = 40
+    # be_act == tp (allowed)
+    payload["live"]["buy_be_act"] = 800
+    payload["live"]["buy_be_lock"] = 800 - 1  # be_lock < tp strict
+    # be_lock == be_act (allowed — silly but not impossible)
+    payload["replay"]["sell_be_lock"] = 300
+    payload["replay"]["sell_be_act"] = 300
+    saved = runtime_config.save_runtime_config(payload, target)
+    assert saved["live"]["entry_end_m"] == 40
+    assert saved["live"]["buy_be_act"] == 800
+    assert saved["replay"]["sell_be_lock"] == 300
+
+
+def test_committed_defaults_pass_cross_field_validation():
+    """The DEFAULTS dict itself must satisfy every cross-field rule (config sanity)."""
+    target_path = Path(__file__).resolve().parents[1] / "config" / "runtime.json"
+    # load_runtime_config triggers full validation including cross-field checks
+    loaded = runtime_config.load_runtime_config(target_path)
+    for profile in runtime_config.PROFILES:
+        p = loaded[profile]
+        start = p["entry_start_h"] * 60 + p["entry_start_m"]
+        end = p["entry_end_h"] * 60 + p["entry_end_m"]
+        fc = p["force_close_h"] * 60 + p["force_close_m"]
+        assert start < end <= fc
+        for side in ("buy", "sell"):
+            assert p[f"{side}_be_lock"] <= p[f"{side}_be_act"]
+            assert p[f"{side}_be_lock"] < p[f"{side}_tp"]
+            assert p[f"{side}_be_act"] <= p[f"{side}_tp"]
