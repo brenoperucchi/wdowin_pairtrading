@@ -35,6 +35,11 @@ def engine(tmp_path):
     return TradeEngine(db_path=db_path)
 
 
+@pytest.fixture(autouse=True)
+def _resolve_live_symbol(monkeypatch):
+    monkeypatch.setattr(te, "resolve_live_symbol_win", lambda *_args, **_kwargs: "WINM26")
+
+
 def _gate(allowed=True, reasons=None):
     """Construct a risk_gate-shaped dict for tests focused on strategy logic.
 
@@ -51,6 +56,40 @@ def _gate(allowed=True, reasons=None):
 
 def _timeline_rows(engine):
     return list(reversed(load_timeline(engine.db_path, limit=100)))
+
+
+def _seed_trade(
+    engine,
+    *,
+    timestamp_in="2026-05-13T10:00:00",
+    timestamp_out=None,
+    status="CLOSED",
+    exit_reason=None,
+    pnl_brl=None,
+    live=0,
+    strategy="DI_NWE",
+    direction="BUY",
+):
+    if status == "CLOSED" and timestamp_out is None:
+        timestamp_out = "2026-05-13T10:05:00"
+    conn = sqlite3.connect(engine.db_path)
+    conn.execute(
+        """
+        INSERT INTO matador_ops
+        (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
+         qty_win, price_win_in, price_wdo_in, timestamp_out, exit_reason,
+         price_win_out, price_wdo_out, pnl_brl, live)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            timestamp_in, status, direction, 1.5, "TEST", strategy, -0.7, 36.0,
+            2, 130000.0, 5800.0, timestamp_out, exit_reason,
+            130100.0 if timestamp_out else None, 5801.0 if timestamp_out else None,
+            pnl_brl, int(live),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 # ── Entry conditions ─────────────────────────────────────────────────────────
@@ -462,6 +501,22 @@ def test_count_trades_today_includes_open_and_closed(engine):
     assert engine.count_trades_today(today) == 2
 
 
+def test_count_trades_today_default_includes_paper_and_live(engine):
+    today = "2026-05-13"
+    _seed_trade(engine, timestamp_in=f"{today}T10:00:00", status="OPEN", live=0)
+    _seed_trade(engine, timestamp_in=f"{today}T11:00:00", status="OPEN", live=1)
+
+    assert engine.count_trades_today(today) == 2
+
+
+def test_count_trades_today_live_only_filters_paper(engine):
+    today = "2026-05-13"
+    _seed_trade(engine, timestamp_in=f"{today}T10:00:00", status="OPEN", live=0)
+    _seed_trade(engine, timestamp_in=f"{today}T11:00:00", status="OPEN", live=1)
+
+    assert engine.count_trades_today(today, live_only=True) == 1
+
+
 def test_pnl_today_zero_when_no_closed_trades(engine):
     today = datetime.now().strftime("%Y-%m-%d")
     engine.evaluate(
@@ -485,6 +540,29 @@ def test_pnl_today_sums_closed_trades(engine):
     )
     pnl = engine.pnl_today(today)
     assert pnl > 0
+
+
+def test_pnl_today_live_only_excludes_paper_losses(engine):
+    today = "2026-05-13"
+    _seed_trade(
+        engine,
+        timestamp_in=f"{today}T14:15:05",
+        timestamp_out=f"{today}T15:12:20",
+        exit_reason="STOP_LOSS",
+        pnl_brl=-494.0,
+        live=0,
+    )
+    _seed_trade(
+        engine,
+        timestamp_in=f"{today}T10:40:03",
+        timestamp_out=f"{today}T10:51:21",
+        exit_reason="TARGET",
+        pnl_brl=324.0,
+        live=1,
+    )
+
+    assert engine.pnl_today(today) == -170.0
+    assert engine.pnl_today(today, live_only=True) == 324.0
 
 
 def test_minutes_since_last_loss_none_when_no_history(engine):
@@ -524,6 +602,40 @@ def test_minutes_since_last_loss_uses_explicit_now(engine):
     mins = engine.minutes_since_last_loss(now=future)
     assert mins is not None
     assert 44.0 < mins < 46.0
+
+
+def test_minutes_since_last_loss_live_only_ignores_paper_stop(engine):
+    now = datetime.fromisoformat("2026-05-13T15:00:00")
+    _seed_trade(
+        engine,
+        timestamp_out=(now - timedelta(minutes=5)).isoformat(),
+        exit_reason="STOP_LOSS",
+        pnl_brl=-494.0,
+        live=0,
+    )
+    _seed_trade(
+        engine,
+        timestamp_out=(now - timedelta(minutes=90)).isoformat(),
+        exit_reason="STOP_LOSS",
+        pnl_brl=-122.0,
+        live=1,
+    )
+
+    assert engine.minutes_since_last_loss(now=now) == pytest.approx(5.0)
+    assert engine.minutes_since_last_loss(now=now, live_only=True) == pytest.approx(90.0)
+
+
+def test_minutes_since_last_loss_live_only_returns_none_when_no_live_stop(engine):
+    now = datetime.fromisoformat("2026-05-13T15:00:00")
+    _seed_trade(
+        engine,
+        timestamp_out=(now - timedelta(minutes=5)).isoformat(),
+        exit_reason="STOP_LOSS",
+        pnl_brl=-494.0,
+        live=0,
+    )
+
+    assert engine.minutes_since_last_loss(now=now, live_only=True) is None
 
 
 def test_stop_loss_in_one_slot_blocks_open_in_other_slot(engine):
