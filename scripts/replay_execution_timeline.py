@@ -78,6 +78,14 @@ class ReplayRuntimeProfile:
     entry_end_m: int
     force_close_h: int
     force_close_m: int
+    buy_sl: int
+    buy_tp: int
+    buy_be_act: int
+    buy_be_lock: int
+    sell_sl: int
+    sell_tp: int
+    sell_be_act: int
+    sell_be_lock: int
 
     @classmethod
     def from_mapping(cls, payload: dict) -> "ReplayRuntimeProfile":
@@ -96,7 +104,28 @@ class ReplayRuntimeProfile:
             entry_end_m=int(payload["entry_end_m"]),
             force_close_h=int(payload["force_close_h"]),
             force_close_m=int(payload["force_close_m"]),
+            buy_sl=int(payload["buy_sl"]),
+            buy_tp=int(payload["buy_tp"]),
+            buy_be_act=int(payload["buy_be_act"]),
+            buy_be_lock=int(payload["buy_be_lock"]),
+            sell_sl=int(payload["sell_sl"]),
+            sell_tp=int(payload["sell_tp"]),
+            sell_be_act=int(payload["sell_be_act"]),
+            sell_be_lock=int(payload["sell_be_lock"]),
         )
+
+    def as_engine_params(self) -> dict:
+        """Plain dict matching the keys TradeEngine.evaluate(engine_params=)."""
+        return {
+            "buy_sl": self.buy_sl,
+            "buy_tp": self.buy_tp,
+            "buy_be_act": self.buy_be_act,
+            "buy_be_lock": self.buy_be_lock,
+            "sell_sl": self.sell_sl,
+            "sell_tp": self.sell_tp,
+            "sell_be_act": self.sell_be_act,
+            "sell_be_lock": self.sell_be_lock,
+        }
 
 
 @dataclass
@@ -488,6 +517,7 @@ def _process_bar(
         win_low=win_low,
         force_close_h=runtime_profile.force_close_h,
         force_close_m=runtime_profile.force_close_m,
+        engine_params=runtime_profile.as_engine_params(),
     )
 
     emit_closed_bar_timeline(

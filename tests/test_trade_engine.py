@@ -7,8 +7,23 @@ from core.execution_timeline import load_timeline
 from core.trade_engine import TradeEngine
 from core.config import (
     BUY_SL, BUY_TP, SELL_TP,
+    BUY_BE_ACT, BUY_BE_LOCK,
+    SELL_SL, SELL_BE_ACT, SELL_BE_LOCK,
     FORCE_CLOSE_H, FORCE_CLOSE_M,
 )
+
+
+def _engine_params(
+    *,
+    buy_sl=BUY_SL, buy_tp=BUY_TP, buy_be_act=BUY_BE_ACT, buy_be_lock=BUY_BE_LOCK,
+    sell_sl=SELL_SL, sell_tp=SELL_TP, sell_be_act=SELL_BE_ACT, sell_be_lock=SELL_BE_LOCK,
+) -> dict:
+    return {
+        "buy_sl": buy_sl, "buy_tp": buy_tp,
+        "buy_be_act": buy_be_act, "buy_be_lock": buy_be_lock,
+        "sell_sl": sell_sl, "sell_tp": sell_tp,
+        "sell_be_act": sell_be_act, "sell_be_lock": sell_be_lock,
+    }
 
 
 @pytest.fixture
@@ -966,3 +981,154 @@ def test_force_close_kwargs_none_falls_back_to_core_config(engine):
         hour=FORCE_CLOSE_H, minute=FORCE_CLOSE_M,
     )
     assert "FORCE_CLOSE" in [r["event"] for r in _timeline_rows(engine)]
+
+
+# ─── TASK-16.4: SL/TP/BE snapshot at _open_trade ────────────────────────────
+
+
+def test_engine_params_burned_into_matador_ops_on_open(engine):
+    """SL/TP/BE from engine_params get persisted on the matador_ops row."""
+    custom = _engine_params(buy_sl=77, buy_tp=199, buy_be_act=88, buy_be_lock=11)
+    result = engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=custom,
+    )
+    trade_id = result["strategies"]["CONS_BASE"]["open_trade"]["id"]
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute(
+        "SELECT sl_pts, tp_pts, be_act_pts, be_lock_pts FROM matador_ops WHERE id=?",
+        (trade_id,),
+    ).fetchone()
+    conn.close()
+    assert row == (77, 199, 88, 11)
+
+
+def test_engine_params_sell_direction_picks_sell_keys(engine):
+    """SELL direction uses sell_* keys, not buy_*."""
+    custom = _engine_params(buy_sl=77, sell_sl=222, sell_tp=333, sell_be_act=44, sell_be_lock=22)
+    result = engine.evaluate(
+        z_wdo=2.1, z_di=1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=custom,
+    )
+    trade_id = result["strategies"]["CONS_BASE"]["open_trade"]["id"]
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute(
+        "SELECT direction, sl_pts, tp_pts, be_act_pts, be_lock_pts FROM matador_ops WHERE id=?",
+        (trade_id,),
+    ).fetchone()
+    conn.close()
+    assert row == ("SELL", 222, 333, 44, 22)
+
+
+def test_engine_params_none_falls_back_to_core_config(engine):
+    """No engine_params: legacy core.config defaults get burned in."""
+    _open_buy_consensus(engine)
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute(
+        "SELECT sl_pts, tp_pts, be_act_pts, be_lock_pts FROM matador_ops "
+        "WHERE status='OPEN'"
+    ).fetchone()
+    conn.close()
+    assert row == (BUY_SL, BUY_TP, BUY_BE_ACT, BUY_BE_LOCK)
+
+
+def test_snapshot_is_immutable_to_mid_position_param_changes(engine):
+    """CAR4: hot-reload of engine_params after _open_trade must NOT move SL
+    of the already-open trade. Open with SL=100, then poll with SL=400 and
+    confirm the open trade still STOP_LOSSes at the original 100 level."""
+    # Open with a tight SL=100 so a small adverse move triggers the stop.
+    open_params = _engine_params(buy_sl=100, buy_tp=9000)
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=open_params,
+    )
+    # Mid-position hot reload widens SL to 400. The price moves -150 — past
+    # the snapshot (100) but still within the new param (400). The trade
+    # MUST close: snapshot wins.
+    relaxed = _engine_params(buy_sl=400, buy_tp=9000)
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 - 150, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+        engine_params=relaxed,
+    )
+    events = [r["event"] for r in _timeline_rows(engine)]
+    assert "STOP_LOSS" in events
+
+
+def test_next_open_after_hot_reload_uses_new_params(engine):
+    """AC2: after the open trade closes, the NEXT _open_trade picks up the
+    new engine_params — proves hot-reload still works for fresh entries."""
+    t0 = datetime(2026, 5, 13, 11, 0, 0)
+    # First trade: SL=100, gets stopped immediately.
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=_engine_params(buy_sl=100, buy_tp=9000),
+        now_dt=t0,
+    )
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 - 150, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+        engine_params=_engine_params(buy_sl=100, buy_tp=9000),
+        now_dt=t0 + timedelta(minutes=5),
+    )
+    # Second trade: opens 60 min after the loss (past LOSS_COOLDOWN_MIN=30).
+    # New SL=250 — persisted snapshot must reflect the NEW value, not 100.
+    new_params = _engine_params(buy_sl=250, buy_tp=8888, buy_be_act=99, buy_be_lock=11)
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.5,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=12, minute=5,
+        engine_params=new_params,
+        now_dt=t0 + timedelta(minutes=65),
+    )
+    conn = sqlite3.connect(engine.db_path)
+    row = conn.execute(
+        "SELECT sl_pts, tp_pts, be_act_pts, be_lock_pts FROM matador_ops "
+        "WHERE status='OPEN' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    assert row == (250, 8888, 99, 11)
+
+
+def test_legacy_open_trade_without_snapshot_falls_back_to_globals(engine):
+    """Pre-migration open trades have NULL sl_pts columns. _check_exits must
+    fall back to core.config globals so they still close correctly."""
+    # Simulate a legacy OPEN row inserted before the migration.
+    conn = sqlite3.connect(engine.db_path)
+    conn.execute(
+        "INSERT INTO matador_ops "
+        "(timestamp_in, status, direction, z_in, z_source, strategy, "
+        " rho_in, beta_in, qty_win, price_win_in, price_wdo_in, hmm_state, live, "
+        " max_pts_favor, be_active) "
+        "VALUES (?, 'OPEN', 'BUY', -2.1, 'CONSENSO', 'CONS_BASE', "
+        " -0.75, 1.0, 2, 130000, 5800, 'CHOP', 0, 0.0, 0)",
+        (datetime.now().isoformat(),),
+    )
+    conn.commit()
+    conn.close()
+    # Push price to -BUY_SL — must STOP_LOSS via fallback.
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000 - BUY_SL, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=5,
+    )
+    events = [r["event"] for r in _timeline_rows(engine)]
+    assert "STOP_LOSS" in events

@@ -1449,6 +1449,7 @@ def regime_v2():
         eg_strategies=live_eg_strategies,
         force_close_h=int(live_profile["force_close_h"]),
         force_close_m=int(live_profile["force_close_m"]),
+        engine_params=live_profile,
     )
 
     # Refresh the gate post-evaluate so the published payload reflects

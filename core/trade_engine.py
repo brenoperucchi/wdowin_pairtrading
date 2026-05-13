@@ -89,6 +89,12 @@ class TradeEngine:
             ("mt5_ticket_out", "INTEGER"),
             ("mt5_magic", "INTEGER"),
             ("live", "INTEGER DEFAULT 0"),
+            # TASK-16.4: SL/TP/BE snapshotted at _open_trade so hot-reloads of
+            # the runtime profile don't move the goalposts under an open trade.
+            ("sl_pts", "INTEGER"),
+            ("tp_pts", "INTEGER"),
+            ("be_act_pts", "INTEGER"),
+            ("be_lock_pts", "INTEGER"),
         ]
         for column, ddl in migrations:
             try:
@@ -106,7 +112,8 @@ class TradeEngine:
         c = conn.cursor()
         c.execute(
             "SELECT id, direction, z_source, strategy, price_win_in, price_wdo_in, "
-            "max_pts_favor, be_active, mt5_ticket_in, mt5_magic, live "
+            "max_pts_favor, be_active, mt5_ticket_in, mt5_magic, live, "
+            "sl_pts, tp_pts, be_act_pts, be_lock_pts "
             "FROM matador_ops WHERE status='OPEN'"
         )
         rows = c.fetchall()
@@ -122,6 +129,8 @@ class TradeEngine:
                 "max_pts_favor": row[6], "be_active": bool(row[7]),
                 "mt5_ticket_in": row[8], "mt5_magic": row[9],
                 "live": bool(row[10] or 0),
+                "sl_pts": row[11], "tp_pts": row[12],
+                "be_act_pts": row[13], "be_lock_pts": row[14],
             }
         return result
 
@@ -160,7 +169,8 @@ class TradeEngine:
                  win_high: float | None = None,
                  win_low: float | None = None,
                  force_close_h: int | None = None,
-                 force_close_m: int | None = None) -> dict:
+                 force_close_m: int | None = None,
+                 engine_params: dict | None = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -280,18 +290,21 @@ class TradeEngine:
                     z_wdo, z_di, entry_win_price, entry_wdo_price, rho, beta_value,
                     hmm_state, closed_bar_ts, now_dt,
                     simulation_profile=simulation_profile,
+                    engine_params=engine_params,
                 )
             elif strat == "WDO_NWE":
                 res = self._eval_wdo_nwe(
                     z_wdo, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
                     nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt,
                     simulation_profile=simulation_profile,
+                    engine_params=engine_params,
                 )
             elif strat == "DI_NWE":
                 res = self._eval_di_nwe(
                     z_di, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
                     nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt,
                     simulation_profile=simulation_profile,
+                    engine_params=engine_params,
                 )
             results[strat] = res
             if res.get("open_trade") is not None:
@@ -304,7 +317,7 @@ class TradeEngine:
 
     def _eval_consensus(self, z_wdo, z_di, win_price, wdo_price, rho, beta, hmm,
                         closed_bar_ts=None, now_dt=None,
-                        simulation_profile=None):
+                        simulation_profile=None, engine_params=None):
         """Consensus: requires BOTH z-scores to confirm."""
         # BUY
         if (z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION) or \
@@ -312,20 +325,23 @@ class TradeEngine:
             return self._open_trade("BUY", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
                                     closed_bar_ts, now_dt,
-                                    simulation_profile=simulation_profile)
+                                    simulation_profile=simulation_profile,
+                                    engine_params=engine_params)
         # SELL
         if (z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION) or \
            (z_wdo >= Z_ATTENTION and z_di >= Z_ENTRY):
             return self._open_trade("SELL", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
                                     closed_bar_ts, now_dt,
-                                    simulation_profile=simulation_profile)
+                                    simulation_profile=simulation_profile,
+                                    engine_params=engine_params)
 
         return self._result("WAIT", "CONS_BASE")
 
     def _eval_wdo_nwe(self, z_wdo, win_price, wdo_price, rho, beta, hmm,
                       nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None,
-                      now_dt=None, simulation_profile=None):
+                      now_dt=None, simulation_profile=None,
+                      engine_params=None):
         """WDO Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_wdo <= -Z_ENTRY
         sig_sell = z_wdo >= Z_ENTRY
@@ -353,18 +369,21 @@ class TradeEngine:
             return self._open_trade("BUY", "WDO_KALMAN", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
                                     closed_bar_ts, now_dt,
-                                    simulation_profile=simulation_profile)
+                                    simulation_profile=simulation_profile,
+                                    engine_params=engine_params)
         if sig_sell:
             return self._open_trade("SELL", "WDO_KALMAN", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
                                     closed_bar_ts, now_dt,
-                                    simulation_profile=simulation_profile)
+                                    simulation_profile=simulation_profile,
+                                    engine_params=engine_params)
 
         return self._result("WAIT", "WDO_NWE")
 
     def _eval_di_nwe(self, z_di, win_price, wdo_price, rho, beta, hmm,
                      nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None,
-                     now_dt=None, simulation_profile=None):
+                     now_dt=None, simulation_profile=None,
+                     engine_params=None):
         """DI Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_di <= -Z_ENTRY
         sig_sell = z_di >= Z_ENTRY
@@ -392,12 +411,14 @@ class TradeEngine:
             return self._open_trade("BUY", "DI_JOHANSEN", z_di,
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
                                     closed_bar_ts, now_dt,
-                                    simulation_profile=simulation_profile)
+                                    simulation_profile=simulation_profile,
+                                    engine_params=engine_params)
         if sig_sell:
             return self._open_trade("SELL", "DI_JOHANSEN", z_di,
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
                                     closed_bar_ts, now_dt,
-                                    simulation_profile=simulation_profile)
+                                    simulation_profile=simulation_profile,
+                                    engine_params=engine_params)
 
         return self._result("WAIT", "DI_NWE")
 
@@ -431,7 +452,7 @@ class TradeEngine:
     def _open_trade(self, direction, z_source, z_val,
                      win_price, wdo_price, rho, beta, hmm_state, strategy,
                      closed_bar_ts=None, now_dt=None,
-                     simulation_profile=None):
+                     simulation_profile=None, engine_params=None):
         now_dt = now_dt or datetime.now()
         attempt_id = uuid4().hex
 
@@ -444,6 +465,22 @@ class TradeEngine:
             entry_price = win_price + entry_slip_pts
         else:
             entry_price = win_price - entry_slip_pts
+
+        # ── Snapshot SL/TP/BE at open time (TASK-16.4 CAR4) ─────────────────
+        # Resolve direction-specific values from engine_params NOW so a later
+        # POST /api/runtime-config can't move the goalposts under this trade.
+        # Fallback to core.config globals for callers that haven't migrated.
+        if engine_params is not None:
+            prefix = "buy" if direction == "BUY" else "sell"
+            sl_pts = int(engine_params[f"{prefix}_sl"])
+            tp_pts = int(engine_params[f"{prefix}_tp"])
+            be_act_pts = int(engine_params[f"{prefix}_be_act"])
+            be_lock_pts = int(engine_params[f"{prefix}_be_lock"])
+        else:
+            sl_pts = BUY_SL if direction == "BUY" else SELL_SL
+            tp_pts = BUY_TP if direction == "BUY" else SELL_TP
+            be_act_pts = BUY_BE_ACT if direction == "BUY" else SELL_BE_ACT
+            be_lock_pts = BUY_BE_LOCK if direction == "BUY" else SELL_BE_LOCK
 
         mt5_ticket_in = None
         mt5_magic = None
@@ -575,11 +612,13 @@ class TradeEngine:
         c.execute('''
             INSERT INTO matador_ops
             (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
-             qty_win, price_win_in, price_wdo_in, hmm_state, mt5_ticket_in, mt5_magic, live)
-            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             qty_win, price_win_in, price_wdo_in, hmm_state, mt5_ticket_in, mt5_magic, live,
+             sl_pts, tp_pts, be_act_pts, be_lock_pts)
+            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (now_dt.isoformat(), direction, z_val, z_source, strategy,
               rho, beta, WIN_CONTRACTS, entry_price, wdo_price, hmm_state,
-              mt5_ticket_in, mt5_magic, live))
+              mt5_ticket_in, mt5_magic, live,
+              sl_pts, tp_pts, be_act_pts, be_lock_pts))
         conn.commit()
         trade_id = c.lastrowid
         conn.close()
@@ -589,7 +628,9 @@ class TradeEngine:
             "open_trade": {"id": trade_id, "direction": direction,
                            "z_source": z_source, "price_win_in": entry_price,
                            "strategy": strategy, "mt5_ticket_in": mt5_ticket_in,
-                           "live": bool(live), "attempt_id": attempt_id},
+                           "live": bool(live), "attempt_id": attempt_id,
+                           "sl_pts": sl_pts, "tp_pts": tp_pts,
+                           "be_act_pts": be_act_pts, "be_lock_pts": be_lock_pts},
             "exit_reason": None, "pnl": None,
         }
 
@@ -601,10 +642,22 @@ class TradeEngine:
     ):
         now_dt = now_dt or datetime.now()
         is_buy = trade["direction"] == "BUY"
-        sl = BUY_SL if is_buy else SELL_SL
-        tp = BUY_TP if is_buy else SELL_TP
-        be_act = BUY_BE_ACT if is_buy else SELL_BE_ACT
-        be_lock = BUY_BE_LOCK if is_buy else SELL_BE_LOCK
+        # TASK-16.4 CAR4: pull the snapshot burned at _open_trade. Trades opened
+        # before this migration have NULL columns / missing dict keys — fall
+        # back to the current direction-resolved globals so they continue to
+        # close correctly.
+        sl = trade.get("sl_pts")
+        tp = trade.get("tp_pts")
+        be_act = trade.get("be_act_pts")
+        be_lock = trade.get("be_lock_pts")
+        if sl is None:
+            sl = BUY_SL if is_buy else SELL_SL
+        if tp is None:
+            tp = BUY_TP if is_buy else SELL_TP
+        if be_act is None:
+            be_act = BUY_BE_ACT if is_buy else SELL_BE_ACT
+        if be_lock is None:
+            be_lock = BUY_BE_LOCK if is_buy else SELL_BE_LOCK
 
         entry_px = trade["price_win_in"]
         pts_favor = (win_price - entry_px) if is_buy else (entry_px - win_price)
