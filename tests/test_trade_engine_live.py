@@ -1,9 +1,11 @@
 import sqlite3
+from datetime import datetime
 
 import pytest
 
 import core.trade_engine as te
 from core.config import (
+    DAILY_LOSS_LIMIT_BRL,
     LIVE_DEVIATION,
     LIVE_MAGIC_BASE,
     LIVE_ORDERS,
@@ -33,6 +35,39 @@ def _columns(db_path):
     rows = conn.execute("PRAGMA table_info(matador_ops)").fetchall()
     conn.close()
     return {row[1]: row for row in rows}
+
+
+def _seed_closed_trade(
+    engine,
+    *,
+    timestamp_in="2026-05-13T14:15:05",
+    timestamp_out="2026-05-13T15:12:20",
+    exit_reason="STOP_LOSS",
+    pnl_brl=0.0,
+    live=0,
+    strategy="CONS_BASE",
+):
+    conn = sqlite3.connect(engine.db_path)
+    conn.execute(
+        """
+        INSERT INTO matador_ops
+        (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
+         qty_win, price_win_in, price_wdo_in, timestamp_out, exit_reason,
+         price_win_out, price_wdo_out, pnl_brl, live)
+        VALUES (?, 'CLOSED', 'BUY', 1.5, 'TEST', ?, -0.7, 36.0,
+                2, 130000.0, 5800.0, ?, ?, 129750.0, 5801.0, ?, ?)
+        """,
+        (
+            timestamp_in,
+            strategy,
+            timestamp_out,
+            exit_reason,
+            pnl_brl,
+            int(live),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 def test_live_orders_default_keeps_engine_paper_only():
@@ -105,6 +140,29 @@ def test_open_trade_paper_persists_live_zero_and_no_mt5_ticket(tmp_path):
     conn.close()
 
     assert row == ("OPEN", "CONS_BASE", 0, None, None, None)
+
+
+def test_evaluate_live_only_still_blocks_on_live_daily_loss(tmp_path):
+    db_path = tmp_path / "trades.db"
+    engine = TradeEngine(str(db_path))
+    _seed_closed_trade(engine, pnl_brl=-DAILY_LOSS_LIMIT_BRL, live=1)
+
+    result = engine.evaluate(
+        z_wdo=-2.1,
+        z_di=-1.5,
+        win_price=130000,
+        wdo_price=5800,
+        rho=-0.75,
+        gate=_gate(),
+        hmm_state="CHOP",
+        hour=15,
+        minute=0,
+        now_dt=datetime.fromisoformat("2026-05-13T15:30:00"),
+        live_only=True,
+    )
+
+    assert result["action"] == "WAIT"
+    assert "DAILY_LOSS_LIMIT" in result["strategies"]["CONS_BASE"]["gate_reasons"]
 
 
 def test_open_trade_live_persists_ticket_magic_and_fill_price(tmp_path, monkeypatch):

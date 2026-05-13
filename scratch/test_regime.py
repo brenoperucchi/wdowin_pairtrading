@@ -1,7 +1,7 @@
 import asyncio
 import traceback
 
-async def test():
+async def run_regime_check():
     try:
         import server
         res = await server.regime_v2()
@@ -11,4 +11,4 @@ async def test():
         traceback.print_exc()
 
 if __name__ == "__main__":
-    asyncio.run(test())
+    asyncio.run(run_regime_check())

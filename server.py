@@ -1364,9 +1364,16 @@ def regime_v2():
 
     # ── Operational risk stats (TASK-3 AC #11) ──
     today_str = now_dt.strftime("%Y-%m-%d")
-    trades_today_count = _trade_engine.count_trades_today(today_str)
-    daily_pnl_brl = _trade_engine.pnl_today(today_str)
-    minutes_since_last_loss = _trade_engine.minutes_since_last_loss(now=now_dt)
+    live_risk_only = bool(LIVE_ORDERS)
+    trades_today_count = _trade_engine.count_trades_today(
+        today_str,
+        live_only=live_risk_only,
+    )
+    daily_pnl_brl = _trade_engine.pnl_today(today_str, live_only=live_risk_only)
+    minutes_since_last_loss = _trade_engine.minutes_since_last_loss(
+        now=now_dt,
+        live_only=live_risk_only,
+    )
 
     # live_profile already loaded above (right after the data-fetch guard) so
     # calc_zscore and other early consumers can read the same source as the
@@ -1450,6 +1457,7 @@ def regime_v2():
         force_close_h=int(live_profile["force_close_h"]),
         force_close_m=int(live_profile["force_close_m"]),
         engine_params=live_profile,
+        live_only=live_risk_only,
     )
 
     # Refresh the gate post-evaluate so the published payload reflects
@@ -1458,9 +1466,15 @@ def regime_v2():
     # strategy result correctly carries LOSS_COOLDOWN. Engine state is
     # already committed to SQLite by _close_trade — subsequent queries
     # see fresh values. (Codex round-5 medium.)
-    post_trades_today_count = _trade_engine.count_trades_today(today_str)
-    post_daily_pnl_brl = _trade_engine.pnl_today(today_str)
-    post_minutes_since_last_loss = _trade_engine.minutes_since_last_loss(now=now_dt)
+    post_trades_today_count = _trade_engine.count_trades_today(
+        today_str,
+        live_only=live_risk_only,
+    )
+    post_daily_pnl_brl = _trade_engine.pnl_today(today_str, live_only=live_risk_only)
+    post_minutes_since_last_loss = _trade_engine.minutes_since_last_loss(
+        now=now_dt,
+        live_only=live_risk_only,
+    )
     gate = _build_gate(
         post_trades_today_count,
         post_daily_pnl_brl,

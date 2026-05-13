@@ -1,7 +1,7 @@
 ---
 id: TASK-2.1.3
 title: 'Slice 3 — Cutover server.py: passa live_only=bool(LIVE_ORDERS)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-13 20:25'
 labels:
@@ -58,9 +58,9 @@ Integração no FastAPI TestClient (se viável neste slice, senão adiar para Sl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 server.py propaga live_only=bool(LIVE_ORDERS) para evaluate e nas stats que alimentam risk_gate
-- [ ] #2 Teste test_evaluate_live_only_still_blocks_on_live_daily_loss passa (perda live real ainda bloqueia)
-- [ ] #3 Quando LIVE_ORDERS=0, comportamento legado preservado (live_only=False)
-- [ ] #4 Suite pytest completa verde
-- [ ] #5 Validação manual: paper R$-494 deixa de bloquear entrada live
+- [x] #1 server.py propaga live_only=bool(LIVE_ORDERS) para evaluate e nas stats que alimentam risk_gate
+- [x] #2 Teste test_evaluate_live_only_still_blocks_on_live_daily_loss passa (perda live real ainda bloqueia)
+- [x] #3 Quando LIVE_ORDERS=0, comportamento legado preservado (live_only=False)
+- [x] #4 Suite pytest completa verde
+- [x] #5 Validação manual: paper R$-494 deixa de bloquear entrada live
 <!-- AC:END -->
