@@ -22,7 +22,7 @@ from core.config import (
     Z_ANOMALY,
 )
 from core.execution_timeline import bulk_record_events
-from core.risk_gate import EG_PVALUE_THRESHOLD, WITHIN_POLL_OP_REASONS
+from core.risk_gate import EG_PVALUE_THRESHOLD, EG_REASONS, WITHIN_POLL_OP_REASONS
 from core.trade_engine import STRATEGIES
 
 
@@ -183,6 +183,32 @@ def reason_message(reason: str, phase: str, fields: dict) -> str:
     return f"{phase} bloqueado por {reason}."
 
 
+def _reason_blocks_any_strategy(reason: str, trade_result: dict) -> bool:
+    """Whether a global gate reason survived per-strategy filtering.
+
+    EG can be bypassed per strategy through runtime_config.eg_strategies. The
+    risk gate still reports EG globally, but the timeline should only show it
+    as a blocking event when at least one strategy was actually blocked by it.
+    """
+    if reason not in EG_REASONS:
+        return True
+
+    strategies = trade_result.get("strategies")
+    if not isinstance(strategies, dict):
+        return True
+
+    seen_strategy = False
+    for strategy in STRATEGIES:
+        strat_result = strategies.get(strategy)
+        if not isinstance(strat_result, dict):
+            continue
+        seen_strategy = True
+        if reason in list(strat_result.get("gate_reasons", [])):
+            return True
+
+    return not seen_strategy
+
+
 def emit_closed_bar_timeline(
     *,
     db_path: str,
@@ -243,7 +269,10 @@ def emit_closed_bar_timeline(
         }
     ]
 
-    gate_reasons = [r for r in gate.get("reasons", []) if r != "BAR_NOT_CLOSED"]
+    gate_reasons = [
+        r for r in gate.get("reasons", [])
+        if r != "BAR_NOT_CLOSED" and _reason_blocks_any_strategy(r, trade_result)
+    ]
     for reason in gate_reasons:
         phase = "RISK" if reason in TIMELINE_RISK_REASONS else "ELIGIBILITY"
         fields = reason_fields(

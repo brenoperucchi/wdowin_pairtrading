@@ -285,6 +285,78 @@ def test_load_timeline_filters_by_intraday_time_window(db):
     assert [r["event"] for r in rows] == ["LATE_POLL_IN_MARKET", "IN_MARKET"]
 
 
+def test_load_timeline_hides_global_eg_when_strategy_payloads_bypassed_it(db):
+    et.bulk_record_events(
+        db,
+        [
+            {
+                "dedupe_key": "bar:1:GLOBAL:ELIGIBILITY:EG",
+                "closed_bar_ts": 1,
+                "correlation_id": "bar:1:GLOBAL",
+                "phase": "ELIGIBILITY",
+                "event": "EG_NOT_COINTEGRATED",
+                "status": "BLOCKED",
+                "metric": "eg_pvalue",
+                "value": 0.8,
+                "threshold": 0.1,
+                "operator": "<",
+            },
+            {
+                "dedupe_key": "bar:1:GLOBAL:INDICATORS:OK",
+                "closed_bar_ts": 1,
+                "phase": "INDICATORS",
+                "event": "INDICATORS_OK",
+                "status": "OK",
+            },
+            {
+                "dedupe_key": "bar:1:CONS_BASE:SIGNAL:WAIT",
+                "closed_bar_ts": 1,
+                "phase": "SIGNAL",
+                "event": "WAIT",
+                "status": "INFO",
+                "strategy": "CONS_BASE",
+                "payload_json": {"action": "WAIT", "gate_reasons": []},
+            },
+        ],
+    )
+
+    rows = et.load_timeline(db, limit=10)
+
+    assert {r["event"] for r in rows} == {"INDICATORS_OK", "WAIT"}
+
+
+def test_load_timeline_keeps_global_eg_when_a_strategy_was_blocked_by_it(db):
+    et.bulk_record_events(
+        db,
+        [
+            {
+                "dedupe_key": "bar:1:GLOBAL:ELIGIBILITY:EG",
+                "closed_bar_ts": 1,
+                "correlation_id": "bar:1:GLOBAL",
+                "phase": "ELIGIBILITY",
+                "event": "EG_NOT_COINTEGRATED",
+                "status": "BLOCKED",
+            },
+            {
+                "dedupe_key": "bar:1:CONS_BASE:SIGNAL:SKIPPED",
+                "closed_bar_ts": 1,
+                "phase": "SIGNAL",
+                "event": "SKIPPED",
+                "status": "SKIPPED",
+                "strategy": "CONS_BASE",
+                "payload_json": {
+                    "action": "WAIT",
+                    "gate_reasons": ["EG_NOT_COINTEGRATED"],
+                },
+            },
+        ],
+    )
+
+    rows = et.load_timeline(db, limit=10)
+
+    assert {r["event"] for r in rows} == {"EG_NOT_COINTEGRATED", "SKIPPED"}
+
+
 def test_load_timeline_can_offset_live_mt5_closed_bar_time(db):
     et.record_event(
         db,
@@ -361,6 +433,32 @@ def test_current_bottleneck_uses_latest_bar_only(db):
         ],
     )
     assert et.current_bottleneck(db) is None  # latest bar passed clean
+
+
+def test_current_bottleneck_hides_global_eg_when_strategy_payloads_bypassed_it(db):
+    et.bulk_record_events(
+        db,
+        [
+            {
+                "dedupe_key": "bar:1:GLOBAL:ELIGIBILITY:EG",
+                "closed_bar_ts": 1,
+                "phase": "ELIGIBILITY",
+                "event": "EG_NOT_COINTEGRATED",
+                "status": "BLOCKED",
+            },
+            {
+                "dedupe_key": "bar:1:CONS_BASE:SIGNAL:WAIT",
+                "closed_bar_ts": 1,
+                "phase": "SIGNAL",
+                "event": "WAIT",
+                "status": "INFO",
+                "strategy": "CONS_BASE",
+                "payload_json": {"action": "WAIT", "gate_reasons": []},
+            },
+        ],
+    )
+
+    assert et.current_bottleneck(db) is None
 
 
 def test_current_bottleneck_can_ignore_after_market_rows(db):

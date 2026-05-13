@@ -2,6 +2,7 @@ import asyncio
 import copy
 import json
 import time
+import types
 from datetime import datetime
 
 import pytest
@@ -134,6 +135,33 @@ def test_health_reports_trade_eval_loop_state(monkeypatch):
     assert out["trade_eval_loop"]["last_source"] == "loop"
     assert out["trade_eval_loop"]["last_completed_age_sec"] >= 4
     assert out["trade_eval_loop"]["has_snapshot"] is True
+    assert out["live_symbol_win"] == server.LIVE_SYMBOL_WIN
+    assert out["live_orders_enabled"] is bool(server.LIVE_ORDERS)
+
+
+def test_health_reports_mt5_account(monkeypatch):
+    monkeypatch.setattr(server, "connect_mt5", lambda: True)
+    monkeypatch.setattr(server, "resolve_live_symbol_win", lambda *_args, **_kwargs: "WINM26")
+    monkeypatch.setattr(
+        server.mt5,
+        "terminal_info",
+        lambda: types.SimpleNamespace(name="MetaTrader 5", path=r"E:\MetaTradersWSL\wdowin\pairtrading"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        server.mt5,
+        "account_info",
+        lambda: types.SimpleNamespace(login=92033102, server="XPMT5-DEMO", name="TEST"),
+        raising=False,
+    )
+
+    out = server.health()
+
+    assert out["terminal_path"] == r"E:\MetaTradersWSL\wdowin\pairtrading"
+    assert out["account_login"] == 92033102
+    assert out["account_server"] == "XPMT5-DEMO"
+    assert out["live_symbol_win_config"] == server.LIVE_SYMBOL_WIN
+    assert out["live_symbol_win_resolved"] == "WINM26"
 
 
 def test_record_timeline_data_failure_dedupes_by_minute(tmp_path, monkeypatch):
@@ -249,6 +277,31 @@ def test_emit_closed_bar_timeline_uses_per_strategy_gate_reasons(tmp_path, monke
     assert di_payload["gate_reasons"] == []
 
 
+def test_emit_closed_bar_timeline_suppresses_global_eg_when_all_slots_bypass(tmp_path, monkeypatch):
+    db = _timeline_db(tmp_path, monkeypatch)
+
+    emit_closed_bar_timeline(
+        closed_bar_ts=1778245200,
+        gate={"allowed": False, "reasons": ["EG_NOT_COINTEGRATED"]},
+        trade_result=_trade_result(gate_reasons=[]),
+        z_wdo=0.5, z_di=-1.1, rho=-0.57, rho_level=1,
+        beta_delta_pct=1.0, eg_pvalue=0.79, joh_open=False,
+        mt5_connected=True, trades_today_count=0, daily_pnl_brl=0.0,
+        minutes_since_last_loss=None,
+        now_dt=datetime.fromisoformat("2026-05-08T10:00:00"),
+        db_path=db,
+    )
+
+    rows = load_timeline(db, limit=20)
+    assert "EG_NOT_COINTEGRATED" not in {r["event"] for r in rows}
+
+    signal_rows = [r for r in rows if r["phase"] == "SIGNAL"]
+    assert {r["event"] for r in signal_rows} == {"WAIT"}
+    assert {r["strategy"] for r in signal_rows} == {"CONS_BASE", "WDO_NWE", "DI_NWE"}
+    for row in signal_rows:
+        assert json.loads(row["payload_json"])["gate_reasons"] == []
+
+
 def test_emit_closed_bar_timeline_uses_runtime_thresholds(tmp_path, monkeypatch):
     db = _timeline_db(tmp_path, monkeypatch)
 
@@ -263,7 +316,7 @@ def test_emit_closed_bar_timeline_uses_runtime_thresholds(tmp_path, monkeypatch)
                 "Z_ANOMALY",
             ],
         },
-        trade_result=_trade_result(gate_reasons=["BETA_DRIFT"]),
+        trade_result=_trade_result(gate_reasons=["EG_NOT_COINTEGRATED", "BETA_DRIFT"]),
         z_wdo=3.7,
         z_di=0.2,
         rho=-0.44,

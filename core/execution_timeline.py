@@ -37,6 +37,7 @@ PHASE_ORDER = (
 _BLOCKING_STATUSES = ("BLOCKED", "FAILED")
 _MAX_LOAD_LIMIT = 1000
 _DEFAULT_LIVE_ISSUE_MAX_AGE_SECONDS = 300
+_EG_EVENTS = ("EG_NOT_COINTEGRATED", "EG_UNAVAILABLE")
 
 _FIELDS = (
     "timestamp",
@@ -277,6 +278,28 @@ def _market_time_expr(closed_bar_offset_seconds: int = 0) -> str:
     )
 
 
+def _visible_event_clause(alias: str = "e") -> str:
+    eg_events = ", ".join(f"'{event}'" for event in _EG_EVENTS)
+    return (
+        "NOT ("
+        f"{alias}.strategy IS NULL "
+        f"AND {alias}.event IN ({eg_events}) "
+        "AND EXISTS ("
+        "SELECT 1 FROM execution_timeline AS s "
+        f"WHERE s.closed_bar_ts = {alias}.closed_bar_ts "
+        "AND s.phase = 'SIGNAL' "
+        "AND s.payload_json LIKE '%gate_reasons%'"
+        ") "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM execution_timeline AS s "
+        f"WHERE s.closed_bar_ts = {alias}.closed_bar_ts "
+        "AND s.phase = 'SIGNAL' "
+        f"AND s.payload_json LIKE '%' || {alias}.event || '%'"
+        ")"
+        ")"
+    )
+
+
 def load_timeline(
     db_path: str,
     *,
@@ -292,7 +315,7 @@ def load_timeline(
 ) -> list[dict[str, Any]]:
     """Return events newest-first, with optional filters."""
     bounded_limit = _clamp_limit(limit)
-    where: list[str] = []
+    where: list[str] = [_visible_event_clause("e")]
     params: list[Any] = []
     if phase:
         where.append("phase = ?")
@@ -315,7 +338,7 @@ def load_timeline(
         )
         params.extend([time_start, time_end])
 
-    sql = "SELECT * FROM execution_timeline"
+    sql = "SELECT * FROM execution_timeline AS e"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC LIMIT ?"
@@ -364,7 +387,10 @@ def current_bottleneck(
             return None
 
         placeholders = ", ".join(["?"] * len(_BLOCKING_STATUSES))
-        candidate_where = [f"closed_bar_ts = ? AND status IN ({placeholders})"]
+        candidate_where = [
+            f"closed_bar_ts = ? AND status IN ({placeholders})",
+            _visible_event_clause("e"),
+        ]
         candidate_params: list[Any] = [latest, *_BLOCKING_STATUSES]
         if time_start and time_end:
             candidate_where.append(
@@ -372,7 +398,8 @@ def current_bottleneck(
             )
             candidate_params.extend([time_start, time_end])
         c.execute(
-            "SELECT * FROM execution_timeline WHERE " + " AND ".join(candidate_where),
+            "SELECT * FROM execution_timeline AS e WHERE "
+            + " AND ".join(candidate_where),
             candidate_params,
         )
         candidates = [_row_to_dict(c, r) for r in c.fetchall()]
