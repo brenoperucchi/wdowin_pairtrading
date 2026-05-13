@@ -395,6 +395,17 @@ def _compute_ols_profile_tail(win_closes, wdo_closes, *, window: int, max_bars: 
     )
     return beta_ols, spread, z_arr, rho_arr
 
+
+def _entry_gate_clock_from_closed_bar(
+    closed_bar_ts: int | None,
+    fallback_dt: datetime,
+) -> tuple[int, int]:
+    """Return local bar-clock HH:MM for entry gating, falling back to poll time."""
+    if closed_bar_ts is None:
+        return fallback_dt.hour, fallback_dt.minute
+    local_bar_dt = datetime.fromtimestamp(int(closed_bar_ts) + TIME_OFFSET)
+    return local_bar_dt.hour, local_bar_dt.minute
+
 # DI Kalman filter (persistent across requests)
 _di_kalman = KalmanBetaFilter(
     initial_beta=DI_BETA_INITIAL,
@@ -1391,6 +1402,7 @@ def regime_v2():
         _win_beta_state["current_beta"] = beta_closed
         _win_beta_state["last_closed_bar_ts"] = closed_bar_ts
     win_beta_unstable = bool(_win_beta_state["unstable"])
+    gate_hour, gate_minute = _entry_gate_clock_from_closed_bar(closed_bar_ts, now_dt)
 
     def _build_gate(trades_today, daily_pnl, mins_since_loss):
         # Closure captures all market-side inputs, which don't change
@@ -1401,7 +1413,7 @@ def regime_v2():
             rho_level=rho_level_closed,
             beta_delta_pct=beta_delta_pct_closed,
             eg_pvalue=eg_pvalue,
-            hour=now_dt.hour, minute=now_dt.minute,
+            hour=gate_hour, minute=gate_minute,
             bar_close_confirmed=bar_close_confirmed,
             trades_today_count=trades_today,
             daily_pnl_brl=daily_pnl,

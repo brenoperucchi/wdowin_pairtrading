@@ -1062,6 +1062,14 @@ def test_ols_profile_tail_uses_full_warmup_history(monkeypatch):
     assert len(spread) == len(z_arr) == len(rho_arr) == 250
 
 
+def test_entry_gate_clock_uses_closed_bar_time_not_poll_time():
+    closed_bar_ts = _mt5_epoch("2026-05-08T17:25:00")
+    poll_dt = datetime.fromisoformat("2026-05-08T17:30:03")
+
+    assert server._entry_gate_clock_from_closed_bar(closed_bar_ts, poll_dt) == (17, 25)
+    assert server._entry_gate_clock_from_closed_bar(None, poll_dt) == (17, 30)
+
+
 def test_history_cache_key_includes_runtime_window(monkeypatch):
     monkeypatch.setattr(server, "_hist_cache", {})
     monkeypatch.setattr(server, "_hist_cache_ts", 0.0)
