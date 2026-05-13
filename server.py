@@ -1191,6 +1191,17 @@ def regime_v2():
         return {"error": "Sem dados.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": [], "trades_today": []}
     _record_timeline_data_recovery(now_dt=datetime.now())
 
+    # ── Live runtime profile (hot-reloaded each poll) ──
+    # Operator can flip runtime tunables via POST /api/runtime-config and the
+    # next poll picks them up without a restart. Loaded early so calc_zscore /
+    # get_signal can read window/z_entry/z_attention from the same source the
+    # risk gate uses below. Falls back to DEFAULTS when the on-disk file is
+    # malformed so a bad save doesn't 500 the engine.
+    try:
+        live_profile = runtime_config.get_profile("live")
+    except ValueError:
+        live_profile = copy.deepcopy(runtime_config.DEFAULTS["live"])
+
     min_len = min(len(closes_a), len(closes_b))
     ac, bc, tc = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
     ao, ah, al = opens_a[-min_len:], highs_a[-min_len:], lows_a[-min_len:]
@@ -1240,8 +1251,11 @@ def regime_v2():
 
     # OLS beta on the current window (rho computed here is beta-independent;
     # z_v1 is the slow OLS-based z exposed to the dashboard alongside the fast Kalman z).
-    beta_ols_real = calc_beta_ols(ac, bc, window=WINDOW)
-    spread_v1, z_v1_arr, rho_arr = calc_zscore(ac, bc, beta=beta_ols_real)
+    profile_window = int(live_profile["window"])
+    beta_ols_real = calc_beta_ols(ac, bc, window=profile_window)
+    spread_v1, z_v1_arr, rho_arr = calc_zscore(
+        ac, bc, beta=beta_ols_real, window=profile_window
+    )
     current_rho = float(rho_arr[-1])
     rho_status = get_rho_status(current_rho)
 
@@ -1333,14 +1347,9 @@ def regime_v2():
     daily_pnl_brl = _trade_engine.pnl_today(today_str)
     minutes_since_last_loss = _trade_engine.minutes_since_last_loss(now=now_dt)
 
-    # ── Live runtime profile (hot-reloaded each poll) ──
-    # Operator can flip runtime tunables via POST /api/runtime-config and
-    # the next poll picks them up without a restart. Falls back to DEFAULTS
-    # when the on-disk file is malformed so a bad save doesn't 500 the engine.
-    try:
-        live_profile = runtime_config.get_profile("live")
-    except ValueError:
-        live_profile = copy.deepcopy(runtime_config.DEFAULTS["live"])
+    # live_profile already loaded above (right after the data-fetch guard) so
+    # calc_zscore and other early consumers can read the same source as the
+    # risk gate. Bind the strategies subset here, where it's first used.
     live_eg_strategies = live_profile["eg_strategies"]
 
     # ── Centralized risk gate ──
@@ -1531,7 +1540,14 @@ def regime_v2():
         history[-2]["beta_delta_pct"] = beta_delta_pct_closed
     _persist_closed_bars(history)
 
-    sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
+    sig_data = get_signal(
+        current_z,
+        current_spread_sd,
+        beta_current,
+        z_entry=float(live_profile["z_entry"]),
+        z_attention=float(live_profile["z_attention"]),
+        hmm_state=hmm.current_hmm_regime,
+    )
 
     res = _build_response(
         current_z, current_rho, 0, min(100.0, abs(current_z) / 4.0 * 100.0),
@@ -2422,9 +2438,17 @@ def history_endpoint(days: int = 30):
         return {"error": "MT5 não disponível.", "history": [], "days": days}
 
     try:
+        # Pull the runtime window so the OLS z used for the dashboard history
+        # matches the live engine's view (regime_v2 reads the same field).
+        try:
+            hist_profile = runtime_config.get_profile("live")
+        except ValueError:
+            hist_profile = copy.deepcopy(runtime_config.DEFAULTS["live"])
+        hist_window = int(hist_profile["window"])
+
         # M5 bars: ~108 bars/session day (9:20-18:20), fetch extra for window warmup
         bars_per_day = 108
-        bars_needed = max(days * bars_per_day + WINDOW + 50, KALMAN_BURN_IN)
+        bars_needed = max(days * bars_per_day + hist_window + 50, KALMAN_BURN_IN)
 
         # Fetch WIN, WDO, DI
         closes_a, times_a = fetch_bars(SYMBOL_A, bars_needed)
@@ -2448,8 +2472,10 @@ def history_endpoint(days: int = 30):
         z_kalman = KalmanBetaFilter.rolling_zscore(kf_spreads, window=WDO_KALMAN_W)
 
         # --- OLS z-scores (inline beta on the current window) ---
-        beta_ols_val = calc_beta_ols(ac, bc, window=WINDOW)
-        _, z_ols, _ = calc_zscore(ac, bc, beta=beta_ols_val, max_bars=min_len)
+        beta_ols_val = calc_beta_ols(ac, bc, window=hist_window)
+        _, z_ols, _ = calc_zscore(
+            ac, bc, beta=beta_ols_val, window=hist_window, max_bars=min_len
+        )
 
         # --- DI z-scores (Kalman) ---
         z_di_map = {}

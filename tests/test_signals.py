@@ -69,3 +69,37 @@ def test_get_signal_hmm_bull_no_block():
     sig = get_signal(2.0, hmm_state="BULL")
     assert sig["id"] != "bloqueioHMM"
     assert sig["id"] in ("compraWdo", "compraWin", "vendeWdo", "vendeWin", "atencao", "anomalia", "neutro")
+
+
+# ─── TASK-16.2: profile-injected thresholds ─────────────────────────────────
+
+
+def test_get_signal_z_entry_kwarg_lowers_entry_threshold():
+    """z_entry=1.0 promotes z=1.3 from attention → entry."""
+    sig_default = get_signal(1.3)            # 1.3 < default Z_ENTRY=1.4 but >= Z_ATTENTION=1.2 → atencao
+    sig_lowered = get_signal(1.3, z_entry=1.0, z_attention=0.5)
+    assert sig_default["id"] == "atencao"
+    assert sig_lowered["id"] == "compraWdo"  # z > z_entry on the long-spread side
+
+
+def test_get_signal_z_entry_kwarg_raises_entry_threshold():
+    """z_entry=2.0 demotes z=1.6 from entry → attention."""
+    sig_default = get_signal(1.6)            # 1.6 > default Z_ENTRY=1.4 → compraWdo
+    sig_raised = get_signal(1.6, z_entry=2.0, z_attention=1.0)
+    assert sig_default["id"] == "compraWdo"
+    assert sig_raised["id"] == "atencao"
+
+
+def test_get_signal_z_attention_kwarg_shrinks_attention_band():
+    """z_attention=0.5 promotes z=0.6 from neutro → atencao."""
+    sig_default = get_signal(0.6)
+    sig_tight = get_signal(0.6, z_attention=0.5)
+    assert sig_default["id"] == "neutro"
+    assert sig_tight["id"] == "atencao"
+
+
+def test_get_signal_none_kwargs_fall_back_to_globals():
+    """Both kwargs as None must reproduce the legacy module-global behaviour."""
+    bare = get_signal(1.3)
+    forwarded = get_signal(1.3, z_entry=None, z_attention=None)
+    assert bare["id"] == forwarded["id"]

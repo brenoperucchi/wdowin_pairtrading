@@ -19,6 +19,7 @@ Risk-gate tunables (aligned with Miqueias upstream):
 Engine tunables (operational params hot-reloadable, snapshot at trade open):
     window (int)                Rolling window used by signals/regime.
     z_entry (float)             Z-score entry threshold.
+    z_attention (float)         Attention zone threshold (< z_entry).
     entry_start_h/m (int)       Earliest entry timestamp HH:MM.
     entry_end_h/m (int)         Latest entry timestamp HH:MM.
     force_close_h/m (int)       Force-close timestamp HH:MM.
@@ -62,6 +63,7 @@ FIELDS = (
     # Signals / regime window
     "window",
     "z_entry",
+    "z_attention",
     # Session hours
     "entry_start_h",
     "entry_start_m",
@@ -124,6 +126,7 @@ SIMULATION_DEFAULTS: dict[str, Any] = {
 _ENGINE_DEFAULTS: dict[str, Any] = {
     "window": 240,
     "z_entry": 1.4,
+    "z_attention": 1.2,
     "entry_start_h": 9,
     "entry_start_m": 0,
     "entry_end_h": 17,
@@ -325,6 +328,13 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
     if not (0.1 < z_entry <= 5.0):
         raise ValueError(f"{name}.z_entry must be in (0.1, 5.0]")
 
+    z_attention = payload["z_attention"]
+    if not isinstance(z_attention, (int, float)) or isinstance(z_attention, bool):
+        raise ValueError(f"{name}.z_attention must be a number")
+    z_attention = float(z_attention)
+    if not (0.1 < z_attention <= 5.0):
+        raise ValueError(f"{name}.z_attention must be in (0.1, 5.0]")
+
     entry_start_h = _int_in("entry_start_h", 0, 23)
     entry_start_m = _int_in("entry_start_m", 0, 59)
     entry_end_h = _int_in("entry_end_h", 0, 23)
@@ -342,6 +352,12 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
     sell_be_lock = _int_in("sell_be_lock", 0, 5000)
 
     # ── Cross-field validation ──────────────────────────────────────────────
+    # Attention zone must sit strictly inside the entry threshold.
+    if z_attention >= z_entry:
+        raise ValueError(
+            f"{name}.z_attention ({z_attention}) must be < z_entry ({z_entry})"
+        )
+
     # Hours must be ordered: entry_start < entry_end <= force_close.
     # Equal start/end leaves the entry window empty (almost certainly a typo);
     # entry_end == force_close is fine (entries close exactly when force-close
@@ -393,6 +409,7 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
         "z_anomaly": z_anomaly,
         "window": window,
         "z_entry": z_entry,
+        "z_attention": z_attention,
         "entry_start_h": entry_start_h,
         "entry_start_m": entry_start_m,
         "entry_end_h": entry_end_h,

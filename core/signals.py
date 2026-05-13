@@ -75,11 +75,25 @@ def calc_zscore(
     return spread[-tail:], z[-tail:], rho_arr[-tail:]
 
 
-def get_signal(z: float, spread_sd: float = 1.0, beta: float = 1.0, **kwargs) -> dict:
+def get_signal(
+    z: float,
+    spread_sd: float = 1.0,
+    beta: float = 1.0,
+    z_entry: float | None = None,
+    z_attention: float | None = None,
+    **kwargs,
+) -> dict:
     """
     Traduz o z-score transversal em ação de trading e size dinâmico.
     O target_risk é de ~R$ 1.500 projetando um retorno à média de 'Z' pontos de spread.
+
+    z_entry / z_attention: quando ``None`` cai nos módulos-default (Z_ENTRY/
+    Z_ATTENTION de ``core.config``). Replay/sweep e ``regime_v2`` injetam o
+    valor do perfil runtime para que o mesmo engine sirva live e replay.
     """
+    ze = z_entry if z_entry is not None else Z_ENTRY
+    za = z_attention if z_attention is not None else Z_ATTENTION
+
     target_risk = 1500.0
     pts = spread_sd * abs(z) if (spread_sd * abs(z)) != 0 else 1.0
     w_wdo = 10.0
@@ -91,19 +105,19 @@ def get_signal(z: float, spread_sd: float = 1.0, beta: float = 1.0, **kwargs) ->
     qty_win = int(qty_base * abs(beta))
 
     az = abs(z)
-    
+
     if az >= 4.0:
         return {"id": "anomalia", "label": "ANOMALIA", "sub": "Não operar — breakdown", "wdo": None, "win": None, "qty_wdo": 0, "qty_win": 0, "color": "#ff3860"}
-    
-    if z >= Z_ENTRY:
+
+    if z >= ze:
         return {"id": "compraWdo", "label": "VENDE WIN", "sub": "Z-Score positivo — spread revertendo", "wdo": "IGNORAR", "win": "VENDER", "qty_wdo": 0, "qty_win": qty_win, "color": "#ff3860"}
-        
-    if z <= -Z_ENTRY:
+
+    if z <= -ze:
         return {"id": "compraWin", "label": "COMPRA WIN", "sub": "Z-Score negativo — spread revertendo", "wdo": "IGNORAR", "win": "COMPRAR", "qty_wdo": 0, "qty_win": qty_win, "color": "#00e87a"}
-        
-    if az >= Z_ATTENTION:
-        return {"id": "atencao", "label": "ZONA DE DIVERGÊNCIA", "sub": f"Aguardando Z atingir ±{Z_ENTRY}", "wdo": None, "win": None, "qty_wdo": 0, "qty_win": 0, "color": "#f5a623"}
-        
+
+    if az >= za:
+        return {"id": "atencao", "label": "ZONA DE DIVERGÊNCIA", "sub": f"Aguardando Z atingir ±{ze}", "wdo": None, "win": None, "qty_wdo": 0, "qty_win": 0, "color": "#f5a623"}
+
     return {"id": "neutro", "label": "AGUARDAR", "sub": "Spread em equilíbrio central", "wdo": None, "win": None, "qty_wdo": 0, "qty_win": 0, "color": "#445560"}
 
 

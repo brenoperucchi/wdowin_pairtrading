@@ -115,6 +115,11 @@ def test_load_rejects_malformed_json(tmp_path):
         ("z_entry", 5.01),
         ("z_entry", "1.4"),
         ("z_entry", True),
+        ("z_attention", 0.1),   # exclusive lower bound
+        ("z_attention", 0.05),
+        ("z_attention", 5.01),
+        ("z_attention", "1.2"),
+        ("z_attention", True),
         # Engine params — session hours
         ("entry_start_h", -1),
         ("entry_start_h", 24),
@@ -500,6 +505,7 @@ def test_save_does_not_backfill_missing_fields(tmp_path):
 _ENGINE_PARAM_FIELDS = (
     "window",
     "z_entry",
+    "z_attention",
     "entry_start_h",
     "entry_start_m",
     "entry_end_h",
@@ -530,6 +536,7 @@ def test_engine_param_defaults_match_legacy_core_config():
         d = runtime_config.DEFAULTS[profile]
         assert d["window"] == core_config.WINDOW
         assert d["z_entry"] == core_config.Z_ENTRY
+        assert d["z_attention"] == core_config.Z_ATTENTION
         assert d["entry_start_h"] == core_config.ENTRY_START_H
         assert d["entry_start_m"] == core_config.ENTRY_START_M
         assert d["entry_end_h"] == core_config.ENTRY_END_H
@@ -549,8 +556,9 @@ def test_engine_param_defaults_match_legacy_core_config():
 def test_load_backfills_missing_engine_params(tmp_path):
     """Legacy config (7 risk-gate fields only) loads with engine defaults backfilled.
 
-    AC1 of TASK-16.1: legacy file → load returns 23 leaf fields per profile
-    (excluding the ``simulation`` sub-block).
+    AC1 of TASK-16.1: legacy file → load returns 24 leaf fields per profile
+    (excluding the ``simulation`` sub-block). Bumped from 23 in TASK-16.2 when
+    ``z_attention`` was lifted from core.config into the runtime profile.
     """
     target = tmp_path / "runtime.json"
     legacy = {
@@ -581,7 +589,7 @@ def test_load_backfills_missing_engine_params(tmp_path):
     for profile in runtime_config.PROFILES:
         # Risk-gate values preserved
         keys = set(loaded[profile])
-        # 7 risk-gate + 16 engine + 1 simulation = 24 keys
+        # 7 risk-gate + 17 engine + 1 simulation = 25 keys
         assert keys == set(runtime_config.FIELDS)
         # Engine params populated from DEFAULTS
         for field in _ENGINE_PARAM_FIELDS:
@@ -589,10 +597,11 @@ def test_load_backfills_missing_engine_params(tmp_path):
         # Simulation backfilled too
         assert loaded[profile]["simulation"] == runtime_config.SIMULATION_DEFAULTS
 
-    # AC1 wording: "23 campos por profile" — 7 risk-gate + 16 engine = 23 leaf
-    # fields if simulation (sub-block) is excluded.
+    # 7 risk-gate + 17 engine = 24 leaf fields if simulation (sub-block) is
+    # excluded. Bumped from 23 in TASK-16.2 when z_attention was lifted into
+    # the runtime profile.
     leaf_count = len([k for k in runtime_config.FIELDS if k != "simulation"])
-    assert leaf_count == 23
+    assert leaf_count == 24
 
 
 def test_engine_params_roundtrip_save_load(tmp_path):
@@ -740,7 +749,25 @@ def test_committed_defaults_pass_cross_field_validation():
         end = p["entry_end_h"] * 60 + p["entry_end_m"]
         fc = p["force_close_h"] * 60 + p["force_close_m"]
         assert start < end <= fc
+        assert p["z_attention"] < p["z_entry"]
         for side in ("buy", "sell"):
             assert p[f"{side}_be_lock"] <= p[f"{side}_be_act"]
             assert p[f"{side}_be_lock"] < p[f"{side}_tp"]
             assert p[f"{side}_be_act"] <= p[f"{side}_tp"]
+
+
+@pytest.mark.parametrize(
+    "z_entry,z_attention",
+    [
+        (1.4, 1.4),   # equal not allowed; must be strictly less
+        (1.2, 1.5),   # attention above entry
+        (2.0, 2.0001),
+    ],
+)
+def test_validation_rejects_z_attention_not_below_entry(tmp_path, z_entry, z_attention):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["z_entry"] = z_entry
+    payload["live"]["z_attention"] = z_attention
+    with pytest.raises(ValueError, match="z_attention"):
+        runtime_config.save_runtime_config(payload, target)

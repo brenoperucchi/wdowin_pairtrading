@@ -1,9 +1,10 @@
 ---
 id: TASK-16.2
 title: 'Slice 2 — Consumer signals.py: WINDOW/Z_ENTRY/Z_ATTENTION via profile'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-05-12 19:37'
+updated_date: '2026-05-13 04:51'
 labels:
   - refactor
   - runtime-config
