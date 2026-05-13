@@ -1,9 +1,10 @@
 ---
 id: TASK-16.3
 title: 'Slice 3 — Consumer risk_gate.py: ENTRY_*/FORCE_CLOSE_* via profile'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-05-12 19:37'
+updated_date: '2026-05-13 05:19'
 labels:
   - refactor
   - runtime-config

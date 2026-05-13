@@ -1417,6 +1417,10 @@ def regime_v2():
             beta_delta_max=live_profile["beta_delta_max"],
             z_anomaly=live_profile["z_anomaly"],
             beta_unstable=win_beta_unstable,
+            entry_start_h=int(live_profile["entry_start_h"]),
+            entry_start_m=int(live_profile["entry_start_m"]),
+            entry_end_h=int(live_profile["entry_end_h"]),
+            entry_end_m=int(live_profile["entry_end_m"]),
         )
 
     pre_entry_gate = _build_gate(trades_today_count, daily_pnl_brl, minutes_since_last_loss)
@@ -1431,6 +1435,8 @@ def regime_v2():
         closed_bar_ts=closed_bar_ts,
         now_dt=now_dt,
         eg_strategies=live_eg_strategies,
+        force_close_h=int(live_profile["force_close_h"]),
+        force_close_m=int(live_profile["force_close_m"]),
     )
 
     # Refresh the gate post-evaluate so the published payload reflects

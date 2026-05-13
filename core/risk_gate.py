@@ -100,10 +100,26 @@ def reset_eg_cache() -> None:
 
 # ─── Session helper ─────────────────────────────────────────────────────────
 
-def _in_session(hour: int, minute: int) -> bool:
+def _in_session(
+    hour: int,
+    minute: int,
+    *,
+    entry_start_h: int | None = None,
+    entry_start_m: int | None = None,
+    entry_end_h: int | None = None,
+    entry_end_m: int | None = None,
+) -> bool:
+    """Window inclusive on both ends. ``None`` kwargs fall back to
+    ``core.config`` constants (backward compat for callers that haven't
+    migrated to the runtime profile yet).
+    """
+    sh = ENTRY_START_H if entry_start_h is None else entry_start_h
+    sm = ENTRY_START_M if entry_start_m is None else entry_start_m
+    eh = ENTRY_END_H if entry_end_h is None else entry_end_h
+    em = ENTRY_END_M if entry_end_m is None else entry_end_m
     t = hour * 60 + minute
-    start = ENTRY_START_H * 60 + ENTRY_START_M
-    end = ENTRY_END_H * 60 + ENTRY_END_M
+    start = sh * 60 + sm
+    end = eh * 60 + em
     return start <= t <= end
 
 
@@ -186,6 +202,10 @@ def risk_gate(
     beta_delta_max: Optional[float] = None,
     z_anomaly: Optional[float] = None,
     beta_unstable: bool = False,
+    entry_start_h: Optional[int] = None,
+    entry_start_m: Optional[int] = None,
+    entry_end_h: Optional[int] = None,
+    entry_end_m: Optional[int] = None,
 ) -> dict:
     """Run all hard gates and return a structured decision.
 
@@ -229,7 +249,14 @@ def risk_gate(
     if not checks["bar_close"]:
         reasons.append("BAR_NOT_CLOSED")
 
-    checks["session"] = _in_session(hour, minute)
+    checks["session"] = _in_session(
+        hour,
+        minute,
+        entry_start_h=entry_start_h,
+        entry_start_m=entry_start_m,
+        entry_end_h=entry_end_h,
+        entry_end_m=entry_end_m,
+    )
     if not checks["session"]:
         reasons.append("OUT_OF_SESSION")
 

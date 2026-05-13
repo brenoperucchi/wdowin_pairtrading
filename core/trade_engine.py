@@ -131,9 +131,16 @@ class TradeEngine:
         end = ENTRY_END_H * 60 + ENTRY_END_M
         return start <= t <= end
 
-    def _is_force_close(self, hour, minute):
+    def _is_force_close(self, hour, minute, *, force_close_h=None, force_close_m=None):
+        """Trip once ``hour:minute`` >= configured force-close time.
+
+        ``None`` kwargs fall back to ``core.config`` globals so callers that
+        haven't migrated to runtime profiles keep the legacy behaviour.
+        """
+        fch = FORCE_CLOSE_H if force_close_h is None else force_close_h
+        fcm = FORCE_CLOSE_M if force_close_m is None else force_close_m
         t = hour * 60 + minute
-        fc = FORCE_CLOSE_H * 60 + FORCE_CLOSE_M
+        fc = fch * 60 + fcm
         return t >= fc
 
     def evaluate(self, z_wdo: float, z_di: float,
@@ -151,7 +158,9 @@ class TradeEngine:
                  eg_strategies: list[str] | None = None,
                  simulation_profile: dict | None = None,
                  win_high: float | None = None,
-                 win_low: float | None = None) -> dict:
+                 win_low: float | None = None,
+                 force_close_h: int | None = None,
+                 force_close_m: int | None = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -207,6 +216,8 @@ class TradeEngine:
                     closed_bar_ts, now_dt,
                     simulation_profile=simulation_profile,
                     win_high=win_high, win_low=win_low,
+                    force_close_h=force_close_h,
+                    force_close_m=force_close_m,
                 )
 
         # ── Refresh operational stats post-exits (within-poll consistency) ─
@@ -586,6 +597,7 @@ class TradeEngine:
         self, trade, win_price, wdo_price, hour, minute, z_wdo, z_di,
         strategy, closed_bar_ts=None, now_dt=None,
         simulation_profile=None, win_high=None, win_low=None,
+        force_close_h=None, force_close_m=None,
     ):
         now_dt = now_dt or datetime.now()
         is_buy = trade["direction"] == "BUY"
@@ -670,7 +682,11 @@ class TradeEngine:
         if be_activated_this_bar and not (use_intra and raw_sl_hit and reason == "STOP_LOSS"):
             self._update_field(trade["id"], "be_active", 1)
 
-        if self._is_force_close(hour, minute):
+        if self._is_force_close(
+            hour, minute,
+            force_close_h=force_close_h,
+            force_close_m=force_close_m,
+        ):
             reason = "FORCE_CLOSE"
 
         if reason:

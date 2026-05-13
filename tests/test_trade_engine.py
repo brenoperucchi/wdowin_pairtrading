@@ -917,3 +917,52 @@ def test_timeline_does_not_emit_skipped_signal_on_blocked_poll(engine):
         )
 
     assert _timeline_rows(engine) == []
+
+
+# ─── TASK-16.3: force_close via profile kwargs ──────────────────────────────
+
+
+def test_force_close_kwargs_override_advances_force_close(engine):
+    """Profile that force-closes earlier than core.config must trip at the
+    configured time even though core.config FORCE_CLOSE is still in the future."""
+    _open_buy_consensus(engine)
+    # Use an hour < FORCE_CLOSE_H so the legacy default would NOT trip
+    early_hour = max(0, FORCE_CLOSE_H - 2)
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=early_hour, minute=0,
+        force_close_h=early_hour, force_close_m=0,
+    )
+    events = [r["event"] for r in _timeline_rows(engine)]
+    assert "FORCE_CLOSE" in events
+
+
+def test_force_close_kwargs_override_delays_force_close(engine):
+    """Profile that pushes force-close later must NOT trip at the legacy time."""
+    _open_buy_consensus(engine)
+    # Run exactly at the legacy FORCE_CLOSE; with override pushing it +1h,
+    # the engine must NOT fire FORCE_CLOSE.
+    late_h = min(23, FORCE_CLOSE_H + 1)
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=FORCE_CLOSE_H, minute=FORCE_CLOSE_M,
+        force_close_h=late_h, force_close_m=FORCE_CLOSE_M,
+    )
+    events = [r["event"] for r in _timeline_rows(engine)]
+    assert "FORCE_CLOSE" not in events
+
+
+def test_force_close_kwargs_none_falls_back_to_core_config(engine):
+    """Backward-compat: omitting kwargs preserves the legacy behaviour."""
+    _open_buy_consensus(engine)
+    engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=FORCE_CLOSE_H, minute=FORCE_CLOSE_M,
+    )
+    assert "FORCE_CLOSE" in [r["event"] for r in _timeline_rows(engine)]

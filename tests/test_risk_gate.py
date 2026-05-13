@@ -394,3 +394,57 @@ def test_operational_failures_compose_with_market_failures():
         "DAILY_LOSS_LIMIT",
         "LOSS_COOLDOWN",
     }
+
+
+# ─── TASK-16.3: session window via profile kwargs ───────────────────────────
+
+
+def test_session_window_kwargs_widen_entry_window():
+    """A profile that opens entries earlier than core.config must let an
+    08:00 poll through (default ENTRY_START_H=09:00 would block it)."""
+    blocked = risk_gate(**_ok_kwargs(hour=8, minute=0))
+    assert "OUT_OF_SESSION" in blocked["reasons"]
+    allowed = risk_gate(**_ok_kwargs(
+        hour=8, minute=0,
+        entry_start_h=7, entry_start_m=0,
+        entry_end_h=17, entry_end_m=25,
+    ))
+    assert allowed["checks"]["session"] is True
+    assert "OUT_OF_SESSION" not in allowed["reasons"]
+
+
+def test_session_window_kwargs_shrink_entry_window():
+    """A profile that closes the entry window earlier than core.config must
+    reject a poll inside the legacy window."""
+    allowed_default = risk_gate(**_ok_kwargs(hour=14, minute=0))
+    assert allowed_default["checks"]["session"] is True
+    blocked = risk_gate(**_ok_kwargs(
+        hour=14, minute=0,
+        entry_start_h=9, entry_start_m=0,
+        entry_end_h=10, entry_end_m=0,
+    ))
+    assert blocked["checks"]["session"] is False
+    assert "OUT_OF_SESSION" in blocked["reasons"]
+
+
+def test_in_session_boundary_inclusive_for_both_ends():
+    """Window is inclusive on both ends (preserves legacy behaviour)."""
+    out_start = risk_gate(**_ok_kwargs(
+        hour=9, minute=0,
+        entry_start_h=9, entry_start_m=0,
+        entry_end_h=17, entry_end_m=25,
+    ))
+    assert out_start["checks"]["session"] is True
+
+    out_end = risk_gate(**_ok_kwargs(
+        hour=17, minute=25,
+        entry_start_h=9, entry_start_m=0,
+        entry_end_h=17, entry_end_m=25,
+    ))
+    assert out_end["checks"]["session"] is True
+
+
+def test_session_kwargs_none_falls_back_to_core_config():
+    """Backward-compat: kwargs absent ⇒ ``core.config`` constants apply."""
+    out = risk_gate(**_ok_kwargs(hour=10, minute=0))  # inside legacy 09:00-17:25
+    assert out["checks"]["session"] is True

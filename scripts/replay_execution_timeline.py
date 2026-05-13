@@ -72,6 +72,12 @@ class ReplayRuntimeProfile:
     eg_strategies: tuple[str, ...]
     z_anomaly: float
     simulation: dict
+    entry_start_h: int
+    entry_start_m: int
+    entry_end_h: int
+    entry_end_m: int
+    force_close_h: int
+    force_close_m: int
 
     @classmethod
     def from_mapping(cls, payload: dict) -> "ReplayRuntimeProfile":
@@ -84,6 +90,12 @@ class ReplayRuntimeProfile:
             eg_strategies=tuple(payload["eg_strategies"]),
             z_anomaly=float(payload["z_anomaly"]),
             simulation=dict(payload["simulation"]),
+            entry_start_h=int(payload["entry_start_h"]),
+            entry_start_m=int(payload["entry_start_m"]),
+            entry_end_h=int(payload["entry_end_h"]),
+            entry_end_m=int(payload["entry_end_m"]),
+            force_close_h=int(payload["force_close_h"]),
+            force_close_m=int(payload["force_close_m"]),
         )
 
 
@@ -446,6 +458,10 @@ def _process_bar(
         beta_delta_max=runtime_profile.beta_delta_max,
         z_anomaly=runtime_profile.z_anomaly,
         beta_unstable=bool(beta_state["unstable"]),
+        entry_start_h=runtime_profile.entry_start_h,
+        entry_start_m=runtime_profile.entry_start_m,
+        entry_end_h=runtime_profile.entry_end_h,
+        entry_end_m=runtime_profile.entry_end_m,
     )
 
     trade_result = engine.evaluate(
@@ -470,6 +486,8 @@ def _process_bar(
         simulation_profile=runtime_profile.simulation,
         win_high=win_high,
         win_low=win_low,
+        force_close_h=runtime_profile.force_close_h,
+        force_close_m=runtime_profile.force_close_m,
     )
 
     emit_closed_bar_timeline(
