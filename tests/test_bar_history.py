@@ -408,6 +408,117 @@ def test_persist_closed_bars_threads_indicators(db):
     assert earlier["rho"] is None
 
 
+# ─── TASK-17 Slice A.3: OHLC capture in live persistence ─────────────────────
+
+
+def _select_ohlc(db_path: str, ts: int) -> dict:
+    """Raw SELECT helper — load_bar_history doesn't surface OHLC columns yet,
+    so tests read them directly from SQLite to verify the persistence contract.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        """SELECT win_open, win_high, win_low,
+                  wdo_open, wdo_high, wdo_low,
+                  di_open, di_high, di_low
+           FROM bar_history WHERE timestamp = ?""",
+        (ts,),
+    ).fetchone()
+    conn.close()
+    assert row is not None, f"no bar at ts={ts}"
+    return dict(row)
+
+
+def test_save_bar_history_roundtrips_ohlc(db):
+    ts = int(time.time())
+    save_bar_history(
+        **_sample(ts),
+        win_open=130001.0, win_high=130150.0, win_low=129900.0,
+        wdo_open=5500.1, wdo_high=5503.0, wdo_low=5498.0,
+        di_open=12.48, di_high=12.55, di_low=12.42,
+        db_path=db,
+    )
+    ohlc = _select_ohlc(db, ts)
+    assert ohlc == {
+        "win_open": 130001.0, "win_high": 130150.0, "win_low": 129900.0,
+        "wdo_open": 5500.1, "wdo_high": 5503.0, "wdo_low": 5498.0,
+        "di_open": 12.48, "di_high": 12.55, "di_low": 12.42,
+    }
+
+
+def test_save_bar_history_ohlc_coalesce_preserves_first_value(db):
+    """Re-saving a bar with NULL OHLC after a previous save with values must
+    NOT erase the values — same pattern as the indicator columns.
+    """
+    ts = int(time.time())
+    save_bar_history(
+        **_sample(ts),
+        win_open=130001.0, win_high=130150.0, win_low=129900.0,
+        wdo_open=5500.1, wdo_high=5503.0, wdo_low=5498.0,
+        di_open=12.48, di_high=12.55, di_low=12.42,
+        db_path=db,
+    )
+    save_bar_history(**_sample(ts), db_path=db)  # second poll, no OHLC
+
+    ohlc = _select_ohlc(db, ts)
+    assert ohlc["win_open"] == 130001.0
+    assert ohlc["wdo_high"] == 5503.0
+    assert ohlc["di_low"] == 12.42
+
+
+def test_save_bar_history_ohlc_optional(db):
+    """Legacy callers (no OHLC kwargs) keep working; all OHLC columns NULL."""
+    ts = int(time.time())
+    save_bar_history(**_sample(ts), db_path=db)
+    ohlc = _select_ohlc(db, ts)
+    assert all(v is None for v in ohlc.values())
+
+
+def test_persist_closed_bars_threads_ohlc(db):
+    """_persist_closed_bars must forward OHLC keys from history entries."""
+    today = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    bars = [today + timedelta(minutes=5 * i) for i in range(3)]
+    times = np.array([_utc_ts_for_local(dt) for dt in bars], dtype=np.int64)
+    z = np.array([0.5, -0.3, 1.7])
+    spread = np.array([40.0, 41.0, 42.0])
+    win_prices = np.array([130000.0, 130100.0, 130200.0])
+    win_opens = np.array([129995.0, 130095.0, 130195.0])
+    win_highs = np.array([130020.0, 130120.0, 130220.0])
+    win_lows = np.array([129980.0, 130080.0, 130180.0])
+    wdo_prices = np.array([5500.0, 5501.0, 5502.0])
+    wdo_opens = np.array([5499.5, 5500.5, 5501.5])
+    wdo_highs = np.array([5500.5, 5501.5, 5502.5])
+    wdo_lows = np.array([5498.5, 5499.5, 5500.5])
+    di_prices = np.array([13.10, 13.11, 13.12])
+    di_opens = np.array([13.09, 13.10, 13.11])
+    di_highs = np.array([13.12, 13.13, 13.14])
+    di_lows = np.array([13.08, 13.09, 13.10])
+
+    history = _build_history(
+        times, z, spread,
+        win_prices=win_prices, wdo_prices=wdo_prices, di_prices=di_prices,
+        win_opens=win_opens, win_highs=win_highs, win_lows=win_lows,
+        wdo_opens=wdo_opens, wdo_highs=wdo_highs, wdo_lows=wdo_lows,
+        di_opens=di_opens, di_highs=di_highs, di_lows=di_lows,
+    )
+    assert len(history) == 3
+    # _build_history attaches OHLC to entries
+    assert history[0]["win_open"] == 129995.0
+    assert history[1]["wdo_high"] == 5501.5
+    assert history[0]["di_low"] == 13.08
+
+    _persist_closed_bars(history, db_path=db)
+
+    # Persisted bars are history[:-1] (skip open bar)
+    closed_ts = int(bars[0].timestamp())
+    ohlc = _select_ohlc(db, closed_ts)
+    assert ohlc["win_open"] == 129995.0
+    assert ohlc["win_high"] == 130020.0
+    assert ohlc["win_low"] == 129980.0
+    assert ohlc["wdo_open"] == 5499.5
+    assert ohlc["di_high"] == 13.12
+
+
 # ─── TASK-14 Slice 4: BAR_HISTORY_BACKEND=dual mirror to Postgres ───────────
 
 

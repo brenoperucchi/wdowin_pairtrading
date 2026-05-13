@@ -49,6 +49,38 @@ def fetch_bars(symbol: str, count: int):
     return closes, times
 
 
+def fetch_rates(symbol: str, count: int):
+    """Return the raw MT5 rates array (OHLC + time + volume + spread) for `count` bars.
+
+    Callers receive the structured numpy array straight from
+    `mt5.copy_rates_from_pos` so any field can be read (open/high/low/close/time/
+    tick_volume/spread/real_volume). Returns None when the call fails or yields
+    no data — same failure semantics as fetch_bars.
+    """
+    rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, count)
+    if rates is None or len(rates) == 0:
+        logger.warning("fetch_rates: sem dados para %s: %s", symbol, mt5.last_error())
+        return None
+    return rates
+
+
+def fetch_rates_range(symbol: str, dt_start, dt_end):
+    """Return MT5 rates array for a date range — used by historical backfill.
+
+    `dt_start` and `dt_end` are datetime objects (MT5 converts them internally).
+    Returns the raw structured np.ndarray from `mt5.copy_rates_range`, or None
+    on error / empty result.
+    """
+    rates = mt5.copy_rates_range(symbol, TIMEFRAME, dt_start, dt_end)
+    if rates is None or len(rates) == 0:
+        logger.warning(
+            "fetch_rates_range: sem dados para %s [%s, %s]: %s",
+            symbol, dt_start, dt_end, mt5.last_error(),
+        )
+        return None
+    return rates
+
+
 # ─── Order helpers (TASK-2) ─────────────────────────────────────────────────
 # All three functions are pure wrappers around mt5.* calls. They own no state
 # and do not know about TradeEngine — that keeps them unit-testable via monkeypatch.

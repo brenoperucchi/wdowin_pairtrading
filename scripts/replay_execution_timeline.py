@@ -71,6 +71,7 @@ class ReplayRuntimeProfile:
     beta_delta_max: float
     eg_strategies: tuple[str, ...]
     z_anomaly: float
+    simulation: dict
 
     @classmethod
     def from_mapping(cls, payload: dict) -> "ReplayRuntimeProfile":
@@ -82,6 +83,7 @@ class ReplayRuntimeProfile:
             beta_delta_max=float(payload["beta_delta_max"]),
             eg_strategies=tuple(payload["eg_strategies"]),
             z_anomaly=float(payload["z_anomaly"]),
+            simulation=dict(payload["simulation"]),
         )
 
 
@@ -91,6 +93,7 @@ class ReplayStats:
     bars_processed: int = 0
     bars_skipped_missing: int = 0
     missing_by_field: Counter = None
+    warnings_by_reason: Counter = None
     blockers_by_phase_reason: Counter = None
     trades_opened: int = 0
     trades_closed: int = 0
@@ -101,6 +104,8 @@ class ReplayStats:
     def __post_init__(self):
         if self.missing_by_field is None:
             self.missing_by_field = Counter()
+        if self.warnings_by_reason is None:
+            self.warnings_by_reason = Counter()
         if self.blockers_by_phase_reason is None:
             self.blockers_by_phase_reason = Counter()
 
@@ -140,8 +145,14 @@ def resolve_replay_profile(
     config_path: str | None = None,
     overrides: dict | None = None,
     runtime_profile: dict | ReplayRuntimeProfile | None = None,
+    simulation_overrides: dict | None = None,
 ) -> ReplayRuntimeProfile:
-    """Load runtime_config['replay'] and apply CLI/test overrides."""
+    """Load runtime_config['replay'] and apply CLI/test overrides.
+
+    `simulation_overrides` patches the nested ``simulation`` sub-block; only
+    keys with non-None values are applied so partial CLI flags don't clobber
+    the on-disk profile.
+    """
     if isinstance(runtime_profile, ReplayRuntimeProfile):
         return runtime_profile
 
@@ -158,6 +169,13 @@ def resolve_replay_profile(
     for key, value in (overrides or {}).items():
         if value is not None:
             replay[key] = value
+
+    if simulation_overrides:
+        sim_block = dict(replay.get("simulation") or {})
+        for key, value in simulation_overrides.items():
+            if value is not None:
+                sim_block[key] = value
+        replay["simulation"] = sim_block
 
     full_config["replay"] = replay
     normalised = runtime_config.validate_runtime_config(full_config)
@@ -229,6 +247,31 @@ def _emit_missing_data_event(
         severity="error",
         message=f"bar_history row at {bar_time} missing {field}; bar skipped",
         payload_json={"field": field, "bar_time": bar_time},
+    )
+
+
+def _emit_replay_warning_event(
+    *,
+    db_path: str,
+    closed_bar_ts: int,
+    event: str,
+    bar_time: str,
+    row_ts_iso: str,
+    message: str,
+    payload_json: dict,
+) -> None:
+    record_event(
+        db_path,
+        timestamp=row_ts_iso,
+        closed_bar_ts=closed_bar_ts,
+        correlation_id=f"replay:bar:{closed_bar_ts}",
+        dedupe_key=f"replay:bar:{closed_bar_ts}:DATA:{event}",
+        phase="DATA",
+        event=event,
+        status="WARN",
+        severity="warning",
+        message=message,
+        payload_json={"bar_time": bar_time, **payload_json},
     )
 
 
@@ -328,9 +371,42 @@ def _process_bar(
     nwe_lower = float(row.get("nwe_lower") or 0.0)
     nwe_is_up = bool(row.get("nwe_is_up") or 0)
 
+    raw_win_high = row.get("win_high")
+    raw_win_low = row.get("win_low")
+    win_high = float(raw_win_high) if raw_win_high is not None else None
+    win_low = float(raw_win_low) if raw_win_low is not None else None
+
     if runtime_profile is None:
         runtime_profile = ReplayRuntimeProfile.from_mapping(
             runtime_config.DEFAULTS["replay"]
+        )
+    sim = runtime_profile.simulation
+    if (
+        sim.get("enabled")
+        and sim.get("intra_bar_sl_tp", True)
+        and (win_high is None or win_low is None)
+    ):
+        missing_ohlc = [
+            name for name, value in (("win_high", win_high), ("win_low", win_low))
+            if value is None
+        ]
+        stats.warnings_by_reason[("DATA", "INTRA_BAR_DEGRADED")] += 1
+        _emit_replay_warning_event(
+            db_path=replay_db,
+            closed_bar_ts=closed_bar_ts,
+            event="INTRA_BAR_DEGRADED",
+            bar_time=bar_time,
+            row_ts_iso=row_ts_iso,
+            message=(
+                "Simulation intra-bar requested but WIN high/low is incomplete; "
+                "bar processed with close-only exit checks"
+            ),
+            payload_json={
+                "missing_fields": missing_ohlc,
+                "fallback": "close_only",
+                "simulation_enabled": True,
+                "intra_bar_sl_tp": True,
+            },
         )
 
     today_str = now_dt.strftime("%Y-%m-%d")
@@ -391,6 +467,9 @@ def _process_bar(
         entry_wdo_price=wdo_price,
         now_dt=now_dt,
         eg_strategies=list(runtime_profile.eg_strategies),
+        simulation_profile=runtime_profile.simulation,
+        win_high=win_high,
+        win_low=win_low,
     )
 
     emit_closed_bar_timeline(
@@ -447,6 +526,10 @@ def _summarize(stats: ReplayStats, *, engine: TradeEngine, replay_date: str) -> 
         "bars_processed": stats.bars_processed,
         "bars_skipped_missing": stats.bars_skipped_missing,
         "missing_by_field": dict(stats.missing_by_field),
+        "warnings_by_reason": {
+            f"{phase}:{reason}": count
+            for (phase, reason), count in stats.warnings_by_reason.items()
+        },
         "blockers_by_phase_reason": {
             f"{phase}:{reason}": count
             for (phase, reason), count in stats.blockers_by_phase_reason.items()
@@ -498,6 +581,10 @@ def _print_summary(summary: dict) -> None:
         print("  missing_by_field:")
         for field, count in sorted(summary["missing_by_field"].items()):
             print(f"    {field:18s} {count}")
+    if summary["warnings_by_reason"]:
+        print("  warnings_by_reason:")
+        for key, count in sorted(summary["warnings_by_reason"].items()):
+            print(f"    {key:32s} {count}")
     if summary["blockers_by_phase_reason"]:
         print("  blockers_by_phase_reason:")
         for key, count in sorted(summary["blockers_by_phase_reason"].items()):
@@ -538,6 +625,7 @@ def run_replay(
     config_path: str | None = None,
     runtime_profile: dict | ReplayRuntimeProfile | None = None,
     overrides: dict | None = None,
+    simulation_overrides: dict | None = None,
 ) -> dict:
     """Run the replay. Returns the summary dict (also emitted as META event).
 
@@ -566,6 +654,7 @@ def run_replay(
         config_path=config_path,
         runtime_profile=runtime_profile,
         overrides=overrides,
+        simulation_overrides=simulation_overrides,
     )
     reset_eg_cache()
 
@@ -667,6 +756,48 @@ def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
             "EG for all strategies."
         ),
     )
+    parser.add_argument(
+        "--sim-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override replay simulation.enabled (toggle MT5 fidelity sim).",
+    )
+    parser.add_argument(
+        "--sim-entry-slip",
+        type=float,
+        default=None,
+        help="Override replay simulation.entry_slippage_pts.",
+    )
+    parser.add_argument(
+        "--sim-exit-slip",
+        type=float,
+        default=None,
+        help="Override replay simulation.exit_slippage_pts.",
+    )
+    parser.add_argument(
+        "--sim-cost-rt",
+        type=float,
+        default=None,
+        help="Override replay simulation.cost_per_contract_rt_brl.",
+    )
+    parser.add_argument(
+        "--sim-intra-bar",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override replay simulation.intra_bar_sl_tp.",
+    )
+    parser.add_argument(
+        "--sim-exit-at-level",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override replay simulation.exit_at_sl_tp_level.",
+    )
+    parser.add_argument(
+        "--sim-conflict-rule",
+        choices=runtime_config.CONFLICT_RULES,
+        default=None,
+        help="Override replay simulation.conflict_rule.",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -704,6 +835,15 @@ def main(argv: Iterable[str] | None = None) -> int:
         "beta_delta_max": args.beta_delta_max,
         "eg_strategies": eg_strategies_override,
     }
+    simulation_overrides = {
+        "enabled": args.sim_enabled,
+        "entry_slippage_pts": args.sim_entry_slip,
+        "exit_slippage_pts": args.sim_exit_slip,
+        "cost_per_contract_rt_brl": args.sim_cost_rt,
+        "intra_bar_sl_tp": args.sim_intra_bar,
+        "exit_at_sl_tp_level": args.sim_exit_at_level,
+        "conflict_rule": args.sim_conflict_rule,
+    }
     try:
         summary = run_replay(
             date_str=args.date,
@@ -711,6 +851,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             out_dir=args.out,
             config_path=args.config,
             overrides=overrides,
+            simulation_overrides=simulation_overrides,
         )
     except ValueError as exc:
         print(f"[ERRO] invalid runtime config: {exc}", file=sys.stderr)

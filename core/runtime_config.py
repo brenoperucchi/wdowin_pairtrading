@@ -43,11 +43,37 @@ FIELDS = (
     "beta_delta_max",
     "eg_strategies",
     "z_anomaly",
+    "simulation",
 )
 EG_RECALC_VALUES = ("bar", "daily")
 # Mirrors core.trade_engine.STRATEGIES. Duplicated here to avoid importing
 # trade_engine at module load (it imports MetaTrader5 transitively).
 VALID_STRATEGIES = ("CONS_BASE", "WDO_NWE", "DI_NWE")
+
+# ── simulation sub-block ────────────────────────────────────────────────────
+# Lives INSIDE each profile (live/replay) — not as a sibling — so existing
+# strict per-profile validation stays sound. Default is "disabled" in BOTH
+# profiles: enabling fidelity simulation is an explicit operator action, not
+# something that flips on at deploy time.
+SIMULATION_FIELDS = (
+    "enabled",
+    "entry_slippage_pts",
+    "exit_slippage_pts",
+    "cost_per_contract_rt_brl",
+    "intra_bar_sl_tp",
+    "exit_at_sl_tp_level",
+    "conflict_rule",
+)
+CONFLICT_RULES = ("sl_first", "tp_first", "worst")
+SIMULATION_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "entry_slippage_pts": 5.0,
+    "exit_slippage_pts": 5.0,
+    "cost_per_contract_rt_brl": 1.0,
+    "intra_bar_sl_tp": True,
+    "exit_at_sl_tp_level": True,
+    "conflict_rule": "sl_first",
+}
 
 # ─── Defaults ───────────────────────────────────────────────────────────────
 # Runtime defaults aligned with Miqueias upstream (server.py:608 safe_to_trade):
@@ -66,6 +92,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         # (server.py:608 vs :715 in /tmp/miqueias-wdowin/).
         "eg_strategies": ["CONS_BASE", "WDO_NWE"],
         "z_anomaly": 4.0,
+        "simulation": copy.deepcopy(SIMULATION_DEFAULTS),
     },
     "replay": {
         "eg_threshold": 0.10,
@@ -75,10 +102,71 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "beta_delta_max": 15.0,
         "eg_strategies": ["CONS_BASE", "WDO_NWE"],
         "z_anomaly": 4.0,
+        "simulation": copy.deepcopy(SIMULATION_DEFAULTS),
     },
 }
 
 _lock = threading.Lock()
+
+
+def _validate_simulation(profile_name: str, payload: Any) -> dict[str, Any]:
+    """Validate the ``simulation`` sub-block of a profile.
+
+    Bounds reflect 'plausible MT5 behaviour' rather than absolute physical
+    limits — they catch typos (e.g. 500-pt slippage) without painting the
+    operator into a corner.
+    """
+    qualified = f"{profile_name}.simulation"
+    if not isinstance(payload, dict):
+        raise ValueError(f"{qualified} must be an object")
+
+    extra = set(payload) - set(SIMULATION_FIELDS)
+    if extra:
+        raise ValueError(f"{qualified} has unknown fields: {sorted(extra)}")
+    missing = set(SIMULATION_FIELDS) - set(payload)
+    if missing:
+        raise ValueError(f"{qualified} is missing fields: {sorted(missing)}")
+
+    enabled = payload["enabled"]
+    if not isinstance(enabled, bool):
+        raise ValueError(f"{qualified}.enabled must be a bool")
+
+    def _num(field: str, lo: float, hi: float) -> float:
+        v = payload[field]
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            raise ValueError(f"{qualified}.{field} must be a number")
+        v = float(v)
+        if not (lo <= v <= hi):
+            raise ValueError(f"{qualified}.{field} must be in [{lo}, {hi}]")
+        return v
+
+    entry_slip = _num("entry_slippage_pts", 0.0, 50.0)
+    exit_slip = _num("exit_slippage_pts", 0.0, 50.0)
+    cost_rt = _num("cost_per_contract_rt_brl", 0.0, 50.0)
+
+    intra_bar = payload["intra_bar_sl_tp"]
+    if not isinstance(intra_bar, bool):
+        raise ValueError(f"{qualified}.intra_bar_sl_tp must be a bool")
+
+    exit_at_level = payload["exit_at_sl_tp_level"]
+    if not isinstance(exit_at_level, bool):
+        raise ValueError(f"{qualified}.exit_at_sl_tp_level must be a bool")
+
+    conflict_rule = payload["conflict_rule"]
+    if conflict_rule not in CONFLICT_RULES:
+        raise ValueError(
+            f"{qualified}.conflict_rule must be one of {list(CONFLICT_RULES)}"
+        )
+
+    return {
+        "enabled": enabled,
+        "entry_slippage_pts": entry_slip,
+        "exit_slippage_pts": exit_slip,
+        "cost_per_contract_rt_brl": cost_rt,
+        "intra_bar_sl_tp": intra_bar,
+        "exit_at_sl_tp_level": exit_at_level,
+        "conflict_rule": conflict_rule,
+    }
 
 
 def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
@@ -159,6 +247,8 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
     if not (0.0 < z_anomaly <= 10.0):
         raise ValueError(f"{name}.z_anomaly must be in (0, 10]")
 
+    simulation = _validate_simulation(name, payload["simulation"])
+
     return {
         "eg_threshold": eg_threshold,
         "eg_bars": eg_bars,
@@ -167,6 +257,7 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
         "beta_delta_max": beta_delta,
         "eg_strategies": normalised_strats,
         "z_anomaly": z_anomaly,
+        "simulation": simulation,
     }
 
 
@@ -191,8 +282,13 @@ def _backfill_missing_fields(raw: Any) -> Any:
     """Add any missing FIELDS to each profile from DEFAULTS before validation.
 
     Forward-compat shim for on-disk configs written before a new field was
-    introduced (e.g., Slice A/B configs predate ``eg_strategies``). Keeps
-    ``save_runtime_config`` strict — only the read path is lenient.
+    introduced (for example, older configs may predate ``eg_strategies`` or
+    the ``simulation`` sub-block). Keeps ``save_runtime_config`` strict —
+    only the read path is lenient.
+
+    For nested ``simulation``, fields are merged at the sub-key level so a
+    partial block on disk gets its missing keys filled (preserves operator
+    intent for the fields they did set).
     """
     if not isinstance(raw, dict):
         return raw
@@ -206,6 +302,15 @@ def _backfill_missing_fields(raw: Any) -> Any:
         for field in FIELDS:
             if field not in merged and field in defaults_for_profile:
                 merged[field] = copy.deepcopy(defaults_for_profile[field])
+        sim_block = merged.get("simulation")
+        if isinstance(sim_block, dict):
+            sim_merged = dict(sim_block)
+            for sim_field in SIMULATION_FIELDS:
+                if sim_field not in sim_merged:
+                    sim_merged[sim_field] = copy.deepcopy(
+                        SIMULATION_DEFAULTS[sim_field]
+                    )
+            merged["simulation"] = sim_merged
         patched[profile] = merged
     return patched
 

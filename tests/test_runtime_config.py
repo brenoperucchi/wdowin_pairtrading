@@ -281,6 +281,156 @@ def test_load_backfills_missing_fields_from_defaults(tmp_path):
     assert loaded["replay"]["eg_strategies"] == runtime_config.DEFAULTS["replay"]["eg_strategies"]
 
 
+# ─── simulation sub-block ───────────────────────────────────────────────────
+
+
+def test_simulation_defaults_disabled_in_both_profiles():
+    """enabled=false in both profiles preserves parity until operator flips it."""
+    for profile in runtime_config.PROFILES:
+        sim = runtime_config.DEFAULTS[profile]["simulation"]
+        assert sim["enabled"] is False
+        assert sim["entry_slippage_pts"] == 5.0
+        assert sim["exit_slippage_pts"] == 5.0
+        assert sim["cost_per_contract_rt_brl"] == 1.0
+        assert sim["intra_bar_sl_tp"] is True
+        assert sim["exit_at_sl_tp_level"] is True
+        assert sim["conflict_rule"] == "sl_first"
+
+
+def test_simulation_defaults_in_committed_runtime_json():
+    target = Path(__file__).resolve().parents[1] / "config" / "runtime.json"
+    raw = json.loads(target.read_text(encoding="utf-8"))
+    for profile in runtime_config.PROFILES:
+        assert "simulation" in raw[profile]
+        assert raw[profile]["simulation"]["enabled"] is False
+
+
+def test_simulation_roundtrip_with_enabled_replay(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["replay"]["simulation"]["enabled"] = True
+    payload["replay"]["simulation"]["entry_slippage_pts"] = 7.5
+    payload["replay"]["simulation"]["conflict_rule"] = "tp_first"
+
+    saved = runtime_config.save_runtime_config(payload, target)
+    assert saved["replay"]["simulation"]["enabled"] is True
+    assert saved["replay"]["simulation"]["entry_slippage_pts"] == 7.5
+    assert saved["replay"]["simulation"]["conflict_rule"] == "tp_first"
+    # Live still defaulted, untouched
+    assert saved["live"]["simulation"]["enabled"] is False
+
+    reloaded = runtime_config.load_runtime_config(target)
+    assert reloaded == saved
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("enabled", "true"),       # string, not bool
+        ("enabled", 1),            # int, not bool
+        ("enabled", None),
+        ("entry_slippage_pts", -0.1),
+        ("entry_slippage_pts", 50.1),
+        ("entry_slippage_pts", "5"),
+        ("entry_slippage_pts", True),       # bool isn't a number
+        ("exit_slippage_pts", -1.0),
+        ("exit_slippage_pts", 50.1),
+        ("cost_per_contract_rt_brl", -0.01),
+        ("cost_per_contract_rt_brl", 50.1),
+        ("intra_bar_sl_tp", "yes"),
+        ("intra_bar_sl_tp", 1),
+        ("exit_at_sl_tp_level", "no"),
+        ("conflict_rule", "first"),         # not in enum
+        ("conflict_rule", ""),
+        ("conflict_rule", None),
+    ],
+)
+def test_simulation_validation_rejects_bad_values(tmp_path, field, value):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["replay"]["simulation"][field] = value
+    with pytest.raises(ValueError):
+        runtime_config.save_runtime_config(payload, target)
+
+
+def test_simulation_validation_rejects_unknown_subfield(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["simulation"]["foo"] = "bar"
+    with pytest.raises(ValueError):
+        runtime_config.save_runtime_config(payload, target)
+
+
+def test_simulation_validation_requires_all_subfields(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    del payload["replay"]["simulation"]["conflict_rule"]
+    with pytest.raises(ValueError):
+        runtime_config.save_runtime_config(payload, target)
+
+
+def test_simulation_validation_rejects_when_not_object(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["simulation"] = "disabled"
+    with pytest.raises(ValueError):
+        runtime_config.save_runtime_config(payload, target)
+
+
+def test_load_backfills_missing_simulation_block(tmp_path):
+    """Legacy on-disk config without ``simulation`` must still load."""
+    target = tmp_path / "runtime.json"
+    legacy = {
+        "live": {
+            "eg_threshold": 0.05,
+            "eg_bars": 250,
+            "eg_recalc": "bar",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+            "eg_strategies": ["CONS_BASE"],
+            "z_anomaly": 4.0,
+            # simulation missing
+        },
+        "replay": copy.deepcopy(runtime_config.DEFAULTS["replay"]),
+    }
+    target.write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = runtime_config.load_runtime_config(target)
+
+    assert loaded["live"]["simulation"] == runtime_config.SIMULATION_DEFAULTS
+    # Operator-set fields preserved
+    assert loaded["live"]["eg_threshold"] == 0.05
+
+
+def test_load_backfills_missing_simulation_subfields(tmp_path):
+    """Partial ``simulation`` block: missing sub-keys fill from SIMULATION_DEFAULTS."""
+    target = tmp_path / "runtime.json"
+    partial = copy.deepcopy(runtime_config.DEFAULTS)
+    # Operator only declared two keys — the rest were added in a later slice.
+    partial["replay"]["simulation"] = {
+        "enabled": True,
+        "entry_slippage_pts": 8.0,
+    }
+    target.write_text(json.dumps(partial), encoding="utf-8")
+
+    loaded = runtime_config.load_runtime_config(target)
+
+    sim = loaded["replay"]["simulation"]
+    assert sim["enabled"] is True             # operator value preserved
+    assert sim["entry_slippage_pts"] == 8.0   # operator value preserved
+    assert sim["exit_slippage_pts"] == runtime_config.SIMULATION_DEFAULTS["exit_slippage_pts"]
+    assert sim["conflict_rule"] == runtime_config.SIMULATION_DEFAULTS["conflict_rule"]
+
+
+def test_save_rejects_missing_simulation_block(tmp_path):
+    """Save stays strict: dropping ``simulation`` entirely must be rejected."""
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    del payload["live"]["simulation"]
+    with pytest.raises(ValueError):
+        runtime_config.save_runtime_config(payload, target)
+
+
 def test_save_does_not_backfill_missing_fields(tmp_path):
     """POST stays strict — payloads missing required fields must still be rejected."""
     target = tmp_path / "runtime.json"

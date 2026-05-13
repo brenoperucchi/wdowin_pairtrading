@@ -27,5 +27,7 @@ if "MetaTrader5" not in sys.modules:
     _mt5.order_send = lambda req: None
     _mt5.positions_get = lambda **kw: []
     _mt5.last_error = lambda: (0, "")
+    _mt5.copy_rates_from_pos = lambda symbol, timeframe, pos, count: None
+    _mt5.copy_rates_range = lambda symbol, timeframe, dt_start, dt_end: None
 
     sys.modules["MetaTrader5"] = _mt5

@@ -3,11 +3,31 @@
 All MT5 API calls are monkeypatched; no real terminal required.
 The helpers must be pure wrappers: no retry, no state, caller owns decisions.
 """
+import datetime as dt
 import types
+import numpy as np
 import pytest
 import MetaTrader5 as mt5
 
 import core.mt5_client as client
+
+
+# Structured dtype mirroring MT5's copy_rates_* return shape.
+_RATES_DTYPE = [
+    ("time", "i8"),
+    ("open", "f8"),
+    ("high", "f8"),
+    ("low", "f8"),
+    ("close", "f8"),
+    ("tick_volume", "u8"),
+    ("spread", "i4"),
+    ("real_volume", "u8"),
+]
+
+
+def _rates(rows):
+    """Build a structured np.ndarray matching mt5.copy_rates_* output."""
+    return np.array(rows, dtype=_RATES_DTYPE)
 
 
 # ─── Factories ──────────────────────────────────────────────────────────────
@@ -241,3 +261,112 @@ def test_list_open_positions_dict_keys(monkeypatch):
     monkeypatch.setattr(mt5, "positions_get", lambda **kw: [pos])
     result = client.list_open_positions()
     assert set(result[0].keys()) == {"ticket", "symbol", "type", "volume", "price_open", "magic", "comment"}
+
+
+# ─── fetch_rates / fetch_rates_range ─────────────────────────────────────────
+
+def test_fetch_rates_ok(monkeypatch):
+    """Returns raw structured array with OHLC + time fields accessible."""
+    rates = _rates([
+        (1700000000, 130000.0, 130100.0, 129900.0, 130050.0, 100, 5, 1000),
+        (1700000300, 130050.0, 130200.0, 130000.0, 130180.0, 120, 4, 1200),
+    ])
+    monkeypatch.setattr(mt5, "copy_rates_from_pos", lambda sym, tf, pos, n: rates)
+    out = client.fetch_rates("WIN$N", 2)
+    assert out is not None
+    assert len(out) == 2
+    assert out[0]["open"] == 130000.0
+    assert out[0]["high"] == 130100.0
+    assert out[0]["low"] == 129900.0
+    assert out[0]["close"] == 130050.0
+    assert out[0]["time"] == 1700000000
+
+
+def test_fetch_rates_passes_count_and_timeframe(monkeypatch):
+    captured = {}
+
+    def fake_copy(symbol, timeframe, pos, count):
+        captured["symbol"] = symbol
+        captured["timeframe"] = timeframe
+        captured["pos"] = pos
+        captured["count"] = count
+        return _rates([(1700000000, 1.0, 1.0, 1.0, 1.0, 0, 0, 0)])
+
+    monkeypatch.setattr(mt5, "copy_rates_from_pos", fake_copy)
+    client.fetch_rates("WDO$N", 250)
+    assert captured["symbol"] == "WDO$N"
+    assert captured["count"] == 250
+    assert captured["pos"] == 0
+    assert captured["timeframe"] == client.TIMEFRAME
+
+
+def test_fetch_rates_none_returns_none(monkeypatch):
+    monkeypatch.setattr(mt5, "copy_rates_from_pos", lambda *a, **k: None)
+    monkeypatch.setattr(mt5, "last_error", lambda: (1, "no data"))
+    assert client.fetch_rates("WIN$N", 10) is None
+
+
+def test_fetch_rates_empty_returns_none(monkeypatch):
+    """Empty structured array (len==0) must be treated as no data."""
+    empty = np.array([], dtype=_RATES_DTYPE)
+    monkeypatch.setattr(mt5, "copy_rates_from_pos", lambda *a, **k: empty)
+    monkeypatch.setattr(mt5, "last_error", lambda: (0, ""))
+    assert client.fetch_rates("WIN$N", 10) is None
+
+
+def test_fetch_rates_range_ok(monkeypatch):
+    rates = _rates([
+        (1700000000, 130000.0, 130100.0, 129900.0, 130050.0, 100, 5, 1000),
+    ])
+    monkeypatch.setattr(mt5, "copy_rates_range", lambda sym, tf, a, b: rates)
+    start = dt.datetime(2026, 4, 1)
+    end = dt.datetime(2026, 4, 2)
+    out = client.fetch_rates_range("WIN$N", start, end)
+    assert out is not None
+    assert out[0]["high"] == 130100.0
+    assert out[0]["low"] == 129900.0
+
+
+def test_fetch_rates_range_passes_dates(monkeypatch):
+    captured = {}
+
+    def fake_range(symbol, timeframe, dt_start, dt_end):
+        captured["symbol"] = symbol
+        captured["timeframe"] = timeframe
+        captured["start"] = dt_start
+        captured["end"] = dt_end
+        return _rates([(1700000000, 1.0, 1.0, 1.0, 1.0, 0, 0, 0)])
+
+    monkeypatch.setattr(mt5, "copy_rates_range", fake_range)
+    start = dt.datetime(2026, 4, 1)
+    end = dt.datetime(2026, 4, 2)
+    client.fetch_rates_range("DI1$N", start, end)
+    assert captured["symbol"] == "DI1$N"
+    assert captured["timeframe"] == client.TIMEFRAME
+    assert captured["start"] == start
+    assert captured["end"] == end
+
+
+def test_fetch_rates_range_none_returns_none(monkeypatch):
+    monkeypatch.setattr(mt5, "copy_rates_range", lambda *a, **k: None)
+    monkeypatch.setattr(mt5, "last_error", lambda: (1, "no data"))
+    assert client.fetch_rates_range("WIN$N", dt.datetime(2026, 4, 1), dt.datetime(2026, 4, 2)) is None
+
+
+def test_fetch_rates_range_empty_returns_none(monkeypatch):
+    empty = np.array([], dtype=_RATES_DTYPE)
+    monkeypatch.setattr(mt5, "copy_rates_range", lambda *a, **k: empty)
+    monkeypatch.setattr(mt5, "last_error", lambda: (0, ""))
+    assert client.fetch_rates_range("WIN$N", dt.datetime(2026, 4, 1), dt.datetime(2026, 4, 2)) is None
+
+
+def test_fetch_bars_unchanged_returns_tuple(monkeypatch):
+    """Regression guard: fetch_bars still returns (closes, times), close-only."""
+    rates = _rates([
+        (1700000000, 130000.0, 130100.0, 129900.0, 130050.0, 100, 5, 1000),
+        (1700000300, 130050.0, 130200.0, 130000.0, 130180.0, 120, 4, 1200),
+    ])
+    monkeypatch.setattr(mt5, "copy_rates_from_pos", lambda *a, **k: rates)
+    closes, times = client.fetch_bars("WIN$N", 2)
+    assert list(closes) == [130050.0, 130180.0]
+    assert list(times) == [1700000000, 1700000300]

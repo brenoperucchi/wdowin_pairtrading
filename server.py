@@ -65,7 +65,7 @@ from core.config import (
     LIVE_ORDERS,
 )
 from core.mt5_client import (
-    connect_mt5, fetch_bars,
+    connect_mt5, fetch_bars, fetch_rates,
 )
 from core.signals import (
     calc_beta_ols, calc_half_life, calc_zscore,
@@ -524,14 +524,23 @@ def init_bar_history(db_path: str = DB_PATH) -> None:
                 nwe_is_up   INTEGER
             )
         ''')
-        # Replay indicators required for parity. Idempotent ALTERs ignore only
-        # the expected duplicate-column case.
+        # Replay indicators + OHLC required for parity. Idempotent ALTERs ignore
+        # only the expected duplicate-column case.
         for ddl in (
             "ALTER TABLE bar_history ADD COLUMN eg_pvalue REAL",
             "ALTER TABLE bar_history ADD COLUMN rho REAL",
             "ALTER TABLE bar_history ADD COLUMN rho_level INTEGER",
             "ALTER TABLE bar_history ADD COLUMN beta_value REAL",
             "ALTER TABLE bar_history ADD COLUMN beta_delta_pct REAL",
+            "ALTER TABLE bar_history ADD COLUMN win_open REAL",
+            "ALTER TABLE bar_history ADD COLUMN win_high REAL",
+            "ALTER TABLE bar_history ADD COLUMN win_low REAL",
+            "ALTER TABLE bar_history ADD COLUMN wdo_open REAL",
+            "ALTER TABLE bar_history ADD COLUMN wdo_high REAL",
+            "ALTER TABLE bar_history ADD COLUMN wdo_low REAL",
+            "ALTER TABLE bar_history ADD COLUMN di_open REAL",
+            "ALTER TABLE bar_history ADD COLUMN di_high REAL",
+            "ALTER TABLE bar_history ADD COLUMN di_low REAL",
         ):
             try:
                 c.execute(ddl)
@@ -592,6 +601,24 @@ init_db()
 SESSION_START = 8 * 60 + 50     # 08:50
 SESSION_END   = 18 * 60 + 20    # 18:20
 
+
+def _fetch_ohlc(symbol: str, count: int):
+    """Return (closes, opens, highs, lows, times) numpy arrays for `count` M5 bars.
+
+    Thin wrapper around fetch_rates() that flattens the MT5 structured array
+    into the per-field arrays callers want. Failure semantics mirror
+    fetch_bars: returns a 5-tuple of Nones on missing data.
+    """
+    rates = fetch_rates(symbol, count)
+    if rates is None:
+        return None, None, None, None, None
+    closes = np.array([r["close"] for r in rates], dtype=float)
+    opens = np.array([r["open"] for r in rates], dtype=float)
+    highs = np.array([r["high"] for r in rates], dtype=float)
+    lows = np.array([r["low"] for r in rates], dtype=float)
+    times = np.array([r["time"] for r in rates], dtype=np.int64)
+    return closes, opens, highs, lows, times
+
 TF_NAMES = {
     mt5.TIMEFRAME_M1: "M1", mt5.TIMEFRAME_M5: "M5",
     mt5.TIMEFRAME_M15: "M15", mt5.TIMEFRAME_M30: "M30",
@@ -599,7 +626,7 @@ TF_NAMES = {
 }
 
 
-def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue=None, rho=None, rho_level=None, beta_value=None, beta_delta_pct=None, db_path: str = DB_PATH):
+def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue=None, rho=None, rho_level=None, beta_value=None, beta_delta_pct=None, win_open=None, win_high=None, win_low=None, wdo_open=None, wdo_high=None, wdo_low=None, di_open=None, di_high=None, di_low=None, db_path: str = DB_PATH):
     nwe_is_up_val = int(bool(nwe_is_up)) if nwe_is_up is not None else None
     rho_level_val = int(rho_level) if rho_level is not None else None
 
@@ -608,8 +635,17 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
         "date_str": date_str,
         "bar_time": bar_time,
         "win_price": win_price,
+        "win_open": win_open,
+        "win_high": win_high,
+        "win_low": win_low,
         "wdo_price": wdo_price,
+        "wdo_open": wdo_open,
+        "wdo_high": wdo_high,
+        "wdo_low": wdo_low,
         "di_price": di_price,
+        "di_open": di_open,
+        "di_high": di_high,
+        "di_low": di_low,
         "spread_wdo": spread_wdo,
         "spread_di": spread_di,
         "z_wdo": z_wdo,
@@ -639,13 +675,13 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
     try:
         conn = sqlite3.connect(db_path, timeout=10.0)
         c = conn.cursor()
-        # COALESCE on indicator columns so they get filled in by the poll
+        # COALESCE on indicator/OHLC columns so they get filled in by the poll
         # where the bar is the closed-bar (history[-2]); subsequent re-saves of
         # the same bar arrive with NULL indicators and must not erase them.
         c.execute('''
             INSERT INTO bar_history
-            (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue, rho, rho_level, beta_value, beta_delta_pct)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, eg_pvalue, rho, rho_level, beta_value, beta_delta_pct, win_open, win_high, win_low, wdo_open, wdo_high, wdo_low, di_open, di_high, di_low)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(timestamp) DO UPDATE SET
                 wdo_price = COALESCE(bar_history.wdo_price, excluded.wdo_price),
                 di_price = COALESCE(bar_history.di_price, excluded.di_price),
@@ -654,8 +690,17 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
                 rho = COALESCE(bar_history.rho, excluded.rho),
                 rho_level = COALESCE(bar_history.rho_level, excluded.rho_level),
                 beta_value = COALESCE(bar_history.beta_value, excluded.beta_value),
-                beta_delta_pct = COALESCE(bar_history.beta_delta_pct, excluded.beta_delta_pct)
-        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up_val, eg_pvalue, rho, rho_level_val, beta_value, beta_delta_pct))
+                beta_delta_pct = COALESCE(bar_history.beta_delta_pct, excluded.beta_delta_pct),
+                win_open = COALESCE(bar_history.win_open, excluded.win_open),
+                win_high = COALESCE(bar_history.win_high, excluded.win_high),
+                win_low  = COALESCE(bar_history.win_low,  excluded.win_low),
+                wdo_open = COALESCE(bar_history.wdo_open, excluded.wdo_open),
+                wdo_high = COALESCE(bar_history.wdo_high, excluded.wdo_high),
+                wdo_low  = COALESCE(bar_history.wdo_low,  excluded.wdo_low),
+                di_open  = COALESCE(bar_history.di_open,  excluded.di_open),
+                di_high  = COALESCE(bar_history.di_high,  excluded.di_high),
+                di_low   = COALESCE(bar_history.di_low,   excluded.di_low)
+        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up_val, eg_pvalue, rho, rho_level_val, beta_value, beta_delta_pct, win_open, win_high, win_low, wdo_open, wdo_high, wdo_low, di_open, di_high, di_low))
         conn.commit()
         conn.close()
         sqlite_ok = True
@@ -710,6 +755,15 @@ def _persist_closed_bars(history, db_path: str = DB_PATH) -> int:
                 rho_level=entry.get("rho_level"),
                 beta_value=entry.get("beta_value"),
                 beta_delta_pct=entry.get("beta_delta_pct"),
+                win_open=entry.get("win_open"),
+                win_high=entry.get("win_high"),
+                win_low=entry.get("win_low"),
+                wdo_open=entry.get("wdo_open"),
+                wdo_high=entry.get("wdo_high"),
+                wdo_low=entry.get("wdo_low"),
+                di_open=entry.get("di_open"),
+                di_high=entry.get("di_high"),
+                di_low=entry.get("di_low"),
                 db_path=db_path,
             )
             saved += 1
@@ -848,6 +902,16 @@ def _build_history(
     wdo_prices=None,
     di_prices=None,
     di_price_map=None,
+    win_opens=None,
+    win_highs=None,
+    win_lows=None,
+    wdo_opens=None,
+    wdo_highs=None,
+    wdo_lows=None,
+    di_opens=None,
+    di_highs=None,
+    di_lows=None,
+    di_ohlc_map=None,
 ):
     """Build filtered session history from bar data, including NWE and DI."""
     n = len(z_arr)
@@ -855,7 +919,17 @@ def _build_history(
     win_len = len(win_prices) if win_prices is not None else 0
     wdo_len = len(wdo_prices) if wdo_prices is not None else 0
     di_len = len(di_prices) if di_prices is not None else 0
-    
+
+    # Per-array OHLC indexing aligns with the corresponding close array (same
+    # length as win_prices / wdo_prices / di_prices). Missing arrays => no OHLC
+    # attached for that leg (graceful degradation; load_bar_history reads NULLs).
+    def _pick(arr, idx):
+        if arr is None:
+            return None
+        if 0 <= idx < len(arr):
+            return float(arr[idx])
+        return None
+
     nwe_line, nwe_upper, nwe_lower, nwe_is_up = nwe_data if nwe_data else (None, None, None, None)
     nwe_len = len(nwe_line) if nwe_line is not None else 0
     bar_info = []
@@ -873,27 +947,55 @@ def _build_history(
         if z_v1_arr is not None:
             v1_idx = i - (n - v1_len)
             entry["z_v1"] = round(float(z_v1_arr[v1_idx]), 3) if 0 <= v1_idx < v1_len else 0.0
-            
+
         win_val = None
         if win_prices is not None:
             win_idx = i - (n - win_len)
             win_val = float(win_prices[win_idx]) if 0 <= win_idx < win_len else 0.0
             entry["win_price"] = win_val
+            win_open = _pick(win_opens, win_idx)
+            win_high = _pick(win_highs, win_idx)
+            win_low = _pick(win_lows, win_idx)
+            if win_open is not None: entry["win_open"] = win_open
+            if win_high is not None: entry["win_high"] = win_high
+            if win_low is not None: entry["win_low"] = win_low
 
         if wdo_prices is not None:
             wdo_idx = i - (n - wdo_len)
             if 0 <= wdo_idx < wdo_len:
                 entry["wdo_price"] = float(wdo_prices[wdo_idx])
+            wdo_open = _pick(wdo_opens, wdo_idx)
+            wdo_high = _pick(wdo_highs, wdo_idx)
+            wdo_low = _pick(wdo_lows, wdo_idx)
+            if wdo_open is not None: entry["wdo_open"] = wdo_open
+            if wdo_high is not None: entry["wdo_high"] = wdo_high
+            if wdo_low is not None: entry["wdo_low"] = wdo_low
 
         di_price_val = None
+        di_open_val = di_high_val = di_low_val = None
         if di_prices is not None:
             di_idx = i - (n - di_len)
             if 0 <= di_idx < di_len:
                 di_price_val = float(di_prices[di_idx])
+            di_open_val = _pick(di_opens, di_idx)
+            di_high_val = _pick(di_highs, di_idx)
+            di_low_val = _pick(di_lows, di_idx)
         elif di_price_map:
             di_price_val = di_price_map.get(local_ts)
+        if di_ohlc_map and (di_open_val is None or di_high_val is None or di_low_val is None):
+            # Fallback: when caller doesn't pass DI arrays directly, look up
+            # per-timestamp from the cache map populated by /api/di-regime.
+            cached = di_ohlc_map.get(local_ts)
+            if cached:
+                co, ch, cl = cached
+                if di_open_val is None and co is not None: di_open_val = float(co)
+                if di_high_val is None and ch is not None: di_high_val = float(ch)
+                if di_low_val is None and cl is not None: di_low_val = float(cl)
         if di_price_val is not None:
             entry["di_price"] = float(di_price_val)
+        if di_open_val is not None: entry["di_open"] = di_open_val
+        if di_high_val is not None: entry["di_high"] = di_high_val
+        if di_low_val is not None: entry["di_low"] = di_low_val
             
         z_di_val = di_map.get(local_ts, 0.0) if di_map else 0.0
         entry["z_di"] = z_di_val
@@ -1070,8 +1172,9 @@ def regime_v2():
         )
         return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": [], "trades_today": []}
 
-    closes_a, times_a = fetch_bars(SYMBOL_A, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
-    closes_b, times_b = fetch_bars(SYMBOL_B, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
+    needed_a = max(KALMAN_BURN_IN, JOH_WINDOW + 10)
+    closes_a, opens_a, highs_a, lows_a, times_a = _fetch_ohlc(SYMBOL_A, needed_a)
+    closes_b, opens_b, highs_b, lows_b, times_b = _fetch_ohlc(SYMBOL_B, needed_a)
 
     if closes_a is None or closes_b is None:
         _record_timeline_data_failure(
@@ -1090,6 +1193,8 @@ def regime_v2():
 
     min_len = min(len(closes_a), len(closes_b))
     ac, bc, tc = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
+    ao, ah, al = opens_a[-min_len:], highs_a[-min_len:], lows_a[-min_len:]
+    bo, bh, bl = opens_b[-min_len:], highs_b[-min_len:], lows_b[-min_len:]
 
     # Kalman filter
     kf = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
@@ -1114,6 +1219,8 @@ def regime_v2():
     # ── Slice after burn-in to keep payload and NWE/OLS fast ────────────
     if len(ac) > BARS:
         ac, bc, tc = ac[-BARS:], bc[-BARS:], tc[-BARS:]
+        ao, ah, al = ao[-BARS:], ah[-BARS:], al[-BARS:]
+        bo, bh, bl = bo[-BARS:], bh[-BARS:], bl[-BARS:]
         spreads = spreads[-BARS:]
         kf_betas = kf_betas[-BARS:]
         z_scores = z_scores_full[-BARS:]
@@ -1179,7 +1286,7 @@ def regime_v2():
             bar_close_confirmed = True
             regime_v2._last_closed_bar_ts = closed_bar_ts
             # Force DI cache refresh on confirmed close (prevents race in consensus)
-            di_regime()
+            di_regime(force=True)
 
     # Re-fetch DI cache after possible forced update
     z_di_live = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
@@ -1358,6 +1465,7 @@ def regime_v2():
     
     di_map = {}
     di_price_map = {}
+    di_ohlc_map = {}
     if _di_cache and "history" in _di_cache:
         for dh in _di_cache["history"]:
             dt_str = dh.get("date", "") + " " + dh.get("bar_time", "")
@@ -1367,14 +1475,22 @@ def regime_v2():
                 di_map[local_ts] = dh.get("z", 0.0)
                 if dh.get("di_price") is not None:
                     di_price_map[local_ts] = dh.get("di_price")
+                if any(dh.get(k) is not None for k in ("di_open", "di_high", "di_low")):
+                    di_ohlc_map[local_ts] = (
+                        dh.get("di_open"),
+                        dh.get("di_high"),
+                        dh.get("di_low"),
+                    )
             except Exception:
                 pass
 
     live_history = _build_history(
         tc[-20:], z_scores[-20:], spreads[-20:],
         win_prices=ac[-20:], wdo_prices=bc[-20:],
+        win_opens=ao[-20:], win_highs=ah[-20:], win_lows=al[-20:],
+        wdo_opens=bo[-20:], wdo_highs=bh[-20:], wdo_lows=bl[-20:],
         nwe_data=(nwe_line[-20:], nwe_upper[-20:], nwe_lower[-20:], nwe_is_up_arr[-20:]),
-        di_map=di_map, di_price_map=di_price_map
+        di_map=di_map, di_price_map=di_price_map, di_ohlc_map=di_ohlc_map,
     )
     
     if db_hist and live_history:
@@ -1388,8 +1504,10 @@ def regime_v2():
     else:
         history = _build_history(
             tc, z_scores, spreads, win_prices=ac, wdo_prices=bc,
+            win_opens=ao, win_highs=ah, win_lows=al,
+            wdo_opens=bo, wdo_highs=bh, wdo_lows=bl,
             nwe_data=(nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr),
-            di_map=di_map, di_price_map=di_price_map
+            di_map=di_map, di_price_map=di_price_map, di_ohlc_map=di_ohlc_map,
         )
 
     # Persist closed bars from the FULL `history` (not just live_history).
@@ -1480,11 +1598,11 @@ def _get_di_signal(z, z_entry=DI_Z_ENTRY, z_anomaly=DI_Z_ANOMALY):
 
 
 @app.get("/api/di-regime")
-def di_regime():
+def di_regime(force: bool = False):
     """WIN×DI pair trading — Johansen z-score + gate."""
     global _di_cache, _di_cache_ts, _di_beta_state, _di_coint_cache
 
-    if time.time() - _di_cache_ts < CACHE_TTL and _di_cache:
+    if not force and time.time() - _di_cache_ts < CACHE_TTL and _di_cache:
         return _di_cache
 
     if not connect_mt5():
@@ -1492,8 +1610,8 @@ def di_regime():
 
     # Fetch data — need enough for Kalman + Johansen gate
     needed = max(DI_BARS, DI_BETA_REF_BARS, JOH_WINDOW) + DI_KALMAN_W + 10
-    closes_win, times_win = fetch_bars(SYMBOL_A, needed)
-    closes_di, times_di = fetch_bars(DI_SYMBOL, needed)
+    closes_win, opens_win, highs_win, lows_win, times_win = _fetch_ohlc(SYMBOL_A, needed)
+    closes_di, opens_di, highs_di, lows_di, times_di = _fetch_ohlc(DI_SYMBOL, needed)
 
     if closes_win is None or closes_di is None:
         return {"error": f"Sem dados para '{SYMBOL_A}'/'{DI_SYMBOL}'.",
@@ -1503,6 +1621,12 @@ def di_regime():
     closes_win = closes_win[-min_len:]
     closes_di = closes_di[-min_len:]
     times_win = times_win[-min_len:]
+    # OHLC for DI is the leg surfaced into _di_cache history (read back by
+    # regime_v2). WIN OHLC stays here in case future callers need it; only DI
+    # arrays are propagated downstream.
+    opens_di = opens_di[-min_len:]
+    highs_di = highs_di[-min_len:]
+    lows_di = lows_di[-min_len:]
 
     today = datetime.now().date()
 
@@ -1575,6 +1699,9 @@ def di_regime():
         z_arr,
         spread_arr[-n_z:],
         di_prices=closes_di[-n_z:],
+        di_opens=opens_di[-n_z:],
+        di_highs=highs_di[-n_z:],
+        di_lows=lows_di[-n_z:],
     )
 
     signal = _get_di_signal(current_z)

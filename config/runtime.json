@@ -6,6 +6,15 @@
     "eg_strategies": [],
     "eg_threshold": 0.1,
     "rho_breakdown_level": 3,
+    "simulation": {
+      "conflict_rule": "sl_first",
+      "cost_per_contract_rt_brl": 1.0,
+      "enabled": false,
+      "entry_slippage_pts": 5.0,
+      "exit_at_sl_tp_level": true,
+      "exit_slippage_pts": 5.0,
+      "intra_bar_sl_tp": true
+    },
     "z_anomaly": 4.0
   },
   "replay": {
@@ -18,6 +27,15 @@
     ],
     "eg_threshold": 0.1,
     "rho_breakdown_level": 2,
+    "simulation": {
+      "conflict_rule": "sl_first",
+      "cost_per_contract_rt_brl": 1.0,
+      "enabled": false,
+      "entry_slippage_pts": 5.0,
+      "exit_at_sl_tp_level": true,
+      "exit_slippage_pts": 5.0,
+      "intra_bar_sl_tp": true
+    },
     "z_anomaly": 4.0
   }
 }

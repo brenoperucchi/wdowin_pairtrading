@@ -106,6 +106,24 @@ def _bar(ts: int, **overrides) -> dict:
     return base
 
 
+_OHLC_KEYS = (
+    "win_open", "win_high", "win_low",
+    "wdo_open", "wdo_high", "wdo_low",
+    "di_open", "di_high", "di_low",
+)
+
+
+def _bar_with_ohlc(ts: int, **overrides) -> dict:
+    base = _bar(
+        ts,
+        win_open=130_010.0, win_high=130_180.0, win_low=129_870.0,
+        wdo_open=5_505.0, wdo_high=5_520.0, wdo_low=5_490.0,
+        di_open=12.55, di_high=12.62, di_low=12.48,
+    )
+    base.update(overrides)
+    return base
+
+
 # ── Backend resolution ──────────────────────────────────────────────────────
 
 
@@ -249,6 +267,147 @@ def test_sqlite_update_columns_partial(sqlite_env):
     assert r["z_wdo"] == 0.5
 
 
+# ── OHLC schema + migration ─────────────────────────────────────────────────
+
+
+def _sqlite_columns(db_path) -> set[str]:
+    import sqlite3 as sql
+    with sql.connect(str(db_path)) as conn:
+        cur = conn.execute("PRAGMA table_info(bar_history)")
+        return {row[1] for row in cur.fetchall()}
+
+
+def test_sqlite_ohlc_columns_present_after_fresh_init(sqlite_env):
+    cols = _sqlite_columns(sqlite_env)
+    for col in _OHLC_KEYS:
+        assert col in cols, f"missing OHLC column after fresh init: {col}"
+
+
+def test_sqlite_ohlc_migration_from_legacy_table(tmp_path, monkeypatch):
+    """init_schema must ALTER an existing pre-OHLC table, not silently skip it."""
+    import sqlite3 as sql
+
+    db_path = tmp_path / "legacy.db"
+    legacy_ddl = """
+    CREATE TABLE bar_history (
+        timestamp       INTEGER PRIMARY KEY,
+        date_str        TEXT NOT NULL,
+        bar_time        TEXT NOT NULL,
+        win_price       REAL,
+        wdo_price       REAL,
+        di_price        REAL,
+        spread_wdo      REAL,
+        spread_di       REAL,
+        z_wdo           REAL,
+        z_di            REAL,
+        nwe_center      REAL,
+        nwe_upper       REAL,
+        nwe_lower       REAL,
+        nwe_is_up       INTEGER,
+        eg_pvalue       REAL,
+        rho             REAL,
+        rho_level       INTEGER,
+        beta_value      REAL,
+        beta_delta_pct  REAL
+    )
+    """
+    with sql.connect(str(db_path)) as conn:
+        conn.execute(legacy_ddl)
+        conn.execute(
+            "INSERT INTO bar_history (timestamp, date_str, bar_time, win_price) "
+            "VALUES (?, ?, ?, ?)",
+            (1_700_000_000, "2026-05-12", "09:00", 130_000.0),
+        )
+        conn.commit()
+
+    # Sanity: OHLC columns absent in the legacy table.
+    pre_cols = _sqlite_columns(db_path)
+    for col in _OHLC_KEYS:
+        assert col not in pre_cols
+
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "sqlite")
+    monkeypatch.setenv("BAR_HISTORY_SQLITE_PATH", str(db_path))
+    bhdb.init_schema()
+
+    post_cols = _sqlite_columns(db_path)
+    for col in _OHLC_KEYS:
+        assert col in post_cols
+    # Existing row preserved (migration is additive, not destructive).
+    rows = bhdb.select_by_date("2026-05-12")
+    assert len(rows) == 1
+    assert rows[0]["win_price"] == 130_000.0
+    assert rows[0]["win_open"] is None  # new column starts NULL
+
+
+def test_sqlite_ohlc_migration_idempotent(sqlite_env):
+    """Re-running init_schema on an already-migrated table is a no-op."""
+    bhdb.init_schema()
+    bhdb.init_schema()
+    cols = _sqlite_columns(sqlite_env)
+    for col in _OHLC_KEYS:
+        assert col in cols
+
+
+def test_sqlite_upsert_ohlc_roundtrip(sqlite_env):
+    ts = int(time.time())
+    bhdb.upsert_bar(_bar_with_ohlc(ts))
+    r = bhdb.select_by_date("2026-05-12")[0]
+    assert r["win_open"] == 130_010.0
+    assert r["win_high"] == 130_180.0
+    assert r["win_low"] == 129_870.0
+    assert r["wdo_open"] == 5_505.0
+    assert r["wdo_high"] == 5_520.0
+    assert r["wdo_low"] == 5_490.0
+    assert r["di_open"] == 12.55
+    assert r["di_high"] == 12.62
+    assert r["di_low"] == 12.48
+
+
+def test_sqlite_upsert_merge_preserves_existing_ohlc(sqlite_env):
+    """Merge mode: NULL OHLC in re-upsert must keep the prior non-NULL values."""
+    ts = int(time.time())
+    bhdb.upsert_bar(_bar_with_ohlc(ts))
+    # Re-upsert with OHLC explicitly None — should NOT clobber.
+    bhdb.upsert_bar(_bar(ts, **{k: None for k in _OHLC_KEYS}))
+    r = bhdb.select_by_date("2026-05-12")[0]
+    assert r["win_open"] == 130_010.0
+    assert r["wdo_high"] == 5_520.0
+    assert r["di_low"] == 12.48
+
+
+def test_sqlite_upsert_merge_fills_null_ohlc_when_supplied(sqlite_env):
+    """Merge mode: NULL → non-NULL fills the column (mirrors wdo_price/di_price)."""
+    ts = int(time.time())
+    bhdb.upsert_bar(_bar(ts))  # base has no OHLC
+    bhdb.upsert_bar(_bar_with_ohlc(ts))
+    r = bhdb.select_by_date("2026-05-12")[0]
+    assert r["win_open"] == 130_010.0
+    assert r["di_high"] == 12.62
+
+
+def test_sqlite_upsert_replace_overwrites_ohlc(sqlite_env):
+    """Replace mode (backfill): every non-key column gets overwritten, OHLC included."""
+    ts = int(time.time())
+    bhdb.upsert_bar(_bar_with_ohlc(ts))
+    bhdb.upsert_bar(
+        _bar_with_ohlc(ts, win_open=999.0, win_high=999.0, win_low=999.0),
+        mode="replace",
+    )
+    r = bhdb.select_by_date("2026-05-12")[0]
+    assert r["win_open"] == 999.0
+    assert r["win_high"] == 999.0
+    assert r["win_low"] == 999.0
+
+
+def test_sqlite_update_columns_accepts_ohlc(sqlite_env):
+    ts = int(time.time())
+    bhdb.upsert_bar(_bar(ts))
+    bhdb.update_columns(ts, win_high=130_500.0, di_low=12.30)
+    r = bhdb.select_by_date("2026-05-12")[0]
+    assert r["win_high"] == 130_500.0
+    assert r["di_low"] == 12.30
+
+
 # ── Postgres backend (opt-in via PG_TEST_URI) ───────────────────────────────
 
 
@@ -322,6 +481,112 @@ def test_postgres_hypertable_created(postgres_env):
             )
             (cnt,) = cur.fetchone()
             assert cnt == 1
+
+
+# ── Postgres OHLC schema + migration ────────────────────────────────────────
+
+
+def _postgres_columns(pg_uri: str) -> set[str]:
+    import psycopg
+
+    with psycopg.connect(pg_uri) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'bar_history'"
+            )
+            return {row[0] for row in cur.fetchall()}
+
+
+def test_postgres_ohlc_columns_present_after_fresh_init(postgres_env):
+    cols = _postgres_columns(postgres_env)
+    for col in _OHLC_KEYS:
+        assert col in cols
+
+
+def test_postgres_ohlc_migration_from_legacy_table(pg_uri, monkeypatch):
+    """ADD COLUMN IF NOT EXISTS must populate the new OHLC columns on a legacy PG table."""
+    import psycopg
+
+    legacy_ddl = """
+    CREATE TABLE bar_history (
+        timestamp       BIGINT NOT NULL,
+        date_str        TEXT NOT NULL,
+        bar_time        TEXT NOT NULL,
+        win_price       DOUBLE PRECISION,
+        wdo_price       DOUBLE PRECISION,
+        di_price        DOUBLE PRECISION,
+        spread_wdo      DOUBLE PRECISION,
+        spread_di       DOUBLE PRECISION,
+        z_wdo           DOUBLE PRECISION,
+        z_di            DOUBLE PRECISION,
+        nwe_center      DOUBLE PRECISION,
+        nwe_upper       DOUBLE PRECISION,
+        nwe_lower       DOUBLE PRECISION,
+        nwe_is_up       SMALLINT,
+        eg_pvalue       DOUBLE PRECISION,
+        rho             DOUBLE PRECISION,
+        rho_level       SMALLINT,
+        beta_value      DOUBLE PRECISION,
+        beta_delta_pct  DOUBLE PRECISION,
+        PRIMARY KEY (timestamp)
+    )
+    """
+    with psycopg.connect(pg_uri, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS bar_history CASCADE")
+            cur.execute(legacy_ddl)
+            cur.execute(
+                "INSERT INTO bar_history (timestamp, date_str, bar_time, win_price) "
+                "VALUES (%s, %s, %s, %s)",
+                (1_700_000_000, "2026-05-12", "09:00", 130_000.0),
+            )
+
+    pre_cols = _postgres_columns(pg_uri)
+    for col in _OHLC_KEYS:
+        assert col not in pre_cols
+
+    monkeypatch.setenv("PG_URI", pg_uri)
+    monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
+    bhdb.init_schema()
+
+    post_cols = _postgres_columns(pg_uri)
+    for col in _OHLC_KEYS:
+        assert col in post_cols
+    rows = bhdb.select_by_date("2026-05-12")
+    assert len(rows) == 1
+    assert rows[0]["win_open"] is None
+
+    # Cleanup so the next test fixture starts from a clean slate.
+    with psycopg.connect(pg_uri, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS bar_history CASCADE")
+
+
+def test_postgres_ohlc_migration_idempotent(postgres_env):
+    bhdb.init_schema()
+    bhdb.init_schema()
+    cols = _postgres_columns(postgres_env)
+    for col in _OHLC_KEYS:
+        assert col in cols
+
+
+def test_postgres_upsert_ohlc_roundtrip(postgres_env):
+    ts = 1_700_000_000
+    bhdb.upsert_bar(_bar_with_ohlc(ts))
+    r = bhdb.select_by_date("2026-05-12")[0]
+    assert r["win_open"] == 130_010.0
+    assert r["wdo_high"] == 5_520.0
+    assert r["di_low"] == 12.48
+
+
+def test_postgres_upsert_merge_preserves_existing_ohlc(postgres_env):
+    ts = 1_700_000_000
+    bhdb.upsert_bar(_bar_with_ohlc(ts))
+    bhdb.upsert_bar(_bar(ts, **{k: None for k in _OHLC_KEYS}))
+    r = bhdb.select_by_date("2026-05-12")[0]
+    assert r["win_open"] == 130_010.0
+    assert r["di_high"] == 12.62
 
 
 # ── Dual mode (requires both backends) ──────────────────────────────────────

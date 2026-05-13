@@ -464,7 +464,9 @@ def test_main_skips_source_db_existence_check_under_postgres_backend(
     monkeypatch.setenv("BAR_HISTORY_BACKEND", "postgres")
     captured = {}
 
-    def fake_run_replay(*, date_str, source_db, out_dir, config_path, overrides):
+    def fake_run_replay(
+        *, date_str, source_db, out_dir, config_path, overrides, simulation_overrides
+    ):
         captured["source_db"] = source_db
         captured["date_str"] = date_str
         return {"replay_date": date_str, "bars_total": 0, "bars_processed": 0}

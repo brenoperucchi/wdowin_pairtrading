@@ -148,7 +148,10 @@ class TradeEngine:
                  entry_win_price: float | None = None,
                  entry_wdo_price: float | None = None,
                  now_dt: datetime | None = None,
-                 eg_strategies: list[str] | None = None) -> dict:
+                 eg_strategies: list[str] | None = None,
+                 simulation_profile: dict | None = None,
+                 win_high: float | None = None,
+                 win_low: float | None = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -201,7 +204,9 @@ class TradeEngine:
             if trade is not None:
                 results[strat] = self._check_exits(
                     trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strat,
-                    closed_bar_ts, now_dt
+                    closed_bar_ts, now_dt,
+                    simulation_profile=simulation_profile,
+                    win_high=win_high, win_low=win_low,
                 )
 
         # ── Refresh operational stats post-exits (within-poll consistency) ─
@@ -262,17 +267,20 @@ class TradeEngine:
             if strat == "CONS_BASE":
                 res = self._eval_consensus(
                     z_wdo, z_di, entry_win_price, entry_wdo_price, rho, beta_value,
-                    hmm_state, closed_bar_ts, now_dt
+                    hmm_state, closed_bar_ts, now_dt,
+                    simulation_profile=simulation_profile,
                 )
             elif strat == "WDO_NWE":
                 res = self._eval_wdo_nwe(
                     z_wdo, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt
+                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt,
+                    simulation_profile=simulation_profile,
                 )
             elif strat == "DI_NWE":
                 res = self._eval_di_nwe(
                     z_di, entry_win_price, entry_wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt
+                    nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts, now_dt,
+                    simulation_profile=simulation_profile,
                 )
             results[strat] = res
             if res.get("open_trade") is not None:
@@ -284,26 +292,29 @@ class TradeEngine:
     # ── Strategy evaluators ─────────────────────────────────────────────────
 
     def _eval_consensus(self, z_wdo, z_di, win_price, wdo_price, rho, beta, hmm,
-                        closed_bar_ts=None, now_dt=None):
+                        closed_bar_ts=None, now_dt=None,
+                        simulation_profile=None):
         """Consensus: requires BOTH z-scores to confirm."""
         # BUY
         if (z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION) or \
            (z_wdo <= -Z_ATTENTION and z_di <= -Z_ENTRY):
             return self._open_trade("BUY", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
-                                    closed_bar_ts, now_dt)
+                                    closed_bar_ts, now_dt,
+                                    simulation_profile=simulation_profile)
         # SELL
         if (z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION) or \
            (z_wdo >= Z_ATTENTION and z_di >= Z_ENTRY):
             return self._open_trade("SELL", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
-                                    closed_bar_ts, now_dt)
+                                    closed_bar_ts, now_dt,
+                                    simulation_profile=simulation_profile)
 
         return self._result("WAIT", "CONS_BASE")
 
     def _eval_wdo_nwe(self, z_wdo, win_price, wdo_price, rho, beta, hmm,
                       nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None,
-                      now_dt=None):
+                      now_dt=None, simulation_profile=None):
         """WDO Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_wdo <= -Z_ENTRY
         sig_sell = z_wdo >= Z_ENTRY
@@ -330,17 +341,19 @@ class TradeEngine:
         if sig_buy:
             return self._open_trade("BUY", "WDO_KALMAN", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
-                                    closed_bar_ts, now_dt)
+                                    closed_bar_ts, now_dt,
+                                    simulation_profile=simulation_profile)
         if sig_sell:
             return self._open_trade("SELL", "WDO_KALMAN", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "WDO_NWE",
-                                    closed_bar_ts, now_dt)
+                                    closed_bar_ts, now_dt,
+                                    simulation_profile=simulation_profile)
 
         return self._result("WAIT", "WDO_NWE")
 
     def _eval_di_nwe(self, z_di, win_price, wdo_price, rho, beta, hmm,
                      nwe_is_up, nwe_upper, nwe_lower, closed_bar_ts=None,
-                     now_dt=None):
+                     now_dt=None, simulation_profile=None):
         """DI Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_di <= -Z_ENTRY
         sig_sell = z_di >= Z_ENTRY
@@ -367,11 +380,13 @@ class TradeEngine:
         if sig_buy:
             return self._open_trade("BUY", "DI_JOHANSEN", z_di,
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
-                                    closed_bar_ts, now_dt)
+                                    closed_bar_ts, now_dt,
+                                    simulation_profile=simulation_profile)
         if sig_sell:
             return self._open_trade("SELL", "DI_JOHANSEN", z_di,
                                     win_price, wdo_price, rho, beta, hmm, "DI_NWE",
-                                    closed_bar_ts, now_dt)
+                                    closed_bar_ts, now_dt,
+                                    simulation_profile=simulation_profile)
 
         return self._result("WAIT", "DI_NWE")
 
@@ -404,10 +419,21 @@ class TradeEngine:
 
     def _open_trade(self, direction, z_source, z_val,
                      win_price, wdo_price, rho, beta, hmm_state, strategy,
-                     closed_bar_ts=None, now_dt=None):
+                     closed_bar_ts=None, now_dt=None,
+                     simulation_profile=None):
         now_dt = now_dt or datetime.now()
         attempt_id = uuid4().hex
-        entry_price = win_price
+
+        sim_enabled = bool(simulation_profile and simulation_profile.get("enabled"))
+        entry_slip_pts = 0.0
+        if sim_enabled and not LIVE_ORDERS:
+            entry_slip_pts = float(simulation_profile.get("entry_slippage_pts", 0.0))
+
+        if direction == "BUY":
+            entry_price = win_price + entry_slip_pts
+        else:
+            entry_price = win_price - entry_slip_pts
+
         mt5_ticket_in = None
         mt5_magic = None
         live = 0
@@ -439,6 +465,8 @@ class TradeEngine:
                 "beta": beta,
                 "hmm_state": hmm_state,
                 "win_price": win_price,
+                "entry_price": entry_price,
+                "entry_slippage_pts": entry_slip_pts,
                 "wdo_price": wdo_price,
                 "qty_win": WIN_CONTRACTS,
             },
@@ -557,6 +585,7 @@ class TradeEngine:
     def _check_exits(
         self, trade, win_price, wdo_price, hour, minute, z_wdo, z_di,
         strategy, closed_bar_ts=None, now_dt=None,
+        simulation_profile=None, win_high=None, win_low=None,
     ):
         now_dt = now_dt or datetime.now()
         is_buy = trade["direction"] == "BUY"
@@ -568,34 +597,114 @@ class TradeEngine:
         entry_px = trade["price_win_in"]
         pts_favor = (win_price - entry_px) if is_buy else (entry_px - win_price)
 
-        max_favor = trade["max_pts_favor"]
-        be_active = trade["be_active"]
+        # ── Simulation profile parsing ───────────────────────────────────────
+        sim_enabled = bool(simulation_profile and simulation_profile.get("enabled"))
+        intra_bar_cfg = sim_enabled and bool(simulation_profile.get("intra_bar_sl_tp", True))
+        exit_at_level = sim_enabled and bool(simulation_profile.get("exit_at_sl_tp_level", True))
+        exit_slip = float(simulation_profile.get("exit_slippage_pts", 0.0)) if sim_enabled else 0.0
+        cost_rt = float(simulation_profile.get("cost_per_contract_rt_brl", 0.0)) if sim_enabled else 0.0
+        conflict_rule = (simulation_profile or {}).get("conflict_rule", "sl_first")
+        has_hl = win_high is not None and win_low is not None
+        use_intra = intra_bar_cfg and has_hl
+        if intra_bar_cfg and not has_hl:
+            logger.debug(
+                "simulation_intra_bar_degraded trade_id=%s strategy=%s reason=missing_hl",
+                trade["id"], strategy,
+            )
 
-        # Update max favor
-        if pts_favor > max_favor:
-            max_favor = pts_favor
+        if use_intra:
+            if is_buy:
+                favor_high = float(win_high) - entry_px
+                favor_low = float(win_low) - entry_px
+            else:
+                favor_high = entry_px - float(win_low)
+                favor_low = entry_px - float(win_high)
+        else:
+            favor_high = pts_favor
+            favor_low = pts_favor
+
+        max_favor = trade["max_pts_favor"]
+        be_active_at_open = bool(trade["be_active"])
+
+        # Update max favor (intra-bar uses high of bar; close-only uses close)
+        if favor_high > max_favor:
+            max_favor = favor_high
             self._update_field(trade["id"], "max_pts_favor", max_favor)
 
-        # BE activation
-        if not be_active and max_favor >= be_act:
-            be_active = True
-            self._update_field(trade["id"], "be_active", 1)
+        be_activated_this_bar = (not be_active_at_open) and max_favor >= be_act
+        be_active = be_active_at_open or be_activated_this_bar
 
-        # Exit checks
+        # ── Exit detection ───────────────────────────────────────────────────
         reason = None
-        if pts_favor >= tp:
-            reason = "TARGET"
-        elif be_active and pts_favor <= be_lock:
-            reason = "BE_STOP"
-        elif not be_active and pts_favor <= -sl:
-            reason = "STOP_LOSS"
+        raw_sl_hit = False
+        if use_intra:
+            tp_hit = favor_high >= tp
+            raw_sl_hit = favor_low <= -sl
+            be_stop_hit = be_active and favor_low <= be_lock
+            unprotected_sl_hit = raw_sl_hit and not be_active_at_open
+
+            if tp_hit and (unprotected_sl_hit or be_stop_hit):
+                # TP and stop both triggered inside the same bar — apply rule
+                if conflict_rule == "tp_first":
+                    reason = "TARGET"
+                elif unprotected_sl_hit:
+                    reason = "STOP_LOSS"
+                else:  # sl_first | worst
+                    reason = "BE_STOP"
+            elif tp_hit:
+                reason = "TARGET"
+            elif unprotected_sl_hit:
+                reason = "STOP_LOSS"
+            elif be_stop_hit:
+                reason = "BE_STOP"
+            elif raw_sl_hit:
+                reason = "STOP_LOSS"
+        else:
+            if pts_favor >= tp:
+                reason = "TARGET"
+            elif be_active and pts_favor <= be_lock:
+                reason = "BE_STOP"
+            elif not be_active and pts_favor <= -sl:
+                reason = "STOP_LOSS"
+
+        if be_activated_this_bar and not (use_intra and raw_sl_hit and reason == "STOP_LOSS"):
+            self._update_field(trade["id"], "be_active", 1)
 
         if self._is_force_close(hour, minute):
             reason = "FORCE_CLOSE"
 
         if reason:
-            pnl = pts_favor * WIN_CONTRACTS * WIN_PV
-            close_result = self._close_trade(trade, reason, win_price, wdo_price, pnl, now_dt)
+            # Resolve exit pts_favor (pre-slippage, before cost)
+            if reason == "FORCE_CLOSE":
+                exit_pts_favor = pts_favor  # time-based: close price
+            elif sim_enabled and exit_at_level:
+                if reason == "TARGET":
+                    exit_pts_favor = float(tp)
+                elif reason == "STOP_LOSS":
+                    exit_pts_favor = float(-sl)
+                elif reason == "BE_STOP":
+                    exit_pts_favor = float(be_lock)
+                else:
+                    exit_pts_favor = pts_favor
+            else:
+                exit_pts_favor = pts_favor
+
+            if sim_enabled:
+                final_pts_favor = exit_pts_favor - exit_slip
+                if is_buy:
+                    exit_price = entry_px + final_pts_favor
+                else:
+                    exit_price = entry_px - final_pts_favor
+                cost_brl = cost_rt * WIN_CONTRACTS
+                pnl = final_pts_favor * WIN_CONTRACTS * WIN_PV - cost_brl
+            else:
+                # Bit-exact baseline
+                final_pts_favor = pts_favor
+                exit_price = win_price
+                cost_brl = 0.0
+                pnl = pts_favor * WIN_CONTRACTS * WIN_PV
+
+            close_result = self._close_trade(trade, reason, exit_price, wdo_price, pnl, now_dt)
             trade_id = trade["id"]
             correlation_id = self._event_corr_trade(trade_id)
             exit_status = "OK" if close_result["ok"] else "FAILED"
@@ -620,6 +729,14 @@ class TradeEngine:
                     "price_win_out": close_result.get("price_win_out", win_price),
                     "price_wdo_out": wdo_price,
                     "pts_favor": pts_favor,
+                    "exit_pts_favor": exit_pts_favor,
+                    "final_pts_favor": final_pts_favor,
+                    "exit_slippage_pts": exit_slip,
+                    "cost_brl": cost_brl,
+                    "simulation_enabled": sim_enabled,
+                    "intra_bar_used": use_intra,
+                    "win_high": win_high,
+                    "win_low": win_low,
                     "pnl_brl": close_result.get("pnl"),
                     "live": bool(trade.get("live")),
                     "mt5_ticket_in": trade.get("mt5_ticket_in"),

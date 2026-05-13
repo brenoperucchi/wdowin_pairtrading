@@ -18,6 +18,7 @@ audits/
 reports/execution_smoke/
 logs/
 beta_ultimo.json
+config/runtime.json.bak.*
 
 # Environment
 .venv/
@@ -26,5 +27,6 @@ beta_ultimo.json
 .env.*
 !.env.example
 .gemini/
+.claude/
 serviceAccountKey.json
 .firebase/

@@ -31,10 +31,20 @@ DEFAULT_SQLITE_PATH = "trades.db"
 
 BAR_COLUMNS: tuple[str, ...] = (
     "timestamp", "date_str", "bar_time",
-    "win_price", "wdo_price", "di_price",
+    "win_price", "win_open", "win_high", "win_low",
+    "wdo_price", "wdo_open", "wdo_high", "wdo_low",
+    "di_price", "di_open", "di_high", "di_low",
     "spread_wdo", "spread_di", "z_wdo", "z_di",
     "nwe_center", "nwe_upper", "nwe_lower", "nwe_is_up",
     "eg_pvalue", "rho", "rho_level", "beta_value", "beta_delta_pct",
+)
+
+# Nullable OHLC columns keep legacy close-only rows valid; new live and backfill
+# paths populate them for replay/backtest fidelity.
+_OHLC_COLUMNS: tuple[str, ...] = (
+    "win_open", "win_high", "win_low",
+    "wdo_open", "wdo_high", "wdo_low",
+    "di_open", "di_high", "di_low",
 )
 
 
@@ -46,8 +56,17 @@ CREATE TABLE IF NOT EXISTS bar_history (
     date_str        TEXT NOT NULL,
     bar_time        TEXT NOT NULL,
     win_price       REAL,
+    win_open        REAL,
+    win_high        REAL,
+    win_low         REAL,
     wdo_price       REAL,
+    wdo_open        REAL,
+    wdo_high        REAL,
+    wdo_low         REAL,
     di_price        REAL,
+    di_open         REAL,
+    di_high         REAL,
+    di_low          REAL,
     spread_wdo      REAL,
     spread_di       REAL,
     z_wdo           REAL,
@@ -70,8 +89,17 @@ CREATE TABLE IF NOT EXISTS bar_history (
     date_str        TEXT NOT NULL,
     bar_time        TEXT NOT NULL,
     win_price       DOUBLE PRECISION,
+    win_open        DOUBLE PRECISION,
+    win_high        DOUBLE PRECISION,
+    win_low         DOUBLE PRECISION,
     wdo_price       DOUBLE PRECISION,
+    wdo_open        DOUBLE PRECISION,
+    wdo_high        DOUBLE PRECISION,
+    wdo_low         DOUBLE PRECISION,
     di_price        DOUBLE PRECISION,
+    di_open         DOUBLE PRECISION,
+    di_high         DOUBLE PRECISION,
+    di_low          DOUBLE PRECISION,
     spread_wdo      DOUBLE PRECISION,
     spread_di       DOUBLE PRECISION,
     z_wdo           DOUBLE PRECISION,
@@ -111,6 +139,15 @@ _CONFLICT_SQLITE = """
 ON CONFLICT(timestamp) DO UPDATE SET
     wdo_price = COALESCE(bar_history.wdo_price, excluded.wdo_price),
     di_price = COALESCE(bar_history.di_price, excluded.di_price),
+    win_open = COALESCE(bar_history.win_open, excluded.win_open),
+    win_high = COALESCE(bar_history.win_high, excluded.win_high),
+    win_low = COALESCE(bar_history.win_low, excluded.win_low),
+    wdo_open = COALESCE(bar_history.wdo_open, excluded.wdo_open),
+    wdo_high = COALESCE(bar_history.wdo_high, excluded.wdo_high),
+    wdo_low = COALESCE(bar_history.wdo_low, excluded.wdo_low),
+    di_open = COALESCE(bar_history.di_open, excluded.di_open),
+    di_high = COALESCE(bar_history.di_high, excluded.di_high),
+    di_low = COALESCE(bar_history.di_low, excluded.di_low),
     z_di = COALESCE(excluded.z_di, bar_history.z_di),
     eg_pvalue = COALESCE(bar_history.eg_pvalue, excluded.eg_pvalue),
     rho = COALESCE(bar_history.rho, excluded.rho),
@@ -123,6 +160,15 @@ _CONFLICT_POSTGRES = """
 ON CONFLICT(timestamp) DO UPDATE SET
     wdo_price = COALESCE(bar_history.wdo_price, EXCLUDED.wdo_price),
     di_price = COALESCE(bar_history.di_price, EXCLUDED.di_price),
+    win_open = COALESCE(bar_history.win_open, EXCLUDED.win_open),
+    win_high = COALESCE(bar_history.win_high, EXCLUDED.win_high),
+    win_low = COALESCE(bar_history.win_low, EXCLUDED.win_low),
+    wdo_open = COALESCE(bar_history.wdo_open, EXCLUDED.wdo_open),
+    wdo_high = COALESCE(bar_history.wdo_high, EXCLUDED.wdo_high),
+    wdo_low = COALESCE(bar_history.wdo_low, EXCLUDED.wdo_low),
+    di_open = COALESCE(bar_history.di_open, EXCLUDED.di_open),
+    di_high = COALESCE(bar_history.di_high, EXCLUDED.di_high),
+    di_low = COALESCE(bar_history.di_low, EXCLUDED.di_low),
     z_di = COALESCE(EXCLUDED.z_di, bar_history.z_di),
     eg_pvalue = COALESCE(bar_history.eg_pvalue, EXCLUDED.eg_pvalue),
     rho = COALESCE(bar_history.rho, EXCLUDED.rho),
@@ -231,18 +277,52 @@ def _pg_conn():
 
 # ── DDL ──────────────────────────────────────────────────────────────────────
 
+def _ensure_ohlc_columns_sqlite(conn: sqlite3.Connection) -> None:
+    """Add any missing OHLC columns to bar_history (SQLite). Idempotent.
+
+    SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`, so we query
+    `PRAGMA table_info` first and emit ADD COLUMN only for the missing names.
+    """
+    cur = conn.execute("PRAGMA table_info(bar_history)")
+    existing = {row[1] for row in cur.fetchall()}
+    for col in _OHLC_COLUMNS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE bar_history ADD COLUMN {col} REAL")
+
+
+def _ensure_ohlc_columns_postgres(conn) -> None:
+    """Add any missing OHLC columns to bar_history (Postgres). Idempotent.
+
+    Postgres supports `ADD COLUMN IF NOT EXISTS`, so the helper is a one-liner
+    per column with no pre-query.
+    """
+    with conn.cursor() as cur:
+        for col in _OHLC_COLUMNS:
+            cur.execute(
+                f"ALTER TABLE bar_history ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION"
+            )
+
+
 def init_schema(backend: str | None = None) -> None:
-    """Idempotently create bar_history (and hypertable+index on Postgres)."""
+    """Idempotently create bar_history (and hypertable+index on Postgres).
+
+    Also runs the OHLC column migration so legacy tables created before the
+    schema bump pick up the new columns. CREATE TABLE IF NOT EXISTS alone
+    doesn't add columns to an existing table, so the explicit ALTER pass is
+    required.
+    """
     b = (backend or get_backend()).lower()
     if b in ("sqlite", "dual"):
         with _sqlite_conn() as conn:
             conn.execute(_SQLITE_SCHEMA)
+            _ensure_ohlc_columns_sqlite(conn)
     if b in ("postgres", "dual"):
         with _pg_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(_POSTGRES_SCHEMA)
                 cur.execute(_POSTGRES_HYPERTABLE)
                 cur.execute(_POSTGRES_DATE_INDEX)
+            _ensure_ohlc_columns_postgres(conn)
 
 
 # ── Writes ──────────────────────────────────────────────────────────────────
@@ -257,8 +337,17 @@ def _values_tuple(row: dict) -> tuple[Any, ...]:
         row["date_str"],
         row["bar_time"],
         row.get("win_price"),
+        row.get("win_open"),
+        row.get("win_high"),
+        row.get("win_low"),
         row.get("wdo_price"),
+        row.get("wdo_open"),
+        row.get("wdo_high"),
+        row.get("wdo_low"),
         row.get("di_price"),
+        row.get("di_open"),
+        row.get("di_high"),
+        row.get("di_low"),
         row.get("spread_wdo"),
         row.get("spread_di"),
         row.get("z_wdo"),

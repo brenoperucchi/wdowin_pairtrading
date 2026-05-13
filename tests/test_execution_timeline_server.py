@@ -826,6 +826,7 @@ def test_runtime_config_post_persists_and_returns_normalised(tmp_path, monkeypat
     target = tmp_path / "runtime.json"
     monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)
 
+    sim_default = dict(server.runtime_config.SIMULATION_DEFAULTS)
     payload = {
         "live": {
             "eg_threshold": 0.05,
@@ -835,6 +836,7 @@ def test_runtime_config_post_persists_and_returns_normalised(tmp_path, monkeypat
             "rho_breakdown_level": 2,
             "beta_delta_max": 25.0,
             "z_anomaly": 4.0,
+            "simulation": sim_default,
         },
         "replay": {
             "eg_threshold": 0.10,
@@ -844,6 +846,7 @@ def test_runtime_config_post_persists_and_returns_normalised(tmp_path, monkeypat
             "rho_breakdown_level": 2,
             "beta_delta_max": 30.0,
             "z_anomaly": 4.0,
+            "simulation": sim_default,
         },
     }
     client = TestClient(server.app)
