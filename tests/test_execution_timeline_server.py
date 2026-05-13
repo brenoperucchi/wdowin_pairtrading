@@ -1027,3 +1027,85 @@ def test_live_engine_falls_back_to_defaults_when_runtime_config_invalid(
     fallback = copy.deepcopy(server.runtime_config.DEFAULTS["live"])
     for field in server.runtime_config.FIELDS:
         assert field in fallback
+
+
+def test_ols_profile_tail_uses_full_warmup_history(monkeypatch):
+    calls = {}
+
+    def fake_beta(win, wdo, *, window):
+        calls["beta_len"] = len(win)
+        calls["beta_window"] = window
+        return 123.0
+
+    def fake_zscore(win, wdo, *, beta, window, max_bars=None):
+        calls["z_len"] = len(win)
+        calls["z_window"] = window
+        calls["z_max_bars"] = max_bars
+        n = int(max_bars)
+        return list(range(n)), [0.1] * n, [0.2] * n
+
+    monkeypatch.setattr(server, "calc_beta_ols", fake_beta)
+    monkeypatch.setattr(server, "calc_zscore", fake_zscore)
+
+    beta, spread, z_arr, rho_arr = server._compute_ols_profile_tail(
+        list(range(500)), list(range(500)), window=360, max_bars=250
+    )
+
+    assert beta == 123.0
+    assert calls == {
+        "beta_len": 500,
+        "beta_window": 360,
+        "z_len": 500,
+        "z_window": 360,
+        "z_max_bars": 250,
+    }
+    assert len(spread) == len(z_arr) == len(rho_arr) == 250
+
+
+def test_history_cache_key_includes_runtime_window(monkeypatch):
+    monkeypatch.setattr(server, "_hist_cache", {})
+    monkeypatch.setattr(server, "_hist_cache_ts", 0.0)
+    monkeypatch.setattr(server, "_hist_cache_days", 0)
+    monkeypatch.setattr(server, "_hist_cache_window", 0)
+    monkeypatch.setattr(server, "connect_mt5", lambda: True)
+
+    windows = iter([60, 90])
+
+    def fake_profile(name):
+        assert name == "live"
+        profile = copy.deepcopy(server.runtime_config.DEFAULTS["live"])
+        profile["window"] = next(windows)
+        return profile
+
+    base_ts = _mt5_epoch("2026-05-08T10:00:00")
+    times = [base_ts + i * 300 for i in range(4)]
+    closes = [130000.0, 130010.0, 130020.0, 130030.0]
+    fetch_calls = {"win": 0}
+
+    def fake_fetch_bars(symbol, bars_needed):
+        if symbol == server.DI_SYMBOL:
+            return None, None
+        if symbol == server.SYMBOL_A:
+            fetch_calls["win"] += 1
+        return list(closes), list(times)
+
+    def fake_zscore(win, wdo, *, beta, window, max_bars=None):
+        n = int(max_bars or len(win))
+        return [0.0] * n, [float(window)] * n, [0.0] * n
+
+    def fake_nwe(values, **kwargs):
+        vals = [float(v) for v in values]
+        return vals, [v + 1 for v in vals], [v - 1 for v in vals], [True] * len(vals)
+
+    monkeypatch.setattr(server.runtime_config, "get_profile", fake_profile)
+    monkeypatch.setattr(server, "fetch_bars", fake_fetch_bars)
+    monkeypatch.setattr(server, "calc_beta_ols", lambda *args, **kwargs: 1.0)
+    monkeypatch.setattr(server, "calc_zscore", fake_zscore)
+    monkeypatch.setattr(server, "calc_nwe_with_bands", fake_nwe)
+
+    first = server.history_endpoint(days=1)
+    second = server.history_endpoint(days=1)
+
+    assert fetch_calls["win"] == 2
+    assert first["history"][0]["z_v1"] == 60.0
+    assert second["history"][0]["z_v1"] == 90.0

@@ -385,6 +385,16 @@ def reset_live_eg_daily_cache() -> None:
     with _live_eg_daily_lock:
         _live_eg_daily_cache.clear()
 
+
+def _compute_ols_profile_tail(win_closes, wdo_closes, *, window: int, max_bars: int):
+    """Compute OLS beta/z/rho on full warmup history and return the visible tail."""
+    tail = min(int(max_bars), len(win_closes), len(wdo_closes))
+    beta_ols = calc_beta_ols(win_closes, wdo_closes, window=window)
+    spread, z_arr, rho_arr = calc_zscore(
+        win_closes, wdo_closes, beta=beta_ols, window=window, max_bars=tail
+    )
+    return beta_ols, spread, z_arr, rho_arr
+
 # DI Kalman filter (persistent across requests)
 _di_kalman = KalmanBetaFilter(
     initial_beta=DI_BETA_INITIAL,
@@ -1206,6 +1216,7 @@ def regime_v2():
     ac, bc, tc = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
     ao, ah, al = opens_a[-min_len:], highs_a[-min_len:], lows_a[-min_len:]
     bo, bh, bl = opens_b[-min_len:], highs_b[-min_len:], lows_b[-min_len:]
+    ols_ac, ols_bc = ac, bc
 
     # Kalman filter
     kf = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
@@ -1252,9 +1263,8 @@ def regime_v2():
     # OLS beta on the current window (rho computed here is beta-independent;
     # z_v1 is the slow OLS-based z exposed to the dashboard alongside the fast Kalman z).
     profile_window = int(live_profile["window"])
-    beta_ols_real = calc_beta_ols(ac, bc, window=profile_window)
-    spread_v1, z_v1_arr, rho_arr = calc_zscore(
-        ac, bc, beta=beta_ols_real, window=profile_window
+    beta_ols_real, spread_v1, z_v1_arr, rho_arr = _compute_ols_profile_tail(
+        ols_ac, ols_bc, window=profile_window, max_bars=len(ac)
     )
     current_rho = float(rho_arr[-1])
     rho_status = get_rho_status(current_rho)
@@ -2372,6 +2382,7 @@ def execution_timeline_html(
 _hist_cache: dict = {}
 _hist_cache_ts: float = 0.0
 _hist_cache_days: int = 0
+_hist_cache_window: int = 0
 
 @app.get("/api/trades")
 def trades_endpoint(date: str):
@@ -2428,24 +2439,31 @@ def history_endpoint(days: int = 30):
     Returns session-filtered bars for the last N trading days.
     Each bar has: date, bar_time, z (Kalman), z_v1 (OLS), z_di (DI).
     """
-    global _hist_cache, _hist_cache_ts, _hist_cache_days
+    global _hist_cache, _hist_cache_ts, _hist_cache_days, _hist_cache_window
+
+    # Pull the runtime window so the OLS z used for the dashboard history
+    # matches the live engine's view (regime_v2 reads the same field). Loaded
+    # before the cache check so a runtime POST that changes `window` busts the
+    # cache immediately instead of serving stale data keyed on the old window.
+    try:
+        hist_profile = runtime_config.get_profile("live")
+    except ValueError:
+        hist_profile = copy.deepcopy(runtime_config.DEFAULTS["live"])
+    hist_window = int(hist_profile["window"])
 
     # Cache for 30s (heavier computation)
-    if time.time() - _hist_cache_ts < 30 and _hist_cache and _hist_cache_days == days:
+    if (
+        time.time() - _hist_cache_ts < 30
+        and _hist_cache
+        and _hist_cache_days == days
+        and _hist_cache_window == hist_window
+    ):
         return _hist_cache
 
     if not connect_mt5():
         return {"error": "MT5 não disponível.", "history": [], "days": days}
 
     try:
-        # Pull the runtime window so the OLS z used for the dashboard history
-        # matches the live engine's view (regime_v2 reads the same field).
-        try:
-            hist_profile = runtime_config.get_profile("live")
-        except ValueError:
-            hist_profile = copy.deepcopy(runtime_config.DEFAULTS["live"])
-        hist_window = int(hist_profile["window"])
-
         # M5 bars: ~108 bars/session day (9:20-18:20), fetch extra for window warmup
         bars_per_day = 108
         bars_needed = max(days * bars_per_day + hist_window + 50, KALMAN_BURN_IN)
@@ -2571,6 +2589,7 @@ def history_endpoint(days: int = 30):
         _hist_cache = result
         _hist_cache_ts = time.time()
         _hist_cache_days = days
+        _hist_cache_window = hist_window
 
         return result
 
