@@ -76,7 +76,7 @@ server.py (FastAPI, port 8080)
 
 ### Core Modules
 
-- **`core/config.py`** — single source of truth for all parameters: Kalman Q/R, Z-score thresholds, SL/TP, session hours, NWE tuning. Always touch this first before hardcoding any constant.
+- **`core/config.py`** — module-level constants used as **defaults** by `core/runtime_config.DEFAULTS`. Operational params (window, z_entry, z_attention, BUY/SELL SL/TP/BE, ENTRY/FORCE_CLOSE windows, eg_threshold, rho_breakdown_level, beta_delta_max, z_anomaly) are tuned at runtime via `POST /api/runtime-config` — the engine reads them from the live profile, not the globals. Globals only kick in as fallback when callers omit the runtime params (legacy/test paths).
 - **`core/kalman_filter.py`** — `KalmanBetaFilter` class; re-instantiated fresh on each API call (no persistent state between calls) with 15,000-bar burn-in to avoid state corruption from duplicate updates.
 - **`core/signals.py`** — pure functions: `calc_beta_ols()`, `calc_zscore()`, `get_signal()`, `calc_nwe_with_bands()`, `get_rho_status()`, `get_beta_status()`. No side effects.
 - **`core/trade_engine.py`** — `TradeEngine` with three independent slots: `CONS_BASE`, `WDO_NWE`, `DI_NWE`. Each slot tracks its own position, SL/TP/BE state, and logs to SQLite `matador_ops`.
@@ -107,6 +107,14 @@ All use inline `style={{}}` objects and Recharts for visualization. Dark financi
 - Engle-Granger p-value ≥ `runtime_config.eg_threshold` (default 0.10) → block. Per-strategy via `eg_strategies`.
 - `|z| ≥ runtime_config.z_anomaly` (default 4.0, falls back to `core.config.Z_ANOMALY`) → block (anomaly). Enforced inside `risk_gate` and `TradeEngine.evaluate`.
 - `beta_unstable=True` → block. Bar-over-bar Kalman beta state machine (`server.py:_win_beta_state`, threshold `WIN_BETA_UNSTABLE_PCT=15.0`); replay mirrors it across `_process_bar` iterations. Mirrors upstream `safe_to_trade and not beta_unstable`.
+
+**Operational params (per-profile in `runtime_config`, snapshot at `_open_trade` so mid-position POSTs don't move the goalposts):**
+- `z_entry` / `z_attention` — signal thresholds consumed by `_eval_consensus/_eval_wdo_nwe/_eval_di_nwe`.
+- `buy_sl/tp/be_act/be_lock` and `sell_*` — burned into `matador_ops.sl_pts/tp_pts/be_act_pts/be_lock_pts` at open; `_check_exits` reads from the row, not the globals.
+- `entry_start_h/m`, `entry_end_h/m`, `force_close_h/m` — session window passed to `risk_gate` and `TradeEngine._is_force_close` as kwargs.
+- `window` — sliding window for `calc_zscore` (signals.py argument, not global state).
+
+All of the above fall back to `core/config.py` globals only when the kwarg is `None` (legacy paths). Live: `live_profile = runtime_config.get_profile("live")` is fetched per-poll for hot-reload. Replay: `ReplayRuntimeProfile.as_engine_params()` builds the same dict from the `replay` profile.
 
 If you tighten/loosen any of these in code or runtime config, mirror the change here.
 

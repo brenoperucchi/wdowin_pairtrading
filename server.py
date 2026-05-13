@@ -53,7 +53,7 @@ except Exception as e:
     print(f"[ERRO] Erro ao inicializar Firebase: {e}")
 
 from core.config import (
-    SYMBOL_A, SYMBOL_B, TIMEFRAME, WINDOW, BARS, KALMAN_BURN_IN,
+    SYMBOL_A, SYMBOL_B, TIMEFRAME, BARS, KALMAN_BURN_IN,
     BETA_INITIAL, MT5_PATH,
     TIME_OFFSET, CACHE_TTL,
     DI_SYMBOL, DI_KALMAN_Q, DI_KALMAN_R, DI_KALMAN_W,

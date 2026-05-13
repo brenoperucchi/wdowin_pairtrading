@@ -86,6 +86,8 @@ class ReplayRuntimeProfile:
     sell_tp: int
     sell_be_act: int
     sell_be_lock: int
+    z_entry: float
+    z_attention: float
 
     @classmethod
     def from_mapping(cls, payload: dict) -> "ReplayRuntimeProfile":
@@ -112,6 +114,8 @@ class ReplayRuntimeProfile:
             sell_tp=int(payload["sell_tp"]),
             sell_be_act=int(payload["sell_be_act"]),
             sell_be_lock=int(payload["sell_be_lock"]),
+            z_entry=float(payload["z_entry"]),
+            z_attention=float(payload["z_attention"]),
         )
 
     def as_engine_params(self) -> dict:
@@ -125,6 +129,8 @@ class ReplayRuntimeProfile:
             "sell_tp": self.sell_tp,
             "sell_be_act": self.sell_be_act,
             "sell_be_lock": self.sell_be_lock,
+            "z_entry": self.z_entry,
+            "z_attention": self.z_attention,
         }
 
 

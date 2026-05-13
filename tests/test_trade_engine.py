@@ -10,6 +10,7 @@ from core.config import (
     BUY_BE_ACT, BUY_BE_LOCK,
     SELL_SL, SELL_BE_ACT, SELL_BE_LOCK,
     FORCE_CLOSE_H, FORCE_CLOSE_M,
+    Z_ENTRY, Z_ATTENTION,
 )
 
 
@@ -17,12 +18,14 @@ def _engine_params(
     *,
     buy_sl=BUY_SL, buy_tp=BUY_TP, buy_be_act=BUY_BE_ACT, buy_be_lock=BUY_BE_LOCK,
     sell_sl=SELL_SL, sell_tp=SELL_TP, sell_be_act=SELL_BE_ACT, sell_be_lock=SELL_BE_LOCK,
+    z_entry=Z_ENTRY, z_attention=Z_ATTENTION,
 ) -> dict:
     return {
         "buy_sl": buy_sl, "buy_tp": buy_tp,
         "buy_be_act": buy_be_act, "buy_be_lock": buy_be_lock,
         "sell_sl": sell_sl, "sell_tp": sell_tp,
         "sell_be_act": sell_be_act, "sell_be_lock": sell_be_lock,
+        "z_entry": z_entry, "z_attention": z_attention,
     }
 
 
@@ -1132,3 +1135,80 @@ def test_legacy_open_trade_without_snapshot_falls_back_to_globals(engine):
     )
     events = [r["event"] for r in _timeline_rows(engine)]
     assert "STOP_LOSS" in events
+
+
+# ── TASK-16.5: z_entry / z_attention sourced from engine_params ─────────────
+
+
+def test_engine_params_z_entry_gates_consensus_buy(engine):
+    """High z_entry blocks a consensus BUY that core.config defaults would open."""
+    # z_wdo=-1.6, z_di=-1.6 would trigger BUY under Z_ENTRY=1.4 default but not
+    # under z_entry=2.5.
+    result = engine.evaluate(
+        z_wdo=-1.6, z_di=-1.6,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=_engine_params(z_entry=2.5, z_attention=2.0),
+    )
+    assert result["strategies"]["CONS_BASE"]["open_trade"] is None
+
+    # Now relax — z_entry=1.5, z_attention=1.4 → triggers.
+    result2 = engine.evaluate(
+        z_wdo=-1.6, z_di=-1.6,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=_engine_params(z_entry=1.5, z_attention=1.4),
+    )
+    assert result2["strategies"]["CONS_BASE"]["open_trade"] is not None
+    assert result2["strategies"]["CONS_BASE"]["open_trade"]["direction"] == "BUY"
+
+
+def test_engine_params_z_entry_gates_wdo_nwe(engine):
+    """WDO_NWE uses z_entry from engine_params (no consensus needed)."""
+    # |z_wdo|=1.6 < 2.5: should not fire.
+    result = engine.evaluate(
+        z_wdo=-1.6, z_di=0.0,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        nwe_is_up=False, nwe_upper=130100, nwe_lower=129000,
+        engine_params=_engine_params(z_entry=2.5),
+    )
+    assert result["strategies"]["WDO_NWE"]["open_trade"] is None
+
+
+def test_engine_params_z_entry_recorded_on_timeline_threshold(engine):
+    """Timeline SIGNAL event uses z_entry from engine_params, not Z_ENTRY global."""
+    custom_threshold = 1.85
+    engine.evaluate(
+        z_wdo=-2.1, z_di=-1.9,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+        engine_params=_engine_params(z_entry=custom_threshold, z_attention=1.8),
+    )
+    signal_events = [
+        r for r in _timeline_rows(engine)
+        if r["phase"] == "SIGNAL" and r["strategy"] == "CONS_BASE"
+    ]
+    assert signal_events, "expected a SIGNAL event"
+    assert signal_events[0]["threshold"] == custom_threshold
+
+
+def test_engine_params_z_entry_none_falls_back_to_global(engine):
+    """No engine_params: _eval_* and _open_trade use core.config Z_ENTRY/Z_ATTENTION."""
+    # |z|=1.6 > Z_ENTRY=1.4 default → triggers under fallback.
+    result = engine.evaluate(
+        z_wdo=-1.6, z_di=-1.6,
+        win_price=130000, wdo_price=5800,
+        rho=-0.75, gate=_gate(), hmm_state="CHOP",
+        hour=11, minute=0,
+    )
+    assert result["strategies"]["CONS_BASE"]["open_trade"] is not None
+    signal_events = [
+        r for r in _timeline_rows(engine)
+        if r["phase"] == "SIGNAL" and r["strategy"] == "CONS_BASE"
+    ]
+    assert signal_events[0]["threshold"] == Z_ENTRY

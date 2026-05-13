@@ -15,11 +15,10 @@ import sqlite3
 from datetime import datetime
 from uuid import uuid4
 from core.config import (
-    Z_ENTRY, Z_ANOMALY, Z_ATTENTION,
+    Z_ENTRY, Z_ATTENTION,
     BUY_SL, BUY_TP, BUY_BE_ACT, BUY_BE_LOCK,
     SELL_SL, SELL_TP, SELL_BE_ACT, SELL_BE_LOCK,
     WIN_CONTRACTS, WIN_PV,
-    ENTRY_START_H, ENTRY_START_M, ENTRY_END_H, ENTRY_END_M,
     FORCE_CLOSE_H, FORCE_CLOSE_M,
     RHO_MIN,
     NWE_BAND_MULT,
@@ -89,8 +88,6 @@ class TradeEngine:
             ("mt5_ticket_out", "INTEGER"),
             ("mt5_magic", "INTEGER"),
             ("live", "INTEGER DEFAULT 0"),
-            # TASK-16.4: SL/TP/BE snapshotted at _open_trade so hot-reloads of
-            # the runtime profile don't move the goalposts under an open trade.
             ("sl_pts", "INTEGER"),
             ("tp_pts", "INTEGER"),
             ("be_act_pts", "INTEGER"),
@@ -133,12 +130,6 @@ class TradeEngine:
                 "be_act_pts": row[13], "be_lock_pts": row[14],
             }
         return result
-
-    def _in_session(self, hour, minute):
-        t = hour * 60 + minute
-        start = ENTRY_START_H * 60 + ENTRY_START_M
-        end = ENTRY_END_H * 60 + ENTRY_END_M
-        return start <= t <= end
 
     def _is_force_close(self, hour, minute, *, force_close_h=None, force_close_m=None):
         """Trip once ``hour:minute`` >= configured force-close time.
@@ -319,17 +310,22 @@ class TradeEngine:
                         closed_bar_ts=None, now_dt=None,
                         simulation_profile=None, engine_params=None):
         """Consensus: requires BOTH z-scores to confirm."""
+        z_entry = float(engine_params["z_entry"]) if engine_params is not None else Z_ENTRY
+        z_attention = (
+            float(engine_params["z_attention"]) if engine_params is not None else Z_ATTENTION
+        )
+
         # BUY
-        if (z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION) or \
-           (z_wdo <= -Z_ATTENTION and z_di <= -Z_ENTRY):
+        if (z_wdo <= -z_entry and z_di <= -z_attention) or \
+           (z_wdo <= -z_attention and z_di <= -z_entry):
             return self._open_trade("BUY", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
                                     closed_bar_ts, now_dt,
                                     simulation_profile=simulation_profile,
                                     engine_params=engine_params)
         # SELL
-        if (z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION) or \
-           (z_wdo >= Z_ATTENTION and z_di >= Z_ENTRY):
+        if (z_wdo >= z_entry and z_di >= z_attention) or \
+           (z_wdo >= z_attention and z_di >= z_entry):
             return self._open_trade("SELL", "CONSENSO", z_wdo,
                                     win_price, wdo_price, rho, beta, hmm, "CONS_BASE",
                                     closed_bar_ts, now_dt,
@@ -343,8 +339,9 @@ class TradeEngine:
                       now_dt=None, simulation_profile=None,
                       engine_params=None):
         """WDO Isolado + NWE adaptive band multiplier filter."""
-        sig_buy = z_wdo <= -Z_ENTRY
-        sig_sell = z_wdo >= Z_ENTRY
+        z_entry = float(engine_params["z_entry"]) if engine_params is not None else Z_ENTRY
+        sig_buy = z_wdo <= -z_entry
+        sig_sell = z_wdo >= z_entry
 
         # NWE filter: contra-tendência + adaptive proximity
         band_width = nwe_upper - nwe_lower if (nwe_upper > 0 and nwe_lower > 0) else 0
@@ -385,8 +382,9 @@ class TradeEngine:
                      now_dt=None, simulation_profile=None,
                      engine_params=None):
         """DI Isolado + NWE adaptive band multiplier filter."""
-        sig_buy = z_di <= -Z_ENTRY
-        sig_sell = z_di >= Z_ENTRY
+        z_entry = float(engine_params["z_entry"]) if engine_params is not None else Z_ENTRY
+        sig_buy = z_di <= -z_entry
+        sig_sell = z_di >= z_entry
 
         # NWE filter: contra-tendência + adaptive proximity
         band_width = nwe_upper - nwe_lower if (nwe_upper > 0 and nwe_lower > 0) else 0
@@ -466,7 +464,7 @@ class TradeEngine:
         else:
             entry_price = win_price - entry_slip_pts
 
-        # ── Snapshot SL/TP/BE at open time (TASK-16.4 CAR4) ─────────────────
+        # ── Snapshot SL/TP/BE at open time ──────────────────────────────────
         # Resolve direction-specific values from engine_params NOW so a later
         # POST /api/runtime-config can't move the goalposts under this trade.
         # Fallback to core.config globals for callers that haven't migrated.
@@ -476,11 +474,13 @@ class TradeEngine:
             tp_pts = int(engine_params[f"{prefix}_tp"])
             be_act_pts = int(engine_params[f"{prefix}_be_act"])
             be_lock_pts = int(engine_params[f"{prefix}_be_lock"])
+            z_threshold = float(engine_params["z_entry"])
         else:
             sl_pts = BUY_SL if direction == "BUY" else SELL_SL
             tp_pts = BUY_TP if direction == "BUY" else SELL_TP
             be_act_pts = BUY_BE_ACT if direction == "BUY" else SELL_BE_ACT
             be_lock_pts = BUY_BE_LOCK if direction == "BUY" else SELL_BE_LOCK
+            z_threshold = Z_ENTRY
 
         mt5_ticket_in = None
         mt5_magic = None
@@ -502,7 +502,7 @@ class TradeEngine:
             symbol=LIVE_SYMBOL_WIN,
             metric="abs_z_score",
             value=abs(z_val),
-            threshold=Z_ENTRY,
+            threshold=z_threshold,
             operator=">=",
             message=f"{strategy} entry signal {action}",
             payload_json={
@@ -642,10 +642,8 @@ class TradeEngine:
     ):
         now_dt = now_dt or datetime.now()
         is_buy = trade["direction"] == "BUY"
-        # TASK-16.4 CAR4: pull the snapshot burned at _open_trade. Trades opened
-        # before this migration have NULL columns / missing dict keys — fall
-        # back to the current direction-resolved globals so they continue to
-        # close correctly.
+        # Pull the snapshot burned at _open_trade. Older rows can have NULLs;
+        # those fall back to direction-resolved globals so they still close.
         sl = trade.get("sl_pts")
         tp = trade.get("tp_pts")
         be_act = trade.get("be_act_pts")
