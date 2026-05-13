@@ -1,9 +1,10 @@
 ---
 id: TASK-16
 title: Migrar parâmetros operacionais de core/config.py para runtime.json
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-12 19:36'
+updated_date: '2026-05-13 14:32'
 labels:
   - refactor
   - runtime-config
@@ -61,9 +62,26 @@ Motivação concreta: relatório do Miqueias (`~/relatorio_miqueias1.md`) recome
 - AC5: Frontend exibe e edita os novos campos com mesma UX dos campos existentes.
 <!-- SECTION:DESCRIPTION:END -->
 
-- [ ] #1 Schema runtime_config aceita config legado sem 500 (backfill)
-- [ ] #2 Validators rejeitam valores fora dos bounds com 400 + mensagem
-- [ ] #3 WINDOW via POST reflete na próxima barra fechada sem restart
-- [ ] #4 Mudança de BUY_SL/TP via POST não afeta posições já abertas
-- [ ] #5 Frontend /config slideover edita os novos campos
+- [x] #1 Schema runtime_config aceita config legado sem 500 (backfill)
+- [x] #2 Validators rejeitam valores fora dos bounds com 400 + mensagem
+- [x] #3 WINDOW via POST reflete na próxima barra fechada sem restart
+- [x] #4 Mudança de BUY_SL/TP via POST não afeta posições já abertas
+- [x] #5 Frontend /config slideover edita os novos campos
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+## TASK-16 — runtime-config operacional
+
+TASK-16 fechada em 6 slices:
+
+- 16.1 estendeu schema/defaults/validators do `runtime_config`.
+- 16.2 moveu `window`, `z_entry`, `z_attention` para profile nos cálculos de sinais.
+- 16.3 moveu `ENTRY_*` e `FORCE_CLOSE_*` para profile em `risk_gate`/engine.
+- 16.4 persistiu snapshot de BUY/SELL SL/TP/BE no `_open_trade`.
+- 16.5 removeu usos diretos restantes dos globais migrados no engine/replay e atualizou docs.
+- 16.6 expôs os campos no slideover `/CONFIG` com validação client-side.
+
+Defaults seguem backward-compatible e vêm de `core/config.py` apenas como fonte inicial para `runtime_config.DEFAULTS`. Operadores ajustam os valores por `POST /api/runtime-config` ou pela UI `/CONFIG`.
+<!-- SECTION:FINAL_SUMMARY:END -->
