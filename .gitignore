@@ -19,6 +19,8 @@ reports/execution_smoke/
 logs/
 beta_ultimo.json
 config/runtime.json.bak.*
+uvicorn_err.txt
+uvicorn_out.txt
 
 # Environment
 .venv/
