@@ -826,29 +826,15 @@ def test_runtime_config_post_persists_and_returns_normalised(tmp_path, monkeypat
     target = tmp_path / "runtime.json"
     monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)
 
-    sim_default = dict(server.runtime_config.SIMULATION_DEFAULTS)
-    payload = {
-        "live": {
-            "eg_threshold": 0.05,
-            "eg_bars": 250,
-            "eg_recalc": "bar",
-            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
-            "rho_breakdown_level": 2,
-            "beta_delta_max": 25.0,
-            "z_anomaly": 4.0,
-            "simulation": sim_default,
-        },
-        "replay": {
-            "eg_threshold": 0.10,
-            "eg_bars": 2240,
-            "eg_recalc": "daily",
-            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
-            "rho_breakdown_level": 2,
-            "beta_delta_max": 30.0,
-            "z_anomaly": 4.0,
-            "simulation": sim_default,
-        },
-    }
+    # Start from DEFAULTS so newly-added fields (engine params, simulation)
+    # don't trip the strict POST validator on each schema extension.
+    payload = copy.deepcopy(server.runtime_config.DEFAULTS)
+    payload["live"]["eg_threshold"] = 0.05
+    payload["live"]["eg_bars"] = 250
+    payload["live"]["eg_recalc"] = "bar"
+    payload["live"]["beta_delta_max"] = 25.0
+    payload["replay"]["beta_delta_max"] = 30.0
+
     client = TestClient(server.app)
     response = client.post("/api/runtime-config", json=payload)
 
@@ -867,26 +853,8 @@ def test_runtime_config_post_rejects_invalid_payload(tmp_path, monkeypatch):
     target = tmp_path / "runtime.json"
     monkeypatch.setattr(server.runtime_config, "CONFIG_PATH", target)
 
-    bad = {
-        "live": {
-            "eg_threshold": 0.10,
-            "eg_bars": 10,  # below floor
-            "eg_recalc": "bar",
-            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
-            "rho_breakdown_level": 2,
-            "beta_delta_max": 25.0,
-            "z_anomaly": 4.0,
-        },
-        "replay": {
-            "eg_threshold": 0.10,
-            "eg_bars": 500,
-            "eg_recalc": "daily",
-            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
-            "rho_breakdown_level": 2,
-            "beta_delta_max": 25.0,
-            "z_anomaly": 4.0,
-        },
-    }
+    bad = copy.deepcopy(server.runtime_config.DEFAULTS)
+    bad["live"]["eg_bars"] = 10  # below floor
     client = TestClient(server.app)
     response = client.post("/api/runtime-config", json=bad)
 

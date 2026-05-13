@@ -1,11 +1,11 @@
-"""Runtime-tunable risk-gate parameters with two profiles (live, replay).
+"""Runtime-tunable engine parameters with two profiles (live, replay).
 
 Persisted to ``config/runtime.json``. Read by the live engine on each poll
 (hot-reload) and by the replay script on startup. Defaults are returned
 inline when the file is missing — we do not auto-create on first read so
 fresh checkouts behave identically to old ones.
 
-Seven tunables per profile:
+Risk-gate tunables (aligned with Miqueias upstream):
     eg_threshold (float)        Engle-Granger pvalue gate. Block when pvalue >= this.
     eg_bars (int)               Window size used to recompute EG pvalue.
     eg_recalc (str)             "bar" or "daily". When "daily" the pvalue
@@ -15,6 +15,21 @@ Seven tunables per profile:
     beta_delta_max (float)      Block when |beta_delta_pct| >= this.
     eg_strategies (list[str])   Strategies that gate on EG; others bypass it.
     z_anomaly (float)           Block when max(|z_wdo|, |z_di|) >= this.
+
+Engine tunables (operational params hot-reloadable, snapshot at trade open):
+    window (int)                Rolling window used by signals/regime.
+    z_entry (float)             Z-score entry threshold.
+    entry_start_h/m (int)       Earliest entry timestamp HH:MM.
+    entry_end_h/m (int)         Latest entry timestamp HH:MM.
+    force_close_h/m (int)       Force-close timestamp HH:MM.
+    buy_sl / buy_tp (int)       BUY stop-loss / take-profit in WIN points.
+    buy_be_act / buy_be_lock    BUY breakeven activation / lock levels.
+    sell_sl / sell_tp (int)     SELL stop-loss / take-profit.
+    sell_be_act / sell_be_lock  SELL breakeven activation / lock levels.
+
+Fidelity simulation sub-block (per profile, replay-only when enabled):
+    simulation.{enabled,entry/exit_slippage_pts,cost_per_contract_rt_brl,
+                intra_bar_sl_tp,exit_at_sl_tp_level,conflict_rule}
 
 Validation is strict (raises ValueError) so the API endpoint can return a
 meaningful 400 without partially writing the file.
@@ -36,6 +51,7 @@ CONFIG_PATH = _REPO_ROOT / "config" / "runtime.json"
 
 PROFILES = ("live", "replay")
 FIELDS = (
+    # Risk-gate (Miqueias upstream)
     "eg_threshold",
     "eg_bars",
     "eg_recalc",
@@ -43,6 +59,26 @@ FIELDS = (
     "beta_delta_max",
     "eg_strategies",
     "z_anomaly",
+    # Signals / regime window
+    "window",
+    "z_entry",
+    # Session hours
+    "entry_start_h",
+    "entry_start_m",
+    "entry_end_h",
+    "entry_end_m",
+    "force_close_h",
+    "force_close_m",
+    # Per-side trade params (snapshot at _open_trade time)
+    "buy_sl",
+    "buy_tp",
+    "buy_be_act",
+    "buy_be_lock",
+    "sell_sl",
+    "sell_tp",
+    "sell_be_act",
+    "sell_be_lock",
+    # Fidelity simulation sub-block
     "simulation",
 )
 EG_RECALC_VALUES = ("bar", "daily")
@@ -81,6 +117,29 @@ SIMULATION_DEFAULTS: dict[str, Any] = {
 #   |beta_delta_pct| < 15 (== get_beta_status level < 2 boundary).
 # Live and replay share the same defaults — operator can still loosen per-profile
 # via /CONFIG when investigating, but the unaltered defaults match upstream.
+# Engine defaults mirror the legacy constants in core.config so this slice
+# ships zero behavior delta — operators can still override per profile via
+# /api/runtime-config. Values intentionally identical between live and
+# replay until the operator decides to diverge.
+_ENGINE_DEFAULTS: dict[str, Any] = {
+    "window": 240,
+    "z_entry": 1.4,
+    "entry_start_h": 9,
+    "entry_start_m": 0,
+    "entry_end_h": 17,
+    "entry_end_m": 25,
+    "force_close_h": 17,
+    "force_close_m": 40,
+    "buy_sl": 300,
+    "buy_tp": 800,
+    "buy_be_act": 300,
+    "buy_be_lock": 0,
+    "sell_sl": 300,
+    "sell_tp": 800,
+    "sell_be_act": 300,
+    "sell_be_lock": 0,
+}
+
 DEFAULTS: dict[str, dict[str, Any]] = {
     "live": {
         "eg_threshold": 0.10,
@@ -92,6 +151,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         # (server.py:608 vs :715 in /tmp/miqueias-wdowin/).
         "eg_strategies": ["CONS_BASE", "WDO_NWE"],
         "z_anomaly": 4.0,
+        **copy.deepcopy(_ENGINE_DEFAULTS),
         "simulation": copy.deepcopy(SIMULATION_DEFAULTS),
     },
     "replay": {
@@ -102,6 +162,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "beta_delta_max": 15.0,
         "eg_strategies": ["CONS_BASE", "WDO_NWE"],
         "z_anomaly": 4.0,
+        **copy.deepcopy(_ENGINE_DEFAULTS),
         "simulation": copy.deepcopy(SIMULATION_DEFAULTS),
     },
 }
@@ -247,6 +308,39 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
     if not (0.0 < z_anomaly <= 10.0):
         raise ValueError(f"{name}.z_anomaly must be in (0, 10]")
 
+    def _int_in(field: str, lo: int, hi: int) -> int:
+        v = payload[field]
+        if not isinstance(v, int) or isinstance(v, bool):
+            raise ValueError(f"{name}.{field} must be an integer")
+        if not (lo <= v <= hi):
+            raise ValueError(f"{name}.{field} must be in [{lo}, {hi}]")
+        return v
+
+    window = _int_in("window", 30, 1000)
+
+    z_entry = payload["z_entry"]
+    if not isinstance(z_entry, (int, float)) or isinstance(z_entry, bool):
+        raise ValueError(f"{name}.z_entry must be a number")
+    z_entry = float(z_entry)
+    if not (0.1 < z_entry <= 5.0):
+        raise ValueError(f"{name}.z_entry must be in (0.1, 5.0]")
+
+    entry_start_h = _int_in("entry_start_h", 0, 23)
+    entry_start_m = _int_in("entry_start_m", 0, 59)
+    entry_end_h = _int_in("entry_end_h", 0, 23)
+    entry_end_m = _int_in("entry_end_m", 0, 59)
+    force_close_h = _int_in("force_close_h", 0, 23)
+    force_close_m = _int_in("force_close_m", 0, 59)
+
+    buy_sl = _int_in("buy_sl", 10, 5000)
+    buy_tp = _int_in("buy_tp", 10, 5000)
+    buy_be_act = _int_in("buy_be_act", 0, 5000)
+    buy_be_lock = _int_in("buy_be_lock", 0, 5000)
+    sell_sl = _int_in("sell_sl", 10, 5000)
+    sell_tp = _int_in("sell_tp", 10, 5000)
+    sell_be_act = _int_in("sell_be_act", 0, 5000)
+    sell_be_lock = _int_in("sell_be_lock", 0, 5000)
+
     simulation = _validate_simulation(name, payload["simulation"])
 
     return {
@@ -257,6 +351,22 @@ def _validate_profile(name: str, payload: Any) -> dict[str, Any]:
         "beta_delta_max": beta_delta,
         "eg_strategies": normalised_strats,
         "z_anomaly": z_anomaly,
+        "window": window,
+        "z_entry": z_entry,
+        "entry_start_h": entry_start_h,
+        "entry_start_m": entry_start_m,
+        "entry_end_h": entry_end_h,
+        "entry_end_m": entry_end_m,
+        "force_close_h": force_close_h,
+        "force_close_m": force_close_m,
+        "buy_sl": buy_sl,
+        "buy_tp": buy_tp,
+        "buy_be_act": buy_be_act,
+        "buy_be_lock": buy_be_lock,
+        "sell_sl": sell_sl,
+        "sell_tp": sell_tp,
+        "sell_be_act": sell_be_act,
+        "sell_be_lock": sell_be_lock,
         "simulation": simulation,
     }
 

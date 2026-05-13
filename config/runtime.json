@@ -1,11 +1,25 @@
 {
   "live": {
     "beta_delta_max": 15.0,
+    "buy_be_act": 300,
+    "buy_be_lock": 0,
+    "buy_sl": 300,
+    "buy_tp": 800,
     "eg_bars": 2240,
     "eg_recalc": "daily",
     "eg_strategies": [],
     "eg_threshold": 0.1,
+    "entry_end_h": 17,
+    "entry_end_m": 25,
+    "entry_start_h": 9,
+    "entry_start_m": 0,
+    "force_close_h": 17,
+    "force_close_m": 40,
     "rho_breakdown_level": 3,
+    "sell_be_act": 300,
+    "sell_be_lock": 0,
+    "sell_sl": 300,
+    "sell_tp": 800,
     "simulation": {
       "conflict_rule": "sl_first",
       "cost_per_contract_rt_brl": 1.0,
@@ -15,10 +29,16 @@
       "exit_slippage_pts": 5.0,
       "intra_bar_sl_tp": true
     },
-    "z_anomaly": 4.0
+    "window": 240,
+    "z_anomaly": 4.0,
+    "z_entry": 1.4
   },
   "replay": {
     "beta_delta_max": 15.0,
+    "buy_be_act": 300,
+    "buy_be_lock": 0,
+    "buy_sl": 300,
+    "buy_tp": 800,
     "eg_bars": 2240,
     "eg_recalc": "daily",
     "eg_strategies": [
@@ -26,7 +46,17 @@
       "WDO_NWE"
     ],
     "eg_threshold": 0.1,
+    "entry_end_h": 17,
+    "entry_end_m": 25,
+    "entry_start_h": 9,
+    "entry_start_m": 0,
+    "force_close_h": 17,
+    "force_close_m": 40,
     "rho_breakdown_level": 2,
+    "sell_be_act": 300,
+    "sell_be_lock": 0,
+    "sell_sl": 300,
+    "sell_tp": 800,
     "simulation": {
       "conflict_rule": "sl_first",
       "cost_per_contract_rt_brl": 1.0,
@@ -36,6 +66,8 @@
       "exit_slippage_pts": 5.0,
       "intra_bar_sl_tp": true
     },
-    "z_anomaly": 4.0
+    "window": 240,
+    "z_anomaly": 4.0,
+    "z_entry": 1.4
   }
 }

@@ -104,6 +104,50 @@ def test_load_rejects_malformed_json(tmp_path):
         ("z_anomaly", 10.5),
         ("z_anomaly", "4.0"),
         ("z_anomaly", True),
+        # Engine params — signals/regime
+        ("window", 29),
+        ("window", 1001),
+        ("window", 240.0),
+        ("window", "240"),
+        ("window", True),
+        ("z_entry", 0.1),       # exclusive lower bound
+        ("z_entry", 0.05),
+        ("z_entry", 5.01),
+        ("z_entry", "1.4"),
+        ("z_entry", True),
+        # Engine params — session hours
+        ("entry_start_h", -1),
+        ("entry_start_h", 24),
+        ("entry_start_h", 9.0),
+        ("entry_start_m", -1),
+        ("entry_start_m", 60),
+        ("entry_end_h", -1),
+        ("entry_end_h", 24),
+        ("entry_end_m", 60),
+        ("force_close_h", -1),
+        ("force_close_h", 24),
+        ("force_close_m", -1),
+        ("force_close_m", 60),
+        # Engine params — trade SL/TP/BE (BUY)
+        ("buy_sl", 9),
+        ("buy_sl", 5001),
+        ("buy_sl", 300.0),
+        ("buy_sl", "300"),
+        ("buy_tp", 9),
+        ("buy_tp", 5001),
+        ("buy_be_act", -1),
+        ("buy_be_act", 5001),
+        ("buy_be_lock", -1),
+        ("buy_be_lock", 5001),
+        # Engine params — trade SL/TP/BE (SELL)
+        ("sell_sl", 9),
+        ("sell_sl", 5001),
+        ("sell_tp", 9),
+        ("sell_tp", 5001),
+        ("sell_be_act", -1),
+        ("sell_be_act", 5001),
+        ("sell_be_lock", -1),
+        ("sell_be_lock", 5001),
     ],
 )
 def test_validation_rejects_bad_values(tmp_path, field, value):
@@ -448,3 +492,163 @@ def test_save_does_not_backfill_missing_fields(tmp_path):
     with pytest.raises(ValueError):
         runtime_config.save_runtime_config(incomplete, target)
     assert not target.exists()
+
+
+# ─── engine params (A'.1 / TASK-16.1) ───────────────────────────────────────
+
+
+_ENGINE_PARAM_FIELDS = (
+    "window",
+    "z_entry",
+    "entry_start_h",
+    "entry_start_m",
+    "entry_end_h",
+    "entry_end_m",
+    "force_close_h",
+    "force_close_m",
+    "buy_sl",
+    "buy_tp",
+    "buy_be_act",
+    "buy_be_lock",
+    "sell_sl",
+    "sell_tp",
+    "sell_be_act",
+    "sell_be_lock",
+)
+
+
+def test_engine_params_present_in_fields_tuple():
+    for field in _ENGINE_PARAM_FIELDS:
+        assert field in runtime_config.FIELDS
+
+
+def test_engine_param_defaults_match_legacy_core_config():
+    """DEFAULTS mirror core.config constants so this slice is a behaviour no-op."""
+    from core import config as core_config
+
+    for profile in runtime_config.PROFILES:
+        d = runtime_config.DEFAULTS[profile]
+        assert d["window"] == core_config.WINDOW
+        assert d["z_entry"] == core_config.Z_ENTRY
+        assert d["entry_start_h"] == core_config.ENTRY_START_H
+        assert d["entry_start_m"] == core_config.ENTRY_START_M
+        assert d["entry_end_h"] == core_config.ENTRY_END_H
+        assert d["entry_end_m"] == core_config.ENTRY_END_M
+        assert d["force_close_h"] == core_config.FORCE_CLOSE_H
+        assert d["force_close_m"] == core_config.FORCE_CLOSE_M
+        assert d["buy_sl"] == core_config.BUY_SL
+        assert d["buy_tp"] == core_config.BUY_TP
+        assert d["buy_be_act"] == core_config.BUY_BE_ACT
+        assert d["buy_be_lock"] == core_config.BUY_BE_LOCK
+        assert d["sell_sl"] == core_config.SELL_SL
+        assert d["sell_tp"] == core_config.SELL_TP
+        assert d["sell_be_act"] == core_config.SELL_BE_ACT
+        assert d["sell_be_lock"] == core_config.SELL_BE_LOCK
+
+
+def test_load_backfills_missing_engine_params(tmp_path):
+    """Legacy config (7 risk-gate fields only) loads with engine defaults backfilled.
+
+    AC1 of TASK-16.1: legacy file → load returns 23 leaf fields per profile
+    (excluding the ``simulation`` sub-block).
+    """
+    target = tmp_path / "runtime.json"
+    legacy = {
+        "live": {
+            "eg_threshold": 0.05,
+            "eg_bars": 250,
+            "eg_recalc": "bar",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 25.0,
+            "eg_strategies": ["CONS_BASE"],
+            "z_anomaly": 4.0,
+            # no engine params, no simulation
+        },
+        "replay": {
+            "eg_threshold": 0.10,
+            "eg_bars": 2240,
+            "eg_recalc": "daily",
+            "rho_breakdown_level": 2,
+            "beta_delta_max": 15.0,
+            "eg_strategies": ["CONS_BASE", "WDO_NWE"],
+            "z_anomaly": 4.0,
+        },
+    }
+    target.write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = runtime_config.load_runtime_config(target)
+
+    for profile in runtime_config.PROFILES:
+        # Risk-gate values preserved
+        keys = set(loaded[profile])
+        # 7 risk-gate + 16 engine + 1 simulation = 24 keys
+        assert keys == set(runtime_config.FIELDS)
+        # Engine params populated from DEFAULTS
+        for field in _ENGINE_PARAM_FIELDS:
+            assert loaded[profile][field] == runtime_config.DEFAULTS[profile][field]
+        # Simulation backfilled too
+        assert loaded[profile]["simulation"] == runtime_config.SIMULATION_DEFAULTS
+
+    # AC1 wording: "23 campos por profile" — 7 risk-gate + 16 engine = 23 leaf
+    # fields if simulation (sub-block) is excluded.
+    leaf_count = len([k for k in runtime_config.FIELDS if k != "simulation"])
+    assert leaf_count == 23
+
+
+def test_engine_params_roundtrip_save_load(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["window"] = 360
+    payload["live"]["z_entry"] = 1.8
+    payload["live"]["buy_sl"] = 250
+    payload["replay"]["window"] = 480
+    payload["replay"]["force_close_m"] = 35
+    payload["replay"]["sell_be_lock"] = 50
+
+    saved = runtime_config.save_runtime_config(payload, target)
+    assert saved["live"]["window"] == 360
+    assert saved["live"]["z_entry"] == 1.8
+    assert saved["live"]["buy_sl"] == 250
+    assert saved["replay"]["window"] == 480
+    assert saved["replay"]["force_close_m"] == 35
+    assert saved["replay"]["sell_be_lock"] == 50
+
+    reloaded = runtime_config.load_runtime_config(target)
+    assert reloaded == saved
+
+
+def test_engine_params_z_entry_normalises_int_to_float(tmp_path):
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["z_entry"] = 2  # int → float
+    saved = runtime_config.save_runtime_config(payload, target)
+    assert isinstance(saved["live"]["z_entry"], float)
+    assert saved["live"]["z_entry"] == 2.0
+
+
+def test_engine_params_accept_boundary_values(tmp_path):
+    """Inclusive bounds — boundary values must validate."""
+    target = tmp_path / "runtime.json"
+    payload = _valid_payload()
+    payload["live"]["window"] = 30          # lower bound (inclusive)
+    payload["replay"]["window"] = 1000      # upper bound (inclusive)
+    payload["live"]["z_entry"] = 5.0        # upper bound (inclusive)
+    payload["replay"]["entry_end_m"] = 59
+    payload["live"]["buy_sl"] = 10
+    payload["replay"]["sell_tp"] = 5000
+    payload["live"]["buy_be_act"] = 0
+    saved = runtime_config.save_runtime_config(payload, target)
+    assert saved["live"]["window"] == 30
+    assert saved["replay"]["window"] == 1000
+    assert saved["live"]["z_entry"] == 5.0
+
+
+def test_committed_runtime_json_has_engine_params():
+    """The on-disk runtime.json includes every engine param after this slice."""
+    target = Path(__file__).resolve().parents[1] / "config" / "runtime.json"
+    raw = json.loads(target.read_text(encoding="utf-8"))
+    for profile in runtime_config.PROFILES:
+        for field in _ENGINE_PARAM_FIELDS:
+            assert field in raw[profile], f"missing {profile}.{field}"
+        assert raw[profile]["window"] == runtime_config.DEFAULTS[profile]["window"]
+        assert raw[profile]["z_entry"] == runtime_config.DEFAULTS[profile]["z_entry"]
