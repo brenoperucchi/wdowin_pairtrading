@@ -42,12 +42,10 @@ Cuidado:
 Rodar com Windows Python que tenha `MetaTrader5` instalado:
 
 ```powershell
-py -3.12 scripts\launch_miqueias_reference.py `
-  --repo C:\Users\brenoperucchi\devs\miqueias\miqueias-wdowin-reference `
-  --port 8081 `
-  --mt5-path E:\MetaTraders\MT5-Python\Ticks\terminal64.exe `
-  --portable
+py -3.12 scripts\launch_miqueias_reference.py
 ```
+
+Defaults já apontam para o repo do Miqueias e para a instalação portátil dedicada `E:\MetaTradersWSL\wdowin\pairtrading_miqueias\terminal64.exe`, que roda lado a lado com o terminal do server principal (`E:\MetaTradersWSL\wdowin\pairtrading\terminal64.exe`). Sobrescreva com `--mt5-path` ou `MIQUEIAS_MT5_PATH` apenas se quiser apontar para outra instalação.
 
 O script nao edita o repo do Miqueias. Ele faz patch runtime de:
 

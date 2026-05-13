@@ -1,4 +1,7 @@
 import sqlite3
+
+import pytest
+
 import core.trade_engine as te
 from core.config import (
     LIVE_DEVIATION,
@@ -9,6 +12,11 @@ from core.config import (
     SYMBOL_A,
 )
 from core.trade_engine import STRATEGIES, TradeEngine
+
+
+@pytest.fixture(autouse=True)
+def _resolve_live_symbol(monkeypatch):
+    monkeypatch.setattr(te, "resolve_live_symbol_win", lambda *_args, **_kwargs: "WINM26")
 
 
 def _gate(allowed=True, reasons=None):
@@ -29,7 +37,8 @@ def _columns(db_path):
 
 def test_live_orders_default_keeps_engine_paper_only():
     assert LIVE_ORDERS is False
-    assert LIVE_SYMBOL_WIN == SYMBOL_A
+    assert LIVE_SYMBOL_WIN == "AUTO"
+    assert SYMBOL_A == "WIN$N"
     assert LIVE_DEVIATION > 0
     assert LIVE_MAGIC_BASE == 770000
 

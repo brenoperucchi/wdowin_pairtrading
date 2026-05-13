@@ -62,10 +62,10 @@ from core.config import (
     JOH_WINDOW, JOH_RECHECK_BARS,
     NWE_BANDWIDTH, NWE_LOOKBACK, NWE_MULT_MAE,
     WDO_KALMAN_Q, WDO_KALMAN_R, WDO_KALMAN_W,
-    LIVE_ORDERS,
+    LIVE_ORDERS, LIVE_SYMBOL_WIN,
 )
 from core.mt5_client import (
-    connect_mt5, fetch_bars, fetch_rates,
+    connect_mt5, fetch_bars, fetch_rates, resolve_live_symbol_win,
 )
 from core.signals import (
     calc_beta_ols, calc_half_life, calc_zscore,
@@ -1816,6 +1816,14 @@ def di_regime(force: bool = False):
 def health():
     connected = connect_mt5()
     info = mt5.terminal_info() if connected else None
+    account = mt5.account_info() if connected else None
+    live_symbol_resolved = None
+    live_symbol_error = None
+    if connected:
+        try:
+            live_symbol_resolved = resolve_live_symbol_win(LIVE_SYMBOL_WIN)
+        except Exception as exc:
+            live_symbol_error = str(exc)
     eval_state = _get_eval_state()
     last_completed_epoch = eval_state.get("last_completed_epoch")
     last_completed_age_sec = (
@@ -1826,10 +1834,18 @@ def health():
         "mt5_connected": connected,
         "terminal_name": info.name if info else None,
         "terminal_path": info.path if info else None,
+        "account_login": account.login if account else None,
+        "account_server": account.server if account else None,
+        "account_name": account.name if account else None,
         "configured_path": MT5_PATH or "(automatico)",
         "symbol_a": SYMBOL_A,
         "symbol_b": SYMBOL_B,
         "di_symbol": DI_SYMBOL,
+        "live_symbol_win": live_symbol_resolved or LIVE_SYMBOL_WIN,
+        "live_symbol_win_config": LIVE_SYMBOL_WIN,
+        "live_symbol_win_resolved": live_symbol_resolved,
+        "live_symbol_win_error": live_symbol_error,
+        "live_orders_enabled": bool(LIVE_ORDERS),
         "trade_eval_loop": {
             "running": bool(eval_state.get("loop_running")),
             "in_progress": bool(eval_state.get("in_progress")),

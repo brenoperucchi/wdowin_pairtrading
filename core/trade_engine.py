@@ -23,6 +23,7 @@ from core.config import (
     RHO_MIN,
     NWE_BAND_MULT,
     LIVE_ORDERS, LIVE_SYMBOL_WIN, LIVE_DEVIATION, MAGIC_BY_STRATEGY,
+    SYMBOL_A,
 )
 from core.execution_timeline import init_timeline_table, record_event
 from core.risk_gate import EG_REASONS, operational_checks, WITHIN_POLL_OP_REASONS
@@ -42,6 +43,16 @@ def close_position_by_ticket(*args, **kwargs):
     """Lazy MT5 import so paper-mode TradeEngine stays importable on Linux/CI."""
     from core.mt5_client import close_position_by_ticket as _close_position_by_ticket
     return _close_position_by_ticket(*args, **kwargs)
+
+
+def resolve_live_symbol_win(*args, **kwargs):
+    """Lazy MT5 import so tests/paper mode can patch or skip MT5 resolution."""
+    from core.mt5_client import resolve_live_symbol_win as _resolve_live_symbol_win
+    return _resolve_live_symbol_win(*args, **kwargs)
+
+
+def _live_symbol_label() -> str:
+    return SYMBOL_A if LIVE_SYMBOL_WIN.upper() in {"AUTO", "DYNAMIC"} else LIVE_SYMBOL_WIN
 
 
 class TradeEngine:
@@ -497,6 +508,13 @@ class TradeEngine:
         live = 0
         action = "BUY_WIN" if direction == "BUY" else "SELL_WIN"
         correlation_id = self._event_corr_attempt(attempt_id)
+        live_symbol = _live_symbol_label()
+        live_symbol_error = None
+        if LIVE_ORDERS:
+            try:
+                live_symbol = resolve_live_symbol_win(LIVE_SYMBOL_WIN)
+            except Exception as exc:
+                live_symbol_error = str(exc)
 
         self._emit_timeline_event(
             timestamp=now_dt.isoformat(timespec="seconds"),
@@ -509,7 +527,7 @@ class TradeEngine:
             status="OK",
             severity="info",
             strategy=strategy,
-            symbol=LIVE_SYMBOL_WIN,
+            symbol=live_symbol,
             metric="abs_z_score",
             value=abs(z_val),
             threshold=z_threshold,
@@ -531,9 +549,38 @@ class TradeEngine:
         )
 
         if LIVE_ORDERS:
+            if live_symbol_error:
+                self._emit_timeline_event(
+                    timestamp=now_dt.isoformat(timespec="seconds"),
+                    closed_bar_ts=closed_bar_ts,
+                    correlation_id=correlation_id,
+                    attempt_id=attempt_id,
+                    dedupe_key=f"{correlation_id}:ORDER:LIVE_SYMBOL_RESOLUTION_FAILED",
+                    phase="ORDER",
+                    event="LIVE_SYMBOL_RESOLUTION_FAILED",
+                    status="FAILED",
+                    severity="operational_block",
+                    strategy=strategy,
+                    symbol=live_symbol,
+                    message=f"{strategy} live WIN symbol resolution failed",
+                    payload_json={
+                        "configured_symbol": LIVE_SYMBOL_WIN,
+                        "continuous_symbol": SYMBOL_A,
+                        "error": live_symbol_error,
+                    },
+                )
+                logger.error(
+                    "live_symbol_resolution_failed strategy=%s configured=%s error=%s",
+                    strategy, LIVE_SYMBOL_WIN, live_symbol_error,
+                )
+                return self._result(
+                    "ORDER_FAILED",
+                    strategy,
+                    gate_reasons=[f"LIVE_SYMBOL_RESOLUTION_FAILED:{live_symbol_error}"],
+                )
             mt5_magic = MAGIC_BY_STRATEGY[strategy]
             order_request = {
-                "symbol": LIVE_SYMBOL_WIN,
+                "symbol": live_symbol,
                 "side": direction,
                 "volume": WIN_CONTRACTS,
                 "magic": mt5_magic,
@@ -551,7 +598,7 @@ class TradeEngine:
                 status="OK",
                 severity="info",
                 strategy=strategy,
-                symbol=LIVE_SYMBOL_WIN,
+                symbol=live_symbol,
                 message=f"{strategy} MT5 order request",
                 payload_json=order_request,
             )
@@ -575,7 +622,7 @@ class TradeEngine:
                     status="FAILED",
                     severity="operational_block",
                     strategy=strategy,
-                    symbol=LIVE_SYMBOL_WIN,
+                    symbol=live_symbol,
                     message=f"{strategy} MT5 order rejected",
                     payload_json={
                         "ticket": order.get("ticket"),
@@ -604,7 +651,7 @@ class TradeEngine:
                 status="OK",
                 severity="info",
                 strategy=strategy,
-                symbol=LIVE_SYMBOL_WIN,
+                symbol=live_symbol,
                 message=f"{strategy} MT5 order filled",
                 payload_json={
                     "ticket": order.get("ticket"),
@@ -786,6 +833,7 @@ class TradeEngine:
             correlation_id = self._event_corr_trade(trade_id)
             exit_status = "OK" if close_result["ok"] else "FAILED"
             exit_severity = "info" if close_result["ok"] else "operational_block"
+            event_symbol = _live_symbol_label()
             self._emit_timeline_event(
                 timestamp=now_dt.isoformat(timespec="seconds"),
                 closed_bar_ts=closed_bar_ts,
@@ -797,7 +845,7 @@ class TradeEngine:
                 status=exit_status,
                 severity=exit_severity,
                 strategy=strategy,
-                symbol=LIVE_SYMBOL_WIN,
+                symbol=event_symbol,
                 message=f"{strategy} exit trigger {reason}",
                 payload_json={
                     "reason": reason,
@@ -835,7 +883,7 @@ class TradeEngine:
                     status="FAILED",
                     severity="operational_block",
                     strategy=strategy,
-                    symbol=LIVE_SYMBOL_WIN,
+                    symbol=event_symbol,
                     message=f"{strategy} close order failed",
                     payload_json={
                         "reason": reason,

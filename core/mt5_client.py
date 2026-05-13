@@ -6,11 +6,84 @@ Order helpers (send_market_order, close_position_by_ticket, list_open_positions)
 return plain dicts so callers can stay testable without real MT5 state.
 """
 import logging
+import re
 import numpy as np
 import MetaTrader5 as mt5
 from core.config import MT5_PATH, MT5_PORTABLE, TIMEFRAME
 
 logger = logging.getLogger(__name__)
+
+_B3_FUTURE_MONTH_CODES = "FGHJKMNQUVXZ"
+
+
+def _symbol_info_text(info, fields=("basis", "description", "path", "name")) -> str:
+    parts = []
+    for field in fields:
+        value = getattr(info, field, None)
+        if value:
+            parts.append(str(value))
+    return " | ".join(parts)
+
+
+def _extract_current_contract(continuous_symbol: str, info) -> str | None:
+    prefix = continuous_symbol.split("$", 1)[0].upper()
+    text = _symbol_info_text(info)
+    pattern = rf"\b{re.escape(prefix)}[{_B3_FUTURE_MONTH_CODES}]\d{{2}}\b"
+    match = re.search(pattern, text.upper())
+    return match.group(0) if match else None
+
+
+def resolve_live_symbol_win(configured_symbol: str | None = None) -> str:
+    """Resolve the tradable WIN contract from WIN$N metadata.
+
+    XP's continuous symbol exposes the active liquidity contract in
+    symbol_info("WIN$N").description, for example:
+    "IBOVESPA MINI - Por Liquidez (WINM26) - Sem Ajustes".
+    """
+    from core.config import (
+        ALLOW_CONTINUOUS_LIVE_SYMBOL,
+        LIVE_SYMBOL_WIN,
+        SYMBOL_A,
+    )
+
+    requested = (configured_symbol if configured_symbol is not None else LIVE_SYMBOL_WIN).strip()
+    if requested and requested.upper() not in {"AUTO", "DYNAMIC"}:
+        if requested.endswith("$N") and not ALLOW_CONTINUOUS_LIVE_SYMBOL:
+            raise ValueError(
+                f"LIVE_SYMBOL_WIN={requested} is continuous; use AUTO or a tradable contract"
+            )
+        return requested
+
+    continuous_symbol = SYMBOL_A
+    mt5.symbol_select(continuous_symbol, True)
+    info = mt5.symbol_info(continuous_symbol)
+    if info is None:
+        raise RuntimeError(
+            f"Could not resolve live WIN symbol from {continuous_symbol}: {mt5.last_error()}"
+        )
+
+    candidate = _extract_current_contract(continuous_symbol, info)
+    if not candidate:
+        raise RuntimeError(
+            f"Could not parse active WIN contract from {continuous_symbol}: "
+            f"{_symbol_info_text(info)!r}"
+        )
+
+    mt5.symbol_select(candidate, True)
+    candidate_info = mt5.symbol_info(candidate)
+    if candidate_info is None:
+        raise RuntimeError(
+            f"Resolved {candidate} from {continuous_symbol}, but symbol_info({candidate}) failed: "
+            f"{mt5.last_error()}"
+        )
+
+    trade_mode = getattr(candidate_info, "trade_mode", None)
+    disabled_mode = getattr(mt5, "SYMBOL_TRADE_MODE_DISABLED", 0)
+    if trade_mode == disabled_mode:
+        raise RuntimeError(
+            f"Resolved {candidate} from {continuous_symbol}, but trade_mode is disabled"
+        )
+    return candidate
 
 
 # ─── MT5 connection ─────────────────────────────────────────────────────────
@@ -30,11 +103,16 @@ def connect_mt5() -> bool:
         return False
     info = mt5.terminal_info()
     print(f"[MT5] Conectado — {info.name} | path: {info.path}")
-    # Ensure B3 symbols are visible in Market Watch
-    from core.config import SYMBOL_A, SYMBOL_B, DI_SYMBOL
-    for sym in [SYMBOL_A, SYMBOL_B, DI_SYMBOL]:
+    # Ensure data symbols and the live execution contract are visible.
+    from core.config import LIVE_SYMBOL_WIN, SYMBOL_A, SYMBOL_B, DI_SYMBOL
+    symbols = list(dict.fromkeys([SYMBOL_A, SYMBOL_B, DI_SYMBOL]))
+    for sym in symbols:
         mt5.symbol_select(sym, True)
-    print(f"[MT5] Symbols ativados: {SYMBOL_A}, {SYMBOL_B}, {DI_SYMBOL}")
+    try:
+        symbols.append(resolve_live_symbol_win(LIVE_SYMBOL_WIN))
+    except Exception as exc:
+        logger.warning("Could not resolve live WIN symbol: %s", exc)
+    print(f"[MT5] Symbols ativados: {', '.join(symbols)}")
     return True
 
 

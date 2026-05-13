@@ -34,6 +34,11 @@ def engine(tmp_path):
     return TradeEngine(db_path=str(tmp_path / "test_trades.db"))
 
 
+@pytest.fixture(autouse=True)
+def _resolve_live_symbol(monkeypatch):
+    monkeypatch.setattr(te, "resolve_live_symbol_win", lambda *_args, **_kwargs: "WINM26")
+
+
 def _gate(allowed=True, reasons=None):
     return {
         "allowed": allowed,

@@ -41,17 +41,26 @@ def _env_bool(name: str, default: bool) -> bool:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _env_str(name: str, default: str) -> str:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    raw = raw.strip()
+    return raw or default
+
 # ─── Infrastructure ─────────────────────────────────────────────────────────
-# Dedicated portable MT5 instance for pair trading (XP DEMO conta 52033102).
+# Dedicated portable MT5 instance for pair trading (XPMT5-DEMO 92033102).
 # Isolated from dco-collector, which runs against E:\...\Books\terminal64.exe
 # at ~150 calls/s during 10:00–16:55 BRT — sharing would saturate the IPC queue.
-# WIN$N, WDO$N, DI1$N must be enabled in Market Watch.
-MT5_PATH = r"E:\MetaTraders\MT5-Python\Ticks\terminal64.exe"
-MT5_PORTABLE = True
+# Override MT5_PATH per supervised session when the target account changes.
+# WIN$N, WDO$N, DI1$N and the resolved live contract must be enabled in Market Watch.
+MT5_PATH = _env_str("MT5_PATH", r"E:\MetaTradersWSL\wdowin\pairtrading\terminal64.exe")
+MT5_PORTABLE = _env_bool("MT5_PORTABLE", True)
 
 # ─── Symbols ────────────────────────────────────────────────────────────────
-SYMBOL_A = "WIN$N"
-SYMBOL_B = "WDO$N"
+SYMBOL_A = _env_str("SYMBOL_A", "WIN$N")
+SYMBOL_B = _env_str("SYMBOL_B", "WDO$N")
 
 # ─── Timeframe & Windows ────────────────────────────────────────────────────
 TIMEFRAME = mt5.TIMEFRAME_M5
@@ -93,10 +102,23 @@ WIN_CONTRACTS = 2
 WIN_PV = 0.20          # R$/point/contract
 
 # ─── Live order scaffold (TASK-2) ───────────────────────────────────────────
-# Default remains paper-only. Set environment variable LIVE_ORDERS=1 only for
-# an explicitly supervised DEMO/live process.
+# Default remains paper-only. Set LIVE_ORDERS=1 only for an explicitly
+# supervised DEMO/live process. LIVE_SYMBOL_WIN=AUTO resolves the tradable
+# contract from symbol_info(WIN$N), so rollover does not require code edits.
 LIVE_ORDERS = _env_bool("LIVE_ORDERS", False)
-LIVE_SYMBOL_WIN = SYMBOL_A
+LIVE_SYMBOL_WIN = _env_str("LIVE_SYMBOL_WIN", "AUTO")
+ALLOW_CONTINUOUS_LIVE_SYMBOL = _env_bool("ALLOW_CONTINUOUS_LIVE_SYMBOL", False)
+if (
+    LIVE_ORDERS
+    and LIVE_SYMBOL_WIN.upper() not in {"AUTO", "DYNAMIC"}
+    and LIVE_SYMBOL_WIN.endswith("$N")
+    and not ALLOW_CONTINUOUS_LIVE_SYMBOL
+):
+    raise ValueError(
+        "LIVE_ORDERS=1 with continuous LIVE_SYMBOL_WIN is blocked. "
+        "Set LIVE_SYMBOL_WIN=AUTO, set it to a tradable contract, or set "
+        "ALLOW_CONTINUOUS_LIVE_SYMBOL=1 only if the broker explicitly accepts it."
+    )
 LIVE_DEVIATION = 50
 LIVE_MAGIC_BASE = 770000
 MAGIC_BY_STRATEGY = {
@@ -133,7 +155,7 @@ CACHE_TTL = 2.0
 TIME_OFFSET = 3 * 3600
 
 # ─── DI Pair Trading (WIN×DI) — Kalman Filter ───────────────────────────────
-DI_SYMBOL = "DI1$N"            # Contrato contínuo DI futuro
+DI_SYMBOL = _env_str("DI_SYMBOL", "DI1$N")            # Contrato contínuo DI futuro
 DI_KALMAN_Q = 1e-3             # Kalman trans_cov (adaptação rápida)
 DI_KALMAN_R = 1e1              # Kalman obs_cov (baixa suavização)
 DI_KALMAN_W = 60               # Z-score rolling window

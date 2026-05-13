@@ -10,6 +10,7 @@ import pytest
 import MetaTrader5 as mt5
 
 import core.mt5_client as client
+import core.config as cfg
 
 
 # Structured dtype mirroring MT5's copy_rates_* return shape.
@@ -53,6 +54,65 @@ def _position(ticket=111222, symbol="WIN$N", pos_type=0, volume=2.0,
     p.magic = magic
     p.comment = comment
     return p
+
+
+# ─── connect_mt5 ────────────────────────────────────────────────────────────
+
+def test_connect_mt5_selects_live_execution_symbol(monkeypatch):
+    selected = []
+    state = {"connected": False}
+    info = types.SimpleNamespace(name="Fake MT5", path="E:\\Fake\\terminal64.exe")
+
+    def fake_terminal_info():
+        return info if state["connected"] else None
+
+    def fake_initialize(**kwargs):
+        state["connected"] = True
+        return True
+
+    monkeypatch.setattr(mt5, "terminal_info", fake_terminal_info, raising=False)
+    monkeypatch.setattr(mt5, "initialize", fake_initialize, raising=False)
+    monkeypatch.setattr(mt5, "symbol_select", lambda sym, enabled: selected.append(sym), raising=False)
+    monkeypatch.setattr(
+        mt5,
+        "symbol_info",
+        lambda sym: types.SimpleNamespace(
+            name=sym,
+            description="IBOVESPA MINI - Por Liquidez (WINM26) - Sem Ajustes",
+            path=sym,
+            trade_mode=4 if sym == "WINM26" else 0,
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(cfg, "SYMBOL_A", "WIN$N")
+    monkeypatch.setattr(cfg, "SYMBOL_B", "WDO$N")
+    monkeypatch.setattr(cfg, "DI_SYMBOL", "DI1$N")
+    monkeypatch.setattr(cfg, "LIVE_SYMBOL_WIN", "AUTO")
+
+    assert client.connect_mt5() is True
+    assert selected == ["WIN$N", "WDO$N", "DI1$N", "WIN$N", "WINM26"]
+
+
+def test_resolve_live_symbol_win_from_continuous_description(monkeypatch):
+    selected = []
+
+    monkeypatch.setattr(mt5, "symbol_select", lambda sym, enabled: selected.append(sym), raising=False)
+    monkeypatch.setattr(
+        mt5,
+        "symbol_info",
+        lambda sym: types.SimpleNamespace(
+            name=sym,
+            description="IBOVESPA MINI - Por Liquidez (WINM26) - Sem Ajustes",
+            path=sym,
+            trade_mode=4 if sym == "WINM26" else 0,
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(cfg, "SYMBOL_A", "WIN$N")
+    monkeypatch.setattr(cfg, "LIVE_SYMBOL_WIN", "AUTO")
+
+    assert client.resolve_live_symbol_win() == "WINM26"
+    assert selected == ["WIN$N", "WINM26"]
 
 
 # ─── send_market_order ───────────────────────────────────────────────────────

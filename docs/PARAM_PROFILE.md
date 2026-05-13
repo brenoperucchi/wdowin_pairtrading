@@ -13,7 +13,7 @@ script's hardcoded values shift.
 
 ## 1. Canonical live profile
 
-Pulled from `core/config.py` (TIMEFRAME = M5, account = XP DEMO 52033102).
+Pulled from `core/config.py` (TIMEFRAME = M5, account = XPMT5-DEMO 92033102).
 Each row maps a single attribute on `core/config.py` to its current value.
 `tests/test_param_profile.py` parses these tables and asserts each value
 equals `getattr(cfg, NAME)` — if `core/config.py` changes, the test fails
@@ -94,7 +94,7 @@ supervised DEMO/live process.
 | Constant           | Value   | Notes |
 |--------------------|---------|-------|
 | `LIVE_ORDERS`      | False   | master switch — default paper-only |
-| `LIVE_SYMBOL_WIN`  | `WIN$N` | only tradable leg |
+| `LIVE_SYMBOL_WIN`  | `AUTO`  | resolves tradable WIN contract from `symbol_info(WIN$N)` |
 | `LIVE_DEVIATION`   | 50      | market order deviation budget |
 | `LIVE_MAGIC_BASE`  | 770000  | base for per-strategy magic numbers |
 | `LIVE_FILLING`     | 2       | `mt5.ORDER_FILLING_RETURN` |

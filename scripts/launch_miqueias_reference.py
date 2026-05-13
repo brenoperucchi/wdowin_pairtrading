@@ -16,9 +16,16 @@ DEFAULT_REPO = os.environ.get(
     "MIQUEIAS_REPO",
     r"C:\Users\brenoperucchi\devs\miqueias\miqueias-wdowin-reference",
 )
+# The reference server uses its OWN portable MT5 install, side-by-side with
+# the principal server's terminal. Sharing one terminal64.exe between two
+# Python MT5 sessions causes IPC contention (terminal_info() flapping, stale
+# copy_rates calls), so each server gets a dedicated portable copy.
+# Override priority: MIQUEIAS_MT5_PATH > hardcoded miqueias portable path.
+# We intentionally do NOT fall back to $MT5_PATH — that would silently collide
+# with the principal terminal.
 DEFAULT_MT5_PATH = os.environ.get(
     "MIQUEIAS_MT5_PATH",
-    r"E:\MetaTraders\MT5-Python\Ticks\terminal64.exe",
+    r"E:\MetaTradersWSL\wdowin\pairtrading_miqueias\terminal64.exe",
 )
 
 
