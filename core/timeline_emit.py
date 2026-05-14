@@ -28,6 +28,11 @@ from core.trade_engine import STRATEGIES
 
 TIMELINE_RISK_REASONS = set(WITHIN_POLL_OP_REASONS) | {"MT5_DISCONNECTED"}
 TIMELINE_TRANSIENT_REASONS = {"OUT_OF_SESSION"}
+TIMELINE_SCOPED_REASONS = {
+    "MAX_TRADES_REACHED",
+    "DAILY_LOSS_LIMIT",
+    "LOSS_COOLDOWN",
+}
 
 
 def timeline_ts(now_dt: datetime | None = None) -> str:
@@ -61,6 +66,7 @@ def reason_fields(
     rho_breakdown_level: int = 2,
     beta_delta_max: float = BETA_DELTA_MAX,
     z_anomaly: float = Z_ANOMALY,
+    live_only: bool = False,
 ) -> dict:
     """Attach metric/threshold/operator context for known gate reasons."""
     if reason in {"EG_NOT_COINTEGRATED", "EG_UNAVAILABLE"}:
@@ -97,6 +103,7 @@ def reason_fields(
             "value": trades_today_count,
             "threshold": MAX_TRADES_PER_DAY,
             "operator": "<",
+            "scope": "live" if live_only else "all",
         }
     if reason == "DAILY_LOSS_LIMIT":
         return {
@@ -104,6 +111,7 @@ def reason_fields(
             "value": daily_pnl_brl,
             "threshold": -DAILY_LOSS_LIMIT_BRL,
             "operator": ">",
+            "scope": "live" if live_only else "all",
         }
     if reason == "LOSS_COOLDOWN":
         return {
@@ -111,6 +119,7 @@ def reason_fields(
             "value": minutes_since_last_loss,
             "threshold": LOSS_COOLDOWN_MIN,
             "operator": ">=",
+            "scope": "live" if live_only else "all",
         }
     return {}
 
@@ -231,6 +240,7 @@ def emit_closed_bar_timeline(
     rho_breakdown_level: int = 2,
     beta_delta_max: float = BETA_DELTA_MAX,
     z_anomaly: float = Z_ANOMALY,
+    live_only: bool = False,
 ) -> int:
     """Emit the full closed-bar funnel for INDICATORS / ELIGIBILITY / RISK / SIGNAL.
 
@@ -289,6 +299,7 @@ def emit_closed_bar_timeline(
             rho_breakdown_level=rho_breakdown_level,
             beta_delta_max=beta_delta_max,
             z_anomaly=z_anomaly,
+            live_only=live_only,
         )
         event: dict[str, Any] = {
             "timestamp": ts,
@@ -301,6 +312,8 @@ def emit_closed_bar_timeline(
             "severity": severity_for_reason(reason),
             "message": reason_message(reason, phase, fields),
         }
+        if reason in TIMELINE_SCOPED_REASONS:
+            event["payload_json"] = {"scope": fields["scope"]}
         event.update(fields)
         events.append(event)
 

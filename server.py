@@ -1511,6 +1511,7 @@ def regime_v2():
             rho_breakdown_level=live_profile["rho_breakdown_level"],
             beta_delta_max=live_profile["beta_delta_max"],
             z_anomaly=live_profile["z_anomaly"],
+            live_only=live_risk_only,
         )
         regime_v2._last_emitted_bar_ts = closed_bar_ts
 

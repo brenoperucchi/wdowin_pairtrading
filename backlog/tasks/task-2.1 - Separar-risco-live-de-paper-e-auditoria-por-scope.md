@@ -1,7 +1,7 @@
 ---
 id: TASK-2.1
 title: Separar risco live de paper e auditoria por scope
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-13 20:24'
 labels:
@@ -48,12 +48,12 @@ Coordenação dos 5 slices. Cada slice tem seus próprios testes e commit indepe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Plano em docs/plans/separar-risco-linear-umbrella.md aprovado e referenciado nos slices
+- [x] #1 Plano em docs/plans/separar-risco-linear-umbrella.md aprovado e referenciado nos slices
 - [x] #2 Slice 1: count_trades_today, pnl_today, minutes_since_last_loss aceitam live_only kwarg e filtram por live=1 quando True; testes verdes
 - [x] #3 Slice 2: _get_open_trades e evaluate aceitam live_only e propagam internamente; testes verdes incluindo o caso do paper R$-494 NÃO bloqueando
 - [x] #4 Slice 3: server.py passa live_only=bool(LIVE_ORDERS) nas chamadas de evaluate; gate live ainda bloqueia em perda live real
 - [x] #5 Slice 4: /api/v2/regime expõe risk_stats_scope, risk_trades_today, risk_daily_pnl_brl, risk_minutes_since_last_loss; /health expõe risk_stats_scope
-- [ ] #6 Slice 5: timeline_emit.reason_fields injeta scope nos eventos MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN; demais reasons inalteradas
-- [ ] #7 Trades paper-OPEN antigos NÃO são modificados; comportamento documentado em docstring de _get_open_trades e em CLAUDE.md
-- [ ] #8 Suite pytest completa verde após o último slice
+- [x] #6 Slice 5: timeline_emit.reason_fields injeta scope nos eventos MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN; demais reasons inalteradas
+- [x] #7 Trades paper-OPEN antigos NÃO são modificados; comportamento documentado em docstring de _get_open_trades e em CLAUDE.md
+- [x] #8 Suite pytest completa verde após o último slice
 <!-- AC:END -->

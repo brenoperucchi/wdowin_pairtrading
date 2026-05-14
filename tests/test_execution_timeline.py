@@ -11,7 +11,8 @@ from datetime import datetime
 import pytest
 
 from core import execution_timeline as et
-from core.trade_engine import TradeEngine
+from core.timeline_emit import emit_closed_bar_timeline, reason_fields
+from core.trade_engine import STRATEGIES, TradeEngine
 
 
 @pytest.fixture
@@ -27,6 +28,21 @@ def _epoch(iso_ts: str) -> int:
 
 def _mt5_epoch(iso_ts: str) -> int:
     return _epoch(iso_ts) - 3 * 3600
+
+
+def _reason_kwargs(**overrides):
+    base = {
+        "z_wdo": 1.5,
+        "z_di": 1.2,
+        "rho_level": 3,
+        "beta_delta_pct": 0.3,
+        "eg_pvalue": 0.64,
+        "trades_today_count": 4,
+        "daily_pnl_brl": -250.0,
+        "minutes_since_last_loss": 5.0,
+    }
+    base.update(overrides)
+    return base
 
 
 # ─── schema ──────────────────────────────────────────────────────────────────
@@ -184,6 +200,56 @@ def test_bulk_record_events_payload_dict_serialised_as_json(db):
     )
     rows = et.load_timeline(db, limit=1)
     assert json.loads(rows[0]["payload_json"]) == payload
+
+
+def test_reason_fields_default_omits_scope():
+    fields = reason_fields("MAX_TRADES_REACHED", **_reason_kwargs())
+    assert fields["scope"] == "all"
+
+    non_operational = reason_fields(
+        "RHO_BREAKDOWN",
+        **_reason_kwargs(),
+        live_only=True,
+    )
+    assert "scope" not in non_operational
+
+
+def test_emit_closed_bar_timeline_includes_scope_for_operational_reasons(db):
+    reasons = [
+        "MAX_TRADES_REACHED",
+        "DAILY_LOSS_LIMIT",
+        "LOSS_COOLDOWN",
+        "RHO_BREAKDOWN",
+        "BAR_NOT_CLOSED",
+    ]
+    trade_result = {
+        "strategies": {
+            strategy: {"action": "WAIT", "gate_reasons": list(reasons)}
+            for strategy in STRATEGIES
+        }
+    }
+
+    emit_closed_bar_timeline(
+        db_path=db,
+        closed_bar_ts=1778243100,
+        gate={"allowed": False, "reasons": reasons},
+        trade_result=trade_result,
+        rho=-0.44,
+        joh_open=False,
+        mt5_connected=True,
+        now_dt=datetime.fromisoformat("2026-05-08T10:05:00"),
+        live_only=True,
+        **_reason_kwargs(),
+    )
+
+    events = {row["event"]: row for row in et.load_timeline(db, limit=20)}
+    assert "BAR_NOT_CLOSED" not in events
+
+    for reason in ("MAX_TRADES_REACHED", "DAILY_LOSS_LIMIT", "LOSS_COOLDOWN"):
+        payload = json.loads(events[reason]["payload_json"])
+        assert payload["scope"] == "live"
+
+    assert events["RHO_BREAKDOWN"]["payload_json"] is None
 
 
 # ─── load_timeline filters ───────────────────────────────────────────────────

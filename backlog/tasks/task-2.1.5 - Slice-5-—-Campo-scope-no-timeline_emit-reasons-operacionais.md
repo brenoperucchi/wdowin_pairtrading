@@ -1,7 +1,7 @@
 ---
 id: TASK-2.1.5
 title: Slice 5 — Campo scope no timeline_emit (reasons operacionais)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-13 20:25'
 labels:
@@ -58,10 +58,10 @@ Consumidores existentes (dashboard, replay) toleram campos extras em `payload_js
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 reason_fields injeta 'scope' apenas em MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN
-- [ ] #2 Demais reasons (BAR_NOT_CLOSED, RHO_BREAKDOWN, BETA_DRIFT, Z_ANOMALY, etc.) inalteradas - sem campo scope
-- [ ] #3 emit_closed_bar_timeline aceita e propaga live_only kwarg-only (default False)
-- [ ] #4 server.py passa live_only=bool(LIVE_ORDERS) na chamada de emit_closed_bar_timeline
-- [ ] #5 Testes novos em test_execution_timeline.py passam
-- [ ] #6 Suite pytest completa verde
+- [x] #1 reason_fields injeta 'scope' apenas em MAX_TRADES_REACHED, DAILY_LOSS_LIMIT, LOSS_COOLDOWN
+- [x] #2 Demais reasons (BAR_NOT_CLOSED, RHO_BREAKDOWN, BETA_DRIFT, Z_ANOMALY, etc.) inalteradas - sem campo scope
+- [x] #3 emit_closed_bar_timeline aceita e propaga live_only kwarg-only (default False)
+- [x] #4 server.py passa live_only=bool(LIVE_ORDERS) na chamada de emit_closed_bar_timeline
+- [x] #5 Testes novos em test_execution_timeline.py passam
+- [x] #6 Suite pytest completa verde
 <!-- AC:END -->
