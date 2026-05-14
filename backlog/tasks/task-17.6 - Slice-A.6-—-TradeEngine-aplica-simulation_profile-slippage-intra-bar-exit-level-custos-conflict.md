@@ -3,7 +3,7 @@ id: TASK-17.6
 title: >-
   Slice A.6 — TradeEngine aplica simulation_profile
   (slippage/intra-bar/exit-level/custos/conflict)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-13 01:20'
 updated_date: '2026-05-13 03:49'
