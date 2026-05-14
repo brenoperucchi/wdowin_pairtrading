@@ -23,7 +23,7 @@ Sem migração de dados. Trades paper-OPEN antigos ficam como estão no banco; e
 ### Critical files
 
 - `core/trade_engine.py` — adicionar `live_only` em `_get_open_trades` (l.117), `count_trades_today` (l.1037), `pnl_today` (l.1047), `minutes_since_last_loss` (l.1063) e `evaluate` (l.157+). Repassar internamente nas chamadas das l.213, 240–242. **Atenção**: existe um segundo cálculo das três stats em `evaluate` na l.240–242 (refresh pós Phase 1 / pré Phase 2) que também precisa receber `live_only`.
-- `server.py` — em `regime_v2()` (≈l.1184) e nas três chamadas de `risk_gate`/`evaluate` (l.1411, l.1440, l.1464), passar `live_only=bool(LIVE_ORDERS)`. Adicionar bloco `risk_audit` em `_build_response` (l.1116-1179) e campo curto em `/health` (l.1815-1869).
+- `server.py` — em `regime_v2()` (≈l.1184) e nas três chamadas de `risk_gate`/`evaluate` (l.1411, l.1440, l.1464), passar `live_only=bool(LIVE_ORDERS)`. Adicionar campos flat `risk_*` em `_build_response` (l.1116-1179) e campo curto em `/health` (l.1815-1869).
 - `core/timeline_emit.py` — em `reason_fields()` (l.74-115) injetar `"scope"` apenas para `MAX_TRADES_REACHED`, `DAILY_LOSS_LIMIT`, `LOSS_COOLDOWN`. `emit_closed_bar_timeline()` (l.212-305) ganha `live_only: bool=False` e repassa.
 - `core/risk_gate.py` — **não muda**. Documentar no docstring que é scope-agnostic.
 - `tests/test_trade_engine.py`, `tests/test_trade_engine_live.py`, `tests/test_execution_timeline.py`, `tests/test_execution_timeline_server.py` — novos testes (ver Slices).
@@ -94,8 +94,8 @@ Aderindo à memória [[feedback_slice_review_ritual.md]]: cada slice abre uma su
 2. **Manual end-to-end com DB real**:
    - Confirmar que o trade paper de hoje com `pnl_brl=-494` está presente: `sqlite3 <db> "SELECT id, timestamp_in, status, live, pnl_brl FROM matador_ops WHERE date(timestamp_in)=date('now','localtime');"`.
    - Subir o server com `LIVE_ORDERS=1` (após slice 3).
-   - `curl http://localhost:8080/api/v2/regime | jq .risk_audit` → deve mostrar `scope: "live"`, `daily_pnl_brl: 0.0` (ignora o paper), `trades_today: 0`.
-   - `curl http://localhost:8080/health | jq .risk_audit_scope` → `"live"`.
+   - `curl http://localhost:8080/api/v2/regime | jq '{scope: .risk_stats_scope, daily_pnl_brl: .risk_daily_pnl_brl, trades_today: .risk_trades_today}'` → deve mostrar `scope: "live"` e ignorar o paper.
+   - `curl http://localhost:8080/health | jq .risk_stats_scope` → `"live"`.
    - Aguardar próxima janela de sinal e confirmar que o motor não bloqueia mais por `DAILY_LOSS_LIMIT` originário do paper.
 
 3. **Regressão paper-mode** (replay/backtest): rodar `pytest tests/test_replay_simulation*.py` para confirmar que `live_only=False` mantém comportamento legado de paper bloqueando paper.

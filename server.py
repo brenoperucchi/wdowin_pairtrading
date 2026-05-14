@@ -1136,6 +1136,10 @@ def _build_response(current_z, current_rho, half_life, strength,
         "beta_delta_pct":  round(beta_delta_pct, 2),
         "beta_change_pct": round(beta_change_pct, 2),
         "beta_unstable":   beta_unstable,
+        "risk_stats_scope": "live" if LIVE_ORDERS else "all",
+        "risk_trades_today": trade_result.get("risk_trades_today"),
+        "risk_daily_pnl_brl": trade_result.get("risk_daily_pnl_brl"),
+        "risk_minutes_since_last_loss": trade_result.get("risk_minutes_since_last_loss"),
         "regime_health": {
             "rho": {
                 "value":  round(current_rho, 3),
@@ -1860,6 +1864,7 @@ def health():
         "live_symbol_win_resolved": live_symbol_resolved,
         "live_symbol_win_error": live_symbol_error,
         "live_orders_enabled": bool(LIVE_ORDERS),
+        "risk_stats_scope": "live" if LIVE_ORDERS else "all",
         "trade_eval_loop": {
             "running": bool(eval_state.get("loop_running")),
             "in_progress": bool(eval_state.get("in_progress")),

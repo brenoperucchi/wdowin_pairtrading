@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import sqlite3
 import time
 import types
 from datetime import datetime
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 import server
 from core.execution_timeline import init_timeline_table, load_timeline, record_event
 from core.timeline_emit import emit_closed_bar_timeline
+from core.trade_engine import TradeEngine
 
 
 def _timeline_db(tmp_path, monkeypatch):
@@ -29,6 +31,39 @@ def _epoch(iso_ts: str) -> int:
 
 def _mt5_epoch(iso_ts: str) -> int:
     return _epoch(iso_ts) - server.TIME_OFFSET
+
+
+def _seed_closed_trade(
+    engine,
+    *,
+    timestamp_in,
+    timestamp_out,
+    exit_reason,
+    pnl_brl,
+    live,
+    strategy="CONS_BASE",
+):
+    conn = sqlite3.connect(engine.db_path)
+    conn.execute(
+        """
+        INSERT INTO matador_ops
+        (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
+         qty_win, price_win_in, price_wdo_in, timestamp_out, exit_reason,
+         price_win_out, price_wdo_out, pnl_brl, live)
+        VALUES (?, 'CLOSED', 'BUY', 1.5, 'TEST', ?, -0.7, 36.0,
+                2, 130000.0, 5800.0, ?, ?, 130100.0, 5801.0, ?, ?)
+        """,
+        (
+            timestamp_in,
+            strategy,
+            timestamp_out,
+            exit_reason,
+            pnl_brl,
+            int(live),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 def _replay_timeline_db(tmp_path, monkeypatch, date="2026-05-08"):
@@ -162,6 +197,119 @@ def test_health_reports_mt5_account(monkeypatch):
     assert out["account_server"] == "XPMT5-DEMO"
     assert out["live_symbol_win_config"] == server.LIVE_SYMBOL_WIN
     assert out["live_symbol_win_resolved"] == "WINM26"
+
+
+def test_health_includes_risk_stats_scope(monkeypatch):
+    monkeypatch.setattr(server, "connect_mt5", lambda: False)
+    client = TestClient(server.app)
+
+    monkeypatch.setattr(server, "LIVE_ORDERS", True)
+    live_body = client.get("/health").json()
+    assert live_body["risk_stats_scope"] == "live"
+
+    monkeypatch.setattr(server, "LIVE_ORDERS", False)
+    paper_body = client.get("/health").json()
+    assert paper_body["risk_stats_scope"] == "all"
+
+
+def test_api_v2_regime_includes_risk_stats_fields_live(tmp_path, monkeypatch):
+    class _FakeKalmanBetaFilter:
+        def __init__(self, *args, **kwargs):
+            self._i = 0
+
+        def update(self, y, x):
+            self._i += 1
+            return 36.0, float(self._i % 7), 1.0
+
+        @staticmethod
+        def rolling_zscore(spreads, window):
+            values = [0.0] * len(spreads)
+            if len(values) >= 2:
+                values[-2] = -2.1
+                values[-1] = -2.0
+            return values
+
+    def fake_fetch_ohlc(symbol, count):
+        n = max(int(count), 240)
+        start = int(datetime.now().timestamp()) - server.TIME_OFFSET - (n * 300)
+        times = [start + i * 300 for i in range(n)]
+        if symbol == server.SYMBOL_A:
+            closes = [130000.0 + float(i) for i in range(n)]
+        else:
+            closes = [5800.0 + float(i) * 0.1 for i in range(n)]
+        return closes, list(closes), list(closes), list(closes), times
+
+    def fake_nwe(prices, **kwargs):
+        n = len(prices)
+        return (
+            [130000.0] * n,
+            [130500.0] * n,
+            [129500.0] * n,
+            [True] * n,
+        )
+
+    def fake_ols(win, wdo, *, window, max_bars=None):
+        n = max_bars or len(win)
+        return 36.0, [0.0] * n, [0.0] * n, [-0.75] * n
+
+    for attr in ("_last_closed_bar_ts", "_last_emitted_bar_ts", "_timeline_data_failed"):
+        if hasattr(server.regime_v2, attr):
+            delattr(server.regime_v2, attr)
+
+    db_path = tmp_path / "trades.db"
+    engine = TradeEngine(str(db_path))
+    today = datetime.now().strftime("%Y-%m-%d")
+    _seed_closed_trade(
+        engine,
+        timestamp_in=f"{today}T09:25:03",
+        timestamp_out=f"{today}T09:30:34",
+        exit_reason="STOP_LOSS",
+        pnl_brl=-494.0,
+        live=0,
+    )
+    _seed_closed_trade(
+        engine,
+        timestamp_in=f"{today}T10:40:03",
+        timestamp_out=f"{today}T10:51:21",
+        exit_reason="TARGET",
+        pnl_brl=324.0,
+        live=1,
+    )
+
+    profile = copy.deepcopy(server.runtime_config.DEFAULTS["live"])
+    monkeypatch.setattr(server, "_trade_engine", engine)
+    monkeypatch.setattr(server, "LIVE_ORDERS", True)
+    monkeypatch.setattr(server, "connect_mt5", lambda: True)
+    monkeypatch.setattr(server, "_fetch_ohlc", fake_fetch_ohlc)
+    monkeypatch.setattr(server, "KalmanBetaFilter", _FakeKalmanBetaFilter)
+    monkeypatch.setattr(server, "calc_nwe_with_bands", fake_nwe)
+    monkeypatch.setattr(server, "_compute_ols_profile_tail", fake_ols)
+    monkeypatch.setattr(server, "_compute_johansen_gate", lambda *args, **kwargs: (True, 1.2, "ok", 36.0))
+    monkeypatch.setattr(server, "_compute_live_eg_pvalue", lambda **kwargs: 0.02)
+    monkeypatch.setattr(server, "_closed_di_z_from_cache", lambda *args, **kwargs: -1.5)
+    monkeypatch.setattr(server, "_record_timeline_data_recovery", lambda **kwargs: None)
+    monkeypatch.setattr(server, "load_bar_history", lambda days=2: [])
+    monkeypatch.setattr(server, "_persist_closed_bars", lambda history: None)
+    monkeypatch.setattr(server, "di_regime", lambda force=False: {})
+    monkeypatch.setattr(server.runtime_config, "get_profile", lambda mode: profile)
+    monkeypatch.setattr(
+        server.mt5,
+        "terminal_info",
+        lambda: types.SimpleNamespace(name="MetaTrader 5"),
+        raising=False,
+    )
+    monkeypatch.setattr(server, "_di_cache", {"current_z": -1.5, "history": []})
+
+    client = TestClient(server.app)
+    response = client.get("/api/v2/regime")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["error"] is None
+    assert body["risk_stats_scope"] == "live"
+    assert body["risk_trades_today"] == 1
+    assert body["risk_daily_pnl_brl"] == 324.0
+    assert body["risk_minutes_since_last_loss"] is None
 
 
 def test_record_timeline_data_failure_dedupes_by_minute(tmp_path, monkeypatch):

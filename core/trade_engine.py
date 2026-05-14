@@ -329,8 +329,14 @@ class TradeEngine:
             if res.get("open_trade") is not None:
                 opens_this_poll += 1
 
-        # Build combined response
-        return self._build_portfolio_result(results)
+        # Build combined response. These stats intentionally reflect the
+        # post-exit/pre-entry view used by Phase 2 gate checks.
+        return self._build_portfolio_result(
+            results,
+            risk_trades_today=trades_today_now,
+            risk_daily_pnl_brl=daily_pnl_now,
+            risk_minutes_since_last_loss=minutes_since_loss_now,
+        )
 
     # ── Strategy evaluators ─────────────────────────────────────────────────
 
@@ -1002,7 +1008,14 @@ class TradeEngine:
             "mt5_ticket_out": mt5_ticket_out,
         }
 
-    def _build_portfolio_result(self, results: dict) -> dict:
+    def _build_portfolio_result(
+        self,
+        results: dict,
+        *,
+        risk_trades_today: int | None = None,
+        risk_daily_pnl_brl: float | None = None,
+        risk_minutes_since_last_loss: float | None = None,
+    ) -> dict:
         """Combine all 3 strategy results into a unified response."""
         # Legacy compat: pick the most "active" action for the main field
         actions = [r["action"] for r in results.values()]
@@ -1026,6 +1039,9 @@ class TradeEngine:
             "exit_reason": next((r["exit_reason"] for r in results.values() if r.get("exit_reason")), None),
             "pnl": next((r["pnl"] for r in results.values() if r.get("pnl") is not None), None),
             "strategies": results,
+            "risk_trades_today": risk_trades_today,
+            "risk_daily_pnl_brl": risk_daily_pnl_brl,
+            "risk_minutes_since_last_loss": risk_minutes_since_last_loss,
         }
 
     # ── Trades for date ─────────────────────────────────────────────────────

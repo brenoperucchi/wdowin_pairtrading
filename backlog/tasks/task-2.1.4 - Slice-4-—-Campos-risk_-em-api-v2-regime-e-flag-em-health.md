@@ -1,7 +1,7 @@
 ---
 id: TASK-2.1.4
 title: Slice 4 — Campos risk_* em /api/v2/regime e flag em /health
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-13 20:25'
 labels:
@@ -61,10 +61,10 @@ Optei por campos flat `risk_*` no top-level por casar com o brief. Antes do merg
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 /api/v2/regime retorna 4 campos top-level: risk_stats_scope, risk_trades_today, risk_daily_pnl_brl, risk_minutes_since_last_loss
-- [ ] #2 /health retorna apenas risk_stats_scope
-- [ ] #3 Valores numéricos vêm do retorno de evaluate (sem query SQLite duplicada)
-- [ ] #4 Quando LIVE_ORDERS=1, scope='live'; quando LIVE_ORDERS=0, scope='all'
-- [ ] #5 Testes novos em test_execution_timeline_server.py passam
-- [ ] #6 Naming flat documentado como passível de revisão antes do merge (vide nota no plano)
+- [x] #1 /api/v2/regime retorna 4 campos top-level: risk_stats_scope, risk_trades_today, risk_daily_pnl_brl, risk_minutes_since_last_loss
+- [x] #2 /health retorna apenas risk_stats_scope
+- [x] #3 Valores numéricos vêm do retorno de evaluate (sem query SQLite duplicada)
+- [x] #4 Quando LIVE_ORDERS=1, scope='live'; quando LIVE_ORDERS=0, scope='all'
+- [x] #5 Testes novos em test_execution_timeline_server.py passam
+- [x] #6 Naming flat documentado como passível de revisão antes do merge (vide nota no plano)
 <!-- AC:END -->
