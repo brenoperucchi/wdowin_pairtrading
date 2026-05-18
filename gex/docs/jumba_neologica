@@ -154,7 +154,7 @@ BEGIN
   stlMidWall := 1;
   stlMidWallFibo := 2;
 
-  line1 := 162783.598;
+  line1 := 169986.412;
   line1Color := clMinGamma;
   line1Width := 3;
   line1Style := 0;
@@ -282,16 +282,16 @@ BEGIN
   line32Color := clWall;
   line32Width := 2;
   line32Style := 0;
-  line33 := 190455.926;
+  line33 := 189820.183;
   line33Color := clFlip;
   line33Width := 2;
   line33Style := 0;
-  line34 := 215004.000;
+  line34 := 210322.171;
   line34Color := clMaxGamma;
   line34Width := 3;
   line34Style := 0;
 
- if (((Date = ELDate(2026, 05, 15)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
+ if (((Date = ELDate(2026, 05, 18)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
   begin
     SetPlotColor(1, line1Color);
     SetPlotWidth(1, line1Width);
