@@ -23,6 +23,13 @@ def run_gex_pipeline(current_win, current_ibov):
     
     # 1. Fetch Option Data
     print("[1/6] Carregando dados de OI da B3...")
+    try:
+        from .b3_downloader import download_b3_positions
+        download_b3_positions()
+    except Exception as e:
+        print(f"      Aviso: Falha ao automatizar download da B3 ({e}).")
+        print("      Tentando prosseguir com o arquivo CSV mais recente disponível localmente...")
+        
     df_options = get_b3_options_data(current_ibov)
     
     if df_options.empty:
