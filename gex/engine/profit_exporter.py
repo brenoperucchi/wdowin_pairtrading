@@ -1,6 +1,6 @@
 import datetime
 
-def export_to_profit(walls, output_path):
+def export_to_profit(walls, output_path, current_win=None):
     """
     Exporta a lista de walls geradas para o formato NTSL (Nelogica Trading System Language).
     Cria automaticamente variaveis e plotagens para cada linha.
@@ -20,8 +20,19 @@ def export_to_profit(walls, output_path):
         "MinGamma": "clMinGamma"
     }
     
-    # 1. Separar por prioridade para organizacao (Opcional, mas util)
-    walls_sorted = sorted(walls, key=lambda x: x['price'])
+    # Se current_win for fornecido, filtra as linhas que estao a mais de 5% de distancia do preco atual
+    if current_win is not None:
+        filtered_walls = []
+        lower_bound = current_win * 0.95
+        upper_bound = current_win * 1.05
+        for w in walls:
+            if lower_bound <= w['price'] <= upper_bound:
+                filtered_walls.append(w)
+            else:
+                print(f"[Exporter] Ignorando nivel {w['type']} em {w['price']:.1f} por estar fora do range de +-5% do WIN ({lower_bound:.1f} - {upper_bound:.1f})")
+        walls_sorted = sorted(filtered_walls, key=lambda x: x['price'])
+    else:
+        walls_sorted = sorted(walls, key=lambda x: x['price'])
     
     for i, w in enumerate(walls_sorted, start=1):
         # 1. Declaracao

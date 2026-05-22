@@ -68,7 +68,7 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
     atm_strike = min(all_strikes, key=lambda s: abs(s - current_ibov))
     atm_idx = all_strikes.index(atm_strike)
     
-    # Pegar 8 abaixo e 8 acima (16 total)
+    # Pegar 8 abaixo e 8 acima (16 total) para cobertura ampla
     num_walls = 16
     start_idx = max(0, atm_idx - num_walls // 2)
     end_idx = min(len(all_strikes), start_idx + num_walls)

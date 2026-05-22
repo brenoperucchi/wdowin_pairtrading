@@ -41,6 +41,23 @@ def _find_latest_oi_file():
     return candidates[0]
 
 
+def _get_ibov_expiration(year, month):
+    """
+    Calcula a data de vencimento de opcoes sobre IBOVESPA.
+    Regra: Quarta-feira mais proxima do dia 15 do mes de vencimento.
+    """
+    d_15 = datetime.date(year, month, 15)
+    days_to_wed = 2 - d_15.weekday()  # Wednesday is 2 (0=Monday, 6=Sunday)
+    wed_current = d_15 + datetime.timedelta(days=days_to_wed)
+    
+    wed_prev = wed_current - datetime.timedelta(weeks=1)
+    wed_next = wed_current + datetime.timedelta(weeks=1)
+    
+    candidates = [wed_prev, wed_current, wed_next]
+    closest = min(candidates, key=lambda d: abs((d - d_15).days))
+    return datetime.datetime(closest.year, closest.month, closest.day)
+
+
 def get_b3_options_data(current_ibov=186000, file_path=None):
     """
     Parseia o arquivo de Posicoes em aberto da B3.
@@ -104,7 +121,7 @@ def get_b3_options_data(current_ibov=186000, file_path=None):
         if month_num < datetime.datetime.now().month:
             year += 1
             
-        expiry_date = datetime.datetime(year, month_num, 15)
+        expiry_date = _get_ibov_expiration(year, month_num)
         
         oi_str = str(row.iloc[11]).replace('.', '').replace('-', '0').strip()
         try:

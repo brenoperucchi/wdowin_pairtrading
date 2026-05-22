@@ -62,7 +62,7 @@ def get_mt5_prices():
     if not mt5.initialize(MT5_PATH):
         print(f"MT5: Erro ao inicializar ({mt5.last_error()})")
         print(f"     Verifique se o MetaTrader 5 esta aberto.")
-        return None, None
+        return None, None, None
     
     # --- Detectar contrato WIN ativo ---
     win_symbol = _detect_active_win()
@@ -75,7 +75,7 @@ def get_mt5_prices():
         else:
             print("MT5: Nenhum contrato WIN ativo encontrado.")
             mt5.shutdown()
-            return None, None
+            return None, None, None
     
     print(f"MT5: Contrato ativo detectado: {win_symbol}")
     
@@ -87,12 +87,12 @@ def get_mt5_prices():
     if rates_ibov is None or len(rates_ibov) == 0:
         print(f"MT5: {SYMBOL_IBOV} sem dados (M5).")
         mt5.shutdown()
-        return None, None
+        return None, None, None
         
     if rates_win is None or len(rates_win) == 0:
         print(f"MT5: {win_symbol} sem dados (M5).")
         mt5.shutdown()
-        return None, None
+        return None, None, None
 
     # Tenta achar a vela das 16:55 (cujo fechamento é as 17:00 exato) iterando de trás pra frente
     # Caso o MT5 esteja sem dados até as 17h, fallback para a última vela do IBOV e sincroniza o WIN
@@ -129,7 +129,7 @@ def get_mt5_prices():
         print(f"  ALERTA: Factor {factor:.4f} fora do range (1.005 - 1.040)!")
     
     mt5.shutdown()
-    return f_win, s_ibov
+    return f_win, s_ibov, win_bar_time
 
 
 def get_option_price(ticker, target_hour=16, target_minute=55):
@@ -179,7 +179,7 @@ def get_option_price(ticker, target_hour=16, target_minute=55):
 
 
 if __name__ == "__main__":
-    f_win, s_ibov = get_mt5_prices()
+    f_win, s_ibov, _ = get_mt5_prices()
     if f_win and s_ibov:
         print(f"\nPronto para rodar:")
         print(f"  python -m gex.engine.main {f_win:.0f} {s_ibov:.0f}")
