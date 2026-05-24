@@ -45,10 +45,10 @@ def prompt_user_anomaly(expected_date, trading_date, mt5_date, default_win, defa
     Exibe um alerta de segurança e solicita ação do usuário em caso de inconsistência de datas.
     """
     print("\n" + "!" * 70)
-    print(" ⚠️  ALERTA DE SEGURANÇA: INCONSISTÊNCIA DE DATAS DETECTADA!")
+    print(" [ALERTA] ALERTA DE SEGURANCA: INCONSISTENCIA DE DATAS DETECTADA!")
     print(f" Esperado para o processamento: {expected_date}")
-    print(f" - Data do arquivo B3 CSV:      {trading_date or 'Não encontrado'}")
-    print(f" - Data dos preços do MT5:      {mt5_date or 'Não encontrado'}")
+    print(f" - Data do arquivo B3 CSV:      {trading_date or 'Nao encontrado'}")
+    print(f" - Data dos precos do MT5:      {mt5_date or 'Nao encontrado'}")
     print("!" * 70 + "\n")
     
     while True:
