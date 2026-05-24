@@ -1,7 +1,7 @@
 //@version=5
 // +-------------------------------------------------------------------------+
 // | Jumba GEX Levels - Unificado 5 Ativos para TradingView                 |
-// | Gerado em: 23/05/2026 21:24:44                     |
+// | Gerado em: 23/05/2026 21:27:08                     |
 // | Referências das Coletas:                                                |
 // | - WIN Futures  (B3) : 2026-05-22                                         |
 // | - SP500 / ES   (EUA): 2026-05-23                                         |
@@ -983,9 +983,16 @@ var bool initialized = false
 if is_target_date and barstate.islast
     if not initialized
         if not na(prices) and array.size(prices) > 0
+            // Detecção e ajuste automático de escala para corretoras de CFD
+            float scale_factor = 1.0
+            if is_win and close < 1000.0
+                scale_factor := 0.001
+            else if is_dol and close < 100.0
+                scale_factor := 0.001
+                
             int size = array.size(prices)
             for i = 0 to size - 1
-                p = array.get(prices, i)
+                p = array.get(prices, i) * scale_factor
                 lbl = array.get(labels, i)
                 col = array.get(colors, i)
                 w = array.get(widths, i)
@@ -994,8 +1001,9 @@ if is_target_date and barstate.islast
                 // Desenhar a linha estendida para ambos os lados
                 l = line.new(x1=bar_index - 100, y1=p, x2=bar_index, y2=p, xloc=xloc.bar_index, extend=extend.both, color=col, width=w, style=sty)
                 
-                // Adicionar o rótulo estilizado na margem direita
-                lb = label.new(x=bar_index + 12, y=p, text=lbl + " [" + str.tostring(p, "#.##") + "]", xloc=xloc.bar_index, color=color.new(col, 95), textcolor=col, style=label.style_label_left, size=size.small)
+                // Rótulo dinâmico dependendo da escala
+                string p_str = scale_factor < 1.0 ? str.tostring(p, "#.####") : str.tostring(p, is_win ? "#" : "#.##")
+                lb = label.new(x=bar_index + 12, y=p, text=lbl + " [" + p_str + "]", xloc=xloc.bar_index, color=color.new(col, 95), textcolor=col, style=label.style_label_left, size=size.small)
                 
                 array.push(active_lines, l)
                 array.push(active_labels, lb)
