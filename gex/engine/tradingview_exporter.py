@@ -257,25 +257,25 @@ var string[] gbp_styles = array.new_string()
 
 if barstate.isfirst
     // --- POPULANDO DADOS DE WIN ---
-{{win_code}}
+{win_code}
 
     // --- POPULANDO DADOS DE SP500 / ES ---
-{{us_code}}
+{us_code}
 
     // --- POPULANDO DADOS DE NASDAQ 100 / NQ ---
-{{nq_code}}
+{nq_code}
 
     // --- POPULANDO DADOS DE BITCOIN ---
-{{btc_code}}
+{btc_code}
 
     // --- POPULANDO DADOS DE DÓLAR FUTURO B3 ---
-{{dol_code}}
+{dol_code}
 
     // --- POPULANDO DADOS DE EUR / USD ---
-{{eur_code}}
+{eur_code}
 
     // --- POPULANDO DADOS DE GBP / USD ---
-{{gbp_code}}
+{gbp_code}
 
 // --- DETECÇÃO DINÂMICA E FALLBACK DE ATIVO ---
 g_asset         = "Configuração de Ativo"
