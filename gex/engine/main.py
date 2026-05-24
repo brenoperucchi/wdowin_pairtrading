@@ -247,11 +247,11 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     generate_gex_report(current_win, flip_price, walls, output_path=report_path)
         
     # 5. Publish to Firebase
-    print(f"\n[5/6] Publicando no Firebase...")
+    print(f"\n[5/7] Publicando no Firebase...")
     push_walls_to_firebase(walls)
     
     # 6. Export to ProfitChart
-    print("\n[6/6] Gerando arquivo para Nelogica ProfitChart...")
+    print("\n[6/7] Gerando arquivo para Nelogica ProfitChart...")
     from .profit_exporter import export_to_profit
     
     # Caminhos para salvar
@@ -267,10 +267,22 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
             export_to_profit(walls, output_path=profit_folder, current_win=current_win)
     except Exception as e:
         print(f"      Aviso: Nao foi possivel salvar no Profit ({e})")
+        
+    # 7. Export to TradingView
+    print("\n[7/7] Gerando arquivo unificado para TradingView Pine Script...")
+    from .tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+    tv_file = "gex/docs/jumba_tradingview.pine"
+    try:
+        save_walls_to_cache(walls, ticker="WIN", ref_date=trading_date)
+        export_unified_tradingview(output_path=tv_file)
+    except Exception as e:
+        print(f"      Aviso: Nao foi possivel salvar para o TradingView ({e})")
     
     print("\n" + "=" * 50)
     print("  Pipeline concluido com sucesso!")
     print("=" * 50)
+
+
 
 def print_usage():
     print("""
