@@ -1,7 +1,7 @@
 //@version=5
 // +-------------------------------------------------------------------------+
 // | Jumba GEX Levels - Unificado 5 Ativos para TradingView                 |
-// | Gerado em: 23/05/2026 21:20:38                     |
+// | Gerado em: 23/05/2026 21:24:44                     |
 // | Referências das Coletas:                                                |
 // | - WIN Futures  (B3) : 2026-05-22                                         |
 // | - SP500 / ES   (EUA): 2026-05-23                                         |
@@ -924,11 +924,12 @@ if barstate.isfirst
 g_asset         = "Configuração de Ativo"
 forced_asset    = input.string("Automático", "Forçar Ativo no Gráfico", options=["Automático", "WIN / B3", "SP500 / ES", "Nasdaq 100 / NQ", "Bitcoin / BTC", "Dólar / BRL"], group=g_asset)
 
-is_win_detected = str.contains(syminfo.ticker, "WIN") or str.contains(syminfo.ticker, "IND") or str.contains(syminfo.ticker, "BRA50") or str.contains(syminfo.ticker, "BRA")
-is_nq_detected  = str.contains(syminfo.ticker, "QQQ") or str.contains(syminfo.ticker, "NQ") or str.contains(syminfo.ticker, "NDX") or str.contains(syminfo.ticker, "MNQ") or str.contains(syminfo.ticker, "NAS100") or str.contains(syminfo.ticker, "USTEC") or str.contains(syminfo.ticker, "US100")
-is_btc_detected = str.contains(syminfo.ticker, "BTC") or str.contains(syminfo.ticker, "ETH")
-is_dol_detected = str.contains(syminfo.ticker, "DOL") or str.contains(syminfo.ticker, "WDO") or str.contains(syminfo.ticker, "BRL") or str.contains(syminfo.ticker, "USDBRL")
-is_us_detected  = str.contains(syminfo.ticker, "SPY") or str.contains(syminfo.ticker, "ES") or str.contains(syminfo.ticker, "SPX") or str.contains(syminfo.ticker, "MES") or str.contains(syminfo.ticker, "US500") or str.contains(syminfo.ticker, "SPX500") or str.contains(syminfo.ticker, "US 500")
+ticker_upper = str.upper(syminfo.ticker)
+is_win_detected = str.contains(ticker_upper, "WIN") or str.contains(ticker_upper, "IND") or str.contains(ticker_upper, "BRA50") or str.contains(ticker_upper, "BRA")
+is_nq_detected  = str.contains(ticker_upper, "QQQ") or str.contains(ticker_upper, "NQ") or str.contains(ticker_upper, "NDX") or str.contains(ticker_upper, "MNQ") or str.contains(ticker_upper, "NAS100") or str.contains(ticker_upper, "USTEC") or str.contains(ticker_upper, "US100") or str.contains(ticker_upper, "NAS")
+is_btc_detected = str.contains(ticker_upper, "BTC") or str.contains(ticker_upper, "ETH")
+is_dol_detected = str.contains(ticker_upper, "DOL") or str.contains(ticker_upper, "WDO") or str.contains(ticker_upper, "BRL") or str.contains(ticker_upper, "USDBRL")
+is_us_detected  = str.contains(ticker_upper, "SPY") or str.contains(ticker_upper, "ES") or str.contains(ticker_upper, "SPX") or str.contains(ticker_upper, "MES") or str.contains(ticker_upper, "US500") or str.contains(ticker_upper, "SPX500") or str.contains(ticker_upper, "US 500")
 
 is_win = forced_asset == "WIN / B3" or (forced_asset == "Automático" and is_win_detected)
 is_nq  = forced_asset == "Nasdaq 100 / NQ" or (forced_asset == "Automático" and is_nq_detected)
