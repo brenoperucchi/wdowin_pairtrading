@@ -55,7 +55,9 @@ def _generate_pine_array_pushes(walls, ticker):
         "BTC_USD": "btc",
         "USD_BRL": "dol",
         "EUR_USD": "eur",
-        "GBP_USD": "gbp"
+        "GBP_USD": "gbp",
+        "GOLD_XAU": "gold",
+        "DOW_US30": "dow"
     }
     prefix = prefix_map.get(ticker, "us")
     lines = []
@@ -74,7 +76,7 @@ def _generate_pine_array_pushes(walls, ticker):
             if w.get('strike_ibov'):
                 lbl += f" (IBOV {w['strike_ibov']})"
             elif w.get('strike_spy'):
-                # SPY ou QQQ ou BTC
+                # SPY ou QQQ ou BTC ou moedas ou Gold ou Dow
                 if prefix == "nq":
                     lbl += f" (QQQ {w['strike_spy']})"
                 elif prefix == "btc":
@@ -85,6 +87,10 @@ def _generate_pine_array_pushes(walls, ticker):
                     lbl += f" (FXE {w['strike_spy']})"
                 elif prefix == "gbp":
                     lbl += f" (FXB {w['strike_spy']})"
+                elif prefix == "gold":
+                    lbl += f" (GLD {w['strike_spy']})"
+                elif prefix == "dow":
+                    lbl += f" (DIA {w['strike_spy']})"
                 else:
                     lbl += f" (SPY {w['strike_spy']})"
         elif w_type == "MidWall":
@@ -125,7 +131,9 @@ def export_unified_tradingview(output_path):
         ("btc_usd", "btc_usd_walls_cache.json"),
         ("usd_brl", "usd_brl_walls_cache.json"),
         ("eur_usd", "eur_usd_walls_cache.json"),
-        ("gbp_usd", "gbp_usd_walls_cache.json")
+        ("gbp_usd", "gbp_usd_walls_cache.json"),
+        ("gold_xau", "gold_xau_walls_cache.json"),
+        ("dow_us30", "dow_us30_walls_cache.json")
     ]
     
     loaded_caches = {}
@@ -161,6 +169,8 @@ def export_unified_tradingview(output_path):
     dol_pushes = _generate_pine_array_pushes(loaded_caches.get("usd_brl", {}).get("walls", []), "USD_BRL")
     eur_pushes = _generate_pine_array_pushes(loaded_caches.get("eur_usd", {}).get("walls", []), "EUR_USD")
     gbp_pushes = _generate_pine_array_pushes(loaded_caches.get("gbp_usd", {}).get("walls", []), "GBP_USD")
+    gold_pushes = _generate_pine_array_pushes(loaded_caches.get("gold_xau", {}).get("walls", []), "GOLD_XAU")
+    dow_pushes = _generate_pine_array_pushes(loaded_caches.get("dow_us30", {}).get("walls", []), "DOW_US30")
     
     win_date = loaded_caches.get("win", {}).get("ref_date", "Não disponível")
     us_date = loaded_caches.get("sp500_es", {}).get("ref_date", "Não disponível")
@@ -169,6 +179,8 @@ def export_unified_tradingview(output_path):
     dol_date = loaded_caches.get("usd_brl", {}).get("ref_date", "Não disponível")
     eur_date = loaded_caches.get("eur_usd", {}).get("ref_date", "Não disponível")
     gbp_date = loaded_caches.get("gbp_usd", {}).get("ref_date", "Não disponível")
+    gold_date = loaded_caches.get("gold_xau", {}).get("ref_date", "Não disponível")
+    dow_date = loaded_caches.get("dow_us30", {}).get("ref_date", "Não disponível")
     
     win_code = "\n".join(win_pushes) if win_pushes else "    // Nenhum dado cacheado de WIN disponível"
     us_code = "\n".join(us_pushes) if us_pushes else "    // Nenhum dado cacheado de SP500 disponível"
@@ -177,10 +189,12 @@ def export_unified_tradingview(output_path):
     dol_code = "\n".join(dol_pushes) if dol_pushes else "    // Nenhum dado cacheado de DÓLAR B3 disponível"
     eur_code = "\n".join(eur_pushes) if eur_pushes else "    // Nenhum dado cacheado de EUR/USD disponível"
     gbp_code = "\n".join(gbp_pushes) if gbp_pushes else "    // Nenhum dado cacheado de GBP/USD disponível"
+    gold_code = "\n".join(gold_pushes) if gold_pushes else "    // Nenhum dado cacheado de OURO / XAUUSD disponível"
+    dow_code = "\n".join(dow_pushes) if dow_pushes else "    // Nenhum dado cacheado de DOW / US30 disponível"
     
     pine_code = f"""//@version=5
 // +-------------------------------------------------------------------------+
-// | Jumba GEX Levels - Unificado 7 Ativos para TradingView                 |
+// | Jumba GEX Levels - Unificado 9 Ativos para TradingView                 |
 // | Gerado em: {datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")}                     |
 // | Referências das Coletas:                                                |
 // | - WIN Futures  (B3) : {win_date}                                         |
@@ -190,10 +204,12 @@ def export_unified_tradingview(output_path):
 // | - Dólar Futuro (B3) : {dol_date}                                         |
 // | - EUR / USD    (Forex): {eur_date}                                         |
 // | - GBP / USD    (Forex): {gbp_date}                                         |
+// | - Ouro / GLD   (Metal): {gold_date}                                        |
+// | - Dow / DIA    (EUA)  : {dow_date}                                         |
 // |                                                                         |
 // | Desenha os níveis automaticamente dependendo do ativo aberto no gráfico!|
 // +-------------------------------------------------------------------------+
-indicator("Jumba GEX Levels Unified (7 Ativos)", overlay=true, shorttitle="JumbaGEX Unified", max_lines_count=150, max_labels_count=150)
+indicator("Jumba GEX Levels Unified (9 Ativos)", overlay=true, shorttitle="JumbaGEX Unified", max_lines_count=150, max_labels_count=150)
 
 // --- CONFIGURAÇÃO DE DATA ---
 g_date         = "Configuração Temporal"
@@ -255,6 +271,20 @@ var color[] gbp_colors = array.new_color()
 var int[] gbp_widths = array.new_int()
 var string[] gbp_styles = array.new_string()
 
+// 8. Arrays para Ouro / XAUUSD / GLD (Metal)
+var float[] gold_prices = array.new_float()
+var string[] gold_labels = array.new_string()
+var color[] gold_colors = array.new_color()
+var int[] gold_widths = array.new_int()
+var string[] gold_styles = array.new_string()
+
+// 9. Arrays para Dow Jones / US30 / DIA (EUA)
+var float[] dow_prices = array.new_float()
+var string[] dow_labels = array.new_string()
+var color[] dow_colors = array.new_color()
+var int[] dow_widths = array.new_int()
+var string[] dow_styles = array.new_string()
+
 if barstate.isfirst
     // --- POPULANDO DADOS DE WIN ---
 {win_code}
@@ -277,27 +307,37 @@ if barstate.isfirst
     // --- POPULANDO DADOS DE GBP / USD ---
 {gbp_code}
 
+    // --- POPULANDO DADOS DE OURO / XAUUSD ---
+{gold_code}
+
+    // --- POPULANDO DADOS DE DOW JONES / US30 ---
+{dow_code}
+
 // --- DETECÇÃO DINÂMICA E FALLBACK DE ATIVO ---
 g_asset         = "Configuração de Ativo"
-forced_asset    = input.string("Automático", "Forçar Ativo no Gráfico", options=["Automático", "WIN / B3", "SP500 / ES", "Nasdaq 100 / NQ", "Bitcoin / BTC", "Dólar / BRL", "EUR / USD", "GBP / USD"], group=g_asset)
+forced_asset    = input.string("Automático", "Forçar Ativo no Gráfico", options=["Automático", "WIN / B3", "SP500 / ES", "Nasdaq 100 / NQ", "Bitcoin / BTC", "Dólar / BRL", "EUR / USD", "GBP / USD", "Ouro / XAUUSD", "Dow Jones / US30"], group=g_asset)
 
 ticker_upper = str.upper(syminfo.ticker)
-is_win_detected = str.contains(ticker_upper, "WIN") or str.contains(ticker_upper, "IND") or str.contains(ticker_upper, "BRA50") or str.contains(ticker_upper, "BRA")
-is_nq_detected  = str.contains(ticker_upper, "QQQ") or str.contains(ticker_upper, "NQ") or str.contains(ticker_upper, "NDX") or str.contains(ticker_upper, "MNQ") or str.contains(ticker_upper, "NAS100") or str.contains(ticker_upper, "USTEC") or str.contains(ticker_upper, "US100") or str.contains(ticker_upper, "NAS")
-is_btc_detected = str.contains(ticker_upper, "BTC") or str.contains(ticker_upper, "ETH")
-is_dol_detected = str.contains(ticker_upper, "DOL") or str.contains(ticker_upper, "WDO") or str.contains(ticker_upper, "BRL") or str.contains(ticker_upper, "USDBRL")
-is_us_detected  = str.contains(ticker_upper, "SPY") or str.contains(ticker_upper, "ES") or str.contains(ticker_upper, "SPX") or str.contains(ticker_upper, "MES") or str.contains(ticker_upper, "US500") or str.contains(ticker_upper, "SPX500") or str.contains(ticker_upper, "US 500")
-is_eur_detected = str.contains(ticker_upper, "EURUSD") or (str.contains(ticker_upper, "EUR") and str.contains(ticker_upper, "USD"))
-is_gbp_detected = str.contains(ticker_upper, "GBPUSD") or (str.contains(ticker_upper, "GBP") and str.contains(ticker_upper, "USD"))
+is_win_detected  = str.contains(ticker_upper, "WIN") or str.contains(ticker_upper, "IND") or str.contains(ticker_upper, "BRA50") or str.contains(ticker_upper, "BRA")
+is_nq_detected   = str.contains(ticker_upper, "QQQ") or str.contains(ticker_upper, "NQ") or str.contains(ticker_upper, "NDX") or str.contains(ticker_upper, "MNQ") or str.contains(ticker_upper, "NAS100") or str.contains(ticker_upper, "USTEC") or str.contains(ticker_upper, "US100") or str.contains(ticker_upper, "NAS")
+is_btc_detected  = str.contains(ticker_upper, "BTC") or str.contains(ticker_upper, "ETH")
+is_dol_detected  = str.contains(ticker_upper, "DOL") or str.contains(ticker_upper, "WDO") or str.contains(ticker_upper, "BRL") or str.contains(ticker_upper, "USDBRL")
+is_us_detected   = str.contains(ticker_upper, "SPY") or str.contains(ticker_upper, "ES") or str.contains(ticker_upper, "SPX") or str.contains(ticker_upper, "MES") or str.contains(ticker_upper, "US500") or str.contains(ticker_upper, "SPX500") or str.contains(ticker_upper, "US 500")
+is_eur_detected  = str.contains(ticker_upper, "EURUSD") or (str.contains(ticker_upper, "EUR") and str.contains(ticker_upper, "USD"))
+is_gbp_detected  = str.contains(ticker_upper, "GBPUSD") or (str.contains(ticker_upper, "GBP") and str.contains(ticker_upper, "USD"))
+is_gold_detected = str.contains(ticker_upper, "XAU") or str.contains(ticker_upper, "GOLD") or str.contains(ticker_upper, "GLD")
+is_dow_detected  = str.contains(ticker_upper, "US30") or str.contains(ticker_upper, "DIA") or str.contains(ticker_upper, "DJI") or str.contains(ticker_upper, "YM") or str.contains(ticker_upper, "DOW")
 
-is_win = forced_asset == "WIN / B3" or (forced_asset == "Automático" and is_win_detected)
-is_nq  = forced_asset == "Nasdaq 100 / NQ" or (forced_asset == "Automático" and is_nq_detected)
-is_btc = forced_asset == "Bitcoin / BTC" or (forced_asset == "Automático" and is_btc_detected)
-is_dol = forced_asset == "Dólar / BRL" or (forced_asset == "Automático" and is_dol_detected)
-is_eur = forced_asset == "EUR / USD" or (forced_asset == "Automático" and is_eur_detected)
-is_gbp = forced_asset == "GBP / USD" or (forced_asset == "Automático" and is_gbp_detected)
+is_win  = forced_asset == "WIN / B3" or (forced_asset == "Automático" and is_win_detected)
+is_nq   = forced_asset == "Nasdaq 100 / NQ" or (forced_asset == "Automático" and is_nq_detected)
+is_btc  = forced_asset == "Bitcoin / BTC" or (forced_asset == "Automático" and is_btc_detected)
+is_dol  = forced_asset == "Dólar / BRL" or (forced_asset == "Automático" and is_dol_detected)
+is_eur  = forced_asset == "EUR / USD" or (forced_asset == "Automático" and is_eur_detected)
+is_gbp  = forced_asset == "GBP / USD" or (forced_asset == "Automático" and is_gbp_detected)
+is_gold = forced_asset == "Ouro / XAUUSD" or (forced_asset == "Automático" and is_gold_detected)
+is_dow  = forced_asset == "Dow Jones / US30" or (forced_asset == "Automático" and is_dow_detected)
 // Fallback inteligente para o SP500 / ES se nenhum outro ativo coincidir
-is_us  = forced_asset == "SP500 / ES" or (forced_asset == "Automático" and (is_us_detected or (not is_win and not is_nq and not is_btc and not is_dol and not is_eur and not is_gbp)))
+is_us   = forced_asset == "SP500 / ES" or (forced_asset == "Automático" and (is_us_detected or (not is_win and not is_nq and not is_btc and not is_dol and not is_eur and not is_gbp and not is_gold and not is_dow)))
 
 var float[] prices = na
 var string[] labels = na
@@ -341,6 +381,18 @@ else if is_gbp
     colors := gbp_colors
     widths := gbp_widths
     styles := gbp_styles
+else if is_gold
+    prices := gold_prices
+    labels := gold_labels
+    colors := gold_colors
+    widths := gold_widths
+    styles := gold_styles
+else if is_dow
+    prices := dow_prices
+    labels := dow_labels
+    colors := dow_colors
+    widths := dow_widths
+    styles := dow_styles
 else if is_us
     prices := us_prices
     labels := us_labels
@@ -366,7 +418,10 @@ if is_target_date and barstate.islast
                 scale_factor := 0.1
             else if is_nq and close < 5000.0
                 scale_factor := 0.02427
-                
+            else if is_gold and close < 1000.0
+                scale_factor := 0.1
+            else if is_dow and close < 2000.0
+                scale_factor := 0.01
                 
             int size = array.size(prices)
             for i = 0 to size - 1
@@ -397,4 +452,4 @@ if is_target_date and barstate.islast
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(pine_code)
         
-    print(f"[TV Exporter] Indicador unificado de 5 Ativos gerado com sucesso em: {output_path}")
+    print(f"[TV Exporter] Indicador unificado de 9 Ativos gerado com sucesso em: {output_path}")
