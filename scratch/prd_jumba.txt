@@ -1,0 +1,1454 @@
+📄
+ PRD — 
+Jumba
+ 
+Walls
+ 
+Replicator
+ (
+Mini-Índice
+)
+1. Visão Geral do Produto
+1.1 Nome do Projeto
+GEX 
+Engine
+ — Gamma 
+Exposure
+ 
+Analyzer
+ para 
+Mini-Índice
+ (WIN)
+1.2 Objetivo
+Desenvolver uma ferramenta proprietária que replique e expanda a funcionalidade do 
+Jumba
+ Trader, calculando e exibindo 
+Gamma 
+Exposure
+ (GEX)
+ para o contrato futuro de 
+mini-índice
+ IBOVESPA (WIN) a partir de dados públicos da B3 e do 
+MetaTrader
+ 5, eliminando a dependência de ferramentas de terceiros.
+1.3 Problema 
+que Resolve
+Dependência de plataforma proprietária (
+Jumba
+ Trader) para visualizar 
+gamma
+ 
+walls
+Impossibilidade de customizar cálculos, filtros ou lógica de classificação
+Falta de integração nativa com o fluxo de operação no MT5
+Custo recorrente de assinatura de ferramenta terceira
+1.4 Proposta de Valor
+Aspecto
+Jumba
+ Trader
+GEX 
+Engine
+ (este projeto)
+Custo
+Assinatura mensal
+Gratuito (dados B3 públicos)
+Customização
+Nenhuma
+Total (filtros, pesos, lógica)
+Integração MT5
+Via output de linhas
+Nativo (indicador ou script)
+Transparência
+Caixa-preta
+Código aberto, auditável
+Extensibilidade
+Limitada
+Modular (ações, dólar futuro)
+1.5 Usuário-Alvo
+Trader/analista que opera 
+mini-índice
+ (WIN) no 
+MetaTrader
+ 5 e utiliza análise de 
+gamma
+ para identificar zonas de suporte, resistência e mudança de regime de volatilidade.
+2. Escopo do Produto
+2.1 
+In-Scope
+ (MVP)
+ID
+Funcionalidade
+Prioridade
+F01
+Coleta automatizada de Open 
+Interest
+ da B3 (EOD)
+P0
+F02
+Coleta de preço spot IBOV e futuro WIN via MT5
+P0
+F03
+Conversão de strikes IBOV → preço futuro (fator F/S)
+P0
+F04
+Cálculo de IV via Newton-
+Raphson
+ (Black-76 inverso)
+P0
+F05
+Cálculo de Gamma por opção (Black-76)
+P0
+F06
+Cálculo de GEX por strike (net 
+call-put
+)
+P0
+F07
+Separação por vencimento (atual vs. próximos)
+P0
+F08
+Gráfico 1 — Open 
+Interest
+ por strike
+P1
+F09
+Gráfico 2 — 
+Jumba
+ 
+Walls
+ (GEX por strike empilhado)
+P0
+F10
+Gráfico 3 — Market Gamma Curve (perfil contínuo)
+P0
+F11
+Cálculo de Flip, Max Gamma, Min Gamma
+P0
+F12
+Cálculo de Gamma Score (z-score ATM vs. 1 ano)
+P1
+F13
+Classificação de 
+Walls
+ por magnitude (
+width
+ 1/2/3)
+P0
+F14
+Geração de 
+MidWalls
+ (pontos médios)
+P1
+F15
+Output de linhas no formato BEGIN...END para MT5
+P0
+F16
+Dashboard local com os 3 gráficos (
+Plotly
+/Dash)
+P1
+2.2 Out-
+of
+-Scope (Futuro)
+ID
+Funcionalidade
+Fase
+F20
+Extensão para DOL FUT (dólar futuro)
+v2.0
+F21
+Extensão para ações (PETR4, VALE3)
+v2.0
+F22
+Coleta 
+intraday
+ de OI (
+scraping
+ opcoes.net.br)
+v2.0
+F23
+Indicador nativo MQL5 (plota no gráfico do MT5)
+v2.0
+F24
+Alertas automáticos (Flip 
+breach
+, Wall 
+test
+)
+v2.0
+F25
+Backtesting
+: eficácia histórica das 
+walls
+v3.0
+F26
+Machine Learning: previsão de mudança de 
+gamma
+v3.0
+3. Requisitos Funcionais Detalhados
+F01 — Coleta de Open 
+Interest
+ da B3
+Descrição:
+ Download e 
+parsing
+ automatizado dos arquivos diários de posições em aberto da B3 para opções sobre IBOVESPA.
+Regras:
+Fonte: https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/consultas/mercado-de-derivativos/open-interest/ ou arquivo FTP da B3
+Formato esperado: CSV/TXT com campos: 
+Ticker
+, Strike, Tipo (
+Call
+/
+Put
+), Vencimento, Open 
+Interest
+, Preço Ajuste
+Frequência: EOD (após 18h BRT)
+Filtro: apenas séries de opções sobre IBOV (código base IBOV ou séries autorizadas)
+Armazenamento: 
+SQLite
+ local com histórico de pelo menos 252 dias úteis (para Gamma Score)
+Critérios de Aceite:
+Script executa sem intervenção manual após configuração inicial
+Dados 
+parseados
+ corretamente para ≥95% das séries ativas
+Histórico de OI armazenado e consultável por data
+F03 — Conversão de Strikes
+Descrição:
+ Converter cada strike de opção sobre IBOV para o preço equivalente no contrato futuro WIN.
+Fórmula:
+K
+futuro
+=
+K
+IBOV
+×
+F
+WIN
+S
+IBOV
+Regras:
+F_WIN = último preço do contrato WIN ativo (
+ex
+: WINM26) via MT5
+S_IBOV = último valor do índice IBOVESPA spot via MT5 (
+symbol_info_tick
+("IBOV"))
+O fator é recalculado a cada execução
+Validação: fator deve estar entre 1.005 e 1.040 (intervalo razoável de custo de carregamento). Fora disso → alerta
+Critérios de Aceite:
+Fator calculado bate com o fator implícito do 
+Jumba
+ (±0,001)
+Todos os strikes convertidos corretamente em massa
+Log do fator utilizado em cada execução
+F05 — Cálculo de Gamma (Black-76)
+Descrição:
+ Calcular o 
+gamma
+ de cada opção individual usando o modelo Black-76 (opções sobre futuros).
+Fórmulas:
+d
+1
+=
+ln
+⁡(F
+/
+K)+
+σ
+2
+2
+⋅T
+σ
+T
+Γ
+=
+e
+-rT
+⋅
+N
+'
+(
+d
+1
+)
+F⋅σ⋅
+T
+N
+'
+(x)=
+1
+2π
+⋅
+e
+-
+x
+2
+/
+2
+Parâmetros:
+Parâmetro
+Símbolo
+Fonte
+Default
+Preço futuro
+F
+MT5 (WIN ativo)
+—
+Strike
+K
+Chain de opções B3
+—
+Vol. implícita
+σ
+Calculada (F04) ou 
+OpLab
+—
+Tempo até vencimento
+T
+Dias úteis / 252
+—
+Taxa de juros
+r
+SELIC/CDI anualizada
+14,75%
+Regras:
+Se T < 1/252 (último dia), usar T = 1/252 (evitar divisão por zero)
+Se σ não disponível, usar ATM IV do vencimento mais próximo como proxy
+Gamma é idêntico para 
+call
+ e 
+put
+ de mesmo strike/vencimento (propriedade de Black-Scholes/Black-76)
+F06 — Cálculo de GEX por Strike
+Descrição:
+ Agregar o 
+gamma
+ de todas as opções em cada strike para determinar o Gamma 
+Exposure
+ líquido.
+Fórmula:
+GE
+X
+net
+(K)=
+i∈calls(K)
+O
+I
+i
+×
+Γ
+i
+×
+F
+2
+×
+0,01
+  
+-
+  
+j∈puts(K)
+O
+I
+j
+×
+Γ
+j
+×
+F
+2
+×
+0,01
+Regras:
+Sinal: 
+Calls
+ = positivo (
+dealers
+ 
+long
+ 
+gamma
+), 
+Puts
+ = negativo (
+dealers
+ short 
+gamma
+)
+Agrupar por 
+K_futuro
+ (após conversão F03)
+Separar contribuição: 
+GEX_vcto_atual
+ e 
+GEX_prox_vctos
+ (para empilhamento no gráfico)
+Normalizar: dividir todos os GEX pelo 
+max
+(|GEX|) para obter escala -1 a +1 (como no gráfico 
+Jumba
+ 
+Walls
+ original)
+F10 — Market Gamma Curve
+Descrição:
+ Gerar a curva contínua de 
+gamma
+ agregado para um range de preços hipotéticos.
+Algoritmo:
+Para 
+S_hyp
+ de (0.80 × F) até (1.20 × F), passo = (0.40 × F) / 200:
+    
+GEX_total
+ = 0
+    Para cada opção na 
+chain
+:
+        
+Γ_hyp
+ = Black76_
+Gamma(
+S_hyp
+, K, σ, T, r)
+        Se tipo == '
+call
+':
+            
+GEX_total
+ += OI × 
+Γ_hyp
+ × S_hyp² × 0.01
+        Se tipo == '
+put
+':
+            
+GEX_total
+ -= OI × 
+Γ_hyp
+ × S_hyp² × 0.01
+    
+market_gamma
+[
+S_hyp
+] = 
+GEX_total
+Regras:
+200 pontos mínimos para curva suave
+Área verde (acima de zero) = 
+gamma
+ positivo
+Área vermelha (abaixo de zero) = 
+gamma
+ negativo
+F11 — Métricas Derivadas
+Métrica
+Cálculo
+Significado
+Flip
+Interpolação linear onde 
+market_gamma
+ cruza zero
+Fronteira entre regime de contenção e explosão
+Max Gamma
+argmax
+(
+market_gamma
+)
+Resistência máxima (FM travam preço)
+Min Gamma
+argmin
+(
+market_gamma
+)
+Suporte/acelerador (FM amplificam queda)
+F13 — Classificação de 
+Walls
+Descrição:
+ Selecionar os N strikes mais relevantes e atribuir espessura de linha proporcional ao 
+gamma
+.
+Algoritmo:
+Filtrar strikes com |
+GEX_net
+| > 
+threshold
+ (
+ex
+: >5% do 
+max
+)
+Selecionar os 
+8 strikes mais próximos do spot
+ com OI significativo
+Ordenar por |
+GEX_net
+| decrescente
+Atribuir: 
+Width
+ 3
+ → Top 1 (Wall principal)
+Width
+ 2
+ → Top 2-3 (
+Walls
+ secundárias)
+Width
+ 1
+ → Top 4-8 (
+Walls
+ terciárias)
+Cor: 
+GEX_net
+ > 0 → 
+Call
+ Wall (
+clLime
+)
+GEX_net
+ < 0 → 
+Put
+ Wall (
+clLime
+, mas abaixo do spot)
+F15 — Output de Linhas para MT5
+Descrição:
+ Gerar output no formato BEGIN...END compatível com indicadores/scripts MQL5.
+Formato de saída:
+<BEGIN
+  
+line
+{N
+} :
+= {
+valor_K_futuro
+};
+  
+line
+{N}
+Color :
+= {cor};
+  
+line
+{N}
+Width
+ :
+= {1|2|3};
+  
+line
+{N}
+Style
+ :
+= 0;
+>
+Mapeamento de cores:
+Tipo de Linha
+Cor
+Variável
+Wall (
+gamma
+ por strike)
+clLime
+clWall
+MidWall
+ (ponto médio)
+clGray
+clMidWall
+Max Gamma (resistência)
+clGreen
+clMaxGamma
+Min Gamma (suporte)
+clRed
+clMinGamma
+Flip (cruzamento zero)
+clYellow
+clFlip
+4. Requisitos Não-Funcionais
+ID
+Requisito
+Especificação
+NF01
+Performance
+Cálculo completo (
+chain
+ inteira) em < 5 segundos
+NF02
+Armazenamento
+SQLite
+ local, < 500 MB para 1 ano de histórico
+NF03
+Portabilidade
+Python 3.10+, sem dependências de sistema pesadas
+NF04
+Resiliência
+Fallback
+ se B3 estiver offline (usar último OI disponível)
+NF05
+Logging
+Log de cada execução com: fator, nº de opções processadas, métricas
+NF06
+Segurança
+Nenhuma credencial 
+hardcoded
+; .
+env
+ para 
+configs
+ sensíveis
+NF07
+Reprodutibilidade
+Dado o mesmo input, output deve ser idêntico (determinístico)
+5. Arquitetura de Alto Nível
+┌─────────────────────────────────────────────────────────────────┐
+│                        GEX ENGINE v1.0                          │
+├
+──────────
+┬
+──────────
+┬
+──────────
+┬
+──────────
+┬
+─────────────────────
+┤
+│  COLETA
+  
+│  CÁLCULO
+ 
+│  ANÁLISE
+ 
+│  OUTPUT
+  │     STORAGE         │
+│          │          │          │          │                     │
+│ ┌──────┐ │ ┌──────┐ │ ┌──────┐ │ ┌──────┐ │  ┌───────────────┐ │
+│ │ B3   │→│ │Black │→│ │GEX   │→│ │BEGIN │ 
+│  │
+  
+SQLite
+ DB    │ │
+│ │ OI   │ │ │ 76   │ │ │ 
+Net  │
+ │ │ 
+END  │
+ 
+│  │
+  
+├
+─
+ 
+oi_hist
+   
+│
+ 
+│
+│ │ File │ │ │Gamma │ │ │/
+Strk
+ │ │ │Format│ 
+│  │
+  
+├
+─
+ 
+gex_
+hist
+  
+│
+ 
+│
+│ └──────┘ │ └──────┘ │ └──────┘ │ └──────┘ 
+│  │
+  
+├
+─
+ 
+metrics
+   
+│
+ 
+│
+│ ┌──────┐ │ ┌──────┐ │ ┌──────┐ │ ┌──────┐ 
+│  │
+  └─ 
+config
+    │ │
+│ │ MT
+5  │
+→│ │IV    │→│ │
+Mkt
+   │→│ │
+Plotly
+│ 
+│  └
+───────────────┘ │
+│ │ 
+API  │
+ │ │Newton│ │ │Gamma │ │ │
+Dash  │
+ │                     │
+│ │
+Price
+ │ │ │Raph. │ │ │Curve │ │ │Board │ │                     │
+│ └──────┘ │ └──────┘ │ └──────┘ │ └──────┘ │                     │
+├
+──────────
+┴
+──────────
+┴
+──────────
+┴
+──────────
+┴
+─────────────────────
+┤
+│                     
+config.env
+ / 
+params.yaml
+                     │
+└─────────────────────────────────────────────────────────────────┘
+6. Stack Tecnológica
+Componente
+Tecnologia
+Justificativa
+Linguagem principal
+Python 3.10+
+Ecossistema numérico, integração MT5
+Conexão MT5
+MetaTrader5 (
+pip
+)
+API oficial para preços e 
+ticks
+Cálculo numérico
+numpy
+, 
+scipy
+Black-76, Newton-
+Raphson
+, interpolação
+Dados tabulares
+pandas
+Parsing
+ CSV B3, manipulação de 
+chains
+Persistência
+sqlite3 (
+stdlib
+)
+Leve, sem servidor, portável
+Visualização
+plotly
+Gráficos interativos, 
+dark
+ 
+theme
+Dashboard
+dash
+ (opcional)
+Interface web local
+HTTP/Download
+requests
+, 
+selenium
+Download B3, 
+scraping
+ opcoes.net.br
+Config
+python-dotenv
+, 
+pyyaml
+Parâmetros editáveis sem alterar código
+Logging
+loguru
+Logging
+ estruturado e colorido
+7. Estrutura de Diretórios
+gex-engine
+/
+├
+──
+ README.md
+├
+──
+ 
+config.env
+                  # SELIC, DY, caminhos, credenciais
+├
+──
+ 
+params.yaml
+                 # Par
+â
+metros de c
+á
+lculo edit
+á
+veis
+├
+──
+ requirements.txt
+│
+├
+──
+ 
+src
+/
+│   
+├
+──
+ __init__.py
+│   
+├
+──
+ main.py                 # Orquestrador principal
+│   │
+│   
+├
+──
+ 
+collectors
+/
+│   │   
+├
+──
+ __init__.py
+│   │   
+├
+──
+ 
+b3_oi_collector.py  #
+ Download + 
+parsing
+ OI da B3
+│   │   
+├
+──
+ mt5_connector.py    # Pre
+ç
+os spot/futuro via MT5
+│   │   └── oplab_scraper.py    # (Opcional) IV via 
+OpLab
+│   │
+│   
+├
+──
+ 
+engine
+/
+│   │   
+├
+──
+ __init__.py
+│   │   
+├
+──
+ black76.py          # Modelo Black-76 (
+gamma
+, delta, IV)
+│   │   
+├
+──
+ iv_solver.py        # Newton-
+Raphson
+ para IV impl
+í
+cita
+│   │   
+├
+──
+ gex_calculator.py   # GEX por strike, GEX net
+│   │   
+├
+──
+ market_gamma.py     # Curva de Market Gamma
+│   │   └── metrics.py          # Flip, Max, Min, Gamma Score
+│   │
+│   
+├
+──
+ output/
+│   │   
+├
+──
+ __init__.py
+│   │   
+├
+──
+ line_formatter.py   # Gera formato BEGIN...END para MT5
+│   │   
+├
+──
+ 
+wall_classifier.py  #
+ Classifica 
+walls
+ (
+width
+ 1/2/3)
+│   │   └── midwall_generator.py
+│   │
+│   
+├
+──
+ 
+viz
+/
+│   │   
+├
+──
+ __init__.py
+│   │   
+├
+──
+ oi_chart.py         # Gráfico 1: Open 
+Interest
+│   │   
+├
+──
+ walls_chart.py      # Gr
+á
+fico 2: 
+Jumba
+ 
+Walls
+│   │   
+├
+──
+ gamma_curve.py      # Gr
+á
+fico 3: Market Gamma
+│   │   └── dashboard.py        # Dashboard Dash (P1)
+│   │
+│   └── 
+storage
+/
+│       
+├
+──
+ __init__.py
+│       └── db_manager.py       # 
+SQLite
+: histórico OI, GEX, métricas
+│
+├
+──
+ data/
+│   
+├
+──
+ 
+raw
+/                    # Arquivos B3 originais
+│   
+├
+──
+ 
+processed
+/              # 
+Chains
+ processadas (parquet/
+csv
+)
+│   └── 
+gex.db
+                  # Banco 
+SQLite
+│
+├
+──
+ output/
+│   
+├
+──
+ 
+lines
+/                  # Arquivos BEGIN...END por data
+│   └── 
+charts
+/                 # 
+PNGs
+/
+HTMLs
+ dos gráficos
+│
+└── 
+tests
+/
+    
+├
+──
+ test_black76.py
+    
+├
+──
+ test_gex_calculator.py
+    
+├
+──
+ test_market_gamma.py
+    └── test_line_formatter.py
+8. Modelo de Dados (
+SQLite
+)
+SQL
+-- Histórico de Open 
+Interest
+CREATE TABLE 
+oi_history
+ (
+date ,
+ -- 'IBOVJ185000' date TEXT NOT NULL, -- '2026-05-06'
+strike REAL NOT NULL, -- 185000.0 (IBOV)
+strike_fut
+ REAL, -- 187986.748 (convertido WIN)
+option_type
+ TEXT NOT NULL, -- 'CALL' | 'PUT'
+expiry
+ TEXT NOT NULL, -- '2026-06-20'
+oi
+ INTEGER NOT NULL, -- 45230
+settle_price
+ REAL, -- 4.35
+iv
+ REAL, -- 0.2847
+PRIMARY KEY (date, 
+ticker
+)
+);
+-- GEX calculado por data
+CREATE TABLE 
+gex_history
+ (
+date TEXT NOT NULL,
+strike_fut
+ REAL NOT NULL,
+gex_call
+ REAL,
+gex_put
+ REAL,
+gex_net
+ REAL,
+gex_current
+ REAL, -- vencimento atual
+gex_next
+ REAL, -- próximos vencimentos
+PRIMARY KEY (date, 
+strike_fut
+)
+);
+-- Métricas diárias
+CREATE TABLE 
+metrics_history
+ (
+date TEXT PRIMARY KEY,
+future_price
+ REAL, -- WINM26
+spot_price
+ REAL, -- IBOV
+factor
+ REAL, -- F/S
+flip REAL,
+max_gamma
+ REAL,
+min_gamma
+ REAL,
+gamma_atm
+ REAL,
+gamma_score
+ REAL, -- z-score
+call_wall
+ REAL, -- strike da 
+Call
+ Wall principal
+put_wall
+ REAL -- strike da 
+Put
+ Wall principal
+);
+-- Parâmetros utilizados
+CREATE TABLE 
+run_log
+ (
+run_id
+ INTEGER PRIMARY KEY AUTOINCREMENT,
+timestamp
+ TEXT,
+date_ref
+ TEXT,
+selic
+ REAL,
+dy
+ REAL,
+n_options
+ INTEGER,
+n_strikes
+ INTEGER,
+exec_time_s
+ REAL
+);
+Mostrar mais linhas
+9. Parâmetros Configuráveis (
+params.yaml
+)
+YAML
+# ─── Ativo ───
+asset
+:
+future_symbol
+: "WIN$" # símbolo genérico do WIN no MT5
+spot_symbol
+: "IBOV" # índice spot
+contract_multiplier
+: 0.20 # R$ por ponto no 
+mini-índice
+# ─── Modelo ───
+model:
+type
+: "black76"
+risk_free_rate
+: 0.1475 # SELIC anual
+dividend_yield
+: 0.045 # DY IBOV estimado
+min_T
+: 0.003968 # 1/252 (mínimo 1 dia útil)
+# ─── Filtros ───
+filters
+:
+max_otm_pct
+: 0.30 # remover strikes >30% do spot
+min_oi
+: 10 # remover opções com OI < 10
+min_iv
+: 0.05 # IV mínima aceitável
+max_iv
+: 2.00 # IV máxima aceitável
+# ─── Market Gamma ───
+market_gamma
+:
+range_pct
+: 0.20 # ±20% do spot
+n_points
+: 200 # pontos na curva
+# ─── 
+Walls
+ ───
+walls
+:
+n_walls
+: 8 # número de Wall 
+lines
+n_midwalls
+: 7 # 
+n_walls
+ - 1
+radius_strikes
+: 10 # strikes acima e abaixo do spot
+width_top1: 3 # espessura da Wall principal
+width_top2_3: 2 # espessura das secundárias
+width_others
+: 1 # espessura das terciárias
+# ─── Gamma Score ───
+gamma_score
+:
+lookback_days
+: 252 # 1 ano de histórico
+alert_threshold
+: 2.0 # alerta se |z-score| > 2σ
+# ─── Output ───
+output:
+format
+: "
+begin_end
+" # formato das linhas para MT5
+save_charts
+: 
+true
+chart_theme
+: "
+plotly_dark
+"
+Mostrar mais linhas
+10. Fluxo de Execução (Sequência)
+ ┌────────┐     ┌────────┐     ┌────────┐     ┌────────┐
+ 
+│  USER
+  │────
+▶
+│
+  MAIN
+  
+│────
+▶
+│
+COLLECT 
+│────
+▶
+│
+  B
+3    
+│
+ │ executa│     │ .
+py
+    │     
+│  OI
+    │     │ 
+Files  │
+ └────────┘     └───
+┬
+────┘
+     
+└───
+┬
+────┘
+     
+└────────┘
+                    │              │
+                    │              
+▼
+                    │         ┌────────┐     ┌────────┐
+                    │         │COLLECT │────
+▶
+│
+  MT
+5   
+│
+                    │         │ PRICES │     
+│  API
+   │
+                    │         └───
+┬
+────┘
+     
+└────────┘
+                    │             │
+                    
+▼
+             
+▼
+               ┌─────────────────────┐
+               │   MERGE & CONVERT   │
+               
+│  (
+strike → 
+futuro)  │
+               └──────────
+┬
+──────────┘
+                          │
+                    ┌─────
+▼
+─────┐
+                    
+│  CALC
+ 
+IV  │
+ (se necessário)
+                    
+│  Newton
+-R │
+                    └─────
+┬
+─────┘
+                          │
+                    ┌─────
+▼
+─────┐
+                    │CALC GAMMA │
+                    │ Black-
+76  │
+                    └─────
+┬
+─────┘
+                          │
+              ┌───────────
+┼
+───────────┐
+              
+▼
+           
+▼
+           
+▼
+        ┌──────────┐ ┌──────────┐ ┌──────────┐
+        │ GEX/
+Strk
+ │ │ 
+Mkt
+ 
+Gmma
+ │ │ 
+Metrics
+  │
+        │ (
+Walls
+)  │
+ │ (
+Curve)  │
+ │ Flip/Max │
+        └────
+┬
+─────┘
+ 
+└────
+┬
+─────┘
+ 
+└────
+┬
+─────┘
+             │            │            │
+             
+▼
+            
+▼
+            
+▼
+        ┌─────────────────────────────────────┐
+        │         CLASSIFY & FORMAT           │
+        
+│  
+Walls
+ (
+width
+), 
+MidWalls
+, Lines     │
+        └──────────────
+┬
+──────────────────────┘
+                       │
+           ┌───────────
+┼
+───────────┐
+           
+▼
+           
+▼
+           
+▼
+      ┌────────┐  ┌────────┐  ┌────────┐
+      │ 
+BEGIN  │
+  │ 
+Charts
+ 
+│  │
+ 
+SQLite
+ │
+      
+│  END
+   
+│  │
+ 
+Plotly
+ 
+│  │
+  
+Save
+  │
+      │ output 
+│  │
+ HTML   
+│  │
+        │
+      └────────┘  └────────┘  └────────┘
+11. Riscos e Mitigações
+#
+Risco
+Probabilidade
+Impacto
+Mitigação
+R1
+B3 muda formato do arquivo de OI
+Média
+Alto
+Parser com 
+schema
+ 
+validation
+ + alerta
+R2
+MT5 API indisponível (rede CAIXA)
+Alta
+Médio
+Fallback
+: input manual de F e S
+R3
+IV não disponível para strikes OTM
+Alta
+Médio
+Usar 
+smile
+ 
+interpolation
+ ou ATM IV como proxy
+R4
+OI
+ 
+intraday
+ diverge do EOD
+Média
+Baixo
+Documentar que análise é EOD; v2.0 para 
+intraday
+R5
+Dealer
+ 
+assumption
+ não vale para B3
+Baixa
+Alto
+Parametrizar sinal das 
+puts
+ (+/-) para teste
+R6
+Gamma Score sem histórico suficiente
+Alta (início)
+Baixo
+Requer 252 dias; mostrar "N/A" até acumular
+12. 
+Roadmap
+ de Entregas
+Fase
+Entregável
+Estimativa
+Sprint 1
+black76.py + iv_solver.py + testes unitários
+2-3 dias
+Sprint 2
+b3_oi_collector.py + mt5_connector.py
+2-3 dias
+Sprint 3
+gex_calculator.py + market_gamma.py + metrics.py
+3-4 dias
+Sprint 4
+wall_classifier.py + line_formatter.py + output BEGIN...END
+1-2 dias
+Sprint 5
+3 gráficos 
+Plotly
+ (
+oi_chart
+, 
+walls_chart
+, 
+gamma_curve
+)
+2-3 dias
+Sprint 6
+db_manager.py + histórico + Gamma Score
+2-3 dias
+Sprint 7
+Integração 
+end-to-end
+ + main.py + testes de integração
+2-3 dias
+Sprint 8
+Dashboard Dash (P1) + documentação
+2-3 dias
+Total estimado
+~18-24 dias

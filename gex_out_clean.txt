@@ -1,0 +1,80 @@
+[MT5] Buscando precos automaticamente...
+
+MT5: Contrato ativo detectado: WINM26
+MT5: Precos capturados (M5 Close das 11:45)
+  S_IBOV (IBOV):      181929.00  @ 2026-05-11 11:45:00
+  F_WIN  (WINM26):  184275.00  @ 2026-05-11 11:45:00
+  Factor:                   1.012895
+
+==================================================
+  GEX ENGINE - Jumba Walls Replicator
+==================================================
+  F_WIN  = 184275.0
+  S_IBOV = 181929.0
+  Factor = 1.012895
+
+[1/4] Carregando dados de OI da B3...
+B3 Parser: Lendo Posiτ⌡es em aberto-08-05-2026.csv...
+B3 Parser: 775 opcoes IBOV extraidas com sucesso.
+      775 contratos de opcoes carregados.
+
+[2/4] Calculando Volatilidade Implicita (Newton-Raphson)...
+      Opcao ATM identificada: IBOVH182 (Strike 182000.0)
+MT5: IBOVH182 sem trade as 16:55. Usando ultima (R$ 12540.00).
+      Preco MT5: R$ 12540.00 -> IV Calculada: 53.74%
+
+[3/4] Calculando GEX e gerando Walls...
+  Taxa de Juros (r): 14.50%
+  Fator Teorico IBOV->WIN: 1.014613 (MT5 era 1.012895)
+  T (anos): 0.1071, IV: 0.5373675587080444
+  ATM strike: 182000.0 | Selected: 174000.0-189000.0
+  MaxGamma:  221130.0
+  MinGamma:  152235.2
+  GammaFlip: 184339.6
+
+      34 linhas geradas:
+  Wall         @   176542.729 | Width 1 | IBOV 174000
+  Wall         @   177557.343 | Width 2 | IBOV 175000
+  Wall         @   178571.956 | Width 1 | IBOV 176000
+  Wall         @   179586.569 | Width 1 | IBOV 177000
+  Wall         @   180601.183 | Width 1 | IBOV 178000
+  Wall         @   181615.796 | Width 1 | IBOV 179000
+  Wall         @   182630.410 | Width 3 | IBOV 180000
+  Wall         @   183645.023 | Width 1 | IBOV 181000
+  Wall         @   184659.636 | Width 1 | IBOV 182000
+  Wall         @   185674.250 | Width 1 | IBOV 183000
+  Wall         @   186688.863 | Width 1 | IBOV 184000
+  Wall         @   187703.476 | Width 2 | IBOV 185000
+  Wall         @   188718.090 | Width 1 | IBOV 186000
+  Wall         @   189732.703 | Width 1 | IBOV 187000
+  Wall         @   190747.317 | Width 1 | IBOV 188000
+  Wall         @   191761.930 | Width 1 | IBOV 189000
+  MidWall      @   177050.036 | Width 1
+  MidWall      @   178064.649 | Width 1
+  MidWall      @   179079.263 | Width 1
+  MidWall      @   180093.876 | Width 1
+  MidWall      @   181108.489 | Width 1
+  MidWall      @   182123.103 | Width 1
+  MidWall      @   183137.716 | Width 1
+  MidWall      @   184152.329 | Width 1
+  MidWall      @   185166.943 | Width 1
+  MidWall      @   186181.557 | Width 1
+  MidWall      @   187196.170 | Width 1
+  MidWall      @   188210.783 | Width 1
+  MidWall      @   189225.397 | Width 1
+  MidWall      @   190240.010 | Width 1
+  MidWall      @   191254.623 | Width 1
+  MaxGamma     @   221130.000 | Width 3
+  MinGamma     @   152235.226 | Width 3
+  GammaFlip    @   184339.604 | Width 2
+
+[4/4] Publicando no Firebase...
+[2026-05-11T17:48:45.481151Z] GEX Walls publicadas no Firebase. (34 linhas)
+
+[4/4] Gerando arquivo para Nelogica ProfitChart...
+[Exporter] Arquivo Nelogica gerado com 34 linhas em: gex/docs/jumba_neologica
+[Exporter] Arquivo Nelogica gerado com 34 linhas em: C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy\JumbaWalls.nne
+
+==================================================
+  Pipeline concluido com sucesso!
+==================================================
