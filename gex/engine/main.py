@@ -9,6 +9,24 @@ from .firebase_publisher import push_walls_to_firebase
 from .mt5_prices import get_mt5_prices, get_option_price
 from .black76 import implied_volatility_newton_raphson
 
+def get_yfinance_ibov_close(target_date):
+    """
+    Tenta buscar o preço de fechamento do IBOV (^BVSP) no Yahoo Finance para uma data específica.
+    """
+    import yfinance as yf
+    try:
+        ticker = yf.Ticker("^BVSP")
+        df = ticker.history(period="5d")
+        if df.empty:
+            return None
+        
+        for timestamp, row in df.iterrows():
+            if timestamp.date() == target_date:
+                return float(row['Close'])
+    except Exception as e:
+        print(f"      [yfinance] Erro ao buscar IBOV: {e}")
+    return None
+
 def get_previous_trading_day(ref_date=None):
     """
     Retorna o dia útil anterior ao ref_date (por padrão hoje).
@@ -96,6 +114,9 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
         current_win:  Preco atual do contrato futuro WIN (ex: WINM26 = 188902)
         current_ibov: Preco spot do indice IBOVESPA (ex: 186000)
     """
+    # Determinar a data esperada
+    expected_date = get_expected_trading_day()
+    
     print("=" * 50)
     print("  GEX ENGINE - Jumba Walls Replicator")
     print("=" * 50)
@@ -108,7 +129,7 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     print("[1/6] Carregando dados de OI da B3...")
     try:
         from .b3_downloader import download_b3_positions
-        download_b3_positions()
+        download_b3_positions(target_date=expected_date)
     except Exception as e:
         print(f"      Aviso: Falha ao automatizar download da B3 ({e}).")
         print("      Tentando prosseguir com o arquivo CSV mais recente disponível localmente...")
@@ -129,15 +150,30 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
             d, m, y = match_date.groups()
             trading_date = datetime.date(int(y), int(m), int(d))
             
-    # Checagem de segurança de data anterior/dia esperado
-    expected_date = get_expected_trading_day()
-    
     anomaly = False
     if trading_date != expected_date:
         anomaly = True
     if mt5_date and mt5_date != expected_date:
-        anomaly = True
-        
+        # Se os preços do MT5 estão desatualizados, tentamos buscar a data correta no Yahoo Finance
+        print(f"\n[Aviso] Preços do MT5 estão desatualizados ({mt5_date} vs esperado {expected_date}).")
+        print(f"        Tentando buscar fechamento oficial de {expected_date} no Yahoo Finance (^BVSP)...")
+        yf_ibov = get_yfinance_ibov_close(expected_date)
+        if yf_ibov is not None:
+            old_factor = current_win / current_ibov if current_ibov else 1.0083
+            estimated_win = round(yf_ibov * old_factor)
+            print(f"        [Sucesso Yahoo Finance] IBOV fechamento em {expected_date}: {yf_ibov}")
+            print(f"        Estimando WIN futuro usando fator anterior ({old_factor:.6f}) -> {estimated_win}")
+            current_ibov = yf_ibov
+            current_win = estimated_win
+            mt5_date = expected_date
+            
+            # Recalcula se ainda há anomalia
+            if trading_date == expected_date:
+                anomaly = False  # Anomalia resolvida!
+        else:
+            print("        Não foi possível obter dados no Yahoo Finance. Mantendo verificação normal.")
+            anomaly = True
+            
     if anomaly:
         current_win, current_ibov = prompt_user_anomaly(
             expected_date=expected_date,

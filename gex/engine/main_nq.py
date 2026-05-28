@@ -44,11 +44,27 @@ def get_qqq_and_nq_prices():
         print("      ERRO: Nenhuma data de vencimento encontrada para QQQ.")
         return None, None, None, None
         
-    front_expiry = expirations[0]
-    print(f"      Próximo vencimento (Front-Month): {front_expiry}")
+    # 4. Baixar a grade de opções (com loop de fallback para evitar vencimentos vazios no dia da expiração)
+    opt_chain = None
+    front_expiry = None
     
-    # 4. Baixar a grade de opções
-    opt_chain = qqq_ticker.option_chain(front_expiry)
+    for expiry in expirations[:3]:
+        try:
+            chain = qqq_ticker.option_chain(expiry)
+            calls_active = len(chain.calls)
+            puts_active = len(chain.puts)
+            if (calls_active + puts_active) > 10:
+                opt_chain = chain
+                front_expiry = expiry
+                break
+        except Exception:
+            continue
+            
+    if opt_chain is None:
+        front_expiry = expirations[0]
+        opt_chain = qqq_ticker.option_chain(front_expiry)
+        
+    print(f"      Próximo vencimento ativo selecionado: {front_expiry}")
     calls = opt_chain.calls
     puts = opt_chain.puts
     
@@ -116,7 +132,8 @@ def run_nq_gex_pipeline():
     
     # 3. Agrupar strikes e calcular GEX por nível
     print(f"\n[3/5] Calculando GEX e gerando Jumba Walls...")
-    df_options['strike_round'] = (df_options['strike'] / 1.0).round() * 1.0
+    # Agrupar strikes do QQQ por $5.0 em vez de $1.0 para expandir o espaçamento das walls no Nasdaq (NQ)
+    df_options['strike_round'] = (df_options['strike'] / 5.0).round() * 5.0
     
     gex_per_strike = {}
     multiplier = 100

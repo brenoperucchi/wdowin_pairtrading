@@ -70,7 +70,7 @@ if %errorlevel% neq 0 (
 echo.
 
 echo Salvando relatorios e indicador consolidado no Git...
-git add -f "gex/docs/jumba_tradingview.pine" "gex/docs/DAILY_REPORT*.txt"
+git add -f "gex/data/*.csv" "gex/docs/jumba_neologica" "gex/docs/jumba_tradingview.pine" "gex/docs/DAILY_REPORT*.txt"
 git commit -m "chore(gex): atualizacao consolidada de GEX para 9 ativos e relatorios diarios"
 
 echo.

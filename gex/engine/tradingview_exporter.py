@@ -192,7 +192,7 @@ def export_unified_tradingview(output_path):
     gold_code = "\n".join(gold_pushes) if gold_pushes else "    // Nenhum dado cacheado de OURO / XAUUSD disponível"
     dow_code = "\n".join(dow_pushes) if dow_pushes else "    // Nenhum dado cacheado de DOW / US30 disponível"
     
-    pine_code = f"""//@version=5
+    pine_code = f"""//@version=6
 // +-------------------------------------------------------------------------+
 // | Jumba GEX Levels - Unificado 9 Ativos para TradingView                 |
 // | Gerado em: {datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")}                     |
@@ -219,6 +219,14 @@ targetMonth    = input.int({ref_month}, "Mês", group=g_date, inline="d1")
 targetDay      = input.int({ref_day}, "Dia", group=g_date, inline="d1")
 
 is_target_date = not useDateFilter or (year(time) == targetYear and month(time) == targetMonth and dayofmonth(time) == targetDay)
+
+// --- CONFIGURAÇÃO VISUAL ---
+g_visual       = "Configuração Visual"
+showLabels     = input.bool(true, "Exibir Legendas das Walls", group=g_visual)
+showMidLabels  = input.bool(false, "Exibir Legenda de Mid-Walls", group=g_visual)
+showPrices     = input.bool(true, "Exibir Preço na Legenda", group=g_visual)
+transparentBg  = input.bool(true, "Fundo da Legenda Transparente", group=g_visual)
+labelSize      = input.string(size.small, "Tamanho do Texto", options=[size.auto, size.tiny, size.small, size.normal, size.large], group=g_visual)
 
 // --- INICIALIZAÇÃO DE DADOS ---
 
@@ -285,32 +293,33 @@ var color[] dow_colors = array.new_color()
 var int[] dow_widths = array.new_int()
 var string[] dow_styles = array.new_string()
 
-if barstate.isfirst
-    // --- POPULANDO DADOS DE WIN ---
+// --- POPULANDO DADOS (blocos separados para evitar limite de bytecode) ---
+
+if barstate.isfirst // WIN Futures (B3)
 {win_code}
 
-    // --- POPULANDO DADOS DE SP500 / ES ---
+if barstate.isfirst // SP500 / ES (EUA)
 {us_code}
 
-    // --- POPULANDO DADOS DE NASDAQ 100 / NQ ---
+if barstate.isfirst // Nasdaq 100 / NQ (EUA)
 {nq_code}
 
-    // --- POPULANDO DADOS DE BITCOIN ---
+if barstate.isfirst // Bitcoin / BTC USD (Cripto)
 {btc_code}
 
-    // --- POPULANDO DADOS DE DÓLAR FUTURO B3 ---
+if barstate.isfirst // Dólar Futuro B3
 {dol_code}
 
-    // --- POPULANDO DADOS DE EUR / USD ---
+if barstate.isfirst // EUR / USD (Forex)
 {eur_code}
 
-    // --- POPULANDO DADOS DE GBP / USD ---
+if barstate.isfirst // GBP / USD (Forex)
 {gbp_code}
 
-    // --- POPULANDO DADOS DE OURO / XAUUSD ---
+if barstate.isfirst // Ouro / XAUUSD (Metal)
 {gold_code}
 
-    // --- POPULANDO DADOS DE DOW JONES / US30 ---
+if barstate.isfirst // Dow Jones / US30 (EUA)
 {dow_code}
 
 // --- DETECÇÃO DINÂMICA E FALLBACK DE ATIVO ---
@@ -433,19 +442,29 @@ if is_target_date and barstate.islast
                 
                 // Desenhar a linha estendida para ambos os lados
                 l = line.new(x1=bar_index - 100, y1=p, x2=bar_index, y2=p, xloc=xloc.bar_index, extend=extend.both, color=col, width=w, style=sty)
-                
-                // Rótulo dinâmico dependendo da escala
-                string p_str = (is_eur or is_gbp) ? str.tostring(p, "#.####") : (scale_factor < 1.0 ? str.tostring(p, "#.####") : str.tostring(p, is_win ? "#" : "#.##"))
-                lb = label.new(x=bar_index + 12, y=p, text=lbl + " [" + p_str + "]", xloc=xloc.bar_index, color=color.new(col, 95), textcolor=col, style=label.style_label_left, size=size.small)
-                
                 array.push(active_lines, l)
-                array.push(active_labels, lb)
+                
+                // Rótulo dinâmico dependendo da escala e configurações visuais
+                bool draw_lbl = showLabels
+                if lbl == "MID WALL" and not showMidLabels
+                    draw_lbl := false
+                
+                if draw_lbl
+                    string p_str = (is_eur or is_gbp) ? str.tostring(p, "#.####") : (scale_factor < 1.0 ? str.tostring(p, "#.####") : str.tostring(p, is_win ? "#" : "#.##"))
+                    string label_text = lbl
+                    if showPrices
+                        label_text := label_text + " [" + p_str + "]"
+                    
+                    color bg_color = transparentBg ? color.new(color.black, 100) : color.new(col, 95)
+                    lb = label.new(x=bar_index + 12, y=p, text=label_text, xloc=xloc.bar_index, color=bg_color, textcolor=col, style=label.style_label_left, size=labelSize)
+                    array.push(active_labels, lb)
+                    
         initialized := true
     else
         // Acompanhar o deslocamento do gráfico em tempo real para manter as labels à direita
-        int size = array.size(active_lines)
-        if size > 0
-            for i = 0 to size - 1
+        int labels_size = array.size(active_labels)
+        if labels_size > 0
+            for i = 0 to labels_size - 1
                 label.set_x(array.get(active_labels, i), bar_index + 12)
 """
     

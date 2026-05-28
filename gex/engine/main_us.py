@@ -35,11 +35,27 @@ def get_spy_spot_and_chain():
         print("      ERRO: Nenhuma data de vencimento encontrada para SPY.")
         return None, None, None
         
-    front_expiry = expirations[0]
-    print(f"      Próximo vencimento (Front-Month): {front_expiry}")
+    # 3. Baixar a grade de opções (com loop de fallback para evitar vencimentos vazios no dia da expiração)
+    opt_chain = None
+    front_expiry = None
     
-    # 3. Baixar a grade de opções
-    opt_chain = spy_ticker.option_chain(front_expiry)
+    for expiry in expirations[:3]:
+        try:
+            chain = spy_ticker.option_chain(expiry)
+            calls_active = len(chain.calls)
+            puts_active = len(chain.puts)
+            if (calls_active + puts_active) > 10:
+                opt_chain = chain
+                front_expiry = expiry
+                break
+        except Exception:
+            continue
+            
+    if opt_chain is None:
+        front_expiry = expirations[0]
+        opt_chain = spy_ticker.option_chain(front_expiry)
+        
+    print(f"      Próximo vencimento ativo selecionado: {front_expiry}")
     calls = opt_chain.calls
     puts = opt_chain.puts
     

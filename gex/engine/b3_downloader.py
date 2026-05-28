@@ -2,14 +2,20 @@ import os
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
-def download_b3_positions():
+def download_b3_positions(target_date=None):
     """
     Automates the download of the "Posições em aberto" CSV file from B3.
     Saves it directly to gex/data/ with the correct date format.
     
+    Args:
+        target_date (str or datetime.date): Optional date (YYYY-MM-DD) to fetch.
+        
     Returns:
         str: Absolute path to the downloaded CSV file, or None if failed.
     """
+    if target_date and not isinstance(target_date, str):
+        target_date = target_date.isoformat()
+        
     engine_dir = os.path.dirname(os.path.abspath(__file__))
     gex_dir = os.path.dirname(engine_dir)
     data_dir = os.path.join(gex_dir, 'data')
@@ -20,6 +26,9 @@ def download_b3_positions():
     print("  B3 DOWNLOADER - PLAYWRIGHT AUTOMATION")
     print("=" * 50)
     print(f"URL: {url}")
+    if target_date:
+        print(f"Data Alvo Solicitada: {target_date}")
+    print()
     
     try:
         with sync_playwright() as p:
@@ -45,9 +54,19 @@ def download_b3_positions():
             bolsa_item.click()
             page.wait_for_timeout(4000)
             
-            print("Selecionando tabela 'Posições em aberto'...")
             frame.select_option('#selectTabelas', 'OpenPositionsEquities@false')
-            page.wait_for_timeout(6000)
+            page.wait_for_timeout(4000)
+            
+            if target_date:
+                print(f"Alterando a data do picker para: {target_date}...")
+                frame.evaluate(f"""() => {{
+                    const picker = document.querySelector('duet-date-picker');
+                    if (picker) {{
+                        picker.value = '{target_date}';
+                        picker.dispatchEvent(new Event('change'));
+                    }}
+                }}""")
+                page.wait_for_timeout(6000)
             
             # Obtém a data selecionada do picker para nomear o arquivo
             date_val = frame.evaluate("() => document.querySelector('duet-date-picker') ? document.querySelector('duet-date-picker').value : ''")

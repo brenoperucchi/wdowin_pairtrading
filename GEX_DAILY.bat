@@ -10,7 +10,7 @@ timeout /t 3
 
 
 echo Iniciando pipeline GEX (Buscando M5 close das 16:55)...
-python -m gex.engine.main
+.\.venv\Scripts\python.exe -m gex.engine.main
 
 if %errorlevel% neq 0 (
     echo.
