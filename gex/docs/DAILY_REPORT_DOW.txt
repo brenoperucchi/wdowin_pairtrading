@@ -1,26 +1,26 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - DOW JONES / US30
-  Vencimento de Referencia: 2026-05-29 | Data Ref: 27/05/2026
+  Vencimento de Referencia: 2026-05-29 | Data Ref: 28/05/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US30 Spot Atual:    50461.68
-    Gamma Flip Point:   50538.03
+    US30 Spot Atual:    50644.28
+    Gamma Flip Point:   50694.54
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 45484.23
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 50538.03
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 55591.84
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 45625.08
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 50694.54
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 55763.99
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $478.0        | 47812.33           | $              0.00M | Width 2
-  Wall       | $370.0        | 37009.54           | $             -0.00M | Width 3
+  Wall       | $478.0        | 47806.17           | $              0.00M | Width 2
+  Wall       | $370.0        | 37004.77           | $             -0.00M | Width 3
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy DIA.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
