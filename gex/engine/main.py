@@ -290,19 +290,30 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     print("\n[6/7] Gerando arquivo para Nelogica ProfitChart...")
     from .profit_exporter import export_to_profit
     
-    # Caminhos para salvar
+    # Caminhos para salvar (suporta tanto ProfitChart quanto Scalper da Nelogica)
     base_file = "gex/docs/jumba_neologica"
-    profit_folder = r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy\JumbaWalls.nne"
+    export_paths = [
+        r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy\JumbaWalls.nne",
+        r"C:\Users\ryzen\AppData\Roaming\Nelogica\Scalper\strategy\JumbaWalls.nne"
+    ]
     
     try:
         # Sobrescreve o arquivo base do repositorio
         export_to_profit(walls, output_path=base_file, current_win=current_win)
-        # Tenta salvar na pasta do Profit (se existir)
-        profit_dir = os.path.dirname(profit_folder)
-        if os.path.exists(profit_dir):
-            export_to_profit(walls, output_path=profit_folder, current_win=current_win)
+        
+        # Tenta salvar em todas as pastas da Nelogica que estiverem presentes no PC
+        for path in export_paths:
+            path_dir = os.path.dirname(path)
+            if os.path.exists(path_dir):
+                export_to_profit(walls, output_path=path, current_win=current_win)
+            else:
+                # Se a pasta pai (ex: Nelogica\Scalper) existir mas a subpasta 'strategy' não, cria a subpasta
+                parent_dir = os.path.dirname(path_dir)
+                if os.path.exists(parent_dir):
+                    os.makedirs(path_dir, exist_ok=True)
+                    export_to_profit(walls, output_path=path, current_win=current_win)
     except Exception as e:
-        print(f"      Aviso: Nao foi possivel salvar no Profit ({e})")
+        print(f"      Aviso: Nao foi possivel salvar nas pastas da Nelogica ({e})")
         
     # 7. Export to TradingView
     print("\n[7/7] Gerando arquivo unificado para TradingView Pine Script...")
