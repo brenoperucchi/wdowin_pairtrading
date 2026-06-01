@@ -1025,6 +1025,21 @@ def get_performance():
         return {"error": str(e)}
 
 
+@app.get("/api/gex-walls")
+def get_gex_walls():
+    import json
+    try:
+        cache_path = os.path.join("gex", "data", "win_walls_cache.json")
+        if os.path.exists(cache_path):
+            with open(cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("walls", [])
+    except Exception as e:
+        print(f"Erro ao ler walls localmente: {e}")
+    return []
+
+
+
 # ─── Multi-day History Endpoint ──────────────────────────────────────────────
 
 _hist_cache: dict = {}

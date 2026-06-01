@@ -104,18 +104,36 @@ export default function App() {
 
     const isViewingHistory = selectedDate !== "";
 
-    // Firebase Listener for GEX Walls
+    // Listener or Fetcher for GEX Walls
     useEffect(() => {
-        const wallsRef = ref(db, 'daily_levels/win_gex/walls');
-        const unsub = onValue(wallsRef, (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                setGexWalls(data);
-            } else {
-                setGexWalls([]);
+        if (import.meta.env.PROD) {
+            const wallsRef = ref(db, 'daily_levels/win_gex/walls');
+            const unsub = onValue(wallsRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    setGexWalls(data);
+                } else {
+                    setGexWalls([]);
+                }
+            });
+            return () => unsub();
+        } else {
+            let active = true;
+            async function fetchLocalWalls() {
+                try {
+                    const res = await fetch("http://localhost:8080/api/gex-walls");
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (active) setGexWalls(data || []);
+                    }
+                } catch (e) {
+                    console.error("Erro ao carregar GEX walls locais:", e);
+                }
             }
-        });
-        return () => unsub();
+            fetchLocalWalls();
+            const t = setInterval(fetchLocalWalls, 10000); // Poll local server every 10s
+            return () => { active = false; clearInterval(t); };
+        }
     }, []);
 
 
