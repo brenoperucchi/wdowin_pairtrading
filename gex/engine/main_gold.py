@@ -171,17 +171,24 @@ def run_gold_gex_pipeline():
             'strike_gld': strike_gld
         }
         
-    # Selecionar os 16 strikes mais próximos do ATM
+    # Selecionar strikes próximos do ATM (dentro de ±5% do spot)
     all_strikes = sorted(gex_per_strike.keys())
-    atm_strike = min(all_strikes, key=lambda s: abs(s - current_spot))
-    atm_idx = all_strikes.index(atm_strike)
+    lower_bound = current_spot * 0.95
+    upper_bound = current_spot * 1.05
+    nearby_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
     
+    # Fallback: se poucos strikes dentro de ±5%, expandir para ±10%
+    if len(nearby_strikes) < 4:
+        lower_bound = current_spot * 0.90
+        upper_bound = current_spot * 1.10
+        nearby_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
+    
+    # Limitar a no máximo 16 strikes mais próximos do ATM
     num_walls = 16
-    start_idx = max(0, atm_idx - num_walls // 2)
-    end_idx = min(len(all_strikes), start_idx + num_walls)
-    start_idx = max(0, end_idx - num_walls)
+    nearby_strikes.sort(key=lambda s: abs(s - current_spot))
+    selected_strikes = sorted(nearby_strikes[:num_walls])
     
-    selected_strikes = all_strikes[start_idx:end_idx]
+    print(f"      Strikes selecionados: {len(selected_strikes)} dentro de [${lower_bound:.2f}, ${upper_bound:.2f}]")
     
     # Classificar Width por intensidade GEX
     strike_gex_list = [(s, gex_per_strike[s]) for s in selected_strikes]
