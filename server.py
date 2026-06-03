@@ -159,22 +159,16 @@ def _seed_flow_history():
     print(f"[INFO] Flow history seeded: {len(bars)} barras de {bars[0]['time']} a {bars[-1]['time']}")
 
 
-async def flow_simulation_loop():
-    print("[INFO] Broker Flow Simulation Loop iniciado.")
-    # Initialize some starting values for realism
+async def flow_snapshot_loop():
+    print("[INFO] Real Broker Flow Snapshot Loop iniciado.")
+    # Inicializa todas as corretoras com saldo zero (sem simulação)
     for sym in ["WIN", "WDO"]:
         for b in _broker_list:
-            if b in ["UBS", "BTG", "JPMORGAN", "GOLDMAN"]:
-                _broker_flow[sym][b]["net"] = random.randint(-15000, 15000)
-            elif b in ["XP", "GENIAL", "ITAU", "BRADESCO"]:
-                _broker_flow[sym][b]["net"] = random.randint(-10000, 10000)
-            else:
-                _broker_flow[sym][b]["net"] = random.randint(-5000, 5000)
-            
-            _broker_flow[sym][b]["buy"] = random.randint(10000, 50000)
-            _broker_flow[sym][b]["sell"] = random.randint(10000, 50000)
-            _broker_flow[sym][b]["vol"] = _broker_flow[sym][b]["buy"] + _broker_flow[sym][b]["sell"]
-            _broker_flow[sym][b]["avg"] = 175000.0 if sym == "WIN" else 5050.0
+            _broker_flow[sym][b]["net"] = 0
+            _broker_flow[sym][b]["buy"] = 0
+            _broker_flow[sym][b]["sell"] = 0
+            _broker_flow[sym][b]["vol"] = 0
+            _broker_flow[sym][b]["avg"] = 0.0
 
     while True:
         try:
@@ -182,29 +176,7 @@ async def flow_simulation_loop():
             now_dt = datetime.now()
             time_str = now_dt.strftime("%H:%M")
             
-            for sym in ["WIN", "WDO"]:
-                if current_time - _last_flow_update[sym] < 10:
-                    continue  # Use real data from bridge
-                
-                # Simular fluxos
-                for b in _broker_list:
-                    change = random.randint(-300, 300)
-                    if b in ["UBS", "BTG"]:
-                        change = random.choice([-500, -250, 0, 250, 500])
-                    elif b in ["XP"]:
-                        change = random.randint(-150, 150)
-                    
-                    _broker_flow[sym][b]["net"] += change
-                    if change > 0:
-                        _broker_flow[sym][b]["buy"] += change
-                    else:
-                        _broker_flow[sym][b]["sell"] += abs(change)
-                    
-                    _broker_flow[sym][b]["vol"] += abs(change)
-                    base_price = 175000.0 if sym == "WIN" else 5050.0
-                    _broker_flow[sym][b]["avg"] = round(base_price + random.randint(-100, 100), 2)
-            
-            # Snapshot
+            # Cria o snapshot a partir do estado atual real (atualizado via API pelo script de monitoramento)
             snapshot = {
                 "time": time_str,
                 "timestamp": int(current_time),
@@ -220,8 +192,8 @@ async def flow_simulation_loop():
                 _flow_history_bars.pop(0)
                 
         except Exception as e:
-            print(f"[AVISO] Erro no loop de simulação de fluxo: {e}")
-        await asyncio.sleep(2.5)
+            print(f"[AVISO] Erro no loop de snapshot de fluxo: {e}")
+        await asyncio.sleep(5.0)
 
 # ─── App setup ───────────────────────────────────────────────────────────────
 import contextlib
@@ -232,8 +204,8 @@ async def lifespan(app: FastAPI):
     if firebase_initialized:
         asyncio.create_task(firebase_push_loop())
     
-    _seed_flow_history()  # Pre-populate flow chart with full-day simulated data
-    asyncio.create_task(flow_simulation_loop())
+    # _seed_flow_history()  # Pre-populate flow chart with full-day simulated data
+    asyncio.create_task(flow_snapshot_loop())
     
     # Run backfill async
     import threading
