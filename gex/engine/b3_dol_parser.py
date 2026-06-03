@@ -108,7 +108,7 @@ def get_b3_dol_options_data(file_path=None):
             
         expiry_date = _get_dol_expiration(year, month_num)
         
-        oi_str = str(row.iloc[11]).replace('.', '').replace('-', '0').strip()
+        oi_str = str(row.iloc[5]).replace('.', '').replace('-', '0').strip()
         try:
             oi = int(oi_str)
         except:

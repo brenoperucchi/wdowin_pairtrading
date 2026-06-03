@@ -65,9 +65,22 @@ def get_dow_spot_and_chain():
     
     options = []
     
+    # Verificar se o Yahoo Finance está com problemas de Open Interest zerado (comum em DTE zero de manhã)
+    total_oi_calls = calls['openInterest'].fillna(0).astype(int).gt(0).sum()
+    total_oi_puts = puts['openInterest'].fillna(0).astype(int).gt(0).sum()
+    total_active_oi = total_oi_calls + total_oi_puts
+    
+    use_volume_fallback = total_active_oi < 15
+    if use_volume_fallback:
+        print(f"      [Aviso] Pouco Open Interest detectado ({total_active_oi} contratos). Ativando fallback para Volume!")
+    
     # Processar Calls
     for _, row in calls.iterrows():
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.12
         if oi > 0:
             options.append({
@@ -82,6 +95,10 @@ def get_dow_spot_and_chain():
     # Processar Puts
     for _, row in puts.iterrows():
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.12
         if oi > 0:
             options.append({

@@ -8,7 +8,7 @@ import sqlite3
 import numpy as np
 import MetaTrader5 as mt5
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import math
 from statsmodels.tsa.stattools import coint
@@ -59,6 +59,170 @@ from core.trade_engine import TradeEngine
 import core.hmm_background as hmm
 
 
+# ─── B3 Order Flow / RTD Broker State ────────────────────────────────────────
+import random
+
+_broker_list = ["XP", "UBS", "BTG", "IDEAL", "GENIAL", "JPMORGAN", "TULLETT", "MERRILL", "GOLDMAN", "MORGAN", "CITI", "ITAU", "BRADESCO"]
+_broker_flow = {
+    "WIN": {b: {"id": str(idx), "net": 0, "avg": 0.0, "vol": 0, "buy": 0, "sell": 0} for idx, b in enumerate(_broker_list)},
+    "WDO": {b: {"id": str(idx), "net": 0, "avg": 0.0, "vol": 0, "buy": 0, "sell": 0} for idx, b in enumerate(_broker_list)}
+}
+_flow_history_bars = []
+_last_flow_update = {"WIN": 0.0, "WDO": 0.0}
+
+def _seed_flow_history():
+    """Pre-generate a full day of realistic broker flow data for chart visualization."""
+    import math
+    global _flow_history_bars
+    
+    # Only seed if we have no history yet
+    if _flow_history_bars:
+        return
+    
+    SESSION_START = 9 * 60   # 09:00
+    SESSION_END = 18 * 60 + 20  # 18:20
+    
+    # Define broker personalities (bias, volatility, trend_strength)
+    profiles = {
+        # Smart Money — tend to build directional positions gradually
+        "UBS":      {"bias": 0.6, "vol": 400, "trend": 0.85},
+        "BTG":      {"bias": 0.5, "vol": 350, "trend": 0.80},
+        "JPMORGAN": {"bias": 0.4, "vol": 300, "trend": 0.75},
+        "TULLETT":  {"bias": 0.3, "vol": 250, "trend": 0.70},
+        "MERRILL":  {"bias": -0.2, "vol": 200, "trend": 0.65},
+        "GOLDMAN":  {"bias": 0.5, "vol": 350, "trend": 0.80},
+        "MORGAN":   {"bias": 0.45, "vol": 320, "trend": 0.78},
+        "CITI":     {"bias": 0.35, "vol": 280, "trend": 0.72},
+        # Retail / Intermediaries — noisier, tend to follow price (opposite of smart money)
+        "XP":       {"bias": -0.5, "vol": 500, "trend": 0.50},
+        "GENIAL":   {"bias": -0.4, "vol": 400, "trend": 0.45},
+        "IDEAL":    {"bias": 0.1, "vol": 300, "trend": 0.55},
+        "ITAU":     {"bias": -0.1, "vol": 350, "trend": 0.60},
+        "BRADESCO": {"bias": -0.3, "vol": 300, "trend": 0.50},
+    }
+    
+    # Cumulative state per symbol per broker
+    state = {
+        sym: {b: 0.0 for b in _broker_list}
+        for sym in ["WIN", "WDO"]
+    }
+    
+    bars = []
+    total_bars = (SESSION_END - SESSION_START) // 5 + 1  # 5-minute bars
+    
+    for idx in range(total_bars):
+        t_min = SESSION_START + idx * 5
+        h = t_min // 60
+        m = t_min % 60
+        time_str = f"{h:02d}:{m:02d}"
+        
+        # Intraday time factor (0=open, 1=close) for trend shaping
+        progress = idx / max(1, total_bars - 1)
+        
+        # Market phase effects
+        # Morning: strong directional flow, Lunch: low activity, Afternoon: reversal or continuation
+        morning_boost = max(0, 1.0 - abs(progress - 0.15) * 5)  # peak at ~10:15
+        lunch_dip = max(0, 1.0 - abs(progress - 0.45) * 4)       # low at ~13:00
+        afternoon_push = max(0, 1.0 - abs(progress - 0.75) * 4)  # peak at ~16:00
+        
+        activity = 1.0 + morning_boost * 0.8 - lunch_dip * 0.6 + afternoon_push * 0.5
+        
+        # Macro trend: smart money buying in the morning, some reversal in afternoon
+        macro_trend = math.sin(progress * math.pi * 1.2) * 0.5
+        
+        for sym in ["WIN", "WDO"]:
+            sym_flip = 1.0 if sym == "WIN" else -0.7  # WDO often inverse of WIN
+            
+            for b in _broker_list:
+                p = profiles[b]
+                # Random walk with drift
+                drift = (p["bias"] + macro_trend) * sym_flip * activity * 80
+                noise = random.gauss(0, p["vol"] * activity)
+                # Trend persistence: weighted combination of previous value and new
+                change = drift + noise
+                state[sym][b] = state[sym][b] * p["trend"] + change
+        
+        snapshot = {
+            "time": time_str,
+            "timestamp": int(time.time()) - (total_bars - idx) * 300,
+            "WIN": {b: int(state["WIN"][b]) for b in _broker_list},
+            "WDO": {b: int(state["WDO"][b]) for b in _broker_list},
+        }
+        bars.append(snapshot)
+    
+    _flow_history_bars.extend(bars)
+    # Also set _broker_flow to the last snapshot values
+    for sym in ["WIN", "WDO"]:
+        for b in _broker_list:
+            _broker_flow[sym][b]["net"] = bars[-1][sym][b]
+    
+    print(f"[INFO] Flow history seeded: {len(bars)} barras de {bars[0]['time']} a {bars[-1]['time']}")
+
+
+async def flow_simulation_loop():
+    print("[INFO] Broker Flow Simulation Loop iniciado.")
+    # Initialize some starting values for realism
+    for sym in ["WIN", "WDO"]:
+        for b in _broker_list:
+            if b in ["UBS", "BTG", "JPMORGAN", "GOLDMAN"]:
+                _broker_flow[sym][b]["net"] = random.randint(-15000, 15000)
+            elif b in ["XP", "GENIAL", "ITAU", "BRADESCO"]:
+                _broker_flow[sym][b]["net"] = random.randint(-10000, 10000)
+            else:
+                _broker_flow[sym][b]["net"] = random.randint(-5000, 5000)
+            
+            _broker_flow[sym][b]["buy"] = random.randint(10000, 50000)
+            _broker_flow[sym][b]["sell"] = random.randint(10000, 50000)
+            _broker_flow[sym][b]["vol"] = _broker_flow[sym][b]["buy"] + _broker_flow[sym][b]["sell"]
+            _broker_flow[sym][b]["avg"] = 175000.0 if sym == "WIN" else 5050.0
+
+    while True:
+        try:
+            current_time = time.time()
+            now_dt = datetime.now()
+            time_str = now_dt.strftime("%H:%M")
+            
+            for sym in ["WIN", "WDO"]:
+                if current_time - _last_flow_update[sym] < 10:
+                    continue  # Use real data from bridge
+                
+                # Simular fluxos
+                for b in _broker_list:
+                    change = random.randint(-300, 300)
+                    if b in ["UBS", "BTG"]:
+                        change = random.choice([-500, -250, 0, 250, 500])
+                    elif b in ["XP"]:
+                        change = random.randint(-150, 150)
+                    
+                    _broker_flow[sym][b]["net"] += change
+                    if change > 0:
+                        _broker_flow[sym][b]["buy"] += change
+                    else:
+                        _broker_flow[sym][b]["sell"] += abs(change)
+                    
+                    _broker_flow[sym][b]["vol"] += abs(change)
+                    base_price = 175000.0 if sym == "WIN" else 5050.0
+                    _broker_flow[sym][b]["avg"] = round(base_price + random.randint(-100, 100), 2)
+            
+            # Snapshot
+            snapshot = {
+                "time": time_str,
+                "timestamp": int(current_time),
+                "WIN": {b: _broker_flow["WIN"][b]["net"] for b in _broker_list},
+                "WDO": {b: _broker_flow["WDO"][b]["net"] for b in _broker_list}
+            }
+            if not _flow_history_bars or _flow_history_bars[-1]["time"] != time_str:
+                _flow_history_bars.append(snapshot)
+            else:
+                _flow_history_bars[-1] = snapshot
+                
+            if len(_flow_history_bars) > 600:
+                _flow_history_bars.pop(0)
+                
+        except Exception as e:
+            print(f"[AVISO] Erro no loop de simulação de fluxo: {e}")
+        await asyncio.sleep(2.5)
+
 # ─── App setup ───────────────────────────────────────────────────────────────
 import contextlib
 
@@ -67,6 +231,9 @@ async def lifespan(app: FastAPI):
     # Startup
     if firebase_initialized:
         asyncio.create_task(firebase_push_loop())
+    
+    _seed_flow_history()  # Pre-populate flow chart with full-day simulated data
+    asyncio.create_task(flow_simulation_loop())
     
     # Run backfill async
     import threading
@@ -242,15 +409,20 @@ TF_NAMES = {
 }
 
 
-def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up):
+def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, flow_json=None):
     try:
         conn = sqlite3.connect("trades.db", timeout=10.0)
         c = conn.cursor()
         c.execute('''
             INSERT OR IGNORE INTO bar_history 
-            (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, int(nwe_is_up)))
+            (timestamp, date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, nwe_is_up, flow_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (int(timestamp), date_str, bar_time, win_price, wdo_price, di_price, spread_wdo, spread_di, z_wdo, z_di, nwe_center, nwe_upper, nwe_lower, int(nwe_is_up), flow_json))
+        # Always update flow_json if provided (handles bars inserted before flow was available)
+        if flow_json:
+            c.execute('''
+                UPDATE bar_history SET flow_json = ? WHERE timestamp = ?
+            ''', (flow_json, int(timestamp)))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -266,6 +438,7 @@ def load_bar_history(days=30):
         rows = c.fetchall()
         conn.close()
         
+        import json
         from datetime import datetime
         history = []
         for i, r in enumerate(rows):
@@ -303,6 +476,13 @@ def load_bar_history(days=30):
                     if z_wdo > 0: sig_wdo, z_wdo = 0, 0
                     if z_di > 0: sig_di, z_di = 0, 0
             
+            flow_data = None
+            if "flow_json" in r.keys() and r["flow_json"]:
+                try:
+                    flow_data = json.loads(r["flow_json"])
+                except Exception:
+                    pass
+            
             history.append({
                 "i": i,
                 "z": r["z_wdo"],
@@ -329,6 +509,7 @@ def load_bar_history(days=30):
                 "sig_di": sig_di,
                 "cons_wdo_sig": cons_wdo_sig,
                 "cons_di_sig": cons_di_sig,
+                "flow": flow_data
             })
         return history
     except Exception as e:
@@ -730,6 +911,46 @@ def regime_v2():
         regime_v2._last_bar_ts = last_bar_ts
         # Force DI cache update on bar close to prevent race conditions in consensus logic
         di_regime()
+        
+        # SAVE CLOSED BAR STATE TO DATABASE FOR PERSISTENCE
+        try:
+            if len(ac) > 1:
+                z_wdo_closed = z_scores[-2]
+                spread_wdo_closed = spreads[-2]
+                win_price_closed = ac[-2]
+                wdo_price_closed = bc[-2]
+                nwe_center_closed = nwe_line[-2]
+                nwe_upper_closed = nwe_upper[-2]
+                nwe_lower_closed = nwe_lower[-2]
+                nwe_is_up_closed = nwe_is_up_arr[-2]
+                closed_ts = int(tc[-2])
+                
+                z_di_closed = 0.0
+                if _di_cache and "history" in _di_cache and len(_di_cache["history"]) > 0:
+                    z_di_closed = _di_cache["history"][-1]["z"]
+                
+                dt_c = datetime.fromtimestamp(closed_ts)
+                bar_time_c = dt_c.strftime("%H:%M")
+                date_str_c = dt_c.strftime("%Y-%m-%d")
+                
+                import json
+                current_nets = {
+                    "WIN": {b: _broker_flow["WIN"][b]["net"] for b in _broker_list},
+                    "WDO": {b: _broker_flow["WDO"][b]["net"] for b in _broker_list}
+                }
+                flow_json_str = json.dumps(current_nets)
+                
+                save_bar_history(
+                    timestamp=closed_ts, date_str=date_str_c, bar_time=bar_time_c,
+                    win_price=win_price_closed, wdo_price=wdo_price_closed, di_price=0.0,
+                    spread_wdo=spread_wdo_closed, spread_di=0.0,
+                    z_wdo=z_wdo_closed, z_di=z_di_closed,
+                    nwe_center=nwe_center_closed, nwe_upper=nwe_upper_closed, nwe_lower=nwe_lower_closed,
+                    nwe_is_up=nwe_is_up_closed,
+                    flow_json=flow_json_str
+                )
+        except Exception as e:
+            print(f"[ERRO DB SAVE] {e}")
 
     # Re-fetch DI cache after forced update
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
@@ -759,25 +980,31 @@ def regime_v2():
                 pass
 
     live_history = _build_history(
-        tc[-20:], z_scores[-20:], spreads[-20:], win_prices=ac[-20:],
-        nwe_data=(nwe_line[-20:], nwe_upper[-20:], nwe_lower[-20:], nwe_is_up_arr[-20:]),
+        tc, z_scores, spreads, win_prices=ac,
+        nwe_data=(nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr),
         di_map=di_map
     )
     
-    if db_hist and live_history:
-        # Append the current open bar (and any missing bars not yet in DB)
-        last_db_ts = db_hist[-1]["date"] + " " + db_hist[-1]["bar_time"]
-        for lh in live_history:
-            lh_ts = lh["date"] + " " + lh["bar_time"]
-            if lh_ts > last_db_ts:
-                db_hist.append(lh)
-        history = db_hist
-    else:
-        history = _build_history(
-            tc, z_scores, spreads, win_prices=ac,
-            nwe_data=(nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr),
-            di_map=di_map
-        )
+    merged_map = {}
+    for lh in live_history:
+        ts_str = lh["date"] + " " + lh["bar_time"]
+        merged_map[ts_str] = lh
+        
+    for db_h in db_hist:
+        ts_str = db_h["date"] + " " + db_h["bar_time"]
+        merged_map[ts_str] = db_h
+        
+    history = [merged_map[k] for k in sorted(merged_map.keys())]
+    
+    # Attach current flow data to live/open bars that lack it
+    current_nets = {
+        "WIN": {b: _broker_flow["WIN"][b]["net"] for b in _broker_list},
+        "WDO": {b: _broker_flow["WDO"][b]["net"] for b in _broker_list}
+    }
+    for h in history:
+        if "flow" not in h or h["flow"] is None:
+            h["flow"] = current_nets
+
     
 
     sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
@@ -1197,6 +1424,76 @@ def history_endpoint(days: int = 30):
         return {"error": str(e), "history": [], "days": days}
 
 
+# ─── B3 Order Flow / RTD Endpoints ───────────────────────────────────────────
+from fastapi import Query
+
+@app.get("/api/flow")
+def get_flow():
+    return {
+        "brokers": _broker_list,
+        "flow": _broker_flow,
+        "history": _flow_history_bars,
+        "last_update": {
+            "WIN": datetime.fromtimestamp(_last_flow_update["WIN"]).strftime("%H:%M:%S") if _last_flow_update["WIN"] > 0 else "SIMULADO",
+            "WDO": datetime.fromtimestamp(_last_flow_update["WDO"]).strftime("%H:%M:%S") if _last_flow_update["WDO"] > 0 else "SIMULADO",
+        }
+    }
+
+@app.post("/api/flow/inject-history")
+async def inject_flow_history(request: Request):
+    """Debug: inject simulated flow history for chart testing."""
+    global _flow_history_bars
+    data = await request.json()
+    if isinstance(data, list):
+        _flow_history_bars = data
+        # Update broker_flow to match last snapshot
+        if data:
+            last = data[-1]
+            for sym in ["WIN", "WDO"]:
+                if sym in last:
+                    for b in _broker_list:
+                        if b in last[sym]:
+                            _broker_flow[sym][b]["net"] = last[sym][b]
+        return {"ok": True, "bars": len(_flow_history_bars)}
+    return {"ok": False, "error": "expected list"}
+
+@app.get("/api/flow/update")
+@app.post("/api/flow/update")
+def update_flow(
+    symbol: str = Query(..., description="WIN ou WDO"),
+    broker: str = Query(..., description="Nome da corretora"),
+    net: int = Query(..., description="Saldo líquido do corretor"),
+    avg: float = Query(0.0, description="Preço médio (opcional)"),
+    buy: int = Query(0, description="Volume de compra (opcional)"),
+    sell: int = Query(0, description="Volume de venda (opcional)"),
+):
+    sym = symbol.upper()
+    brk = broker.upper()
+    
+    if sym not in ["WIN", "WDO"]:
+        return {"error": "Símbolo inválido. Use WIN ou WDO."}
+        
+    if net < -1000000:
+        return {"status": "ignored", "reason": "Excel error code filtered."}
+    
+    if brk not in _broker_flow[sym]:
+        _broker_flow[sym][brk] = {"id": str(len(_broker_flow[sym])), "net": 0, "avg": 0.0, "vol": 0, "buy": 0, "sell": 0}
+        if brk not in _broker_list:
+            _broker_list.append(brk)
+            
+    _broker_flow[sym][brk]["net"] = net
+    if avg > 0:
+        _broker_flow[sym][brk]["avg"] = avg
+    if buy > 0:
+        _broker_flow[sym][brk]["buy"] = buy
+    if sell > 0:
+        _broker_flow[sym][brk]["sell"] = sell
+        
+    _broker_flow[sym][brk]["vol"] = _broker_flow[sym][brk]["buy"] + _broker_flow[sym][brk]["sell"]
+    _last_flow_update[sym] = time.time()
+    
+    return {"status": "success", "broker": brk, "symbol": sym, "net": net}
+
 # ─── Startup ─────────────────────────────────────────────────────────────────
 # NOTE: HMM background thread DISABLED — no longer used in this project.
 # It was calling mt5.initialize() from a background thread, which is NOT
@@ -1209,6 +1506,7 @@ if __name__ == "__main__":
     print("  WIN×WDO+DI Regime Monitor — Servidor local")
     print("  WDO:    http://localhost:8080/api/regime")
     print("  DI:     http://localhost:8080/api/di-regime")
+    print("  Fluxo:  http://localhost:8080/api/flow")
     print("  Saude:  http://localhost:8080/health")
     print("  Docs:   http://localhost:8080/docs")
     print("=" * 55)

@@ -8,6 +8,8 @@ import TradingGuide from "./components/TradingGuide";
 import SignalHistogram from "./components/SignalHistogram";
 import IndexChart from "./components/IndexChart";
 import SetupMatadorPanel from "./components/SetupMatadorPanel";
+import BrokerFlowPanel from "./components/BrokerFlowPanel";
+import FlowDeltaChart from "./components/FlowDeltaChart";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -19,6 +21,7 @@ const API_URL = "http://localhost:8080/api/v2/regime";
 const API_PERF_URL = "http://localhost:8080/api/performance";
 const API_DI_URL = "http://localhost:8080/api/di-regime";
 const API_HISTORY_URL = "http://localhost:8080/api/history";
+const API_FLOW_URL = "http://localhost:8080/api/flow";
 const POLL_MS = 2500;
 
 // ── Fallback: gera dados simulados se a API não responder ────────────────────
@@ -89,6 +92,7 @@ export default function App() {
     const [flash, setFlash] = useState(false);
     const [lastSignalId, setLastSignalId] = useState("neutro");
     const [diData, setDiData] = useState(null);
+    const [flowData, setFlowData] = useState(null);
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
@@ -99,8 +103,24 @@ export default function App() {
     const zScoreChartRef = useRef(null);
     const histogramChartRef = useRef(null);
     const indexChartRef = useRef(null);
+    const flowDeltaChartRef = useRef(null);
     const [showSetup, setShowSetup] = useState(false);
     const [gexWalls, setGexWalls] = useState([]);
+    const [weights, setWeights] = useState({
+        "XP": -1,
+        "UBS": 1,
+        "BTG": -1,
+        "IDEAL": -1,
+        "GENIAL": -1,
+        "JPMORGAN": 1,
+        "TULLETT": 1,
+        "MERRILL": 1,
+        "GOLDMAN": 1,
+        "MORGAN": 1,
+        "CITI": 1,
+        "ITAU": 0,
+        "BRADESCO": 0
+    });
 
     const isViewingHistory = selectedDate !== "";
 
@@ -195,14 +215,16 @@ export default function App() {
             async function poll() {
                 try {
                     const currentApiUrl = API_URL;
-                    const [res, resPerf, resDi] = await Promise.all([
+                    const [res, resPerf, resDi, resFlow] = await Promise.all([
                         fetch(currentApiUrl).catch(() => null),
                         fetch(API_PERF_URL).catch(() => null),
                         fetch(API_DI_URL).catch(() => null),
+                        fetch(API_FLOW_URL).catch(() => null),
                     ]);
                     if (!res || !res.ok) throw new Error(`HTTP ${res?.status}`);
                     const json = await res.json();
                     const jsonPerf = resPerf && resPerf.ok ? await resPerf.json() : null;
+                    const jsonFlow = resFlow && resFlow.ok ? await resFlow.json() : null;
                     if (!active) return;
                     if (json.error) {
                         setError(json.error);
@@ -211,6 +233,7 @@ export default function App() {
                         setData(json);
                         setHistory(json.history || []);
                         if (jsonPerf && !jsonPerf.error) setPerf(jsonPerf);
+                        if (jsonFlow && !jsonFlow.error) setFlowData(jsonFlow);
                         // DI data
                         const jsonDi = resDi && resDi.ok ? await resDi.json() : null;
                         if (jsonDi && !jsonDi.error) setDiData(jsonDi);
@@ -422,10 +445,12 @@ export default function App() {
         const zChart = zScoreChartRef.current?.getChart();
         const hChart = histogramChartRef.current?.getChart();
         const iChart = indexChartRef.current?.getChart();
+        const fChart = flowDeltaChartRef.current?.getChart();
 
         const zSeries = zScoreChartRef.current?.getMainSeries?.();
         const hSeries = histogramChartRef.current?.getMainSeries?.();
         const iSeries = indexChartRef.current?.getMainSeries?.();
+        const fSeries = flowDeltaChartRef.current?.getMainSeries?.();
 
         if (!zChart || !hChart || !iChart) return;
 
@@ -434,6 +459,7 @@ export default function App() {
             { chart: hChart, series: hSeries },
             { chart: iChart, series: iSeries }
         ];
+        if (fChart) charts.push({ chart: fChart, series: fSeries });
 
         // TIME SCALE SYNC
         let isSyncingTime = false;
@@ -453,10 +479,12 @@ export default function App() {
         const zTimeHandler = getTimeSyncHandler(zChart);
         const hTimeHandler = getTimeSyncHandler(hChart);
         const iTimeHandler = getTimeSyncHandler(iChart);
+        const fTimeHandler = fChart ? getTimeSyncHandler(fChart) : null;
 
         zChart.timeScale().subscribeVisibleLogicalRangeChange(zTimeHandler);
         hChart.timeScale().subscribeVisibleLogicalRangeChange(hTimeHandler);
         iChart.timeScale().subscribeVisibleLogicalRangeChange(iTimeHandler);
+        if (fChart && fTimeHandler) fChart.timeScale().subscribeVisibleLogicalRangeChange(fTimeHandler);
 
         // MAP DATA FOR CROSSHAIR PRICES
         function timeStrToTimestamp(timeStr) {
@@ -465,9 +493,24 @@ export default function App() {
             return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
         }
 
+        function findFlowSnapshotForTime(flowHistory, targetTime) {
+            if (!flowHistory || flowHistory.length === 0) return null;
+            let bestSnap = null;
+            for (let i = flowHistory.length - 1; i >= 0; i--) {
+                const snap = flowHistory[i];
+                if (snap.time <= targetTime) {
+                    bestSnap = snap;
+                    break;
+                }
+            }
+            return bestSnap || flowHistory[0];
+        }
+
+        const symbol = meta?.symbol_a ? (meta.symbol_a.includes("WDO") ? "WDO" : "WIN") : "WIN";
         const timeToZPrice = new Map();
         const timeToIPrice = new Map();
         const timeToHPrice = new Map();
+        const timeToFPrice = new Map();
 
         paddedSignals.forEach(s => {
             if (!s.bar_time) return;
@@ -476,6 +519,20 @@ export default function App() {
             timeToZPrice.set(t, s.z_raw_wdo ?? s.z ?? 0);
             timeToIPrice.set(t, s.win_price ?? 0);
             timeToHPrice.set(t, 3);
+
+            const snap = findFlowSnapshotForTime(flowData?.history, s.bar_time);
+            if (snap) {
+                const snapFlow = snap[symbol] || {};
+                let followedSum = 0;
+                Object.keys(snapFlow).forEach(b => {
+                    const net = snapFlow[b] || 0;
+                    const w = weights[b] ?? 0;
+                    if (w === 1) followedSum += net;
+                });
+                timeToFPrice.set(t, followedSum);
+            } else {
+                timeToFPrice.set(t, 0);
+            }
         });
 
         // CROSSHAIR SYNC
@@ -497,6 +554,7 @@ export default function App() {
                             if (c.chart === zChart) price = timeToZPrice.get(t) ?? 0;
                             if (c.chart === iChart) price = timeToIPrice.get(t) ?? 0;
                             if (c.chart === hChart) price = timeToHPrice.get(t) ?? 3;
+                            if (c.chart === fChart) price = timeToFPrice.get(t) ?? 0;
                             
                             try {
                                 c.chart.setCrosshairPosition(price, t, c.series);
@@ -511,21 +569,25 @@ export default function App() {
         const zCrosshairHandler = getCrosshairHandler(zChart);
         const hCrosshairHandler = getCrosshairHandler(hChart);
         const iCrosshairHandler = getCrosshairHandler(iChart);
+        const fCrosshairHandler = fChart ? getCrosshairHandler(fChart) : null;
 
         zChart.subscribeCrosshairMove(zCrosshairHandler);
         hChart.subscribeCrosshairMove(hCrosshairHandler);
         iChart.subscribeCrosshairMove(iCrosshairHandler);
+        if (fChart && fCrosshairHandler) fChart.subscribeCrosshairMove(fCrosshairHandler);
 
         return () => {
             zChart.timeScale().unsubscribeVisibleLogicalRangeChange(zTimeHandler);
             hChart.timeScale().unsubscribeVisibleLogicalRangeChange(hTimeHandler);
             iChart.timeScale().unsubscribeVisibleLogicalRangeChange(iTimeHandler);
+            if (fChart && fTimeHandler) fChart.timeScale().unsubscribeVisibleLogicalRangeChange(fTimeHandler);
 
             zChart.unsubscribeCrosshairMove(zCrosshairHandler);
             hChart.unsubscribeCrosshairMove(hCrosshairHandler);
             iChart.unsubscribeCrosshairMove(iCrosshairHandler);
+            if (fChart && fCrosshairHandler) fChart.unsubscribeCrosshairMove(fCrosshairHandler);
         };
-    }, [paddedSignals]); // Re-bind when data updates chart instances
+    }, [paddedSignals, flowData, weights, meta]); // Re-bind when data or weights update
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -790,8 +852,63 @@ export default function App() {
                     </div>
                 )}
 
+                {/* Compact Regime Health Strip — above charts */}
+                {(() => {
+                    const zWdo = isViewingHistory ? lastBar.z_raw_wdo : currentZ;
+                    const zDi = lastBar.z_raw_di;
+                    const betaH = data?.regime_health?.beta;
+                    const diBetaH = diData?.regime_health?.beta;
+                    const diRhoH = diData?.regime_health?.rho;
+                    const zColor = (v) => Math.abs(v || 0) >= 1.4 ? (v > 0 ? "#ff3860" : "#00e87a") : "#6f8a9c";
+                    const Pill = ({ label, value, color, badge }) => (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
+                            <span style={{ fontSize: 10, fontWeight: "bold", color: color || "#6f8a9c", fontFamily: "monospace" }}>
+                                {typeof value === "number" ? value.toFixed(3) : value ?? "—"}
+                            </span>
+                            {badge && (
+                                <span style={{ fontSize: 7, color: "#0c1218", background: color, fontWeight: "bold", padding: "0px 4px", borderRadius: 2 }}>{badge}</span>
+                            )}
+                        </span>
+                    );
+                    const Dot = ({ gate, label }) => {
+                        if (!gate) return null;
+                        const c = gate.open ? "#00e87a" : "#ff3860";
+                        return (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
+                                <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: c, boxShadow: `0 0 4px ${c}55` }} />
+                                <span style={{ fontSize: 8, color: c, fontWeight: "bold" }}>{gate.open ? "A" : "F"}</span>
+                            </span>
+                        );
+                    };
+                    return (
+                        <div style={{
+                            display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+                            padding: "5px 10px", marginBottom: -2,
+                            background: "#0c1218", borderRadius: "8px 8px 0 0",
+                            border: "1px solid #1a2530", borderBottom: "none",
+                        }}>
+                            {/* WDO section */}
+                            <span style={{ fontSize: 8, color: "#c8a444", fontWeight: "bold", letterSpacing: 2 }}>WDO</span>
+                            <Pill label="Z" value={zWdo} color={zColor(zWdo)} />
+                            {betaH && <Pill label="β" value={betaH.delta_pct} color={betaH.color} badge={betaH.status} />}
+                            <Dot gate={johWdoGate} label="JOH" />
+
+                            <span style={{ display: "inline-block", width: 1, height: 12, background: "#1c2e3a", margin: "0 4px" }} />
+
+                            {/* DI section */}
+                            <span style={{ fontSize: 8, color: "#8a6dff", fontWeight: "bold", letterSpacing: 2 }}>DI</span>
+                            <Pill label="Z" value={zDi} color={zColor(zDi)} />
+                            {diBetaH && <Pill label="β" value={diBetaH.delta_pct} color={diBetaH.color} badge={diBetaH.status} />}
+                            {diRhoH && <Pill label="ρ" value={diRhoH.value} color={diRhoH.color} badge={diRhoH.status} />}
+                            <Dot gate={johDiGate} label="JOH" />
+                        </div>
+                    );
+                })()}
+
                 {/* Z-Score Chart + Signal Histogram (grouped) */}
-                <div>
+                <div style={{ marginTop: 0 }}>
                     <ZScoreChart
                         ref={zScoreChartRef}
                         history={paddedSignals}
@@ -801,23 +918,21 @@ export default function App() {
                         hideXAxis={true}
                     />
                     <SignalHistogram ref={histogramChartRef} data={paddedSignals} />
-                    <IndexChart ref={indexChartRef} history={paddedSignals} walls={gexWalls} />
+                    <IndexChart ref={indexChartRef} history={paddedSignals} walls={gexWalls} hideXAxis={true} />
+                    <FlowDeltaChart
+                        ref={flowDeltaChartRef}
+                        history={paddedSignals}
+                        flowData={flowData}
+                        weights={weights}
+                        activeSymbol={meta?.symbol_a}
+                    />
                 </div>
 
-                {/* Regime Health */}
-                {/* Regime Health */}
-                <RegimeHealthPanel
-                    kalmanZ={isViewingHistory ? lastBar.z_raw_wdo : currentZ}
-                    kalmanBetaHealth={data?.regime_health?.beta}
-                    diZ={lastBar.z_raw_di}
-                    diBetaHealth={diData?.regime_health?.beta}
-                    diRhoHealth={diData?.regime_health?.rho}
-                    johWdoGate={johWdoGate}
-                    johDiGate={johDiGate}
-                />
+                {/* Order Flow / RTD Broker Monitor */}
+                <BrokerFlowPanel flowData={flowData} activeSymbol={meta?.symbol_a} weights={weights} setWeights={setWeights} />
 
-                {/* Performance */}
-                <PerformancePanel perf={perf} />
+
+
 
 
 

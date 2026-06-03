@@ -11,7 +11,7 @@ function timeStrToTimestamp(timeStr) {
     return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
 }
 
-const IndexChart = forwardRef(({ history, walls = [] }, ref) => {
+const IndexChart = forwardRef(({ history, walls = [], hideXAxis = false }, ref) => {
     const chartContainerRef = useRef();
     const chartRef = useRef(null);
     const seriesRefs = useRef({});
@@ -47,6 +47,7 @@ const IndexChart = forwardRef(({ history, walls = [] }, ref) => {
                 horzLine: { visible: false, labelVisible: true, labelBackgroundColor: "#c8a444" },
             },
             timeScale: {
+                visible: !hideXAxis,
                 timeVisible: true,
                 secondsVisible: false,
                 tickMarkFormatter: (time) => {
@@ -119,7 +120,7 @@ const IndexChart = forwardRef(({ history, walls = [] }, ref) => {
         return () => {
             chart.remove();
         };
-    }, []);
+    }, [hideXAxis]);
 
     useEffect(() => {
         if (!chartRef.current || !history || history.length === 0) return;
@@ -235,7 +236,7 @@ const IndexChart = forwardRef(({ history, walls = [] }, ref) => {
     }, [walls]);
 
     return (
-        <div style={{ background: "#0c1218", borderRadius: "0 0 8px 8px", paddingBottom: 4, position: "relative" }}>
+        <div style={{ background: "#0c1218", borderRadius: hideXAxis ? "0" : "0 0 8px 8px", paddingBottom: 4, position: "relative" }}>
             <div style={{
                 display: "flex", alignItems: "center", gap: 14, padding: "6px 12px 2px",
                 paddingLeft: Y_AXIS_WIDTH,
@@ -253,7 +254,7 @@ const IndexChart = forwardRef(({ history, walls = [] }, ref) => {
                 }}>
                     <input type="checkbox" checked={showCenterLine} onChange={() => setShowCenterLine(!showCenterLine)}
                         style={{ cursor: "pointer", accentColor: "#c8a444" }} />
-                    Linha Central NWE
+                    Linha Central
                 </label>
             </div>
             <div ref={chartContainerRef} style={{ width: "100%", height: "340px", paddingLeft: Y_AXIS_WIDTH }} />
