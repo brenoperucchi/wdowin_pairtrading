@@ -1,0 +1,33 @@
+=================================================================
+  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - USD/JPY
+  Vencimento de Referencia: 2026-06-18 | Data Ref: 05/06/2026
+=================================================================
+
+[+] STATUS DO MERCADO (REGIME GEX):
+    USDJPY Spot Atual:  159.899
+    FXY ETF Spot:       $57.35
+    Fator de Conv.:     2.7881
+    Gamma Flip Point:   159.514
+    Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
+    Vies do Dia:        ALTA / LATERALIZACAO
+    Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
+
+[+] NIVEIS CRITICOS DA CURVA GAMMA:
+    [-] MIN GAMMA (Piso de Queda Livre)   : USDJPY 161.426
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : USDJPY 159.514
+    [+] MAX GAMMA (Teto Gravitacional)    : USDJPY 144.391
+
+[+] JUMBA WALLS DETECTADAS (Strikes Proximos):
+-----------------------------------------------------------------
+  TIPO       | STRIKE FXY   | EQUIVALENTE USDJPY | GEX NET ($ Milhoes)    | LARGURA
+-----------------------------------------------------------------
+  Wall       | $59.00        | 164.499            | $             -0.00M | Width 2
+  Wall       | $58.00        | 161.711            | $             -0.52M | Width 3
+  Wall       | $57.00        | 158.923            | $             -0.00M | Width 1
+  Wall       | $55.00        | 153.347            | $             -0.00M | Width 2
+-----------------------------------------------------------------
+Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy FXY.
+FXY rastreia o Yen vs USD (inversamente correlacionado ao USDJPY).
+GEX foi invertido para refletir a perspectiva USDJPY.
+Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
+=================================================================

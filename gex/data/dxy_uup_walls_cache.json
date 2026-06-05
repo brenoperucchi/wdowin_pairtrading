@@ -1,0 +1,66 @@
+{
+    "ticker": "DXY_UUP",
+    "ref_date": "2026-06-18",
+    "updated_at": "2026-06-05 08:09:51",
+    "walls": [
+        {
+            "price": 92.65,
+            "type": "Wall",
+            "width": 3,
+            "style": 0,
+            "strike_spy": 26.0,
+            "gex": -9998.334459936084
+        },
+        {
+            "price": 98.0,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 103.34,
+            "type": "Wall",
+            "width": 2,
+            "style": 0,
+            "strike_spy": 29.0,
+            "gex": 0.0
+        },
+        {
+            "price": 105.12,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 106.9,
+            "type": "Wall",
+            "width": 2,
+            "style": 0,
+            "strike_spy": 30.0,
+            "gex": 0.0
+        },
+        {
+            "price": 104.16,
+            "type": "MaxGamma",
+            "width": 3,
+            "style": 0,
+            "gex": 25053.77833308209
+        },
+        {
+            "price": 94.24,
+            "type": "MinGamma",
+            "width": 3,
+            "style": 0,
+            "gex": -583672.8422601228
+        },
+        {
+            "price": 99.65,
+            "type": "GammaFlip",
+            "width": 2,
+            "style": 0,
+            "gex": 0.0
+        }
+    ]
+}
