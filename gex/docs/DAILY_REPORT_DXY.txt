@@ -1,28 +1,30 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - DXY (Dollar Index)
-  Vencimento de Referencia: 2026-06-18 | Data Ref: 05/06/2026
+  Vencimento de Referencia: 2026-06-18 | Data Ref: 08/06/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    DXY Index Atual:   99.20
-    UUP ETF Spot:      $27.84
-    Gamma Flip Point:  DXY 99.65
-    Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
-    Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
-    Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
+    DXY Index Atual:   99.90
+    UUP ETF Spot:      $28.02
+    Gamma Flip Point:  DXY 99.82
+    Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
+    Vies do Dia:       ALTA / LATERALIZACAO
+    Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : DXY 94.24
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DXY 99.65
-    [+] MAX GAMMA (Teto Gravitacional)    : DXY 104.16
+    [-] MIN GAMMA (Piso de Queda Livre)   : DXY 99.68
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DXY 99.82
+    [+] MAX GAMMA (Teto Gravitacional)    : DXY 103.44
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE UUP   | EQUIVALENTE DXY    | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $30.00        | 106.90             | $              0.00M | Width 2
-  Wall       | $29.00        | 103.34             | $              0.00M | Width 2
-  Wall       | $26.00        | 92.65              | $             -0.01M | Width 3
+  Wall       | $30.00        | 106.96             | $              0.01M | Width 2
+  Wall       | $29.00        | 103.40             | $              0.02M | Width 3
+  Wall       | $28.00        | 99.83              | $             -0.00M | Width 1
+  Wall       | $27.00        | 96.27              | $             -0.01M | Width 2
+  Wall       | $26.00        | 92.70              | $             -0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy UUP.
 UUP rastreia o Dollar Index (DXY). Strikes convertidos para DXY via fator de escala.
