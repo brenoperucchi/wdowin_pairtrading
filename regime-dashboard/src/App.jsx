@@ -108,25 +108,25 @@ export default function App() {
     const [showSetup, setShowSetup] = useState(false);
     const [gexWalls, setGexWalls] = useState([]);
     const [weights, setWeights] = useState({
-        "XP": 1,
-        "UBS": -1,
-        "BTG": 1,
+        "XP": -1,
+        "UBS": 1,
+        "BTG": -1,
         "IDEAL": 1,
-        "GENIAL": 1,
-        "JPMORGAN": -1,
-        "TULLETT": -1,
-        "MERRILL": -1,
-        "GOLDMAN": -1,
-        "MORGAN": -1,
-        "CITI": -1,
+        "GENIAL": -1,
+        "JPMORGAN": 1,
+        "TULLETT": 1,
+        "MERRILL": 1,
+        "GOLDMAN": 1,
+        "MORGAN": 1,
+        "CITI": 1,
         "ITAU": 0,
-        "BRADESCO": 0
+        "BRADESCO": 1
     });
     const [classifications, setClassifications] = useState({
         "XP": "dummy",
         "UBS": "smart",
         "BTG": "dummy",
-        "IDEAL": "dummy",
+        "IDEAL": "smart",
         "GENIAL": "dummy",
         "JPMORGAN": "smart",
         "TULLETT": "smart",
@@ -135,7 +135,7 @@ export default function App() {
         "MORGAN": "smart",
         "CITI": "smart",
         "ITAU": "none",
-        "BRADESCO": "none"
+        "BRADESCO": "smart"
     });
 
     const isViewingHistory = selectedDate !== "";
