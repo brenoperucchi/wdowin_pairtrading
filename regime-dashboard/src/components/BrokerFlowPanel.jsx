@@ -105,8 +105,8 @@ const renderIAFGauge = (val) => {
     );
 };
 
-export default function BrokerFlowPanel({ flowData, dbHistory, activeSymbol, weights, setWeights, classifications, setClassifications, flowMode, setFlowMode, setFlowSymbol }) {
-    const symbol = activeSymbol ? (activeSymbol.includes("WDO") ? "WDO" : "WIN") : "WIN";
+export default function BrokerFlowPanel({ flowData, dbHistory, weights, setWeights, classifications, setClassifications, flowMode, setFlowMode }) {
+    const symbol = "WIN";
     const brokersList = [...new Set([...Object.keys(BROKER_LABELS), ...(flowData?.brokers || [])])];
     const flowMap = flowData?.flow?.[symbol] || {};
     const history = flowData?.history || [];
@@ -316,62 +316,31 @@ export default function BrokerFlowPanel({ flowData, dbHistory, activeSymbol, wei
                     </span>
                 </div>
 
-                {/* Seletores de Ativo e Modo */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {/* Seletor de Ativo */}
-                    {setFlowSymbol && (
-                        <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #21262d", borderRadius: 6, padding: 3, gap: 4 }}>
-                            {[
-                                { id: "WIN", label: "WIN" },
-                                { id: "WDO", label: "WDO" }
-                            ].map(symOpt => (
-                                <button
-                                    key={symOpt.id}
-                                    onClick={() => setFlowSymbol(symOpt.id)}
-                                    style={{
-                                        background: symbol === symOpt.id ? "rgba(200, 164, 68, 0.12)" : "transparent",
-                                        border: "none",
-                                        borderRadius: 4,
-                                        color: symbol === symOpt.id ? "#c8a444" : "#8ca5b5",
-                                        fontSize: 10,
-                                        fontWeight: symbol === symOpt.id ? "bold" : "normal",
-                                        padding: "5px 12px",
-                                        cursor: "pointer",
-                                        transition: "all 0.2s"
-                                    }}
-                                >
-                                    {symOpt.label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Seletor de Modo de Fluxo */}
-                    <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #21262d", borderRadius: 6, padding: 3, gap: 4 }}>
-                        {[
-                            { id: "agg", label: "Agressão" },
-                            { id: "abs", label: "Absorção" },
-                            { id: "net", label: "Saldo Líquido" }
-                        ].map(mode => (
-                            <button
-                                key={mode.id}
-                                onClick={() => setFlowMode(mode.id)}
-                                style={{
-                                    background: flowMode === mode.id ? "rgba(200, 164, 68, 0.12)" : "transparent",
-                                    border: "none",
-                                    borderRadius: 4,
-                                    color: flowMode === mode.id ? "#c8a444" : "#8ca5b5",
-                                    fontSize: 10,
-                                    fontWeight: flowMode === mode.id ? "bold" : "normal",
-                                    padding: "5px 12px",
-                                    cursor: "pointer",
-                                    transition: "all 0.2s"
-                                }}
-                            >
-                                {mode.label}
-                            </button>
-                        ))}
-                    </div>
+                {/* Seletor de Modo de Fluxo */}
+                <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #21262d", borderRadius: 6, padding: 3, gap: 4 }}>
+                    {[
+                        { id: "agg", label: "Agressão" },
+                        { id: "abs", label: "Absorção" },
+                        { id: "net", label: "Saldo Líquido" }
+                    ].map(mode => (
+                        <button
+                            key={mode.id}
+                            onClick={() => setFlowMode(mode.id)}
+                            style={{
+                                background: flowMode === mode.id ? "rgba(200, 164, 68, 0.12)" : "transparent",
+                                border: "none",
+                                borderRadius: 4,
+                                color: flowMode === mode.id ? "#c8a444" : "#8ca5b5",
+                                fontSize: 10,
+                                fontWeight: flowMode === mode.id ? "bold" : "normal",
+                                padding: "5px 12px",
+                                cursor: "pointer",
+                                transition: "all 0.2s"
+                            }}
+                        >
+                            {mode.label}
+                        </button>
+                    ))}
                 </div>
 
                 <button 

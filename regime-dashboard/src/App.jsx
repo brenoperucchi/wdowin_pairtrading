@@ -94,7 +94,6 @@ export default function App() {
     const [diData, setDiData] = useState(null);
     const [flowData, setFlowData] = useState(null);
     const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
-    const [flowSymbol, setFlowSymbol] = useState("WIN");
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
@@ -271,12 +270,6 @@ export default function App() {
             return () => { active = false; clearInterval(t); };
         }
     }, [selectedDate, isViewingHistory]);
-
-    useEffect(() => {
-        if (meta?.symbol_a) {
-            setFlowSymbol(meta.symbol_a.includes("WDO") ? "WDO" : "WIN");
-        }
-    }, [meta?.symbol_a]);
 
     // Polling rápido do fluxo (apenas local)
     useEffect(() => {
@@ -982,7 +975,7 @@ export default function App() {
                         history={paddedSignals}
                         flowData={flowData}
                         classifications={classifications}
-                        activeSymbol={flowSymbol}
+                        activeSymbol={meta?.symbol_a}
                         flowMode={flowMode}
                     />
                 </div>
@@ -991,14 +984,12 @@ export default function App() {
                 <BrokerFlowPanel
                     flowData={flowData}
                     dbHistory={paddedSignals}
-                    activeSymbol={flowSymbol}
                     weights={weights}
                     setWeights={setWeights}
                     classifications={classifications}
                     setClassifications={setClassifications}
                     flowMode={flowMode}
                     setFlowMode={setFlowMode}
-                    setFlowSymbol={setFlowSymbol}
                 />
 
 

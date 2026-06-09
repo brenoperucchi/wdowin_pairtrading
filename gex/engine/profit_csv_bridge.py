@@ -83,7 +83,7 @@ def clean_price(price_str):
 
 def parse_csv_file(filepath):
     fname = os.path.basename(filepath)
-    symbol = "WIN" if "WIN" in fname.upper() else ("WDO" if "WDO" in fname.upper() else None)
+    symbol = "WIN" if "WIN" in fname.upper() else None
     if not symbol:
         return
         
