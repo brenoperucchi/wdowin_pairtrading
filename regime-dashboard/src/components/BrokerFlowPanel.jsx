@@ -105,7 +105,7 @@ const renderIAFGauge = (val) => {
     );
 };
 
-export default function BrokerFlowPanel({ flowData, dbHistory, activeSymbol, weights, setWeights, classifications, setClassifications, flowMode, setFlowMode }) {
+export default function BrokerFlowPanel({ flowData, dbHistory, activeSymbol, weights, setWeights, classifications, setClassifications, flowMode, setFlowMode, setFlowSymbol }) {
     const symbol = activeSymbol ? (activeSymbol.includes("WDO") ? "WDO" : "WIN") : "WIN";
     const brokersList = [...new Set([...Object.keys(BROKER_LABELS), ...(flowData?.brokers || [])])];
     const flowMap = flowData?.flow?.[symbol] || {};
@@ -248,17 +248,19 @@ export default function BrokerFlowPanel({ flowData, dbHistory, activeSymbol, wei
         return res;
     }, [dbHistory, flowData, symbol, weights, flowMode]);
 
-    // Determinar o regime de fluxo
+    // Determinar o regime de fluxo com base na aceleração do velocímetro (IAF)
     const flowRegime = useMemo(() => {
-        const absVal = Math.abs(currentDelta);
-        const limit = symbol === "WIN" ? 15000 : 1500;
-        if (currentDelta > limit) {
-            return { label: "FORTE COMPRADOR", color: "#00e87a", bg: "rgba(0, 232, 122, 0.1)" };
-        } else if (currentDelta < -limit) {
-            return { label: "FORTE VENDEDOR", color: "#ff3860", bg: "rgba(255, 56, 96, 0.1)" };
+        if (acceleratorVal > 50.0) {
+            return { label: "PRESSÃO FORTE COMPRA", color: "#00e87a", bg: "rgba(0, 232, 122, 0.1)" };
+        } else if (acceleratorVal > 20.0) {
+            return { label: "PRESSÃO COMPRA", color: "#a3e28c", bg: "rgba(163, 226, 140, 0.08)" };
+        } else if (acceleratorVal < -50.0) {
+            return { label: "PRESSÃO FORTE VENDA", color: "#ff3860", bg: "rgba(255, 56, 96, 0.1)" };
+        } else if (acceleratorVal < -20.0) {
+            return { label: "PRESSÃO VENDA", color: "#ff7b88", bg: "rgba(255, 123, 136, 0.08)" };
         }
-        return { label: "FLUXO NEUTRO", color: "#8a9aaa", bg: "rgba(138, 154, 170, 0.08)" };
-    }, [currentDelta, symbol]);
+        return { label: "PRESSÃO NEUTRA", color: "#8a9aaa", bg: "rgba(138, 154, 170, 0.08)" };
+    }, [acceleratorVal]);
 
     // Renderização do gráfico SVG do Delta Acumulado
     const svgChart = useMemo(() => {
@@ -314,31 +316,62 @@ export default function BrokerFlowPanel({ flowData, dbHistory, activeSymbol, wei
                     </span>
                 </div>
 
-                {/* Seletor de Modo de Fluxo */}
-                <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #21262d", borderRadius: 6, padding: 3, gap: 4 }}>
-                    {[
-                        { id: "agg", label: "Agressão" },
-                        { id: "abs", label: "Absorção" },
-                        { id: "net", label: "Saldo Líquido" }
-                    ].map(mode => (
-                        <button
-                            key={mode.id}
-                            onClick={() => setFlowMode(mode.id)}
-                            style={{
-                                background: flowMode === mode.id ? "rgba(200, 164, 68, 0.12)" : "transparent",
-                                border: "none",
-                                borderRadius: 4,
-                                color: flowMode === mode.id ? "#c8a444" : "#8ca5b5",
-                                fontSize: 10,
-                                fontWeight: flowMode === mode.id ? "bold" : "normal",
-                                padding: "5px 12px",
-                                cursor: "pointer",
-                                transition: "all 0.2s"
-                            }}
-                        >
-                            {mode.label}
-                        </button>
-                    ))}
+                {/* Seletores de Ativo e Modo */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {/* Seletor de Ativo */}
+                    {setFlowSymbol && (
+                        <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #21262d", borderRadius: 6, padding: 3, gap: 4 }}>
+                            {[
+                                { id: "WIN", label: "WIN" },
+                                { id: "WDO", label: "WDO" }
+                            ].map(symOpt => (
+                                <button
+                                    key={symOpt.id}
+                                    onClick={() => setFlowSymbol(symOpt.id)}
+                                    style={{
+                                        background: symbol === symOpt.id ? "rgba(200, 164, 68, 0.12)" : "transparent",
+                                        border: "none",
+                                        borderRadius: 4,
+                                        color: symbol === symOpt.id ? "#c8a444" : "#8ca5b5",
+                                        fontSize: 10,
+                                        fontWeight: symbol === symOpt.id ? "bold" : "normal",
+                                        padding: "5px 12px",
+                                        cursor: "pointer",
+                                        transition: "all 0.2s"
+                                    }}
+                                >
+                                    {symOpt.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Seletor de Modo de Fluxo */}
+                    <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #21262d", borderRadius: 6, padding: 3, gap: 4 }}>
+                        {[
+                            { id: "agg", label: "Agressão" },
+                            { id: "abs", label: "Absorção" },
+                            { id: "net", label: "Saldo Líquido" }
+                        ].map(mode => (
+                            <button
+                                key={mode.id}
+                                onClick={() => setFlowMode(mode.id)}
+                                style={{
+                                    background: flowMode === mode.id ? "rgba(200, 164, 68, 0.12)" : "transparent",
+                                    border: "none",
+                                    borderRadius: 4,
+                                    color: flowMode === mode.id ? "#c8a444" : "#8ca5b5",
+                                    fontSize: 10,
+                                    fontWeight: flowMode === mode.id ? "bold" : "normal",
+                                    padding: "5px 12px",
+                                    cursor: "pointer",
+                                    transition: "all 0.2s"
+                                }}
+                            >
+                                {mode.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <button 
@@ -397,13 +430,13 @@ export default function BrokerFlowPanel({ flowData, dbHistory, activeSymbol, wei
                     {renderIAFGauge(acceleratorVal)}
                     <div style={{ flex: 1, background: flowRegime.bg, border: `1px solid ${flowRegime.color}33`, borderRadius: 6, padding: 16, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 10, color: "#8ca5b5", letterSpacing: 1 }}>
-                            {flowMode === "agg" ? "REGIME DE AGRESSÃO" : flowMode === "abs" ? "REGIME DE ABSORÇÃO" : "REGIME DE SALDO LÍQUIDO"}
+                            REGIME DE ACELERAÇÃO (IAF)
                         </span>
-                        <span style={{ fontSize: 20, fontWeight: "bold", color: flowRegime.color, letterSpacing: 1, textAlign: "center" }}>
+                        <span style={{ fontSize: 18, fontWeight: "bold", color: flowRegime.color, letterSpacing: 1, textAlign: "center" }}>
                             {flowRegime.label}
                         </span>
                         <span style={{ fontSize: 9, color: "#6f8a9c", textAlign: "center" }}>
-                            Baseado no saldo acumulado das corretoras ativas
+                            Baseado no Acelerador de Pressão (IAF) das corretoras ativas
                         </span>
                     </div>
                 </div>

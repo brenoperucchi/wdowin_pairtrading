@@ -93,6 +93,8 @@ export default function App() {
     const [lastSignalId, setLastSignalId] = useState("neutro");
     const [diData, setDiData] = useState(null);
     const [flowData, setFlowData] = useState(null);
+    const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
+    const [flowSymbol, setFlowSymbol] = useState("WIN");
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
@@ -107,19 +109,34 @@ export default function App() {
     const [showSetup, setShowSetup] = useState(false);
     const [gexWalls, setGexWalls] = useState([]);
     const [weights, setWeights] = useState({
-        "XP": -1,
-        "UBS": 1,
-        "BTG": -1,
-        "IDEAL": -1,
-        "GENIAL": -1,
-        "JPMORGAN": 1,
-        "TULLETT": 1,
-        "MERRILL": 1,
-        "GOLDMAN": 1,
-        "MORGAN": 1,
-        "CITI": 1,
+        "XP": 1,
+        "UBS": -1,
+        "BTG": 1,
+        "IDEAL": 1,
+        "GENIAL": 1,
+        "JPMORGAN": -1,
+        "TULLETT": -1,
+        "MERRILL": -1,
+        "GOLDMAN": -1,
+        "MORGAN": -1,
+        "CITI": -1,
         "ITAU": 0,
         "BRADESCO": 0
+    });
+    const [classifications, setClassifications] = useState({
+        "XP": "dummy",
+        "UBS": "smart",
+        "BTG": "dummy",
+        "IDEAL": "dummy",
+        "GENIAL": "dummy",
+        "JPMORGAN": "smart",
+        "TULLETT": "smart",
+        "MERRILL": "smart",
+        "GOLDMAN": "smart",
+        "MORGAN": "smart",
+        "CITI": "smart",
+        "ITAU": "none",
+        "BRADESCO": "none"
     });
 
     const isViewingHistory = selectedDate !== "";
@@ -215,16 +232,14 @@ export default function App() {
             async function poll() {
                 try {
                     const currentApiUrl = API_URL;
-                    const [res, resPerf, resDi, resFlow] = await Promise.all([
+                    const [res, resPerf, resDi] = await Promise.all([
                         fetch(currentApiUrl).catch(() => null),
                         fetch(API_PERF_URL).catch(() => null),
                         fetch(API_DI_URL).catch(() => null),
-                        fetch(API_FLOW_URL).catch(() => null),
                     ]);
                     if (!res || !res.ok) throw new Error(`HTTP ${res?.status}`);
                     const json = await res.json();
                     const jsonPerf = resPerf && resPerf.ok ? await resPerf.json() : null;
-                    const jsonFlow = resFlow && resFlow.ok ? await resFlow.json() : null;
                     if (!active) return;
                     if (json.error) {
                         setError(json.error);
@@ -233,7 +248,6 @@ export default function App() {
                         setData(json);
                         setHistory(json.history || []);
                         if (jsonPerf && !jsonPerf.error) setPerf(jsonPerf);
-                        if (jsonFlow && !jsonFlow.error) setFlowData(jsonFlow);
                         // DI data
                         const jsonDi = resDi && resDi.ok ? await resDi.json() : null;
                         if (jsonDi && !jsonDi.error) setDiData(jsonDi);
@@ -257,6 +271,35 @@ export default function App() {
             return () => { active = false; clearInterval(t); };
         }
     }, [selectedDate, isViewingHistory]);
+
+    useEffect(() => {
+        if (meta?.symbol_a) {
+            setFlowSymbol(meta.symbol_a.includes("WDO") ? "WDO" : "WIN");
+        }
+    }, [meta?.symbol_a]);
+
+    // Polling rápido do fluxo (apenas local)
+    useEffect(() => {
+        if (import.meta.env.PROD || isViewingHistory) return;
+        
+        let active = true;
+        async function pollFlow() {
+            try {
+                const res = await fetch(API_FLOW_URL);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (active && json && !json.error) {
+                        setFlowData(json);
+                    }
+                }
+            } catch (e) {
+                // Silencioso para não poluir o console
+            }
+        }
+        pollFlow();
+        const t = setInterval(pollFlow, 250); // atualiza a cada 250ms (4x por segundo)
+        return () => { active = false; clearInterval(t); };
+    }, [isViewingHistory]);
 
     // Simulação quando offline
     useEffect(() => {
@@ -525,9 +568,24 @@ export default function App() {
                 const snapFlow = snap[symbol] || {};
                 let followedSum = 0;
                 Object.keys(snapFlow).forEach(b => {
-                    const net = snapFlow[b] || 0;
-                    const w = weights[b] ?? 0;
-                    if (w === 1) followedSum += net;
+                    const brokerVal = snapFlow[b];
+                    let val = 0;
+                    if (brokerVal !== undefined && brokerVal !== null) {
+                        if (typeof brokerVal === 'object') {
+                            const net = brokerVal.net || 0;
+                            const buy = brokerVal.buy || 0;
+                            const sell = brokerVal.sell || 0;
+                            if (flowMode === 'agg') val = buy - sell;
+                            else if (flowMode === 'abs') val = net - (buy - sell);
+                            else val = net;
+                        } else {
+                            if (flowMode === 'agg') val = brokerVal;
+                            else if (flowMode === 'abs') val = 0;
+                            else val = brokerVal;
+                        }
+                    }
+                    const cls = classifications[b] || "none";
+                    if (cls === "smart") followedSum += val;
                 });
                 timeToFPrice.set(t, followedSum);
             } else {
@@ -587,7 +645,7 @@ export default function App() {
             iChart.unsubscribeCrosshairMove(iCrosshairHandler);
             if (fChart && fCrosshairHandler) fChart.unsubscribeCrosshairMove(fCrosshairHandler);
         };
-    }, [paddedSignals, flowData, weights, meta]); // Re-bind when data or weights update
+    }, [paddedSignals, flowData, weights, classifications, meta, flowMode]); // Re-bind when data, weights, or classifications update
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -923,13 +981,25 @@ export default function App() {
                         ref={flowDeltaChartRef}
                         history={paddedSignals}
                         flowData={flowData}
-                        weights={weights}
-                        activeSymbol={meta?.symbol_a}
+                        classifications={classifications}
+                        activeSymbol={flowSymbol}
+                        flowMode={flowMode}
                     />
                 </div>
 
                 {/* Order Flow / RTD Broker Monitor */}
-                <BrokerFlowPanel flowData={flowData} activeSymbol={meta?.symbol_a} weights={weights} setWeights={setWeights} />
+                <BrokerFlowPanel
+                    flowData={flowData}
+                    dbHistory={paddedSignals}
+                    activeSymbol={flowSymbol}
+                    weights={weights}
+                    setWeights={setWeights}
+                    classifications={classifications}
+                    setClassifications={setClassifications}
+                    flowMode={flowMode}
+                    setFlowMode={setFlowMode}
+                    setFlowSymbol={setFlowSymbol}
+                />
 
 
 
