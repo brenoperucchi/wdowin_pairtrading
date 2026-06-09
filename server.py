@@ -70,6 +70,12 @@ _broker_flow = {
 _flow_history_bars = []
 _last_flow_update = {"WIN": 0.0, "WDO": 0.0}
 
+def _get_current_flow_data():
+    return {
+        "WIN": {b: {"net": _broker_flow["WIN"][b]["net"], "buy": _broker_flow["WIN"][b]["buy"], "sell": _broker_flow["WIN"][b]["sell"]} for b in _broker_list},
+        "WDO": {b: {"net": _broker_flow["WDO"][b]["net"], "buy": _broker_flow["WDO"][b]["buy"], "sell": _broker_flow["WDO"][b]["sell"]} for b in _broker_list}
+    }
+
 def _seed_flow_history():
     """Pre-generate a full day of realistic broker flow data for chart visualization."""
     import math
@@ -142,11 +148,28 @@ def _seed_flow_history():
                 change = drift + noise
                 state[sym][b] = state[sym][b] * p["trend"] + change
         
+        win_brokers = {}
+        wdo_brokers = {}
+        for b in _broker_list:
+            net_win = int(state["WIN"][b])
+            agg_win = int(net_win * 0.7 + math.sin(progress * math.pi) * 1000)
+            vol_win = int(abs(agg_win) * 1.3 + idx * 150)
+            buy_win = max(0, (vol_win + agg_win) // 2)
+            sell_win = max(0, (vol_win - agg_win) // 2)
+            win_brokers[b] = {"net": net_win, "buy": buy_win, "sell": sell_win}
+
+            net_wdo = int(state["WDO"][b])
+            agg_wdo = int(net_wdo * 0.7 + math.sin(progress * math.pi) * 1000)
+            vol_wdo = int(abs(agg_wdo) * 1.3 + idx * 150)
+            buy_wdo = max(0, (vol_wdo + agg_wdo) // 2)
+            sell_wdo = max(0, (vol_wdo - agg_wdo) // 2)
+            wdo_brokers[b] = {"net": net_wdo, "buy": buy_wdo, "sell": sell_wdo}
+
         snapshot = {
             "time": time_str,
             "timestamp": int(time.time()) - (total_bars - idx) * 300,
-            "WIN": {b: int(state["WIN"][b]) for b in _broker_list},
-            "WDO": {b: int(state["WDO"][b]) for b in _broker_list},
+            "WIN": win_brokers,
+            "WDO": wdo_brokers,
         }
         bars.append(snapshot)
     
@@ -154,7 +177,9 @@ def _seed_flow_history():
     # Also set _broker_flow to the last snapshot values
     for sym in ["WIN", "WDO"]:
         for b in _broker_list:
-            _broker_flow[sym][b]["net"] = bars[-1][sym][b]
+            _broker_flow[sym][b]["net"] = bars[-1][sym][b]["net"]
+            _broker_flow[sym][b]["buy"] = bars[-1][sym][b]["buy"]
+            _broker_flow[sym][b]["sell"] = bars[-1][sym][b]["sell"]
     
     print(f"[INFO] Flow history seeded: {len(bars)} barras de {bars[0]['time']} a {bars[-1]['time']}")
 
@@ -177,11 +202,12 @@ async def flow_snapshot_loop():
             time_str = now_dt.strftime("%H:%M")
             
             # Cria o snapshot a partir do estado atual real (atualizado via API pelo script de monitoramento)
+            current_flow = _get_current_flow_data()
             snapshot = {
                 "time": time_str,
                 "timestamp": int(current_time),
-                "WIN": {b: _broker_flow["WIN"][b]["net"] for b in _broker_list},
-                "WDO": {b: _broker_flow["WDO"][b]["net"] for b in _broker_list}
+                "WIN": current_flow["WIN"],
+                "WDO": current_flow["WDO"]
             }
             if not _flow_history_bars or _flow_history_bars[-1]["time"] != time_str:
                 _flow_history_bars.append(snapshot)
@@ -777,7 +803,7 @@ def regime():
     # Trade engine
     now_dt = datetime.now()
     trade_result = _trade_engine.evaluate(
-        z_buy=z_kalman, z_sell=current_z,
+        z_wdo=current_z, z_di=0.0,
         win_price=float(closes_a[-1]), wdo_price=float(closes_b[-1]),
         rho=current_rho, beta_safe=safe_to_trade, hmm_state=hmm.current_hmm_regime,
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_ols,
@@ -901,16 +927,13 @@ def regime_v2():
                 if _di_cache and "history" in _di_cache and len(_di_cache["history"]) > 0:
                     z_di_closed = _di_cache["history"][-1]["z"]
                 
-                dt_c = datetime.fromtimestamp(closed_ts)
+                dt_c = datetime.fromtimestamp(closed_ts + TIME_OFFSET)
                 bar_time_c = dt_c.strftime("%H:%M")
                 date_str_c = dt_c.strftime("%Y-%m-%d")
                 
                 import json
-                current_nets = {
-                    "WIN": {b: _broker_flow["WIN"][b]["net"] for b in _broker_list},
-                    "WDO": {b: _broker_flow["WDO"][b]["net"] for b in _broker_list}
-                }
-                flow_json_str = json.dumps(current_nets)
+                current_flow = _get_current_flow_data()
+                flow_json_str = json.dumps(current_flow)
                 
                 save_bar_history(
                     timestamp=closed_ts, date_str=date_str_c, bar_time=bar_time_c,
@@ -969,13 +992,10 @@ def regime_v2():
     history = [merged_map[k] for k in sorted(merged_map.keys())]
     
     # Attach current flow data to live/open bars that lack it
-    current_nets = {
-        "WIN": {b: _broker_flow["WIN"][b]["net"] for b in _broker_list},
-        "WDO": {b: _broker_flow["WDO"][b]["net"] for b in _broker_list}
-    }
+    current_flow = _get_current_flow_data()
     for h in history:
         if "flow" not in h or h["flow"] is None:
-            h["flow"] = current_nets
+            h["flow"] = current_flow
 
     
 
@@ -1399,12 +1419,248 @@ def history_endpoint(days: int = 30):
 # ─── B3 Order Flow / RTD Endpoints ───────────────────────────────────────────
 from fastapi import Query
 
+def calculate_directional_efficiency():
+    """Calculate the Daily Directional Efficiency (Player Price Influence) for WIN and WDO.
+    
+    Formula: (sum(dPrice * dNet) / sum(|dPrice * dNet|)) * 100
+    """
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        conn = sqlite3.connect("trades.db", timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("""
+            SELECT win_price, wdo_price, flow_json 
+            FROM bar_history 
+            WHERE date_str = ? 
+            ORDER BY timestamp ASC
+        """, (today_str,))
+        rows = c.fetchall()
+        conn.close()
+    except Exception as e:
+        print(f"[ERROR calculate_directional_efficiency] {e}")
+        return {"WIN": {}, "WDO": {}}
+
+    if len(rows) < 2:
+        return {"WIN": {}, "WDO": {}}
+
+    # Initialize calculations
+    efficiency = {"WIN": {}, "WDO": {}}
+    
+    # We will compute changes: dPrice = Price_t - Price_{t-1} and dNet = Net_t - Net_{t-1}
+    prev_prices = {"WIN": None, "WDO": None}
+    prev_nets = {
+        "WIN": {b: None for b in _broker_list},
+        "WDO": {b: None for b in _broker_list}
+    }
+    
+    # Cumulative numerator and denominator per broker per symbol
+    stats = {
+        "WIN": {b: {"num": 0.0, "den": 0.0} for b in _broker_list},
+        "WDO": {b: {"num": 0.0, "den": 0.0} for b in _broker_list}
+    }
+
+    import json
+    for r in rows:
+        win_price = r["win_price"]
+        wdo_price = r["wdo_price"]
+        flow_json = r["flow_json"]
+        
+        if not flow_json or win_price is None or wdo_price is None:
+            continue
+            
+        try:
+            flow_data = json.loads(flow_json)
+        except Exception:
+            continue
+            
+        for sym in ["WIN", "WDO"]:
+            price = win_price if sym == "WIN" else wdo_price
+            
+            # Check if we have previous price
+            if prev_prices[sym] is not None:
+                dPrice = price - prev_prices[sym]
+            else:
+                dPrice = 0.0
+                
+            # Process brokers
+            sym_flow = flow_data.get(sym, {})
+            for b in _broker_list:
+                b_metrics = sym_flow.get(b, {})
+                if isinstance(b_metrics, dict):
+                    net = b_metrics.get("net", None)
+                elif isinstance(b_metrics, (int, float)):
+                    net = b_metrics
+                else:
+                    net = None
+                    
+                if net is None:
+                    continue
+                    
+                prev_net = prev_nets[sym][b]
+                if prev_net is not None:
+                    dNet = net - prev_net
+                else:
+                    dNet = 0.0
+                    
+                # If both changes are valid, accumulate
+                if prev_prices[sym] is not None and prev_net is not None:
+                    product = dPrice * dNet
+                    stats[sym][b]["num"] += product
+                    stats[sym][b]["den"] += abs(product)
+                    
+                # Update prev net
+                prev_nets[sym][b] = net
+                
+            # Update prev price
+            prev_prices[sym] = price
+
+    # Compute final scores
+    for sym in ["WIN", "WDO"]:
+        for b in _broker_list:
+            den = stats[sym][b]["den"]
+            num = stats[sym][b]["num"]
+            if den > 0:
+                eff = (num / den) * 100.0
+                efficiency[sym][b] = round(eff, 1)
+            else:
+                efficiency[sym][b] = 0.0
+                
+    return efficiency
+
+def calculate_flow_acceleration(efficiency=None):
+    """Calculate the Flow Acceleration Index (IAF) based on Kyle's Lambda (Lots per 100 points).
+    
+    Returns a dictionary: {"WIN": float, "WDO": float} containing scores from -100 to 100.
+    """
+    if efficiency is None:
+        efficiency = calculate_directional_efficiency()
+        
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        conn = sqlite3.connect("trades.db", timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("""
+            SELECT win_price, wdo_price, flow_json 
+            FROM bar_history 
+            WHERE date_str = ? 
+            ORDER BY timestamp ASC
+        """, (today_str,))
+        rows = c.fetchall()
+        conn.close()
+    except Exception as e:
+        print(f"[ERROR calculate_flow_acceleration] {e}")
+        return {"WIN": 0.0, "WDO": 0.0}
+
+    # We need at least 2 bars to calculate any price movement/flow change
+    if len(rows) < 2:
+        return {"WIN": 0.0, "WDO": 0.0}
+
+    accelerator = {"WIN": 0.0, "WDO": 0.0}
+    
+    # 1. Identify dominant players per symbol (DDE >= 40%)
+    dominant_players = {"WIN": [], "WDO": []}
+    for sym in ["WIN", "WDO"]:
+        sym_eff = efficiency.get(sym, {})
+        for b, eff in sym_eff.items():
+            if eff >= 40.0:
+                dominant_players[sym].append((b, eff / 100.0))  # (broker, weight)
+                
+    # 2. Iterate and compute short-term variables
+    # We use M = 5 bars (25 mins) or the maximum available
+    M = min(5, len(rows) - 1)
+    
+    import json
+    for sym in ["WIN", "WDO"]:
+        doms = dominant_players[sym]
+        if not doms:
+            continue  # No dominant players, accelerator is 0.0
+            
+        # Price change over the last M bars
+        price_curr = rows[-1]["win_price"] if sym == "WIN" else rows[-1]["wdo_price"]
+        price_prev = rows[-1 - M]["win_price"] if sym == "WIN" else rows[-1 - M]["wdo_price"]
+        
+        if price_curr is None or price_prev is None:
+            continue
+            
+        dPrice = abs(price_curr - price_prev)
+        
+        # 100 points for WIN, 10 points for WDO
+        tick_unit = 100.0 if sym == "WIN" else 10.0
+        
+        # Total absolute net change of ALL active brokers over the last M bars (market volume proxy)
+        total_vol = 0.0
+        
+        # We need to sum up absolute changes bar-by-bar to get the correct transaction activity
+        prev_nets_all = {}
+        for idx in range(len(rows) - M - 1, len(rows)):
+            r = rows[idx]
+            flow_json = r["flow_json"]
+            if not flow_json:
+                continue
+            try:
+                flow_data = json.loads(flow_json).get(sym, {})
+            except Exception:
+                continue
+                
+            for b in _broker_list:
+                net = flow_data.get(b, {}).get("net", None)
+                if net is not None:
+                    if b in prev_nets_all:
+                        total_vol += abs(net - prev_nets_all[b])
+                    prev_nets_all[b] = net
+                    
+        # If total_vol is 0, LotsPer100Pts cannot be calculated
+        if total_vol == 0:
+            continue
+            
+        # Lots required to move the price by 1 tick_unit
+        if dPrice == 0:
+            lots_per_unit = float("inf")
+        else:
+            lots_per_unit = total_vol / (dPrice / tick_unit)
+            
+        # 3. Calculate Instantaneous Pressure of Dominant Players (last bar)
+        flow_curr = json.loads(rows[-1]["flow_json"]).get(sym, {}) if rows[-1]["flow_json"] else {}
+        flow_prev = json.loads(rows[-2]["flow_json"]).get(sym, {}) if rows[-2]["flow_json"] else {}
+        
+        dom_pressure = 0.0
+        for b, weight in doms:
+            net_curr = flow_curr.get(b, {}).get("net", 0)
+            net_prev = flow_prev.get(b, {}).get("net", 0)
+            dom_pressure += (net_curr - net_prev) * weight
+            
+        # 4. Compute IAF
+        if lots_per_unit == float("inf"):
+            iaf = 0.0
+        else:
+            scale_factor = 5.0  # multiplier to make the gauge responsive
+            iaf = (dom_pressure / lots_per_unit) * 100.0 * scale_factor
+            iaf = max(-100.0, min(100.0, iaf))
+            
+        accelerator[sym] = round(iaf, 1)
+        
+    return accelerator
+
+@app.get("/api/restart")
+@app.post("/api/restart")
+def restart_server():
+    import os
+    import threading
+    print("[INFO] Comando de reinicialização recebido pelo endpoint API. Encerrando processo...")
+    threading.Timer(0.5, lambda: os._exit(0)).start()
+    return {"ok": True, "message": "Reiniciando servidor via PM2..."}
+
 @app.get("/api/flow")
 def get_flow():
+    eff_data = calculate_directional_efficiency()
     return {
         "brokers": _broker_list,
         "flow": _broker_flow,
         "history": _flow_history_bars,
+        "efficiency": eff_data,
+        "accelerator": calculate_flow_acceleration(efficiency=eff_data),
         "last_update": {
             "WIN": datetime.fromtimestamp(_last_flow_update["WIN"]).strftime("%H:%M:%S") if _last_flow_update["WIN"] > 0 else "SIMULADO",
             "WDO": datetime.fromtimestamp(_last_flow_update["WDO"]).strftime("%H:%M:%S") if _last_flow_update["WDO"] > 0 else "SIMULADO",
@@ -1425,7 +1681,15 @@ async def inject_flow_history(request: Request):
                 if sym in last:
                     for b in _broker_list:
                         if b in last[sym]:
-                            _broker_flow[sym][b]["net"] = last[sym][b]
+                            val = last[sym][b]
+                            if isinstance(val, dict):
+                                _broker_flow[sym][b]["net"] = val.get("net", 0)
+                                _broker_flow[sym][b]["buy"] = val.get("buy", 0)
+                                _broker_flow[sym][b]["sell"] = val.get("sell", 0)
+                            else:
+                                _broker_flow[sym][b]["net"] = val
+                                _broker_flow[sym][b]["buy"] = 0
+                                _broker_flow[sym][b]["sell"] = 0
         return {"ok": True, "bars": len(_flow_history_bars)}
     return {"ok": False, "error": "expected list"}
 
