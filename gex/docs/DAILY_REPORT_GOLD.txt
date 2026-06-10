@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GOLD / XAUUSD
-  Vencimento de Referencia: 2026-06-18 | Data Ref: 09/06/2026
+  Vencimento de Referencia: 2026-06-10 | Data Ref: 10/06/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    XAUUSD Spot Atual: $4357.10
-    Gamma Flip Point:  $3967.25
+    XAUUSD Spot Atual: $4179.70
+    Gamma Flip Point:  $3906.55
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : XAUUSD $3763.09
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : XAUUSD $3967.25
-    [+] MAX GAMMA (Teto Gravitacional)    : XAUUSD $3994.66
+    [-] MIN GAMMA (Piso de Queda Livre)   : XAUUSD $3897.98
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : XAUUSD $3906.55
+    [+] MAX GAMMA (Teto Gravitacional)    : XAUUSD $3909.76
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE GLD   | EQUIVALENTE XAUUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $443.0        | 4430.00            | $              0.00M | Width 1
-  Wall       | $442.0        | 4420.00            | $              0.00M | Width 1
-  Wall       | $441.0        | 4410.00            | $              0.00M | Width 1
-  Wall       | $440.0        | 4400.00            | $              0.00M | Width 1
-  Wall       | $439.0        | 4390.00            | $              0.00M | Width 1
-  Wall       | $438.0        | 4380.00            | $              0.00M | Width 1
-  Wall       | $437.0        | 4370.00            | $              0.00M | Width 1
-  Wall       | $436.0        | 4360.00            | $              0.00M | Width 1
-  Wall       | $435.0        | 4350.00            | $              0.00M | Width 1
-  Wall       | $434.0        | 4340.00            | $              0.00M | Width 1
-  Wall       | $433.0        | 4330.00            | $              0.00M | Width 1
-  Wall       | $432.0        | 4320.00            | $              0.00M | Width 1
-  Wall       | $431.0        | 4310.00            | $              0.00M | Width 1
-  Wall       | $430.0        | 4300.00            | $              0.04M | Width 3
-  Wall       | $429.0        | 4290.00            | $              0.00M | Width 2
-  Wall       | $428.0        | 4280.00            | $              0.00M | Width 2
+  Wall       | $425.0        | 4250.00            | $              0.00M | Width 1
+  Wall       | $424.0        | 4240.00            | $              0.00M | Width 1
+  Wall       | $423.0        | 4230.00            | $              0.00M | Width 1
+  Wall       | $422.0        | 4220.00            | $              0.00M | Width 1
+  Wall       | $421.0        | 4210.00            | $              0.00M | Width 1
+  Wall       | $420.0        | 4200.00            | $              0.00M | Width 1
+  Wall       | $419.0        | 4190.00            | $              0.00M | Width 1
+  Wall       | $418.0        | 4180.00            | $              0.00M | Width 1
+  Wall       | $417.0        | 4170.00            | $              0.00M | Width 1
+  Wall       | $416.0        | 4160.00            | $              0.00M | Width 1
+  Wall       | $415.0        | 4150.00            | $              0.01M | Width 1
+  Wall       | $414.0        | 4140.00            | $              0.00M | Width 1
+  Wall       | $413.0        | 4130.00            | $              0.01M | Width 1
+  Wall       | $412.0        | 4120.00            | $              0.01M | Width 2
+  Wall       | $411.0        | 4110.00            | $              0.01M | Width 2
+  Wall       | $410.0        | 4100.00            | $              0.17M | Width 3
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy GLD.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

@@ -127,6 +127,10 @@ var
   line30Color : integer;
   line30Width : integer;
   line30Style : integer;
+  line31 : float;
+  line31Color : integer;
+  line31Width : integer;
+  line31Style : integer;
 
 BEGIN
   clWall := clLime;
@@ -182,13 +186,13 @@ BEGIN
   line11Color := clWall;
   line11Width := 1;
   line11Style := 0;
-  line12 := 167127.426;
-  line12Color := clMidWall;
-  line12Width := 1;
+  line12 := 166816.633;
+  line12Color := clMinGamma;
+  line12Width := 3;
   line12Style := 0;
-  line13 := 167156.382;
-  line13Color := clMinGamma;
-  line13Width := 3;
+  line13 := 167127.426;
+  line13Color := clMidWall;
+  line13Width := 1;
   line13Style := 0;
   line14 := 167629.310;
   line14Color := clWall;
@@ -258,8 +262,12 @@ BEGIN
   line30Color := clWall;
   line30Width := 1;
   line30Style := 0;
+  line31 := 177165.109;
+  line31Color := clMidWall;
+  line31Width := 1;
+  line31Style := 0;
 
- if (((Date = ELDate(2026, 06, 09)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
+ if (((Date = ELDate(2026, 06, 10)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
   begin
     SetPlotColor(1, line1Color);
     SetPlotWidth(1, line1Width);
@@ -381,6 +389,10 @@ BEGIN
     SetPlotWidth(30, line30Width);
     SetPlotStyle(30, line30Style);
     Plot30(line30);
+    SetPlotColor(31, line31Color);
+    SetPlotWidth(31, line31Width);
+    SetPlotStyle(31, line31Style);
+    Plot31(line31);
   end;
 
   if (Time > 1900) then
@@ -415,5 +427,6 @@ BEGIN
       NoPlot(28);
       NoPlot(29);
       NoPlot(30);
+      NoPlot(31);
     end;
 END;
