@@ -186,7 +186,7 @@ BEGIN
   line11Color := clWall;
   line11Width := 1;
   line11Style := 0;
-  line12 := 166816.633;
+  line12 := 167067.377;
   line12Color := clMinGamma;
   line12Width := 3;
   line12Style := 0;
@@ -267,7 +267,7 @@ BEGIN
   line31Width := 1;
   line31Style := 0;
 
- if (((Date = ELDate(2026, 06, 10)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
+ if (((Date = ELDate(2026, 06, 11)) and (Time >= 900)) and ((GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26"))) then
   begin
     SetPlotColor(1, line1Color);
     SetPlotWidth(1, line1Width);
