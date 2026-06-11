@@ -55,19 +55,31 @@ def get_gold_spot_and_chain():
         print("      ERRO: Nenhuma data de vencimento encontrada para GLD.")
         return None, None, None, None
         
-    # 4. Baixar a grade de opções (com loop de fallback para evitar vencimentos vazios no dia da expiração)
+    # 4. Baixar a grade de opções (com loop de fallback filtrando por liquidez real)
     opt_chain = None
     front_expiry = None
+    best_active_count = 0
     
-    for expiry in expirations[:3]:
+    for expiry in expirations[:10]:
         try:
             chain = gld_ticker.option_chain(expiry)
-            calls_active = len(chain.calls)
-            puts_active = len(chain.puts)
-            if (calls_active + puts_active) > 10:
+            calls_oi = chain.calls['openInterest'] if 'openInterest' in chain.calls.columns else pd.Series(dtype=int)
+            puts_oi = chain.puts['openInterest'] if 'openInterest' in chain.puts.columns else pd.Series(dtype=int)
+            
+            active_calls = calls_oi[calls_oi > 0].count()
+            active_puts = puts_oi[puts_oi > 0].count()
+            active_count = active_calls + active_puts
+            
+            if active_count >= 15:
                 opt_chain = chain
                 front_expiry = expiry
+                best_active_count = active_count
                 break
+                
+            if active_count > best_active_count:
+                best_active_count = active_count
+                opt_chain = chain
+                front_expiry = expiry
         except Exception:
             continue
             
@@ -79,12 +91,31 @@ def get_gold_spot_and_chain():
     calls = opt_chain.calls
     puts = opt_chain.puts
     
+    # Verificar se o Yahoo Finance está com problemas de Open Interest zerado ou muito baixo (comum em DTE zero de manhã)
+    atm_lower = current_gld * 0.90
+    atm_upper = current_gld * 1.10
+    near_atm_calls = calls[(calls['strike'] >= atm_lower) & (calls['strike'] <= atm_upper)]
+    near_atm_puts = puts[(puts['strike'] >= atm_lower) & (puts['strike'] <= atm_upper)]
+    
+    total_near_oi = (
+        (near_atm_calls['openInterest'].fillna(0).astype(int).gt(0).sum() if 'openInterest' in calls.columns else 0) +
+        (near_atm_puts['openInterest'].fillna(0).astype(int).gt(0).sum() if 'openInterest' in puts.columns else 0)
+    )
+    
+    use_volume_fallback = total_near_oi < 5
+    if use_volume_fallback:
+        print(f"      [Aviso] Pouco Open Interest detectado perto do ATM ({total_near_oi} contratos). Ativando fallback para Volume!")
+        
     options = []
     
     # Processar Calls
     for _, row in calls.iterrows():
-        oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
-        iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.12
+        oi = int(row['openInterest']) if 'openInterest' in calls.columns and not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if 'volume' in calls.columns and not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
+        iv = float(row['impliedVolatility']) if 'impliedVolatility' in calls.columns and not pd.isna(row['impliedVolatility']) else 0.12
         if oi > 0:
             options.append({
                 "ticker": row['contractSymbol'],
@@ -97,8 +128,12 @@ def get_gold_spot_and_chain():
             
     # Processar Puts
     for _, row in puts.iterrows():
-        oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
-        iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.12
+        oi = int(row['openInterest']) if 'openInterest' in puts.columns and not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if 'volume' in puts.columns and not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
+        iv = float(row['impliedVolatility']) if 'impliedVolatility' in puts.columns and not pd.isna(row['impliedVolatility']) else 0.12
         if oi > 0:
             options.append({
                 "ticker": row['contractSymbol'],
@@ -142,9 +177,8 @@ def run_gold_gex_pipeline():
     print(f"      Vencimento: {expiry_str} | Dias úteis: {expiry_days}")
     print(f"      r = {r*100:.2f}% | T = {T:.4f}")
     
-    # 3. Agrupar strikes por $1.0 de GLD (equivalente a $10.0 de Spot Gold)
-    print(f"\n[3/5] Calculando GEX e gerando Jumba Walls...")
-    df_options['strike_round'] = (df_options['strike'] / 1.0).round() * 1.0
+    # Agrupar strikes do GLD por $5.0 (equivalente a $50.0 de Spot Gold) para evitar poluicao visual (alinhado com SPY e QQQ)
+    df_options['strike_round'] = (df_options['strike'] / 5.0).round() * 5.0
     
     gex_per_strike = {}
     multiplier = 100
@@ -217,21 +251,31 @@ def run_gold_gex_pipeline():
             "gex": info['gex_net']
         })
         
-    # Adicionar MidWalls
+    # Adicionar MidWalls entre as Walls consecutivas usando target spacing
     walls_basic_sorted = sorted(walls_basic, key=lambda x: x['price'])
     walls = []
     
     for i in range(len(walls_basic_sorted)):
         walls.append(walls_basic_sorted[i])
         if i < len(walls_basic_sorted) - 1:
-            mid_price = (walls_basic_sorted[i]['price'] + walls_basic_sorted[i+1]['price']) / 2
-            walls.append({
-                "price": round(mid_price, 2),
-                "type": "MidWall",
-                "width": 1,
-                "style": 0,
-                "gex": 0.0
-            })
+            w1 = walls_basic_sorted[i]['price']
+            w2 = walls_basic_sorted[i+1]['price']
+            diff = w2 - w1
+            
+            target_spacing = 25.0  # Espacamento alvo de 25.0 pontos em Gold spot
+            num_steps = int(round(diff / target_spacing))
+            num_steps = max(2, num_steps)
+            
+            step = diff / num_steps
+            for j in range(1, num_steps):
+                mid_price = w1 + j * step
+                walls.append({
+                    "price": round(mid_price, 2),
+                    "type": "MidWall",
+                    "width": 1,
+                    "style": 0,
+                    "gex": 0.0
+                })
             
     # 4. Calcular Market Gamma Curve (MaxGamma, MinGamma, GammaFlip)
     sweep_prices = np.linspace(current_gld * 0.90, current_gld * 1.10, 200)
