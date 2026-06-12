@@ -1,28 +1,32 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GBP/USD
-  Vencimento de Referencia: 2026-06-18 | Data Ref: 11/06/2026
+  Vencimento de Referencia: 2026-06-18 | Data Ref: 12/06/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    GBPUSD Spot Atual: 1.33554
-    Gamma Flip Point:  1.28664
+    GBPUSD Spot Atual: 1.34099
+    Gamma Flip Point:  1.29017
     Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.22123
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.28664
-    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.34978
+    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.22550
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.29017
+    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.35450
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE FXB   | EQUIVALENTE GBPUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
+  Wall       | $145.0        | 1.4500             | $              0.00M | Width 2
   Wall       | $136.0        | 1.3600             | $              0.01M | Width 3
-  Wall       | $135.0        | 1.3500             | $             -0.00M | Width 2
+  Wall       | $135.0        | 1.3500             | $             -0.00M | Width 1
   Wall       | $134.0        | 1.3400             | $              0.00M | Width 1
   Wall       | $127.0        | 1.2700             | $              0.00M | Width 2
+  Wall       | $124.0        | 1.2400             | $              0.00M | Width 1
+  Wall       | $123.0        | 1.2300             | $             -0.00M | Width 1
+  Wall       | $121.0        | 1.2100             | $             -0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy FXB.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
