@@ -112,6 +112,7 @@ export default function App() {
     const [flowData, setFlowData] = useState(null);
     const [realtimeFlowData, setRealtimeFlowData] = useState([]);
     const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
+    const [flowSmoothing, setFlowSmoothing] = useState(3); // Default 3 periods
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
@@ -526,48 +527,84 @@ export default function App() {
     const flowScore5mData = useMemo(() => {
         if (!paddedSignals || paddedSignals.length === 0) return [];
         
-        return paddedSignals.map(s => {
+        // 1. Group and average intra-bar ticks
+        const rawBars = paddedSignals.map(s => {
             if (!s.bar_time) return null;
             const t = timeStrToTimestamp(s.bar_time);
             if (t === 0) return null;
             
             // If this is a future empty bar (no price or z-score data), plot whitespace to align timescales
             if (s.win_price == null && s.z == null && s.z_raw_wdo == null) {
-                return { time: t };
+                return { time: t, value: null, isPlaceholder: true };
             }
             
             // Find ticks in realtimeFlowData that fall into the 5-minute range: [t, t + 300)
             const ticksInBar = realtimeFlowData.filter(pt => pt.time >= t && pt.time < t + 300);
             
             let value = null;
-            let color = undefined;
             
             if (ticksInBar.length > 0) {
-                // Take the last tick's value in this 5-minute interval
-                const lastTick = ticksInBar[ticksInBar.length - 1];
-                value = lastTick.value;
-                color = lastTick.color;
+                // Compute the average of all ticks in this 5-minute interval
+                const sum = ticksInBar.reduce((acc, pt) => acc + pt.value, 0);
+                value = sum / ticksInBar.length;
             } else {
                 // Fallback: find the last available tick before t
                 const ticksBefore = realtimeFlowData.filter(pt => pt.time < t);
                 if (ticksBefore.length > 0) {
-                    const lastTick = ticksBefore[ticksBefore.length - 1];
-                    value = lastTick.value;
-                    color = lastTick.color;
+                    value = ticksBefore[ticksBefore.length - 1].value;
                 }
             }
             
-            if (value !== null) {
+            return {
+                time: t,
+                value: value,
+                isPlaceholder: false
+            };
+        }).filter(Boolean);
+
+        // 2. Apply Simple Moving Average (SMA) smoothing
+        return rawBars.map((bar, idx) => {
+            if (bar.isPlaceholder || bar.value === null) {
+                return { time: bar.time };
+            }
+            
+            if (flowSmoothing <= 1) {
+                // No SMA smoothing, just classify color based on raw average
+                const val = bar.value;
+                let color = "#f5a623"; // Yellow
+                if (val >= 40.0) color = "#00e87a"; // Green
+                else if (val <= -40.0) color = "#ff3860"; // Red
+                
                 return {
-                    time: t,
-                    value: value,
+                    time: bar.time,
+                    value: parseFloat(val.toFixed(2)),
                     color: color
                 };
-            } else {
-                return { time: t };
             }
-        }).filter(Boolean);
-    }, [paddedSignals, realtimeFlowData]);
+            
+            // Calculate SMA of period flowSmoothing
+            let sum = 0;
+            let count = 0;
+            for (let i = Math.max(0, idx - (flowSmoothing - 1)); i <= idx; i++) {
+                if (rawBars[i] && rawBars[i].value !== null && !rawBars[i].isPlaceholder) {
+                    sum += rawBars[i].value;
+                    count++;
+                }
+            }
+            
+            const avgVal = count > 0 ? sum / count : bar.value;
+            
+            let color = "#f5a623"; // Yellow
+            if (avgVal >= 40.0) color = "#00e87a"; // Green
+            else if (avgVal <= -40.0) color = "#ff3860"; // Red
+            
+            return {
+                time: bar.time,
+                value: parseFloat(avgVal.toFixed(2)),
+                color: color
+            };
+        });
+    }, [paddedSignals, realtimeFlowData, flowSmoothing]);
 
     // Sync Time Scales & Crosshairs
     useEffect(() => {
@@ -1120,6 +1157,8 @@ export default function App() {
                     <FlowScoreChart
                         ref={flowScoreChartRef}
                         history={flowScore5mData}
+                        smoothing={flowSmoothing}
+                        onSmoothingChange={setFlowSmoothing}
                     />
                 </div>
 

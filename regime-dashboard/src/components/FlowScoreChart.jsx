@@ -3,7 +3,7 @@ import { createChart, LineSeries, LineStyle, CrosshairMode } from "lightweight-c
 
 const Y_AXIS_WIDTH = 38;
 
-const FlowScoreChart = forwardRef(({ history = [] }, ref) => {
+const FlowScoreChart = forwardRef(({ history = [], smoothing = 3, onSmoothingChange }, ref) => {
     const chartContainerRef = useRef();
     const chartRef = useRef(null);
     const seriesRefs = useRef({});
@@ -148,6 +148,31 @@ const FlowScoreChart = forwardRef(({ history = [] }, ref) => {
                 <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <span style={{ display: "inline-block", width: 10, height: 10, background: "#f5a623", borderRadius: "50%" }} />
                     <span style={{ fontSize: 9, color: "#f5a623" }}>Neutro</span>
+                </span>
+                <span style={{ display: "inline-block", width: 1, height: 12, background: "#1c2e3a" }} />
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 8, color: "#6f8a9c", fontWeight: "bold", letterSpacing: 1 }}>SUAVIZAÇÃO:</span>
+                    <div style={{ display: "flex", gap: 3 }}>
+                        {[1, 3, 5, 10].map(val => (
+                            <button
+                                key={val}
+                                onClick={() => onSmoothingChange && onSmoothingChange(val)}
+                                style={{
+                                    background: smoothing === val ? "#c8a444" : "rgba(200, 164, 68, 0.1)",
+                                    border: `1px solid ${smoothing === val ? "#c8a444" : "rgba(200, 164, 68, 0.25)"}`,
+                                    color: smoothing === val ? "#0c1218" : "#c8a444",
+                                    fontSize: 8,
+                                    fontWeight: "bold",
+                                    padding: "2px 6px",
+                                    borderRadius: 3,
+                                    cursor: "pointer",
+                                    transition: "all 0.2s",
+                                }}
+                            >
+                                {val === 1 ? "OFF" : `${val} M5`}
+                            </button>
+                        ))}
+                    </div>
                 </span>
             </div>
             <div ref={chartContainerRef} style={{ width: "100%", height: "220px", paddingLeft: Y_AXIS_WIDTH }} />
