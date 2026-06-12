@@ -1623,7 +1623,7 @@ def history_endpoint(days: int = 30):
 # ─── B3 Order Flow / RTD Endpoints ───────────────────────────────────────────
 from fastapi import Query
 
-def calculate_directional_efficiency():
+def calculate_directional_efficiency(lookback_bars: int = None):
     """Calculate the Daily Directional Efficiency (Player Price Influence) for WIN.
     
     Formula: (sum(dPrice * dNet) / sum(|dPrice * dNet|)) * 100
@@ -1644,6 +1644,9 @@ def calculate_directional_efficiency():
     except Exception as e:
         print(f"[ERROR calculate_directional_efficiency] {e}")
         return {"WIN": {}}
+
+    if lookback_bars is not None:
+        rows = rows[-lookback_bars:]
 
     if len(rows) < 2:
         return {"WIN": {}}
@@ -1733,9 +1736,6 @@ def calculate_flow_acceleration(efficiency=None):
     
     Returns a dictionary: {"WIN": float} containing scores from -100 to 100.
     """
-    if efficiency is None:
-        efficiency = calculate_directional_efficiency()
-        
     today_str = datetime.now().strftime("%Y-%m-%d")
     try:
         conn = sqlite3.connect("trades.db", timeout=5.0)
@@ -1780,9 +1780,10 @@ def calculate_flow_acceleration(efficiency=None):
 
     accelerator = {"WIN": 0.0}
     
-    # 1. Identify dominant players per symbol (DDE >= 40%)
+    # 1. Identify dominant players per symbol (DDE >= 40%) using short-term rolling efficiency (5 bars / 25 minutes)
+    short_term_eff = calculate_directional_efficiency(lookback_bars=5)
     dominant_players = {"WIN": []}
-    sym_eff = efficiency.get("WIN", {})
+    sym_eff = short_term_eff.get("WIN", {})
     for b, eff in sym_eff.items():
         if eff >= 40.0:
             dominant_players["WIN"].append((b, eff / 100.0))  # (broker, weight)
