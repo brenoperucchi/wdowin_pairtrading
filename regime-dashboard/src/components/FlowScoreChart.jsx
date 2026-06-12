@@ -238,12 +238,12 @@ const FlowScoreChart = forwardRef(({ history = [], smoothing = 3, onSmoothingCha
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 8, fontWeight: "bold", color: "#6f8a9c", letterSpacing: 1 }}>AJUSTE DE PESOS DO SCORE SINTÉTICO (SOMA: 100%)</span>
                         <button 
-                            onClick={() => onWeightsChange && onWeightsChange({ fln: 40, pers: 30, conc: 20, abs: 10 })}
+                            onClick={() => onWeightsChange && onWeightsChange({ fln: 20, pers: 40, conc: 30, abs: 10 })}
                             style={{
                                 background: "none", border: "none", color: "#8a6dff", fontSize: 8, fontWeight: "bold", cursor: "pointer", padding: 0
                             }}
                         >
-                            RESTAURAR PADRÃO (40/30/20/10)
+                            RESTAURAR PADRÃO (20/40/30/10)
                         </button>
                     </div>
                     

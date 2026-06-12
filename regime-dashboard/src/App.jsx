@@ -113,7 +113,7 @@ export default function App() {
     const [realtimeFlowData, setRealtimeFlowData] = useState([]);
     const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
     const [flowSmoothing, setFlowSmoothing] = useState(3); // Default 3 periods
-    const [flowWeights, setFlowWeights] = useState({ fln: 40, pers: 30, conc: 20, abs: 10 });
+    const [flowWeights, setFlowWeights] = useState({ fln: 20, pers: 40, conc: 30, abs: 10 });
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);

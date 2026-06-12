@@ -195,8 +195,8 @@ def _calculate_window_factors(snapshots, window_seconds):
 
 def _calculate_window_score(snapshots, window_seconds):
     fln, pers, conc_dir, abs_dir = _calculate_window_factors(snapshots, window_seconds)
-    # ScoreFluxo_t = 100 * (0.40 * FLN_t + 0.30 * PERS_t + 0.20 * CONC_DIR_t + 0.10 * ABS_DIR_t)
-    return 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
+    # ScoreFluxo_t = 100 * (0.20 * FLN_t + 0.40 * PERS_t + 0.30 * CONC_DIR_t + 0.10 * ABS_DIR_t)
+    return 100.0 * (0.20 * fln + 0.40 * pers + 0.30 * conc_dir + 0.10 * abs_dir)
 
 def _calculate_combined_factors(snapshots):
     if len(snapshots) < 2:
@@ -215,7 +215,7 @@ def _calculate_combined_factors(snapshots):
 
 def _calculate_combined_flow_score(snapshots):
     fln, pers, conc_dir, abs_dir = _calculate_combined_factors(snapshots)
-    return 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
+    return 100.0 * (0.20 * fln + 0.40 * pers + 0.30 * conc_dir + 0.10 * abs_dir)
 
 def _get_current_flow_data():
     return {
@@ -422,7 +422,7 @@ async def flow_snapshot_loop():
 
             # Compute current synthetic flow score
             fln, pers, conc_dir, abs_dir = _calculate_combined_factors(_raw_flow_snapshots)
-            score = 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
+            score = 100.0 * (0.20 * fln + 0.40 * pers + 0.30 * conc_dir + 0.10 * abs_dir)
             
             _realtime_factors_cache.append({
                 "time": int(current_time),
@@ -1899,9 +1899,9 @@ def restart_server():
 
 @app.get("/api/flow/realtime")
 def get_realtime_flow(
-    w_fln: float = 0.40,
-    w_pers: float = 0.30,
-    w_conc: float = 0.20,
+    w_fln: float = 0.20,
+    w_pers: float = 0.40,
+    w_conc: float = 0.30,
     w_abs: float = 0.10
 ):
     total_w = w_fln + w_pers + w_conc + w_abs
@@ -1911,7 +1911,7 @@ def get_realtime_flow(
         w_conc = w_conc / total_w
         w_abs = w_abs / total_w
     else:
-        w_fln, w_pers, w_conc, w_abs = 0.40, 0.30, 0.20, 0.10
+        w_fln, w_pers, w_conc, w_abs = 0.20, 0.40, 0.30, 0.10
 
     dynamic_flow = []
     for item in _realtime_factors_cache:
