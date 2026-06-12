@@ -14,3 +14,9 @@
 - **Aggregation**: Rolling window cache of high-frequency 5-second updates, retaining the last 60 minutes of history (720 points).
 - **Visualization**: Displayed as a single line chart below the FlowDeltaChart on the dashboard. The line must dynamically change color: Green ($\ge 40$), Red ($\le -40$), or Yellow (neutral/conflito between -40 and +40).
 
+## REQ-003: Cálculo de Dominância e Eficiência do IAF em Janela Móvel de 25 Minutos
+- **Description**: The system must calculate the player dominance and Kyle's Lambda for the IAF (Acelerador de Pressão) using a rolling window of the last 5 bars (25 minutes) instead of accumulating from the beginning of the daily session. This avoids volume anchoring from the opening period and keeps the indicator highly responsive to current participants.
+- **Aggregation**: Rolling window of the last 5 bars (25 minutes).
+- **Impact**: Dynamic updates of dominant player weights and Kyle's Lambda throughout the trading session.
+
+
