@@ -73,6 +73,7 @@ _last_flow_update = {"WIN": 0.0}
 # Real-time institutional flow synthetic indicator cache
 _raw_flow_snapshots = deque(maxlen=1000)
 _realtime_flow_cache = deque(maxlen=10000)
+_realtime_factors_cache = deque(maxlen=10000)
 _last_win_price = 120000.0  # Safe cached WIN price to avoid thread-unsafe MT5 calls
 
 def calculate_persistence(snapshots, P):
@@ -107,10 +108,10 @@ def calculate_persistence(snapshots, P):
         return sum_fl / sum_abs_fl
     return 0.0
 
-def _calculate_window_score(snapshots, window_seconds):
+def _calculate_window_factors(snapshots, window_seconds):
     P = window_seconds // 5
     if len(snapshots) < P + 1:
-        return 0.0
+        return 0.0, 0.0, 0.0, 0.0
         
     latest = snapshots[-1]
     start = snapshots[-1 - P]
@@ -190,17 +191,31 @@ def _calculate_window_score(snapshots, window_seconds):
     else:
         abs_dir = 0.0
         
+    return fln, pers, conc_dir, abs_dir
+
+def _calculate_window_score(snapshots, window_seconds):
+    fln, pers, conc_dir, abs_dir = _calculate_window_factors(snapshots, window_seconds)
     # ScoreFluxo_t = 100 * (0.40 * FLN_t + 0.30 * PERS_t + 0.20 * CONC_DIR_t + 0.10 * ABS_DIR_t)
-    score = 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
-    return score
+    return 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
+
+def _calculate_combined_factors(snapshots):
+    if len(snapshots) < 2:
+        return 0.0, 0.0, 0.0, 0.0
+    
+    fln_5s, pers_5s, conc_5s, abs_5s = _calculate_window_factors(snapshots, 5)
+    fln_15s, pers_15s, conc_15s, abs_15s = _calculate_window_factors(snapshots, 15)
+    fln_60s, pers_60s, conc_60s, abs_60s = _calculate_window_factors(snapshots, 60)
+    
+    fln = 0.50 * fln_5s + 0.30 * fln_15s + 0.20 * fln_60s
+    pers = 0.50 * pers_5s + 0.30 * pers_15s + 0.20 * pers_60s
+    conc_dir = 0.50 * conc_5s + 0.30 * conc_15s + 0.20 * conc_60s
+    abs_dir = 0.50 * abs_5s + 0.30 * abs_15s + 0.20 * abs_60s
+    
+    return fln, pers, conc_dir, abs_dir
 
 def _calculate_combined_flow_score(snapshots):
-    if len(snapshots) < 2:
-        return 0.0
-    score_5s = _calculate_window_score(snapshots, 5)
-    score_15s = _calculate_window_score(snapshots, 15)
-    score_60s = _calculate_window_score(snapshots, 60)
-    return 0.50 * score_5s + 0.30 * score_15s + 0.20 * score_60s
+    fln, pers, conc_dir, abs_dir = _calculate_combined_factors(snapshots)
+    return 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
 
 def _get_current_flow_data():
     return {
@@ -302,7 +317,7 @@ def _seed_flow_history():
 
 
 def _seed_realtime_flow():
-    global _realtime_flow_cache
+    global _realtime_flow_cache, _realtime_factors_cache
     if len(_realtime_flow_cache) > 0:
         return
         
@@ -336,6 +351,15 @@ def _seed_realtime_flow():
             "value": round(score, 2),
             "color": color
         })
+        
+        val_norm = score / 100.0
+        _realtime_factors_cache.append({
+            "time": int(curr_time),
+            "fln": val_norm,
+            "pers": val_norm,
+            "conc_dir": val_norm,
+            "abs_dir": val_norm
+        })
         curr_time += 5.0
 
 async def flow_snapshot_loop():
@@ -368,6 +392,7 @@ async def flow_snapshot_loop():
                 _flow_history_bars.clear()
                 _raw_flow_snapshots.clear()
                 _realtime_flow_cache.clear()
+                _realtime_factors_cache.clear()
                 last_date = today
 
             time_str = now_dt.strftime("%H:%M")
@@ -396,7 +421,16 @@ async def flow_snapshot_loop():
             _raw_flow_snapshots.append(raw_snap)
 
             # Compute current synthetic flow score
-            score = _calculate_combined_flow_score(_raw_flow_snapshots)
+            fln, pers, conc_dir, abs_dir = _calculate_combined_factors(_raw_flow_snapshots)
+            score = 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
+            
+            _realtime_factors_cache.append({
+                "time": int(current_time),
+                "fln": fln,
+                "pers": pers,
+                "conc_dir": conc_dir,
+                "abs_dir": abs_dir
+            })
             
             # Classify score color
             if score >= 40.0:
@@ -1864,8 +1898,39 @@ def restart_server():
     return {"ok": True, "message": "Reiniciando servidor via PM2..."}
 
 @app.get("/api/flow/realtime")
-def get_realtime_flow():
-    return list(_realtime_flow_cache)
+def get_realtime_flow(
+    w_fln: float = 0.40,
+    w_pers: float = 0.30,
+    w_conc: float = 0.20,
+    w_abs: float = 0.10
+):
+    total_w = w_fln + w_pers + w_conc + w_abs
+    if total_w > 0:
+        w_fln = w_fln / total_w
+        w_pers = w_pers / total_w
+        w_conc = w_conc / total_w
+        w_abs = w_abs / total_w
+    else:
+        w_fln, w_pers, w_conc, w_abs = 0.40, 0.30, 0.20, 0.10
+
+    dynamic_flow = []
+    for item in _realtime_factors_cache:
+        val = 100.0 * (w_fln * item["fln"] + w_pers * item["pers"] + w_conc * item["conc_dir"] + w_abs * item["abs_dir"])
+        val = max(-100.0, min(100.0, val))
+        
+        if val >= 40.0:
+            color = "#00e87a"
+        elif val <= -40.0:
+            color = "#ff3860"
+        else:
+            color = "#f5a623"
+            
+        dynamic_flow.append({
+            "time": item["time"],
+            "value": round(val, 2),
+            "color": color
+        })
+    return dynamic_flow
 
 @app.get("/api/flow")
 def get_flow():

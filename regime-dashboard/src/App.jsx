@@ -113,6 +113,7 @@ export default function App() {
     const [realtimeFlowData, setRealtimeFlowData] = useState([]);
     const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
     const [flowSmoothing, setFlowSmoothing] = useState(3); // Default 3 periods
+    const [flowWeights, setFlowWeights] = useState({ fln: 40, pers: 30, conc: 20, abs: 10 });
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
@@ -321,7 +322,8 @@ export default function App() {
         let active = true;
         async function pollRealtimeFlow() {
             try {
-                const res = await fetch(API_FLOW_REALTIME_URL);
+                const url = `${API_FLOW_REALTIME_URL}?w_fln=${flowWeights.fln / 100}&w_pers=${flowWeights.pers / 100}&w_conc=${flowWeights.conc / 100}&w_abs=${flowWeights.abs / 100}`;
+                const res = await fetch(url);
                 if (res.ok) {
                     const json = await res.json();
                     if (active && json && Array.isArray(json)) {
@@ -339,7 +341,7 @@ export default function App() {
         pollRealtimeFlow();
         const t = setInterval(pollRealtimeFlow, 2500); // 2.5s update frequency
         return () => { active = false; clearInterval(t); };
-    }, [isViewingHistory]);
+    }, [isViewingHistory, flowWeights]);
 
     // Simulação quando offline
     useEffect(() => {
@@ -1159,6 +1161,8 @@ export default function App() {
                         history={flowScore5mData}
                         smoothing={flowSmoothing}
                         onSmoothingChange={setFlowSmoothing}
+                        weights={flowWeights}
+                        onWeightsChange={setFlowWeights}
                     />
                 </div>
 
