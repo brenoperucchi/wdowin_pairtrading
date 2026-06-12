@@ -56,16 +56,25 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
             },
             rightPriceScale: {
                 borderColor: "#1a2530",
-                autoScale: false,
-                minValue: -Z_CLAMP,
-                maxValue: Z_CLAMP,
+                autoScale: true,
                 minimumWidth: 60,
             },
             autoSize: true,
         });
         chartRef.current = chart;
 
-        const zSeries = chart.addSeries(LineSeries, { color: "#c8a444", lineWidth: 2, crosshairMarkerVisible: true, priceLineVisible: false });
+        const zSeries = chart.addSeries(LineSeries, {
+            color: "#c8a444",
+            lineWidth: 2,
+            crosshairMarkerVisible: true,
+            priceLineVisible: false,
+            autoscaleInfoProvider: () => ({
+                priceRange: {
+                    minValue: -Z_CLAMP,
+                    maxValue: Z_CLAMP,
+                },
+            }),
+        });
         const diSeries = chart.addSeries(LineSeries, { color: "#8a6dff", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false, priceLineVisible: false });
 
         // Reference lines

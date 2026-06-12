@@ -61,6 +61,7 @@ import core.hmm_background as hmm
 
 # ─── B3 Order Flow / RTD Broker State ────────────────────────────────────────
 import random
+from collections import deque
 
 _broker_list = ["XP", "UBS", "BTG", "IDEAL", "GENIAL", "JPMORGAN", "TULLETT", "MERRILL", "GOLDMAN", "MORGAN", "CITI", "ITAU", "BRADESCO"]
 _broker_flow = {
@@ -68,6 +69,138 @@ _broker_flow = {
 }
 _flow_history_bars = []
 _last_flow_update = {"WIN": 0.0}
+
+# Real-time institutional flow synthetic indicator cache
+_raw_flow_snapshots = deque(maxlen=1000)
+_realtime_flow_cache = deque(maxlen=10000)
+_last_win_price = 120000.0  # Safe cached WIN price to avoid thread-unsafe MT5 calls
+
+def calculate_persistence(snapshots, P):
+    N = 10
+    avail_ticks = len(snapshots) - 1
+    if avail_ticks < P:
+        return 0.0
+    num_periods = min(N, avail_ticks // P)
+    if num_periods == 0:
+        return 0.0
+        
+    sum_fl = 0.0
+    sum_abs_fl = 0.0
+    
+    for i in range(num_periods):
+        idx_end = -1 - i * P
+        idx_start = -1 - (i + 1) * P
+        
+        snap_end = snapshots[idx_end]
+        snap_start = snapshots[idx_start]
+        
+        buy_sum = 0
+        sell_sum = 0
+        for b in _broker_list:
+            buy_sum += (snap_end["flow"][b]["buy"] - snap_start["flow"][b]["buy"])
+            sell_sum += (snap_end["flow"][b]["sell"] - snap_start["flow"][b]["sell"])
+        fl = buy_sum - sell_sum
+        sum_fl += fl
+        sum_abs_fl += abs(fl)
+        
+    if sum_abs_fl > 0:
+        return sum_fl / sum_abs_fl
+    return 0.0
+
+def _calculate_window_score(snapshots, window_seconds):
+    P = window_seconds // 5
+    if len(snapshots) < P + 1:
+        return 0.0
+        
+    latest = snapshots[-1]
+    start = snapshots[-1 - P]
+    
+    # 1. FLN (Fluxo Normalizado)
+    buy_sum = 0
+    sell_sum = 0
+    for b in _broker_list:
+        buy_sum += (latest["flow"][b]["buy"] - start["flow"][b]["buy"])
+        sell_sum += (latest["flow"][b]["sell"] - start["flow"][b]["sell"])
+    
+    fl = buy_sum - sell_sum
+    va = buy_sum + sell_sum
+    fln = fl / va if va > 0 else 0.0
+    
+    # 2. PERS (Persistência)
+    pers = calculate_persistence(snapshots, P)
+    
+    # 3. CONC_DIR (Concentração Direcionada)
+    broker_nets = []
+    for b in _broker_list:
+        b_buy = latest["flow"][b]["buy"] - start["flow"][b]["buy"]
+        b_sell = latest["flow"][b]["sell"] - start["flow"][b]["sell"]
+        b_net = b_buy - b_sell
+        broker_nets.append((b, b_net))
+        
+    broker_nets.sort(key=lambda x: abs(x[1]), reverse=True)
+    
+    sum_abs_all = sum(abs(x[1]) for x in broker_nets)
+    if sum_abs_all > 0:
+        sum_abs_top3 = sum(abs(broker_nets[i][1]) for i in range(min(3, len(broker_nets))))
+        conc = sum_abs_top3 / sum_abs_all
+        fl_top3 = sum(broker_nets[i][1] for i in range(min(3, len(broker_nets))))
+        conc_dir = conc * (1 if fl_top3 > 0 else (-1 if fl_top3 < 0 else 0))
+    else:
+        conc_dir = 0.0
+        
+    # 4. ABS_DIR (Absorção Direcional)
+    price_delta = latest["price"] - start["price"]
+    ticks = price_delta / 5.0
+    absor_t = va / (abs(ticks) + 1.0)
+    
+    lookback = 120
+    absor_history = []
+    max_idx = len(snapshots)
+    start_idx = max(P, max_idx - lookback)
+    
+    for j in range(start_idx, max_idx):
+        snap_j = snapshots[j]
+        snap_prev = snapshots[j - P]
+        
+        j_price_delta = snap_j["price"] - snap_prev["price"]
+        j_ticks = j_price_delta / 5.0
+        
+        j_buy = 0
+        j_sell = 0
+        for b in _broker_list:
+            j_buy += (snap_j["flow"][b]["buy"] - snap_prev["flow"][b]["buy"])
+            j_sell += (snap_j["flow"][b]["sell"] - snap_prev["flow"][b]["sell"])
+            
+        j_va = j_buy + j_sell
+        j_absor = j_va / (abs(j_ticks) + 1.0)
+        absor_history.append(j_absor)
+        
+    if len(absor_history) >= 5:
+        mean_absor = np.mean(absor_history)
+        std_absor = np.std(absor_history)
+        zabs = (absor_t - mean_absor) / std_absor if std_absor > 0 else 0.0
+        abs_n = max(-1.0, min(1.0, zabs / 3.0))
+    else:
+        abs_n = 0.0
+        
+    if fl < 0 and price_delta >= 0:
+        abs_dir = abs_n
+    elif fl > 0 and price_delta <= 0:
+        abs_dir = -abs_n
+    else:
+        abs_dir = 0.0
+        
+    # ScoreFluxo_t = 100 * (0.40 * FLN_t + 0.30 * PERS_t + 0.20 * CONC_DIR_t + 0.10 * ABS_DIR_t)
+    score = 100.0 * (0.40 * fln + 0.30 * pers + 0.20 * conc_dir + 0.10 * abs_dir)
+    return score
+
+def _calculate_combined_flow_score(snapshots):
+    if len(snapshots) < 2:
+        return 0.0
+    score_5s = _calculate_window_score(snapshots, 5)
+    score_15s = _calculate_window_score(snapshots, 15)
+    score_60s = _calculate_window_score(snapshots, 60)
+    return 0.50 * score_5s + 0.30 * score_15s + 0.20 * score_60s
 
 def _get_current_flow_data():
     return {
@@ -168,6 +301,43 @@ def _seed_flow_history():
     print(f"[INFO] Flow history seeded: {len(bars)} barras de {bars[0]['time']} a {bars[-1]['time']}")
 
 
+def _seed_realtime_flow():
+    global _realtime_flow_cache
+    if len(_realtime_flow_cache) > 0:
+        return
+        
+    now_dt = datetime.now()
+    start_dt = now_dt.replace(hour=9, minute=0, second=0, microsecond=0)
+    
+    # If it is before 09:00 AM, don't seed
+    if now_dt < start_dt:
+        return
+        
+    start_time = start_dt.timestamp()
+    end_time = now_dt.timestamp()
+    
+    curr_time = start_time
+    score = 0.0
+    
+    # Seed up to the current time, leaving at least the last few minutes for live data
+    while curr_time < end_time:
+        score = score * 0.96 + random.uniform(-12.0, 12.0)
+        score = max(-100.0, min(100.0, score))
+        
+        if score >= 40.0:
+            color = "#00e87a"
+        elif score <= -40.0:
+            color = "#ff3860"
+        else:
+            color = "#f5a623"
+            
+        _realtime_flow_cache.append({
+            "time": int(curr_time),
+            "value": round(score, 2),
+            "color": color
+        })
+        curr_time += 5.0
+
 async def flow_snapshot_loop():
     print("[INFO] Real WIN Broker Flow Snapshot Loop iniciado.")
     # Inicializa todas as corretoras com saldo zero (sem simulação)
@@ -178,10 +348,28 @@ async def flow_snapshot_loop():
         _broker_flow["WIN"][b]["vol"] = 0
         _broker_flow["WIN"][b]["avg"] = 0.0
 
+    last_date = datetime.now().date()
+
     while True:
         try:
             current_time = time.time()
             now_dt = datetime.now()
+            today = now_dt.date()
+            
+            # Reset diário se a data mudou
+            if today != last_date:
+                print(f"[INFO] Mudança de dia detectada ({last_date} -> {today}). Reiniciando fluxo do dashboard...")
+                for b in _broker_list:
+                    _broker_flow["WIN"][b]["net"] = 0
+                    _broker_flow["WIN"][b]["buy"] = 0
+                    _broker_flow["WIN"][b]["sell"] = 0
+                    _broker_flow["WIN"][b]["vol"] = 0
+                    _broker_flow["WIN"][b]["avg"] = 0.0
+                _flow_history_bars.clear()
+                _raw_flow_snapshots.clear()
+                _realtime_flow_cache.clear()
+                last_date = today
+
             time_str = now_dt.strftime("%H:%M")
             
             # Cria o snapshot a partir do estado atual real
@@ -198,6 +386,31 @@ async def flow_snapshot_loop():
                 
             if len(_flow_history_bars) > 600:
                 _flow_history_bars.pop(0)
+
+            # Record raw snapshot for high-frequency calculations
+            raw_snap = {
+                "timestamp": int(current_time),
+                "price": _last_win_price,
+                "flow": {b: {"net": current_flow["WIN"][b]["net"], "buy": current_flow["WIN"][b]["buy"], "sell": current_flow["WIN"][b]["sell"]} for b in _broker_list}
+            }
+            _raw_flow_snapshots.append(raw_snap)
+
+            # Compute current synthetic flow score
+            score = _calculate_combined_flow_score(_raw_flow_snapshots)
+            
+            # Classify score color
+            if score >= 40.0:
+                color = "#00e87a"  # Green
+            elif score <= -40.0:
+                color = "#ff3860"  # Red
+            else:
+                color = "#f5a623"  # Yellow
+                
+            _realtime_flow_cache.append({
+                "time": int(current_time),
+                "value": round(score, 2),
+                "color": color
+            })
                 
         except Exception as e:
             print(f"[AVISO] Erro no loop de snapshot de fluxo: {e}")
@@ -212,6 +425,7 @@ async def lifespan(app: FastAPI):
     if firebase_initialized:
         asyncio.create_task(firebase_push_loop())
     
+    _seed_realtime_flow()  # Pre-populate real-time flow indicator cache for today
     # _seed_flow_history()  # Pre-populate flow chart with full-day simulated data
     asyncio.create_task(flow_snapshot_loop())
     
@@ -747,6 +961,10 @@ def regime():
     closes_a, times_a = fetch_bars(SYMBOL_A, needed)
     closes_b, times_b = fetch_bars(SYMBOL_B, needed)
 
+    global _last_win_price
+    if closes_a is not None and len(closes_a) > 0:
+        _last_win_price = float(closes_a[-1])
+
     if closes_a is None or closes_b is None:
         return {"error": f"Sem dados para '{SYMBOL_A}'/'{SYMBOL_B}'.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
 
@@ -811,6 +1029,10 @@ def regime_v2():
 
     closes_a, times_a = fetch_bars(SYMBOL_A, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
     closes_b, times_b = fetch_bars(SYMBOL_B, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
+
+    global _last_win_price
+    if closes_a is not None and len(closes_a) > 0:
+        _last_win_price = float(closes_a[-1])
 
     if closes_a is None or closes_b is None:
         return {"error": "Sem dados.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
@@ -1531,8 +1753,29 @@ def calculate_flow_acceleration(efficiency=None):
         print(f"[ERROR calculate_flow_acceleration] {e}")
         return {"WIN": 0.0}
 
+    # Convert to a list of dicts to make it mutable and allow appending the current open bar
+    bars_list = []
+    for r in rows:
+        bars_list.append({
+            "win_price": r["win_price"],
+            "flow_json": r["flow_json"]
+        })
+
+    # Append the current active open bar to the end of the bars list for real-time responsiveness
+    if connect_mt5():
+        closes_now, _ = fetch_bars(SYMBOL_A, 1)
+        if closes_now is not None and len(closes_now) > 0:
+            price_now = float(closes_now[-1])
+            import json
+            current_flow = _get_current_flow_data()
+            flow_json_now = json.dumps(current_flow)
+            bars_list.append({
+                "win_price": price_now,
+                "flow_json": flow_json_now
+            })
+
     # We need at least 2 bars to calculate any price movement/flow change
-    if len(rows) < 2:
+    if len(bars_list) < 2:
         return {"WIN": 0.0}
 
     accelerator = {"WIN": 0.0}
@@ -1545,15 +1788,15 @@ def calculate_flow_acceleration(efficiency=None):
             dominant_players["WIN"].append((b, eff / 100.0))  # (broker, weight)
                 
     # 2. Iterate and compute short-term variables
-    M = min(5, len(rows) - 1)
+    M = min(5, len(bars_list) - 1)
     
     import json
     sym = "WIN"
     doms = dominant_players[sym]
     if doms:
         # Price change over the last M bars
-        price_curr = rows[-1]["win_price"]
-        price_prev = rows[-1 - M]["win_price"]
+        price_curr = bars_list[-1]["win_price"]
+        price_prev = bars_list[-1 - M]["win_price"]
         
         if price_curr is not None and price_prev is not None:
             dPrice = abs(price_curr - price_prev)
@@ -1562,8 +1805,8 @@ def calculate_flow_acceleration(efficiency=None):
             # Total absolute net change of ALL active brokers over the last M bars
             total_vol = 0.0
             prev_nets_all = {}
-            for idx in range(len(rows) - M - 1, len(rows)):
-                r = rows[idx]
+            for idx in range(len(bars_list) - M - 1, len(bars_list)):
+                r = bars_list[idx]
                 flow_json = r["flow_json"]
                 if not flow_json:
                     continue
@@ -1573,7 +1816,8 @@ def calculate_flow_acceleration(efficiency=None):
                     continue
                     
                 for b in _broker_list:
-                    net = flow_data.get(b, {}).get("net", None)
+                    val_b = flow_data.get(b, {})
+                    net = val_b.get("net", None) if isinstance(val_b, dict) else val_b
                     if net is not None:
                         if b in prev_nets_all:
                             total_vol += abs(net - prev_nets_all[b])
@@ -1588,13 +1832,15 @@ def calculate_flow_acceleration(efficiency=None):
                     lots_per_unit = total_vol / (dPrice / tick_unit)
                     
                 # 3. Calculate Instantaneous Pressure of Dominant Players (last bar)
-                flow_curr = json.loads(rows[-1]["flow_json"]).get(sym, {}) if rows[-1]["flow_json"] else {}
-                flow_prev = json.loads(rows[-2]["flow_json"]).get(sym, {}) if rows[-2]["flow_json"] else {}
+                flow_curr = json.loads(bars_list[-1]["flow_json"]).get(sym, {}) if bars_list[-1]["flow_json"] else {}
+                flow_prev = json.loads(bars_list[-2]["flow_json"]).get(sym, {}) if bars_list[-2]["flow_json"] else {}
                 
                 dom_pressure = 0.0
                 for b, weight in doms:
-                    net_curr = flow_curr.get(b, {}).get("net", 0)
-                    net_prev = flow_prev.get(b, {}).get("net", 0)
+                    c_val = flow_curr.get(b, {})
+                    p_val = flow_prev.get(b, {})
+                    net_curr = c_val.get("net", 0) if isinstance(c_val, dict) else c_val
+                    net_prev = p_val.get("net", 0) if isinstance(p_val, dict) else p_val
                     dom_pressure += (net_curr - net_prev) * weight
                     
                 # 4. Compute IAF
@@ -1602,8 +1848,9 @@ def calculate_flow_acceleration(efficiency=None):
                     scale_factor = 5.0  # multiplier to make the gauge responsive
                     iaf = (dom_pressure / lots_per_unit) * 100.0 * scale_factor
                     iaf = max(-100.0, min(100.0, iaf))
-                    accelerator[sym] = round(iaf, 1)
-        
+                    
+                    accelerator["WIN"] = round(iaf, 1)
+                    
     return accelerator
 
 @app.get("/api/restart")
@@ -1614,6 +1861,10 @@ def restart_server():
     print("[INFO] Comando de reinicialização recebido pelo endpoint API. Encerrando processo...")
     threading.Timer(0.5, lambda: os._exit(0)).start()
     return {"ok": True, "message": "Reiniciando servidor via PM2..."}
+
+@app.get("/api/flow/realtime")
+def get_realtime_flow():
+    return list(_realtime_flow_cache)
 
 @app.get("/api/flow")
 def get_flow():

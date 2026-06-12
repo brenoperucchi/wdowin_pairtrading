@@ -10,6 +10,7 @@ import IndexChart from "./components/IndexChart";
 import SetupMatadorPanel from "./components/SetupMatadorPanel";
 import BrokerFlowPanel from "./components/BrokerFlowPanel";
 import FlowDeltaChart from "./components/FlowDeltaChart";
+import FlowScoreChart from "./components/FlowScoreChart";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -22,7 +23,23 @@ const API_PERF_URL = "http://localhost:8080/api/performance";
 const API_DI_URL = "http://localhost:8080/api/di-regime";
 const API_HISTORY_URL = "http://localhost:8080/api/history";
 const API_FLOW_URL = "http://localhost:8080/api/flow";
+const API_FLOW_REALTIME_URL = "http://localhost:8080/api/flow/realtime";
 const POLL_MS = 2500;
+
+function alignTimestampTo2025(epochSeconds) {
+    if (!epochSeconds) return 0;
+    const d = new Date(epochSeconds * 1000);
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const s = d.getSeconds();
+    return Math.floor(Date.UTC(2025, 0, 1, h, m, s) / 1000);
+}
+
+function timeStrToTimestamp(timeStr) {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
+}
 
 // ── Fallback: gera dados simulados se a API não responder ────────────────────
 function marketBarTimes(n, barMinutes = 5) {
@@ -93,6 +110,7 @@ export default function App() {
     const [lastSignalId, setLastSignalId] = useState("neutro");
     const [diData, setDiData] = useState(null);
     const [flowData, setFlowData] = useState(null);
+    const [realtimeFlowData, setRealtimeFlowData] = useState([]);
     const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
@@ -105,6 +123,7 @@ export default function App() {
     const histogramChartRef = useRef(null);
     const indexChartRef = useRef(null);
     const flowDeltaChartRef = useRef(null);
+    const flowScoreChartRef = useRef(null);
     const [showSetup, setShowSetup] = useState(false);
     const [gexWalls, setGexWalls] = useState([]);
     const [weights, setWeights] = useState({
@@ -294,6 +313,33 @@ export default function App() {
         return () => { active = false; clearInterval(t); };
     }, [isViewingHistory]);
 
+    // Polling do indicador sintético de fluxo em tempo real (apenas local e live)
+    useEffect(() => {
+        if (isViewingHistory) return;
+        
+        let active = true;
+        async function pollRealtimeFlow() {
+            try {
+                const res = await fetch(API_FLOW_REALTIME_URL);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (active && json && Array.isArray(json)) {
+                        const aligned = json.map(pt => ({
+                            ...pt,
+                            time: alignTimestampTo2025(pt.time)
+                        }));
+                        setRealtimeFlowData(aligned);
+                    }
+                }
+            } catch (e) {
+                // Silencioso
+            }
+        }
+        pollRealtimeFlow();
+        const t = setInterval(pollRealtimeFlow, 2500); // 2.5s update frequency
+        return () => { active = false; clearInterval(t); };
+    }, [isViewingHistory]);
+
     // Simulação quando offline
     useEffect(() => {
         if (status !== "fallback") return;
@@ -476,17 +522,66 @@ export default function App() {
         return unique;
     }, [mergedSignals]);
 
+    // Group/downsample the 5-second realtimeFlowData to 5-minute bars matching paddedSignals
+    const flowScore5mData = useMemo(() => {
+        if (!paddedSignals || paddedSignals.length === 0) return [];
+        
+        return paddedSignals.map(s => {
+            if (!s.bar_time) return null;
+            const t = timeStrToTimestamp(s.bar_time);
+            if (t === 0) return null;
+            
+            // If this is a future empty bar (no price or z-score data), plot whitespace to align timescales
+            if (s.win_price == null && s.z == null && s.z_raw_wdo == null) {
+                return { time: t };
+            }
+            
+            // Find ticks in realtimeFlowData that fall into the 5-minute range: [t, t + 300)
+            const ticksInBar = realtimeFlowData.filter(pt => pt.time >= t && pt.time < t + 300);
+            
+            let value = null;
+            let color = undefined;
+            
+            if (ticksInBar.length > 0) {
+                // Take the last tick's value in this 5-minute interval
+                const lastTick = ticksInBar[ticksInBar.length - 1];
+                value = lastTick.value;
+                color = lastTick.color;
+            } else {
+                // Fallback: find the last available tick before t
+                const ticksBefore = realtimeFlowData.filter(pt => pt.time < t);
+                if (ticksBefore.length > 0) {
+                    const lastTick = ticksBefore[ticksBefore.length - 1];
+                    value = lastTick.value;
+                    color = lastTick.color;
+                }
+            }
+            
+            if (value !== null) {
+                return {
+                    time: t,
+                    value: value,
+                    color: color
+                };
+            } else {
+                return { time: t };
+            }
+        }).filter(Boolean);
+    }, [paddedSignals, realtimeFlowData]);
+
     // Sync Time Scales & Crosshairs
     useEffect(() => {
         const zChart = zScoreChartRef.current?.getChart();
         const hChart = histogramChartRef.current?.getChart();
         const iChart = indexChartRef.current?.getChart();
         const fChart = flowDeltaChartRef.current?.getChart();
+        const fsChart = flowScoreChartRef.current?.getChart();
 
         const zSeries = zScoreChartRef.current?.getMainSeries?.();
         const hSeries = histogramChartRef.current?.getMainSeries?.();
         const iSeries = indexChartRef.current?.getMainSeries?.();
         const fSeries = flowDeltaChartRef.current?.getMainSeries?.();
+        const fsSeries = flowScoreChartRef.current?.getMainSeries?.();
 
         if (!zChart || !hChart || !iChart) return;
 
@@ -496,38 +591,43 @@ export default function App() {
             { chart: iChart, series: iSeries }
         ];
         if (fChart) charts.push({ chart: fChart, series: fSeries });
+        if (fsChart) charts.push({ chart: fsChart, series: fsSeries });
 
         // TIME SCALE SYNC
         let isSyncingTime = false;
-        function getTimeSyncHandler(sourceChart) {
+
+        // Logical range handler for all 5-minute charts
+        function getLogicalSyncHandler(sourceChart) {
             return (logicalRange) => {
                 if (!logicalRange || isSyncingTime) return;
                 isSyncingTime = true;
+                
+                // Sync logical range among all charts
                 charts.forEach(c => {
                     if (c.chart !== sourceChart) {
-                        c.chart.timeScale().setVisibleLogicalRange(logicalRange);
+                        try {
+                            c.chart.timeScale().setVisibleLogicalRange(logicalRange);
+                        } catch (e) {}
                     }
                 });
+                
                 isSyncingTime = false;
             };
         }
 
-        const zTimeHandler = getTimeSyncHandler(zChart);
-        const hTimeHandler = getTimeSyncHandler(hChart);
-        const iTimeHandler = getTimeSyncHandler(iChart);
-        const fTimeHandler = fChart ? getTimeSyncHandler(fChart) : null;
+        const zTimeHandler = getLogicalSyncHandler(zChart);
+        const hTimeHandler = getLogicalSyncHandler(hChart);
+        const iTimeHandler = getLogicalSyncHandler(iChart);
+        const fTimeHandler = fChart ? getLogicalSyncHandler(fChart) : null;
+        const fsTimeHandler = fsChart ? getLogicalSyncHandler(fsChart) : null;
 
         zChart.timeScale().subscribeVisibleLogicalRangeChange(zTimeHandler);
         hChart.timeScale().subscribeVisibleLogicalRangeChange(hTimeHandler);
         iChart.timeScale().subscribeVisibleLogicalRangeChange(iTimeHandler);
         if (fChart && fTimeHandler) fChart.timeScale().subscribeVisibleLogicalRangeChange(fTimeHandler);
+        if (fsChart && fsTimeHandler) fsChart.timeScale().subscribeVisibleLogicalRangeChange(fsTimeHandler);
 
         // MAP DATA FOR CROSSHAIR PRICES
-        function timeStrToTimestamp(timeStr) {
-            if (!timeStr) return 0;
-            const [h, m] = timeStr.split(':').map(Number);
-            return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
-        }
 
         function findFlowSnapshotForTime(flowHistory, targetTime) {
             if (!flowHistory || flowHistory.length === 0) return null;
@@ -547,6 +647,7 @@ export default function App() {
         const timeToIPrice = new Map();
         const timeToHPrice = new Map();
         const timeToFPrice = new Map();
+        const timeToFsPrice = new Map();
 
         paddedSignals.forEach(s => {
             if (!s.bar_time) return;
@@ -586,6 +687,26 @@ export default function App() {
             }
         });
 
+        if (flowScore5mData && flowScore5mData.length > 0) {
+            flowScore5mData.forEach(pt => {
+                timeToFsPrice.set(pt.time, pt.value);
+            });
+        }
+
+        function getClosestTimestampForSeries(map, t) {
+            if (map.size === 0) return t;
+            let closestKey = t;
+            let minDiff = Infinity;
+            for (let k of map.keys()) {
+                let diff = Math.abs(k - t);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestKey = k;
+                }
+            }
+            return closestKey;
+        }
+
         // CROSSHAIR SYNC
         let isSyncingCrosshair = false;
         function getCrosshairHandler(sourceChart) {
@@ -602,13 +723,27 @@ export default function App() {
                     charts.forEach(c => {
                         if (c.chart !== sourceChart && c.series) {
                             let price = 0;
-                            if (c.chart === zChart) price = timeToZPrice.get(t) ?? 0;
-                            if (c.chart === iChart) price = timeToIPrice.get(t) ?? 0;
-                            if (c.chart === hChart) price = timeToHPrice.get(t) ?? 3;
-                            if (c.chart === fChart) price = timeToFPrice.get(t) ?? 0;
+                            let targetTime = t;
+                            
+                            if (c.chart === zChart) {
+                                targetTime = getClosestTimestampForSeries(timeToZPrice, t);
+                                price = timeToZPrice.get(targetTime) ?? 0;
+                            } else if (c.chart === iChart) {
+                                targetTime = getClosestTimestampForSeries(timeToIPrice, t);
+                                price = timeToIPrice.get(targetTime) ?? 0;
+                            } else if (c.chart === hChart) {
+                                targetTime = getClosestTimestampForSeries(timeToHPrice, t);
+                                price = timeToHPrice.get(targetTime) ?? 3;
+                            } else if (c.chart === fChart) {
+                                targetTime = getClosestTimestampForSeries(timeToFPrice, t);
+                                price = timeToFPrice.get(targetTime) ?? 0;
+                            } else if (c.chart === fsChart) {
+                                targetTime = getClosestTimestampForSeries(timeToFsPrice, t);
+                                price = timeToFsPrice.get(targetTime) ?? 0;
+                            }
                             
                             try {
-                                c.chart.setCrosshairPosition(price, t, c.series);
+                                c.chart.setCrosshairPosition(price, targetTime, c.series);
                             } catch(e) {}
                         }
                     });
@@ -621,24 +756,28 @@ export default function App() {
         const hCrosshairHandler = getCrosshairHandler(hChart);
         const iCrosshairHandler = getCrosshairHandler(iChart);
         const fCrosshairHandler = fChart ? getCrosshairHandler(fChart) : null;
+        const fsCrosshairHandler = fsChart ? getCrosshairHandler(fsChart) : null;
 
         zChart.subscribeCrosshairMove(zCrosshairHandler);
         hChart.subscribeCrosshairMove(hCrosshairHandler);
         iChart.subscribeCrosshairMove(iCrosshairHandler);
         if (fChart && fCrosshairHandler) fChart.subscribeCrosshairMove(fCrosshairHandler);
+        if (fsChart && fsCrosshairHandler) fsChart.subscribeCrosshairMove(fsCrosshairHandler);
 
         return () => {
             zChart.timeScale().unsubscribeVisibleLogicalRangeChange(zTimeHandler);
             hChart.timeScale().unsubscribeVisibleLogicalRangeChange(hTimeHandler);
             iChart.timeScale().unsubscribeVisibleLogicalRangeChange(iTimeHandler);
             if (fChart && fTimeHandler) fChart.timeScale().unsubscribeVisibleLogicalRangeChange(fTimeHandler);
+            if (fsChart && fsTimeHandler) fsChart.timeScale().unsubscribeVisibleLogicalRangeChange(fsTimeHandler);
 
             zChart.unsubscribeCrosshairMove(zCrosshairHandler);
             hChart.unsubscribeCrosshairMove(hCrosshairHandler);
             iChart.unsubscribeCrosshairMove(iCrosshairHandler);
             if (fChart && fCrosshairHandler) fChart.unsubscribeCrosshairMove(fCrosshairHandler);
+            if (fsChart && fsCrosshairHandler) fsChart.unsubscribeCrosshairMove(fsCrosshairHandler);
         };
-    }, [paddedSignals, flowData, weights, classifications, meta, flowMode]); // Re-bind when data, weights, or classifications update
+    }, [paddedSignals, flowData, flowScore5mData, weights, classifications, meta, flowMode]); // Re-bind when data, weights, or classifications update
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -977,6 +1116,10 @@ export default function App() {
                         classifications={classifications}
                         activeSymbol={meta?.symbol_a}
                         flowMode={flowMode}
+                    />
+                    <FlowScoreChart
+                        ref={flowScoreChartRef}
+                        history={flowScore5mData}
                     />
                 </div>
 
