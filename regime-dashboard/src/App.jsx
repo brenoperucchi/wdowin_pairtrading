@@ -11,6 +11,7 @@ import SetupMatadorPanel from "./components/SetupMatadorPanel";
 import BrokerFlowPanel from "./components/BrokerFlowPanel";
 import FlowDeltaChart from "./components/FlowDeltaChart";
 import FlowScoreChart from "./components/FlowScoreChart";
+import FlowAccelerationChart from "./components/FlowAccelerationChart";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -111,8 +112,10 @@ export default function App() {
     const [diData, setDiData] = useState(null);
     const [flowData, setFlowData] = useState(null);
     const [realtimeFlowData, setRealtimeFlowData] = useState([]);
+    const [realtimeIafData, setRealtimeIafData] = useState([]);
     const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
     const [flowSmoothing, setFlowSmoothing] = useState(3); // Default 3 periods
+    const [iafSmoothing, setIafSmoothing] = useState(3); // Default 3 periods
     const [flowWeights, setFlowWeights] = useState({ fln: 20, pers: 40, conc: 30, abs: 10 });
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [histDates, setHistDates] = useState([]);
@@ -126,6 +129,7 @@ export default function App() {
     const indexChartRef = useRef(null);
     const flowDeltaChartRef = useRef(null);
     const flowScoreChartRef = useRef(null);
+    const flowAccelerationChartRef = useRef(null);
     const [showSetup, setShowSetup] = useState(false);
     const [gexWalls, setGexWalls] = useState([]);
     const [weights, setWeights] = useState({
@@ -342,6 +346,37 @@ export default function App() {
         const t = setInterval(pollRealtimeFlow, 2500); // 2.5s update frequency
         return () => { active = false; clearInterval(t); };
     }, [isViewingHistory, flowWeights]);
+
+    // Fetch IAF history (both live and historical date)
+    useEffect(() => {
+        let active = true;
+        async function fetchIafHistory() {
+            try {
+                const url = isViewingHistory 
+                    ? `http://localhost:8080/api/flow/iaf-history?date_str=${selectedDate}`
+                    : `http://localhost:8080/api/flow/iaf-history`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (active && json && Array.isArray(json)) {
+                        const aligned = json.map(pt => ({
+                            ...pt,
+                            time: alignTimestampTo2025(pt.time)
+                        }));
+                        setRealtimeIafData(aligned);
+                    }
+                }
+            } catch (e) {
+                // Silencioso
+            }
+        }
+        fetchIafHistory();
+        if (!isViewingHistory) {
+            const t = setInterval(fetchIafHistory, 5000);
+            return () => { active = false; clearInterval(t); };
+        }
+        return () => { active = false; };
+    }, [selectedDate, isViewingHistory]);
 
     // Simulação quando offline
     useEffect(() => {
@@ -608,6 +643,27 @@ export default function App() {
         });
     }, [paddedSignals, realtimeFlowData, flowSmoothing]);
 
+    // Align IAF history data to paddedSignals timeline
+    const iafChartData = useMemo(() => {
+        if (!paddedSignals || paddedSignals.length === 0) return [];
+        return paddedSignals.map(s => {
+            if (!s.bar_time) return null;
+            const t = timeStrToTimestamp(s.bar_time);
+            if (t === 0) return null;
+            
+            if (s.win_price == null && s.z == null && s.z_raw_wdo == null) {
+                return { time: t, value: null, isPlaceholder: true };
+            }
+            
+            const matched = realtimeIafData.find(pt => pt.time === t || pt.bar_time === s.bar_time);
+            return {
+                time: t,
+                value: matched ? matched.value : null,
+                isPlaceholder: false
+            };
+        }).filter(Boolean);
+    }, [paddedSignals, realtimeIafData]);
+
     // Sync Time Scales & Crosshairs
     useEffect(() => {
         const zChart = zScoreChartRef.current?.getChart();
@@ -615,12 +671,14 @@ export default function App() {
         const iChart = indexChartRef.current?.getChart();
         const fChart = flowDeltaChartRef.current?.getChart();
         const fsChart = flowScoreChartRef.current?.getChart();
+        const faChart = flowAccelerationChartRef.current?.getChart();
 
         const zSeries = zScoreChartRef.current?.getMainSeries?.();
         const hSeries = histogramChartRef.current?.getMainSeries?.();
         const iSeries = indexChartRef.current?.getMainSeries?.();
         const fSeries = flowDeltaChartRef.current?.getMainSeries?.();
         const fsSeries = flowScoreChartRef.current?.getMainSeries?.();
+        const faSeries = flowAccelerationChartRef.current?.getMainSeries?.();
 
         if (!zChart || !hChart || !iChart) return;
 
@@ -631,6 +689,7 @@ export default function App() {
         ];
         if (fChart) charts.push({ chart: fChart, series: fSeries });
         if (fsChart) charts.push({ chart: fsChart, series: fsSeries });
+        if (faChart) charts.push({ chart: faChart, series: faSeries });
 
         // TIME SCALE SYNC
         let isSyncingTime = false;
@@ -659,12 +718,14 @@ export default function App() {
         const iTimeHandler = getLogicalSyncHandler(iChart);
         const fTimeHandler = fChart ? getLogicalSyncHandler(fChart) : null;
         const fsTimeHandler = fsChart ? getLogicalSyncHandler(fsChart) : null;
+        const faTimeHandler = faChart ? getLogicalSyncHandler(faChart) : null;
 
         zChart.timeScale().subscribeVisibleLogicalRangeChange(zTimeHandler);
         hChart.timeScale().subscribeVisibleLogicalRangeChange(hTimeHandler);
         iChart.timeScale().subscribeVisibleLogicalRangeChange(iTimeHandler);
         if (fChart && fTimeHandler) fChart.timeScale().subscribeVisibleLogicalRangeChange(fTimeHandler);
         if (fsChart && fsTimeHandler) fsChart.timeScale().subscribeVisibleLogicalRangeChange(fsTimeHandler);
+        if (faChart && faTimeHandler) faChart.timeScale().subscribeVisibleLogicalRangeChange(faTimeHandler);
 
         // MAP DATA FOR CROSSHAIR PRICES
 
@@ -687,6 +748,7 @@ export default function App() {
         const timeToHPrice = new Map();
         const timeToFPrice = new Map();
         const timeToFsPrice = new Map();
+        const timeToFaPrice = new Map();
 
         paddedSignals.forEach(s => {
             if (!s.bar_time) return;
@@ -729,6 +791,12 @@ export default function App() {
         if (flowScore5mData && flowScore5mData.length > 0) {
             flowScore5mData.forEach(pt => {
                 timeToFsPrice.set(pt.time, pt.value);
+            });
+        }
+
+        if (iafChartData && iafChartData.length > 0) {
+            iafChartData.forEach(pt => {
+                timeToFaPrice.set(pt.time, pt.value);
             });
         }
 
@@ -779,6 +847,9 @@ export default function App() {
                             } else if (c.chart === fsChart) {
                                 targetTime = getClosestTimestampForSeries(timeToFsPrice, t);
                                 price = timeToFsPrice.get(targetTime) ?? 0;
+                            } else if (c.chart === faChart) {
+                                targetTime = getClosestTimestampForSeries(timeToFaPrice, t);
+                                price = timeToFaPrice.get(targetTime) ?? 0;
                             }
                             
                             try {
@@ -796,12 +867,14 @@ export default function App() {
         const iCrosshairHandler = getCrosshairHandler(iChart);
         const fCrosshairHandler = fChart ? getCrosshairHandler(fChart) : null;
         const fsCrosshairHandler = fsChart ? getCrosshairHandler(fsChart) : null;
+        const faCrosshairHandler = faChart ? getCrosshairHandler(faChart) : null;
 
         zChart.subscribeCrosshairMove(zCrosshairHandler);
         hChart.subscribeCrosshairMove(hCrosshairHandler);
         iChart.subscribeCrosshairMove(iCrosshairHandler);
         if (fChart && fCrosshairHandler) fChart.subscribeCrosshairMove(fCrosshairHandler);
         if (fsChart && fsCrosshairHandler) fsChart.subscribeCrosshairMove(fsCrosshairHandler);
+        if (faChart && faCrosshairHandler) faChart.subscribeCrosshairMove(faCrosshairHandler);
 
         return () => {
             zChart.timeScale().unsubscribeVisibleLogicalRangeChange(zTimeHandler);
@@ -809,14 +882,16 @@ export default function App() {
             iChart.timeScale().unsubscribeVisibleLogicalRangeChange(iTimeHandler);
             if (fChart && fTimeHandler) fChart.timeScale().unsubscribeVisibleLogicalRangeChange(fTimeHandler);
             if (fsChart && fsTimeHandler) fsChart.timeScale().unsubscribeVisibleLogicalRangeChange(fsTimeHandler);
+            if (faChart && faTimeHandler) faChart.timeScale().unsubscribeVisibleLogicalRangeChange(faTimeHandler);
 
             zChart.unsubscribeCrosshairMove(zCrosshairHandler);
             hChart.unsubscribeCrosshairMove(hCrosshairHandler);
             iChart.unsubscribeCrosshairMove(iCrosshairHandler);
             if (fChart && fCrosshairHandler) fChart.unsubscribeCrosshairMove(fCrosshairHandler);
             if (fsChart && fsCrosshairHandler) fsChart.unsubscribeCrosshairMove(fsCrosshairHandler);
+            if (faChart && faCrosshairHandler) faChart.unsubscribeCrosshairMove(faCrosshairHandler);
         };
-    }, [paddedSignals, flowData, flowScore5mData, weights, classifications, meta, flowMode]); // Re-bind when data, weights, or classifications update
+    }, [paddedSignals, flowData, flowScore5mData, iafChartData, weights, classifications, meta, flowMode]); // Re-bind when data, weights, or classifications update
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -1163,6 +1238,13 @@ export default function App() {
                         onSmoothingChange={setFlowSmoothing}
                         weights={flowWeights}
                         onWeightsChange={setFlowWeights}
+                        hideXAxis={true}
+                    />
+                    <FlowAccelerationChart
+                        ref={flowAccelerationChartRef}
+                        history={iafChartData}
+                        smoothing={iafSmoothing}
+                        onSmoothingChange={setIafSmoothing}
                     />
                 </div>
 

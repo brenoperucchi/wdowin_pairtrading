@@ -3,7 +3,7 @@ import { createChart, LineSeries, LineStyle, CrosshairMode } from "lightweight-c
 
 const Y_AXIS_WIDTH = 38;
 
-const FlowScoreChart = forwardRef(({ history = [], smoothing = 3, onSmoothingChange, weights = { fln: 40, pers: 30, conc: 20, abs: 10 }, onWeightsChange }, ref) => {
+const FlowScoreChart = forwardRef(({ history = [], smoothing = 3, onSmoothingChange, weights = { fln: 20, pers: 40, conc: 30, abs: 10 }, onWeightsChange, hideXAxis = false }, ref) => {
     const chartContainerRef = useRef();
     const chartRef = useRef(null);
     const seriesRefs = useRef({});
@@ -71,8 +71,8 @@ const FlowScoreChart = forwardRef(({ history = [], smoothing = 3, onSmoothingCha
                 horzLine: { visible: true, labelVisible: true, labelBackgroundColor: "#c8a444" },
             },
             timeScale: {
-                visible: true,
-                timeVisible: true,
+                visible: !hideXAxis,
+                timeVisible: !hideXAxis,
                 secondsVisible: false,
                 tickMarkFormatter: (time) => {
                     const d = new Date(time * 1000);

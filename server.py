@@ -1657,27 +1657,30 @@ def history_endpoint(days: int = 30):
 # ─── B3 Order Flow / RTD Endpoints ───────────────────────────────────────────
 from fastapi import Query
 
-def calculate_directional_efficiency(lookback_bars: int = None):
+def calculate_directional_efficiency(lookback_bars: int = None, bars_list=None):
     """Calculate the Daily Directional Efficiency (Player Price Influence) for WIN.
     
     Formula: (sum(dPrice * dNet) / sum(|dPrice * dNet|)) * 100
     """
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    try:
-        conn = sqlite3.connect("trades.db", timeout=5.0)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute("""
-            SELECT win_price, flow_json 
-            FROM bar_history 
-            WHERE date_str = ? 
-            ORDER BY timestamp ASC
-        """, (today_str,))
-        rows = c.fetchall()
-        conn.close()
-    except Exception as e:
-        print(f"[ERROR calculate_directional_efficiency] {e}")
-        return {"WIN": {}}
+    if bars_list is None:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        try:
+            conn = sqlite3.connect("trades.db", timeout=5.0)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("""
+                SELECT win_price, flow_json 
+                FROM bar_history 
+                WHERE date_str = ? 
+                ORDER BY timestamp ASC
+            """, (today_str,))
+            rows = c.fetchall()
+            conn.close()
+        except Exception as e:
+            print(f"[ERROR calculate_directional_efficiency] {e}")
+            return {"WIN": {}}
+    else:
+        rows = bars_list
 
     if lookback_bars is not None:
         rows = rows[-lookback_bars:]
@@ -1765,48 +1768,49 @@ def calculate_directional_efficiency(lookback_bars: int = None):
                 
     return efficiency
 
-def calculate_flow_acceleration(efficiency=None):
+def calculate_flow_acceleration(efficiency=None, bars_list=None):
     """Calculate the Flow Acceleration Index (IAF) based on Kyle's Lambda (Lots per 100 points) for WIN.
     
     Returns a dictionary: {"WIN": float} containing scores from -100 to 100.
     """
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    try:
-        conn = sqlite3.connect("trades.db", timeout=5.0)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute("""
-            SELECT win_price, flow_json 
-            FROM bar_history 
-            WHERE date_str = ? 
-            ORDER BY timestamp ASC
-        """, (today_str,))
-        rows = c.fetchall()
-        conn.close()
-    except Exception as e:
-        print(f"[ERROR calculate_flow_acceleration] {e}")
-        return {"WIN": 0.0}
+    if bars_list is None:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        try:
+            conn = sqlite3.connect("trades.db", timeout=5.0)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            c.execute("""
+                SELECT win_price, flow_json 
+                FROM bar_history 
+                WHERE date_str = ? 
+                ORDER BY timestamp ASC
+            """, (today_str,))
+            rows = c.fetchall()
+            conn.close()
+        except Exception as e:
+            print(f"[ERROR calculate_flow_acceleration] {e}")
+            return {"WIN": 0.0}
 
-    # Convert to a list of dicts to make it mutable and allow appending the current open bar
-    bars_list = []
-    for r in rows:
-        bars_list.append({
-            "win_price": r["win_price"],
-            "flow_json": r["flow_json"]
-        })
-
-    # Append the current active open bar to the end of the bars list for real-time responsiveness
-    if connect_mt5():
-        closes_now, _ = fetch_bars(SYMBOL_A, 1)
-        if closes_now is not None and len(closes_now) > 0:
-            price_now = float(closes_now[-1])
-            import json
-            current_flow = _get_current_flow_data()
-            flow_json_now = json.dumps(current_flow)
+        # Convert to a list of dicts to make it mutable and allow appending the current open bar
+        bars_list = []
+        for r in rows:
             bars_list.append({
-                "win_price": price_now,
-                "flow_json": flow_json_now
+                "win_price": r["win_price"],
+                "flow_json": r["flow_json"]
             })
+
+        # Append the current active open bar to the end of the bars list for real-time responsiveness
+        if connect_mt5():
+            closes_now, _ = fetch_bars(SYMBOL_A, 1)
+            if closes_now is not None and len(closes_now) > 0:
+                price_now = float(closes_now[-1])
+                import json
+                current_flow = _get_current_flow_data()
+                flow_json_now = json.dumps(current_flow)
+                bars_list.append({
+                    "win_price": price_now,
+                    "flow_json": flow_json_now
+                })
 
     # We need at least 2 bars to calculate any price movement/flow change
     if len(bars_list) < 2:
@@ -1815,7 +1819,7 @@ def calculate_flow_acceleration(efficiency=None):
     accelerator = {"WIN": 0.0}
     
     # 1. Identify dominant players per symbol (DDE >= 40%) using short-term rolling efficiency (5 bars / 25 minutes)
-    short_term_eff = calculate_directional_efficiency(lookback_bars=5)
+    short_term_eff = calculate_directional_efficiency(lookback_bars=5, bars_list=bars_list)
     dominant_players = {"WIN": []}
     sym_eff = short_term_eff.get("WIN", {})
     for b, eff in sym_eff.items():
@@ -1931,6 +1935,53 @@ def get_realtime_flow(
             "color": color
         })
     return dynamic_flow
+
+@app.get("/api/flow/iaf-history")
+def get_iaf_history(date_str: str = None):
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        conn = sqlite3.connect("trades.db", timeout=5.0)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("""
+            SELECT win_price, flow_json, timestamp, bar_time 
+            FROM bar_history 
+            WHERE date_str = ? 
+            ORDER BY timestamp ASC
+        """, (date_str,))
+        rows = c.fetchall()
+        conn.close()
+    except Exception as e:
+        print(f"[ERROR get_iaf_history] {e}")
+        return []
+
+    if not rows:
+        return []
+
+    iaf_history = []
+    bars_list = []
+    for r in rows:
+        bars_list.append({
+            "win_price": r["win_price"],
+            "flow_json": r["flow_json"]
+        })
+        val_dict = calculate_flow_acceleration(bars_list=bars_list)
+        val = val_dict.get("WIN", 0.0)
+        if val >= 40.0:
+            color = "#00e87a"
+        elif val <= -40.0:
+            color = "#ff3860"
+        else:
+            color = "#f5a623"
+            
+        iaf_history.append({
+            "time": r["timestamp"],
+            "value": val,
+            "color": color,
+            "bar_time": r["bar_time"]
+        })
+    return iaf_history
 
 @app.get("/api/flow")
 def get_flow():
