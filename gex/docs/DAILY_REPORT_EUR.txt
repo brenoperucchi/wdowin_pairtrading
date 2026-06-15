@@ -1,25 +1,24 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - EUR/USD
-  Vencimento de Referencia: 2026-06-18 | Data Ref: 12/06/2026
+  Vencimento de Referencia: 2026-06-18 | Data Ref: 15/06/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    EURUSD Spot Atual: 1.15768
-    Gamma Flip Point:  1.05956
+    EURUSD Spot Atual: 1.16144
+    Gamma Flip Point:  1.06151
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.01697
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.05956
-    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 1.12224
+    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.01489
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.06151
+    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 1.12172
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE FXE   | EQUIVALENTE EURUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $120.0        | 1.2000             | $             -0.00M | Width 1
   Wall       | $119.0        | 1.1900             | $              0.00M | Width 1
   Wall       | $118.0        | 1.1800             | $              0.05M | Width 2
   Wall       | $117.0        | 1.1700             | $              0.00M | Width 1
