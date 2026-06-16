@@ -94,7 +94,7 @@ def download_b3_positions(target_date=None):
                 return dest_path
                 
             print("Iniciando download do arquivo CSV...")
-            with page.expect_download(timeout=60000) as download_info:
+            with page.expect_download(timeout=180000) as download_info:
                 frame.locator('button[title="Exportar CSV"]').click(force=True)
                 print("Botão clicado. Aguardando processamento da B3...")
                 
