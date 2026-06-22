@@ -1,30 +1,15 @@
 {
     "ticker": "GOLD_XAU",
-    "ref_date": "2026-06-22",
-    "updated_at": "2026-06-19 07:32:44",
+    "ref_date": "2026-06-30",
+    "updated_at": "2026-06-22 07:32:36",
     "walls": [
-        {
-            "price": 4000.0,
-            "type": "Wall",
-            "width": 3,
-            "style": 0,
-            "strike_spy": 400,
-            "gex": 356525.98507878726
-        },
-        {
-            "price": 4025.0,
-            "type": "MidWall",
-            "width": 1,
-            "style": 0,
-            "gex": 0.0
-        },
         {
             "price": 4050.0,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 405,
-            "gex": 36271.39583916664
+            "gex": 28.223433311986327
         },
         {
             "price": 4075.0,
@@ -39,7 +24,7 @@
             "width": 1,
             "style": 0,
             "strike_spy": 410,
-            "gex": 9617.557975970365
+            "gex": 0.040291321032702075
         },
         {
             "price": 4125.0,
@@ -51,10 +36,10 @@
         {
             "price": 4150.0,
             "type": "Wall",
-            "width": 1,
+            "width": 3,
             "style": 0,
             "strike_spy": 415,
-            "gex": 16633.4544660893
+            "gex": 1185.3095671658061
         },
         {
             "price": 4175.0,
@@ -69,7 +54,7 @@
             "width": 2,
             "style": 0,
             "strike_spy": 420,
-            "gex": 25362.883062434787
+            "gex": 114.75711344049077
         },
         {
             "price": 4225.0,
@@ -84,7 +69,7 @@
             "width": 1,
             "style": 0,
             "strike_spy": 425,
-            "gex": 2847.701977747885
+            "gex": 4.934998647348085
         },
         {
             "price": 4275.0,
@@ -99,7 +84,7 @@
             "width": 1,
             "style": 0,
             "strike_spy": 430,
-            "gex": 15591.619849661989
+            "gex": 0.15964281135875402
         },
         {
             "price": 4325.0,
@@ -114,24 +99,39 @@
             "width": 1,
             "style": 0,
             "strike_spy": 435,
-            "gex": 1210.7845809467428
+            "gex": 0.012242444915767866
         },
         {
-            "price": 4028.77,
+            "price": 4375.0,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 4400.0,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 440,
+            "gex": 3.862605108008774e-05
+        },
+        {
+            "price": 3795.33,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 47657335.93449545
+            "gex": 462846083.8344886
         },
         {
-            "price": 3861.47,
+            "price": 3865.36,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -16177586.223258363
+            "gex": -39683191.60912189
         },
         {
-            "price": 3923.92,
+            "price": 3869.18,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
