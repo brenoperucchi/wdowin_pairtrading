@@ -61,6 +61,7 @@ def get_expected_trading_day():
 def prompt_user_anomaly(expected_date, trading_date, mt5_date, default_win, default_ibov):
     """
     Exibe um alerta de segurança e solicita ação do usuário em caso de inconsistência de datas.
+    Em modo agendado (GEX_SCHEDULED=1 ou stdin não-interativo), prossegue automaticamente.
     """
     print("\n" + "!" * 70)
     print(" [ALERTA] ALERTA DE SEGURANCA: INCONSISTENCIA DE DATAS DETECTADA!")
@@ -68,6 +69,15 @@ def prompt_user_anomaly(expected_date, trading_date, mt5_date, default_win, defa
     print(f" - Data do arquivo B3 CSV:      {trading_date or 'Nao encontrado'}")
     print(f" - Data dos precos do MT5:      {mt5_date or 'Nao encontrado'}")
     print("!" * 70 + "\n")
+    
+    # Modo agendado/não-interativo: prosseguir automaticamente
+    is_scheduled = os.environ.get("GEX_SCHEDULED", "0") == "1"
+    is_interactive = sys.stdin.isatty() if hasattr(sys.stdin, 'isatty') else False
+    
+    if is_scheduled or not is_interactive:
+        print("[AUTO] Modo agendado detectado — prosseguindo automaticamente com dados disponíveis.")
+        print(f"       Usando dados do último dia útil disponível (CSV: {trading_date}, MT5: {mt5_date}).")
+        return default_win, default_ibov
     
     while True:
         print("[1] Prosseguir mesmo assim (usar dados disponíveis)")
@@ -77,8 +87,8 @@ def prompt_user_anomaly(expected_date, trading_date, mt5_date, default_win, defa
         try:
             choice = input("Selecione uma opção (1/2/3): ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nErro: Ambiente não interativo ou interrupção detectada. Cancelando por segurança.")
-            sys.exit(1)
+            print("\nErro: Ambiente não interativo ou interrupção detectada. Prosseguindo automaticamente.")
+            return default_win, default_ibov
             
         if choice == '1':
             print("\n>> Prosseguindo com os dados disponíveis...")
@@ -188,7 +198,7 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     # 2. Dynamic Implied Volatility via Newton-Raphson
     print("[2/6] Calculando Volatilidade Implicita (Newton-Raphson)...")
     dynamic_iv = 0.20
-    r = 0.145
+    r = 0.1425
     
     # Filtra apenas o vencimento mais proximo (front-month)
     front_month = df_options['expiry'].min()
@@ -286,34 +296,20 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     print(f"\n[5/7] Publicando no Firebase...")
     push_walls_to_firebase(walls)
     
-    # 6. Export to ProfitChart
-    print("\n[6/7] Gerando arquivo para Nelogica ProfitChart...")
-    from .profit_exporter import export_to_profit
-    
-    # Caminhos para salvar (suporta tanto ProfitChart quanto Scalper da Nelogica)
-    base_file = "gex/docs/jumba_neologica"
-    export_paths = [
-        r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy\JumbaWalls.nne",
-        r"C:\Users\ryzen\AppData\Roaming\Nelogica\Scalper\strategy\JumbaWalls.nne"
-    ]
+    # 6. Deploy Nelogica (ProfitChart + Scalper) com clipboard e notificação
+    print("\n[6/7] Deploy Nelogica (Scalper + Profit + Clipboard)...")
+    from .profit_exporter import deploy_to_nelogica
     
     try:
-        # Sobrescreve o arquivo base do repositorio
-        export_to_profit(walls, output_path=base_file, current_win=current_win)
-        
-        # Tenta salvar em todas as pastas da Nelogica que estiverem presentes no PC
-        for path in export_paths:
-            path_dir = os.path.dirname(path)
-            if os.path.exists(path_dir):
-                export_to_profit(walls, output_path=path, current_win=current_win)
-            else:
-                # Se a pasta pai (ex: Nelogica\Scalper) existir mas a subpasta 'strategy' não, cria a subpasta
-                parent_dir = os.path.dirname(path_dir)
-                if os.path.exists(parent_dir):
-                    os.makedirs(path_dir, exist_ok=True)
-                    export_to_profit(walls, output_path=path, current_win=current_win)
+        deploy_to_nelogica(walls, current_win=current_win)
     except Exception as e:
-        print(f"      Aviso: Nao foi possivel salvar nas pastas da Nelogica ({e})")
+        print(f"      Aviso: Falha no deploy Nelogica ({e})")
+        # Fallback: pelo menos salvar o arquivo base
+        try:
+            from .profit_exporter import export_to_profit
+            export_to_profit(walls, output_path="gex/docs/jumba_neologica", current_win=current_win)
+        except Exception:
+            pass
         
     # 7. Export to TradingView
     print("\n[7/7] Gerando arquivo unificado para TradingView Pine Script...")

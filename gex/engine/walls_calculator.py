@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from .black76 import black76_gamma
 
-def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry_days=27, r=0.145):
+def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry_days=27, r=0.1425):
     """
     Calcula o perfil GEX completo e gera as Jumba Walls.
     

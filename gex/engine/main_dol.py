@@ -185,7 +185,7 @@ def run_dol_gex_pipeline():
         expiry_days = max(1, expiry_days)
         T = max(1/252, expiry_days / 252)
         
-        r = 0.145  # Selic ~14.50%
+        r = 0.1425  # Selic ~14.25%
         iv = 0.12  # IV padrão histórica estável para USD/BRL
         
         print(f"\n[2/5] Parâmetros de Cálculo Black-76:")
