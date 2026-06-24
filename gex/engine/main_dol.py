@@ -425,6 +425,14 @@ def run_dol_gex_pipeline():
     except Exception as e:
         print(f"      Aviso: Nao foi possivel salvar para o TradingView ({e})")
         
+    # Exportar para o ProfitChart (Nelogica)
+    print("\n      Exportando para ProfitChart...")
+    try:
+        from .profit_exporter import deploy_to_nelogica
+        deploy_to_nelogica(walls, ticker="DOL", current_price=current_wdo)
+    except Exception as e:
+        print(f"      Aviso: Falha no deploy Nelogica ({e})")
+        
     print("\n" + "=" * 60)
     print("  Pipeline Dólar concluído com sucesso!")
     print("=" * 60)

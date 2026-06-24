@@ -301,7 +301,7 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     from .profit_exporter import deploy_to_nelogica
     
     try:
-        deploy_to_nelogica(walls, current_win=current_win)
+        deploy_to_nelogica(walls, ticker="WIN", current_price=current_win)
     except Exception as e:
         print(f"      Aviso: Falha no deploy Nelogica ({e})")
         # Fallback: pelo menos salvar o arquivo base
