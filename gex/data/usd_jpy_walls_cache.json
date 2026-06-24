@@ -1,32 +1,32 @@
 {
     "ticker": "USD_JPY",
     "ref_date": "2026-07-17",
-    "updated_at": "2026-06-23 07:32:08",
+    "updated_at": "2026-06-24 07:33:33",
     "walls": [
         {
-            "price": 181.855,
+            "price": 182.224,
             "type": "Wall",
             "width": 3,
             "style": 0,
             "strike_spy": 64.0,
-            "gex": -123.11535369182907
+            "gex": -123.38293818125734
         },
         {
-            "price": 145.231,
+            "price": 145.552,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": -664.4900748082047
+            "gex": -647.7745600129342
         },
         {
-            "price": 177.505,
+            "price": 177.896,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -4117.640776835126
+            "gex": -4137.022633838254
         },
         {
-            "price": 161.368,
+            "price": 161.724,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
