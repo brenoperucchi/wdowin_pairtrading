@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Bitcoin Spot Atual: $61730.40
-    Gamma Flip Point:   $64528.95
+    Bitcoin Spot Atual: $61379.96
+    Gamma Flip Point:   $64568.92
     Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $60582.65
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $64528.95
-    [+] MAX GAMMA (Teto Gravitacional)    : BTC $67903.44
+    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $60423.79
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $64568.92
+    [+] MAX GAMMA (Teto Gravitacional)    : BTC $67517.96
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE BTC   | EQUIVALENTE USD  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $69000.00    | BTC $69000.00     | $               0.14M | Width 1
-  WALL *     | $68000.00    | BTC $68000.00     | $               0.25M | Width 1
-  WALL *     | $67000.00    | BTC $67000.00     | $               1.11M | Width 1
-  WALL *     | $66000.00    | BTC $66000.00     | $               0.45M | Width 1
-  WALL *     | $65000.00    | BTC $65000.00     | $               0.76M | Width 1
-  WALL *     | $64000.00    | BTC $64000.00     | $              -3.61M | Width 1
-  WALL *     | $63000.00    | BTC $63000.00     | $              -4.56M | Width 1
-  WALL ***   | $62000.00    | BTC $62000.00     | $             -23.01M | Width 3
-  WALL **    | $61000.00    | BTC $61000.00     | $              -9.23M | Width 2
-  WALL **    | $60000.00    | BTC $60000.00     | $             -14.99M | Width 2
-  WALL *     | $59000.00    | BTC $59000.00     | $              -3.24M | Width 1
-  WALL *     | $58000.00    | BTC $58000.00     | $              -3.55M | Width 1
-  WALL *     | $57000.00    | BTC $57000.00     | $              -1.62M | Width 1
-  WALL *     | $55000.00    | BTC $55000.00     | $              -1.12M | Width 1
-  WALL *     | $52000.00    | BTC $52000.00     | $              -0.28M | Width 1
-  WALL *     | $50000.00    | BTC $50000.00     | $              -0.14M | Width 1
+  WALL *     | $68000.00    | BTC $68000.00     | $               0.21M | Width 1
+  WALL *     | $67000.00    | BTC $67000.00     | $               1.10M | Width 1
+  WALL *     | $66000.00    | BTC $66000.00     | $               0.52M | Width 1
+  WALL *     | $65000.00    | BTC $65000.00     | $               0.87M | Width 1
+  WALL *     | $64000.00    | BTC $64000.00     | $              -3.04M | Width 1
+  WALL *     | $63000.00    | BTC $63000.00     | $              -3.38M | Width 1
+  WALL ***   | $62000.00    | BTC $62000.00     | $             -17.62M | Width 3
+  WALL **    | $61000.00    | BTC $61000.00     | $              -8.91M | Width 2
+  WALL **    | $60000.00    | BTC $60000.00     | $             -17.52M | Width 2
+  WALL *     | $59000.00    | BTC $59000.00     | $              -4.26M | Width 1
+  WALL *     | $58000.00    | BTC $58000.00     | $              -4.99M | Width 1
+  WALL *     | $57000.00    | BTC $57000.00     | $              -2.32M | Width 1
+  WALL *     | $55000.00    | BTC $55000.00     | $              -1.67M | Width 1
+  WALL *     | $52000.00    | BTC $52000.00     | $              -0.35M | Width 1
+  WALL *     | $50000.00    | BTC $50000.00     | $              -0.18M | Width 1
+  WALL *     | $45000.00    | BTC $45000.00     | $              -0.03M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na Deribit.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
