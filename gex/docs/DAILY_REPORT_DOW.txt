@@ -1,36 +1,36 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - DOW JONES / US30
-  Vencimento de Referencia: 2026-07-02 | Data Ref: 01/07/2026
+  Vencimento de Referencia: 2026-07-02 | Data Ref: 02/07/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US30 Spot Atual:    52319.20
-    Gamma Flip Point:   52251.99
-    Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
-    Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
-    Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
+    US30 Spot Atual:    52305.24
+    Gamma Flip Point:   52241.33
+    Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
+    Vies do Dia:        ALTA / LATERALIZACAO
+    Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 52114.47
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 52251.99
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 52692.06
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 52062.96
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 52241.33
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 52325.50
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
   Wall       | $555.0        | 55507.16           | $              0.00M | Width 1
-  Wall       | $550.0        | 55007.09           | $              0.00M | Width 1
+  Wall       | $550.0        | 55007.09           | $              0.01M | Width 1
   Wall       | $545.0        | 54507.03           | $              0.00M | Width 1
   Wall       | $540.0        | 54006.96           | $              0.00M | Width 1
-  Wall       | $535.0        | 53506.90           | $              0.00M | Width 1
-  Wall       | $530.0        | 53006.84           | $              0.05M | Width 2
-  Wall       | $525.0        | 52506.77           | $              1.42M | Width 3
-  Wall       | $520.0        | 52006.71           | $             -0.28M | Width 2
-  Wall       | $515.0        | 51506.64           | $             -0.01M | Width 1
-  Wall       | $510.0        | 51006.58           | $             -0.00M | Width 1
+  Wall       | $535.0        | 53506.90           | $              0.02M | Width 1
+  Wall       | $530.0        | 53006.84           | $              3.89M | Width 2
+  Wall       | $525.0        | 52506.77           | $            123.89M | Width 3
+  Wall       | $520.0        | 52006.71           | $            -14.91M | Width 2
+  Wall       | $515.0        | 51506.64           | $             -0.49M | Width 1
+  Wall       | $510.0        | 51006.58           | $             -0.18M | Width 1
   Wall       | $505.0        | 50506.51           | $             -0.00M | Width 1
-  Wall       | $500.0        | 50006.45           | $             -0.00M | Width 1
+  Wall       | $500.0        | 50006.45           | $             -0.02M | Width 1
   Wall       | $495.0        | 49506.38           | $             -0.00M | Width 1
   Wall       | $490.0        | 49006.32           | $             -0.00M | Width 1
   Wall       | $485.0        | 48506.26           | $             -0.00M | Width 1
