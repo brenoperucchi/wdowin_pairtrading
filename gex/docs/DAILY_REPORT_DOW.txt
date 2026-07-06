@@ -5,15 +5,15 @@
 
 [+] STATUS DO MERCADO (REGIME GEX):
     US30 Spot Atual:    52900.07
-    Gamma Flip Point:   52746.42
+    Gamma Flip Point:   52740.24
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 52576.38
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 52746.42
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 53691.07
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 52470.22
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 52740.24
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 53001.02
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
@@ -21,18 +21,18 @@
 -----------------------------------------------------------------
   Wall       | $565.0        | 56529.15           | $              0.00M | Width 1
   Wall       | $560.0        | 56028.90           | $              0.00M | Width 1
-  Wall       | $555.0        | 55528.64           | $              0.00M | Width 1
+  Wall       | $555.0        | 55528.64           | $              0.11M | Width 1
   Wall       | $550.0        | 55028.38           | $              0.00M | Width 1
   Wall       | $545.0        | 54528.12           | $              0.00M | Width 1
   Wall       | $540.0        | 54027.86           | $              0.00M | Width 1
-  Wall       | $535.0        | 53527.61           | $              0.39M | Width 2
-  Wall       | $530.0        | 53027.35           | $              4.30M | Width 3
-  Wall       | $525.0        | 52527.09           | $             -2.31M | Width 2
-  Wall       | $520.0        | 52026.83           | $             -0.22M | Width 1
-  Wall       | $515.0        | 51526.57           | $             -0.16M | Width 1
+  Wall       | $535.0        | 53527.61           | $              0.57M | Width 2
+  Wall       | $530.0        | 53027.35           | $              5.14M | Width 3
+  Wall       | $525.0        | 52527.09           | $             -0.99M | Width 2
+  Wall       | $520.0        | 52026.83           | $             -0.17M | Width 1
+  Wall       | $515.0        | 51526.57           | $             -0.17M | Width 1
   Wall       | $510.0        | 51026.32           | $             -0.00M | Width 1
-  Wall       | $505.0        | 50526.06           | $             -0.00M | Width 1
-  Wall       | $500.0        | 50025.80           | $             -0.01M | Width 1
+  Wall       | $505.0        | 50526.06           | $             -0.01M | Width 1
+  Wall       | $500.0        | 50025.80           | $             -0.09M | Width 1
   Wall       | $495.0        | 49525.54           | $             -0.00M | Width 1
   Wall       | $490.0        | 49025.28           | $             -0.00M | Width 1
 -----------------------------------------------------------------
