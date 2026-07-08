@@ -31,10 +31,11 @@ def save_walls_to_cache(walls, ticker, ref_date):
 
 def _generate_pine_array_pushes(walls, ticker):
     """
-    Gera as linhas de push de array em Pine Script para um determinado conjunto de walls.
+    Gera as definições de função e chamadas em Pine Script para evitar o erro CE10295 (main body too long).
+    Cada chunk de 40 níveis é compilado como uma função no escopo global para manter o corpo principal do script curto.
     """
     if not walls:
-        return []
+        return f"    // Nenhum dado cacheado de {ticker} disponível"
         
     # Ordenar por preço para que as linhas fiquem organizadas
     walls_sorted = sorted(walls, key=lambda x: x['price'])
@@ -57,63 +58,92 @@ def _generate_pine_array_pushes(walls, ticker):
         "EUR_USD": "eur",
         "GBP_USD": "gbp",
         "GOLD_XAU": "gold",
-        "DOW_US30": "dow"
+        "DOW_US30": "dow",
+        "USD_JPY": "jpy"
     }
     prefix = prefix_map.get(ticker, "us")
-    lines = []
     
-    for w in sorted(walls_sorted, key=lambda x: x['price']):
-        p = w['price']
-        w_type = w['type']
-        width = w.get('width', 1)
-        style = "dashed" if w_type == "MidWall" else "solid"
-        col = color_map.get(w_type, "color.new(#00e676, 0)")
+    func_definitions = []
+    func_calls = ["if barstate.isfirst"]
+    
+    chunk_size = 40
+    chunk_count = 0
+    
+    for chunk_idx in range(0, len(walls_sorted), chunk_size):
+        chunk = walls_sorted[chunk_idx : chunk_idx + chunk_size]
+        func_name = f"populate_{prefix}_{chunk_count}"
         
-        # Rótulo amigável
-        if w_type == "Wall":
-            stars = "*" * width
-            lbl = f"WALL {stars}"
-            if w.get('strike_ibov'):
-                lbl += f" (IBOV {w['strike_ibov']})"
-            elif w.get('strike_spy'):
-                # SPY ou QQQ ou BTC ou moedas ou Gold ou Dow
-                if prefix == "nq":
-                    lbl += f" (QQQ {w['strike_spy']})"
-                elif prefix == "btc":
-                    lbl += f" (BTC {w['strike_spy']})"
-                elif prefix == "dol":
-                    lbl += f" (DOL {w['strike_spy']})"
-                elif prefix == "eur":
-                    lbl += f" (FXE {w['strike_spy']})"
-                elif prefix == "gbp":
-                    lbl += f" (FXB {w['strike_spy']})"
-                elif prefix == "gold":
-                    lbl += f" (GLD {w['strike_spy']})"
-                elif prefix == "dow":
-                    lbl += f" (DIA {w['strike_spy']})"
-                else:
-                    lbl += f" (SPY {w['strike_spy']})"
-        elif w_type == "MidWall":
-            lbl = "MID WALL"
-        elif w_type == "GammaFlip":
-            lbl = "GAMMA FLIP (Pivot)"
-        elif w_type == "MaxGamma":
-            lbl = "MAX GAMMA (Teto)"
-        elif w_type == "MinGamma":
-            lbl = "MIN GAMMA (Piso)"
-        else:
-            lbl = w_type.upper()
+        block_lines = [
+            f"{func_name}(float[] pr, string[] lb, color[] cl, int[] wd, string[] st) =>"
+        ]
+        
+        for w in chunk:
+            p = w['price']
+            w_type = w['type']
+            width = w.get('width', 1)
+            style = "dashed" if w_type == "MidWall" else "solid"
+            col = color_map.get(w_type, "color.new(#00e676, 0)")
             
-        if prefix in ('eur', 'gbp'):
-            lines.append(f"    array.push({prefix}_prices, {p:.4f})")
-        else:
-            lines.append(f"    array.push({prefix}_prices, {p:.3f})")
-        lines.append(f'    array.push({prefix}_labels, "{lbl}")')
-        lines.append(f"    array.push({prefix}_colors, {col})")
-        lines.append(f"    array.push({prefix}_widths, {width})")
-        lines.append(f'    array.push({prefix}_styles, "{style}")')
+            # Rótulo amigável
+            if w_type == "Wall":
+                stars = "*" * width
+                lbl = f"WALL {stars}"
+                if w.get('strike_ibov'):
+                    lbl += f" (IBOV {w['strike_ibov']})"
+                elif w.get('strike_spy'):
+                    # SPY ou QQQ ou BTC ou moedas ou Gold ou Dow ou JPY ou DXY
+                    if prefix == "nq":
+                        lbl += f" (QQQ {w['strike_spy']})"
+                    elif prefix == "btc":
+                        lbl += f" (BTC {w['strike_spy']})"
+                    elif prefix == "dol":
+                        lbl += f" (DOL {w['strike_spy']})"
+                    elif prefix == "eur":
+                        lbl += f" (FXE {w['strike_spy']})"
+                    elif prefix == "gbp":
+                        lbl += f" (FXB {w['strike_spy']})"
+                    elif prefix == "gold":
+                        lbl += f" (GLD {w['strike_spy']})"
+                    elif prefix == "dow":
+                        lbl += f" (DIA {w['strike_spy']})"
+                    elif prefix == "jpy":
+                        lbl += f" (FXY {w['strike_spy']})"
+                    elif prefix == "dxy":
+                        lbl += f" (UUP {w['strike_spy']})"
+                    else:
+                        lbl += f" (SPY {w['strike_spy']})"
+            elif w_type == "MidWall":
+                lbl = "MID WALL"
+            elif w_type == "GammaFlip":
+                lbl = "GAMMA FLIP (Pivot)"
+            elif w_type == "MaxGamma":
+                lbl = "MAX GAMMA (Teto)"
+            elif w_type == "MinGamma":
+                lbl = "MIN GAMMA (Piso)"
+            else:
+                lbl = w_type.upper()
+                
+            if prefix in ('eur', 'gbp'):
+                block_lines.append(f"    array.push(pr, {p:.4f})")
+            elif prefix == 'jpy':
+                block_lines.append(f"    array.push(pr, {p:.3f})")
+            else:
+                block_lines.append(f"    array.push(pr, {p:.3f})")
+            block_lines.append(f'    array.push(lb, "{lbl}")')
+            block_lines.append(f"    array.push(cl, {col})")
+            block_lines.append(f"    array.push(wd, {width})")
+            block_lines.append(f'    array.push(st, "{style}")')
+            
+        block_lines.append("    true")  # Dummy return for valid Pine function body
+        func_definitions.append("\n".join(block_lines))
+        func_calls.append(f"    {func_name}({prefix}_prices, {prefix}_labels, {prefix}_colors, {prefix}_widths, {prefix}_styles)")
         
-    return lines
+        chunk_count += 1
+        
+    defs_str = "\n\n".join(func_definitions)
+    calls_str = "\n".join(func_calls)
+    
+    return defs_str + "\n\n" + calls_str
 
 
 def export_unified_tradingview(output_path):
@@ -133,7 +163,8 @@ def export_unified_tradingview(output_path):
         ("eur_usd", "eur_usd_walls_cache.json"),
         ("gbp_usd", "gbp_usd_walls_cache.json"),
         ("gold_xau", "gold_xau_walls_cache.json"),
-        ("dow_us30", "dow_us30_walls_cache.json")
+        ("dow_us30", "dow_us30_walls_cache.json"),
+        ("usd_jpy", "usd_jpy_walls_cache.json")
     ]
     
     loaded_caches = {}
@@ -162,15 +193,16 @@ def export_unified_tradingview(output_path):
             pass
             
     # Gerar os pushes
-    win_pushes = _generate_pine_array_pushes(loaded_caches.get("win", {}).get("walls", []), "WIN")
-    us_pushes = _generate_pine_array_pushes(loaded_caches.get("sp500_es", {}).get("walls", []), "SP500_ES")
-    nq_pushes = _generate_pine_array_pushes(loaded_caches.get("nasdaq_nq", {}).get("walls", []), "NASDAQ_NQ")
-    btc_pushes = _generate_pine_array_pushes(loaded_caches.get("btc_usd", {}).get("walls", []), "BTC_USD")
-    dol_pushes = _generate_pine_array_pushes(loaded_caches.get("usd_brl", {}).get("walls", []), "USD_BRL")
-    eur_pushes = _generate_pine_array_pushes(loaded_caches.get("eur_usd", {}).get("walls", []), "EUR_USD")
-    gbp_pushes = _generate_pine_array_pushes(loaded_caches.get("gbp_usd", {}).get("walls", []), "GBP_USD")
-    gold_pushes = _generate_pine_array_pushes(loaded_caches.get("gold_xau", {}).get("walls", []), "GOLD_XAU")
-    dow_pushes = _generate_pine_array_pushes(loaded_caches.get("dow_us30", {}).get("walls", []), "DOW_US30")
+    win_code = _generate_pine_array_pushes(loaded_caches.get("win", {}).get("walls", []), "WIN")
+    us_code = _generate_pine_array_pushes(loaded_caches.get("sp500_es", {}).get("walls", []), "SP500_ES")
+    nq_code = _generate_pine_array_pushes(loaded_caches.get("nasdaq_nq", {}).get("walls", []), "NASDAQ_NQ")
+    btc_code = _generate_pine_array_pushes(loaded_caches.get("btc_usd", {}).get("walls", []), "BTC_USD")
+    dol_code = _generate_pine_array_pushes(loaded_caches.get("usd_brl", {}).get("walls", []), "USD_BRL")
+    eur_code = _generate_pine_array_pushes(loaded_caches.get("eur_usd", {}).get("walls", []), "EUR_USD")
+    gbp_code = _generate_pine_array_pushes(loaded_caches.get("gbp_usd", {}).get("walls", []), "GBP_USD")
+    gold_code = _generate_pine_array_pushes(loaded_caches.get("gold_xau", {}).get("walls", []), "GOLD_XAU")
+    dow_code = _generate_pine_array_pushes(loaded_caches.get("dow_us30", {}).get("walls", []), "DOW_US30")
+    jpy_code = _generate_pine_array_pushes(loaded_caches.get("usd_jpy", {}).get("walls", []), "USD_JPY")
     
     win_date = loaded_caches.get("win", {}).get("ref_date", "Não disponível")
     us_date = loaded_caches.get("sp500_es", {}).get("ref_date", "Não disponível")
@@ -181,20 +213,11 @@ def export_unified_tradingview(output_path):
     gbp_date = loaded_caches.get("gbp_usd", {}).get("ref_date", "Não disponível")
     gold_date = loaded_caches.get("gold_xau", {}).get("ref_date", "Não disponível")
     dow_date = loaded_caches.get("dow_us30", {}).get("ref_date", "Não disponível")
-    
-    win_code = "\n".join(win_pushes) if win_pushes else "    // Nenhum dado cacheado de WIN disponível"
-    us_code = "\n".join(us_pushes) if us_pushes else "    // Nenhum dado cacheado de SP500 disponível"
-    nq_code = "\n".join(nq_pushes) if nq_pushes else "    // Nenhum dado cacheado de NASDAQ disponível"
-    btc_code = "\n".join(btc_pushes) if btc_pushes else "    // Nenhum dado cacheado de BITCOIN disponível"
-    dol_code = "\n".join(dol_pushes) if dol_pushes else "    // Nenhum dado cacheado de DÓLAR B3 disponível"
-    eur_code = "\n".join(eur_pushes) if eur_pushes else "    // Nenhum dado cacheado de EUR/USD disponível"
-    gbp_code = "\n".join(gbp_pushes) if gbp_pushes else "    // Nenhum dado cacheado de GBP/USD disponível"
-    gold_code = "\n".join(gold_pushes) if gold_pushes else "    // Nenhum dado cacheado de OURO / XAUUSD disponível"
-    dow_code = "\n".join(dow_pushes) if dow_pushes else "    // Nenhum dado cacheado de DOW / US30 disponível"
+    jpy_date = loaded_caches.get("usd_jpy", {}).get("ref_date", "Não disponível")
     
     pine_code = f"""//@version=6
 // +-------------------------------------------------------------------------+
-// | Jumba GEX Levels - Unificado 9 Ativos para TradingView                 |
+// | Jumba GEX Levels - Unificado 10 Ativos para TradingView                |
 // | Gerado em: {datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")}                     |
 // | Referências das Coletas:                                                |
 // | - WIN Futures  (B3) : {win_date}                                         |
@@ -206,10 +229,12 @@ def export_unified_tradingview(output_path):
 // | - GBP / USD    (Forex): {gbp_date}                                         |
 // | - Ouro / GLD   (Metal): {gold_date}                                        |
 // | - Dow / DIA    (EUA)  : {dow_date}                                         |
+// | - USD / JPY    (Forex): {jpy_date}                                         |
 // |                                                                         |
 // | Desenha os níveis automaticamente dependendo do ativo aberto no gráfico!|
 // +-------------------------------------------------------------------------+
-indicator("Jumba GEX Levels Unified (9 Ativos)", overlay=true, shorttitle="JumbaGEX Unified", max_lines_count=150, max_labels_count=150)
+// indicator e variáveis globais
+indicator("Jumba GEX Levels Unified (10 Ativos)", overlay=true, shorttitle="JumbaGEX Unified", max_lines_count=200, max_labels_count=200)
 
 // --- CONFIGURAÇÃO DE DATA ---
 g_date         = "Configuração Temporal"
@@ -223,6 +248,7 @@ is_target_date = not useDateFilter or (year(time) == targetYear and month(time) 
 // --- CONFIGURAÇÃO VISUAL ---
 g_visual       = "Configuração Visual"
 showLabels     = input.bool(true, "Exibir Legendas das Walls", group=g_visual)
+showMidWalls   = input.bool(true, "Exibir Mid-Walls", group=g_visual)
 showMidLabels  = input.bool(false, "Exibir Legenda de Mid-Walls", group=g_visual)
 showPrices     = input.bool(true, "Exibir Preço na Legenda", group=g_visual)
 transparentBg  = input.bool(true, "Fundo da Legenda Transparente", group=g_visual)
@@ -293,38 +319,48 @@ var color[] dow_colors = array.new_color()
 var int[] dow_widths = array.new_int()
 var string[] dow_styles = array.new_string()
 
-// --- POPULANDO DADOS (blocos separados para evitar limite de bytecode) ---
+// 10. Arrays para USD / JPY (Forex)
+var float[] jpy_prices = array.new_float()
+var string[] jpy_labels = array.new_string()
+var color[] jpy_colors = array.new_color()
+var int[] jpy_widths = array.new_int()
+var string[] jpy_styles = array.new_string()
 
-if barstate.isfirst // WIN Futures (B3)
+// --- POPULANDO DADOS (blocos separados para evitar limite de bytecode e escopo local) ---
+
+// WIN Futures (B3)
 {win_code}
 
-if barstate.isfirst // SP500 / ES (EUA)
+// SP500 / ES (EUA)
 {us_code}
 
-if barstate.isfirst // Nasdaq 100 / NQ (EUA)
+// Nasdaq 100 / NQ (EUA)
 {nq_code}
 
-if barstate.isfirst // Bitcoin / BTC USD (Cripto)
+// Bitcoin / BTC USD (Cripto)
 {btc_code}
 
-if barstate.isfirst // Dólar Futuro B3
+// Dólar Futuro B3
 {dol_code}
 
-if barstate.isfirst // EUR / USD (Forex)
+// EUR / USD (Forex)
 {eur_code}
 
-if barstate.isfirst // GBP / USD (Forex)
+// GBP / USD (Forex)
 {gbp_code}
 
-if barstate.isfirst // Ouro / XAUUSD (Metal)
+// Ouro / XAUUSD (Metal)
 {gold_code}
 
-if barstate.isfirst // Dow Jones / US30 (EUA)
+// Dow Jones / US30 (EUA)
 {dow_code}
+
+// USD / JPY (Forex)
+{jpy_code}
 
 // --- DETECÇÃO DINÂMICA E FALLBACK DE ATIVO ---
 g_asset         = "Configuração de Ativo"
-forced_asset    = input.string("Automático", "Forçar Ativo no Gráfico", options=["Automático", "WIN / B3", "SP500 / ES", "Nasdaq 100 / NQ", "Bitcoin / BTC", "Dólar / BRL", "EUR / USD", "GBP / USD", "Ouro / XAUUSD", "Dow Jones / US30"], group=g_asset)
+forced_asset    = input.string("Automático", "Forçar Ativo no Gráfico", options=["Automático", "WIN / B3", "SP500 / ES", "Nasdaq 100 / NQ", "Bitcoin / BTC", "Dólar / BRL", "EUR / USD", "GBP / USD", "Ouro / XAUUSD", "Dow Jones / US30", "USD / JPY"], group=g_asset)
 
 ticker_upper = str.upper(syminfo.ticker)
 is_win_detected  = str.contains(ticker_upper, "WIN") or str.contains(ticker_upper, "IND") or str.contains(ticker_upper, "BRA50") or str.contains(ticker_upper, "BRA")
@@ -336,6 +372,7 @@ is_eur_detected  = str.contains(ticker_upper, "EURUSD") or (str.contains(ticker_
 is_gbp_detected  = str.contains(ticker_upper, "GBPUSD") or (str.contains(ticker_upper, "GBP") and str.contains(ticker_upper, "USD"))
 is_gold_detected = str.contains(ticker_upper, "XAU") or str.contains(ticker_upper, "GOLD") or str.contains(ticker_upper, "GLD")
 is_dow_detected  = str.contains(ticker_upper, "US30") or str.contains(ticker_upper, "DIA") or str.contains(ticker_upper, "DJI") or str.contains(ticker_upper, "YM") or str.contains(ticker_upper, "DOW")
+is_jpy_detected  = str.contains(ticker_upper, "USDJPY") or (str.contains(ticker_upper, "JPY") and not str.contains(ticker_upper, "GBPJPY") and not str.contains(ticker_upper, "EURJPY")) or str.contains(ticker_upper, "FXY")
 
 is_win  = forced_asset == "WIN / B3" or (forced_asset == "Automático" and is_win_detected)
 is_nq   = forced_asset == "Nasdaq 100 / NQ" or (forced_asset == "Automático" and is_nq_detected)
@@ -345,8 +382,9 @@ is_eur  = forced_asset == "EUR / USD" or (forced_asset == "Automático" and is_e
 is_gbp  = forced_asset == "GBP / USD" or (forced_asset == "Automático" and is_gbp_detected)
 is_gold = forced_asset == "Ouro / XAUUSD" or (forced_asset == "Automático" and is_gold_detected)
 is_dow  = forced_asset == "Dow Jones / US30" or (forced_asset == "Automático" and is_dow_detected)
+is_jpy  = forced_asset == "USD / JPY" or (forced_asset == "Automático" and is_jpy_detected)
 // Fallback inteligente para o SP500 / ES se nenhum outro ativo coincidir
-is_us   = forced_asset == "SP500 / ES" or (forced_asset == "Automático" and (is_us_detected or (not is_win and not is_nq and not is_btc and not is_dol and not is_eur and not is_gbp and not is_gold and not is_dow)))
+is_us   = forced_asset == "SP500 / ES" or (forced_asset == "Automático" and (is_us_detected or (not is_win and not is_nq and not is_btc and not is_dol and not is_eur and not is_gbp and not is_gold and not is_dow and not is_jpy)))
 
 var float[] prices = na
 var string[] labels = na
@@ -402,6 +440,12 @@ else if is_dow
     colors := dow_colors
     widths := dow_widths
     styles := dow_styles
+else if is_jpy
+    prices := jpy_prices
+    labels := jpy_labels
+    colors := jpy_colors
+    widths := jpy_widths
+    styles := jpy_styles
 else if is_us
     prices := us_prices
     labels := us_labels
@@ -440,24 +484,25 @@ if is_target_date and barstate.islast
                 w = array.get(widths, i)
                 sty = array.get(styles, i) == "dashed" ? line.style_dashed : line.style_solid
                 
-                // Desenhar a linha estendida para ambos os lados
-                l = line.new(x1=bar_index - 100, y1=p, x2=bar_index, y2=p, xloc=xloc.bar_index, extend=extend.both, color=col, width=w, style=sty)
-                array.push(active_lines, l)
-                
-                // Rótulo dinâmico dependendo da escala e configurações visuais
-                bool draw_lbl = showLabels
-                if lbl == "MID WALL" and not showMidLabels
-                    draw_lbl := false
-                
-                if draw_lbl
-                    string p_str = (is_eur or is_gbp) ? str.tostring(p, "#.####") : (scale_factor < 1.0 ? str.tostring(p, "#.####") : str.tostring(p, is_win ? "#" : "#.##"))
-                    string label_text = lbl
-                    if showPrices
-                        label_text := label_text + " [" + p_str + "]"
+                // Desenhar a linha se nao for MidWall ou se a configuracao de exibir MidWalls estiver ativa
+                if lbl != "MID WALL" or showMidWalls
+                    l = line.new(x1=bar_index - 100, y1=p, x2=bar_index, y2=p, xloc=xloc.bar_index, extend=extend.both, color=col, width=w, style=sty)
+                    array.push(active_lines, l)
                     
-                    color bg_color = transparentBg ? color.new(color.black, 100) : color.new(col, 95)
-                    lb = label.new(x=bar_index + 12, y=p, text=label_text, xloc=xloc.bar_index, color=bg_color, textcolor=col, style=label.style_label_left, size=labelSize)
-                    array.push(active_labels, lb)
+                    // Rótulo dinâmico dependendo da escala e configurações visuais
+                    bool draw_lbl = showLabels
+                    if lbl == "MID WALL" and not showMidLabels
+                        draw_lbl := false
+                    
+                    if draw_lbl
+                        string p_str = (is_eur or is_gbp) ? str.tostring(p, "#.####") : (is_jpy ? str.tostring(p, "#.###") : (scale_factor < 1.0 ? str.tostring(p, "#.####") : str.tostring(p, is_win ? "#" : "#.##")))
+                        string label_text = lbl
+                        if showPrices
+                            label_text := label_text + " [" + p_str + "]"
+                        
+                        color bg_color = transparentBg ? color.new(color.black, 100) : color.new(col, 95)
+                        lb = label.new(x=bar_index + 12, y=p, text=label_text, xloc=xloc.bar_index, color=bg_color, textcolor=col, style=label.style_label_left, size=labelSize)
+                        array.push(active_labels, lb)
                     
         initialized := true
     else
@@ -471,4 +516,4 @@ if is_target_date and barstate.islast
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(pine_code)
         
-    print(f"[TV Exporter] Indicador unificado de 9 Ativos gerado com sucesso em: {output_path}")
+    print(f"[TV Exporter] Indicador unificado de 10 Ativos gerado com sucesso em: {output_path}")
