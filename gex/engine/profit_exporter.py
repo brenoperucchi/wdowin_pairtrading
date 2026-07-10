@@ -107,8 +107,8 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     """
     # Constantes de Cores NTSL
     color_map = {
-        "Wall": "clWall",
-        "MidWall": "clMidWall",
+        "Wall": "clMagicWall",
+        "MidWall": "clMidleWall",
         "GammaFlip": "clFlip",
         "MaxGamma": "clMaxGamma",
         "MinGamma": "clMinGamma"
@@ -154,7 +154,7 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     # Construir atribuições e plotagens para WIN
     win_blocks = []
     for i, w in enumerate(win_sorted, start=1):
-        c_var = color_map.get(w['type'], "clWall")
+        c_var = color_map.get(w['type'], "clMagicWall")
         width = w.get('width', 1)
         style = w.get('style', 0)
         win_blocks.append(f"      line{i} := {w['price']:.3f};")
@@ -172,7 +172,7 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     # Construir atribuições e plotagens para DOL
     dol_blocks = []
     for i, w in enumerate(dol_sorted, start=1):
-        c_var = color_map.get(w['type'], "clWall")
+        c_var = color_map.get(w['type'], "clMagicWall")
         width = w.get('width', 1)
         style = w.get('style', 0)
         dol_blocks.append(f"      line{i} := {w['price']:.3f};")
@@ -217,26 +217,26 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     
     # Montar template NTSL unificado
     ntsl_code = f"""var
-  clWall : integer;
-  clMidWall : integer;
+  clMagicWall : integer;
+  clMidleWall : integer;
   clMidWallFibo : integer;
   clFlip : integer;
   clMaxGamma: integer;
   clMinGamma : integer;
   stlMidWallFibo : integer;
-  stlMidWall : integer;
+  stlMidleWall : integer;
   isWIN : boolean;
   isDOL : boolean;
 {chr(10).join(lines_declarations)}
 
 BEGIN
-  clWall := clLime;
-  clMidWall := clGray;
+  clMagicWall := clLime;
+  clMidleWall := clGray;
   clMidWallFibo := clDkGray;
   clFlip := clYellow;
   clMaxGamma:= clGreen;
   clMinGamma := clRed;
-  stlMidWall := 1;
+  stlMidleWall := 1;
   stlMidWallFibo := 2;
 
   isWIN := {win_asset_condition};
@@ -361,8 +361,8 @@ def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
     
     # 3. Salvar em todas as pastas da Nelogica
     nelogica_targets = [
-        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy", "JumbaWalls"),
-        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Scalper\strategy", "JumbaWalls"),
+        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy", "MagicWall"),
+        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Scalper\strategy", "MagicWall"),
     ]
     
     for strategy_dir, name in nelogica_targets:
@@ -397,7 +397,7 @@ def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
         
     # 5. Enviar notificação toast
     send_toast_notification(
-        "GEX Jumba Walls Unificado",
+        "GEX MagicWall Unificado",
         f"Níveis WIN e DOL atualizados e prontos na clipboard. Cole no Scalper."
     )
     

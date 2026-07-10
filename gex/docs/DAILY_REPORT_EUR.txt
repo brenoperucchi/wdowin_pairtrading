@@ -1,19 +1,19 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - EUR/USD
-  Vencimento de Referencia: 2026-07-17 | Data Ref: 09/07/2026
+  Vencimento de Referencia: 2026-07-17 | Data Ref: 10/07/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    EURUSD Spot Atual: 1.14312
-    Gamma Flip Point:  1.05359
+    EURUSD Spot Atual: 1.14351
+    Gamma Flip Point:  1.05311
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.04947
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.05359
-    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 1.07013
+    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.04970
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.05311
+    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 1.07936
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
@@ -21,10 +21,10 @@
 -----------------------------------------------------------------
   Wall       | $115.0        | 1.1500             | $              0.00M | Width 1
   Wall       | $110.0        | 1.1000             | $              0.00M | Width 1
-  Wall       | $109.0        | 1.0900             | $              0.00M | Width 2
+  Wall       | $109.0        | 1.0900             | $              0.00M | Width 1
   Wall       | $108.0        | 1.0800             | $              0.00M | Width 1
-  Wall       | $107.0        | 1.0700             | $              0.00M | Width 3
-  Wall       | $106.0        | 1.0600             | $              0.00M | Width 1
+  Wall       | $107.0        | 1.0700             | $              0.00M | Width 2
+  Wall       | $106.0        | 1.0600             | $              0.00M | Width 3
   Wall       | $105.0        | 1.0500             | $             -0.00M | Width 1
   Wall       | $104.0        | 1.0400             | $             -0.00M | Width 2
 -----------------------------------------------------------------

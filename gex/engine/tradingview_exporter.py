@@ -87,7 +87,7 @@ def _generate_pine_array_pushes(walls, ticker):
             # Rótulo amigável
             if w_type == "Wall":
                 stars = "*" * width
-                lbl = f"WALL {stars}"
+                lbl = f"MAGICWALL {stars}"
                 if w.get('strike_ibov'):
                     lbl += f" (IBOV {w['strike_ibov']})"
                 elif w.get('strike_spy'):
@@ -113,7 +113,7 @@ def _generate_pine_array_pushes(walls, ticker):
                     else:
                         lbl += f" (SPY {w['strike_spy']})"
             elif w_type == "MidWall":
-                lbl = "MID WALL"
+                lbl = "MIDLEWALL"
             elif w_type == "GammaFlip":
                 lbl = "GAMMA FLIP (Pivot)"
             elif w_type == "MaxGamma":
@@ -217,7 +217,7 @@ def export_unified_tradingview(output_path):
     
     pine_code = f"""//@version=6
 // +-------------------------------------------------------------------------+
-// | Jumba GEX Levels - Unificado 10 Ativos para TradingView                |
+// | Magic GEX Levels - Unificado 10 Ativos para TradingView                |
 // | Gerado em: {datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")}                     |
 // | Referências das Coletas:                                                |
 // | - WIN Futures  (B3) : {win_date}                                         |
@@ -234,7 +234,7 @@ def export_unified_tradingview(output_path):
 // | Desenha os níveis automaticamente dependendo do ativo aberto no gráfico!|
 // +-------------------------------------------------------------------------+
 // indicator e variáveis globais
-indicator("Jumba GEX Levels Unified (10 Ativos)", overlay=true, shorttitle="JumbaGEX Unified", max_lines_count=200, max_labels_count=200)
+indicator("Magic GEX Levels Unified (10 Ativos)", overlay=true, shorttitle="MagicGEX Unified", max_lines_count=200, max_labels_count=200)
 
 // --- CONFIGURAÇÃO DE DATA ---
 g_date         = "Configuração Temporal"
@@ -248,8 +248,8 @@ is_target_date = not useDateFilter or (year(time) == targetYear and month(time) 
 // --- CONFIGURAÇÃO VISUAL ---
 g_visual       = "Configuração Visual"
 showLabels     = input.bool(true, "Exibir Legendas das Walls", group=g_visual)
-showMidWalls   = input.bool(true, "Exibir Mid-Walls", group=g_visual)
-showMidLabels  = input.bool(false, "Exibir Legenda de Mid-Walls", group=g_visual)
+showMidleWalls = input.bool(true, "Exibir Midle-Walls", group=g_visual)
+showMidleLabels= input.bool(false, "Exibir Legenda de Midle-Walls", group=g_visual)
 showPrices     = input.bool(true, "Exibir Preço na Legenda", group=g_visual)
 transparentBg  = input.bool(true, "Fundo da Legenda Transparente", group=g_visual)
 labelSize      = input.string(size.small, "Tamanho do Texto", options=[size.auto, size.tiny, size.small, size.normal, size.large], group=g_visual)
@@ -484,14 +484,14 @@ if is_target_date and barstate.islast
                 w = array.get(widths, i)
                 sty = array.get(styles, i) == "dashed" ? line.style_dashed : line.style_solid
                 
-                // Desenhar a linha se nao for MidWall ou se a configuracao de exibir MidWalls estiver ativa
-                if lbl != "MID WALL" or showMidWalls
+                // Desenhar a linha se nao for MidWall ou se a configuracao de exibir MidleWalls estiver ativa
+                if lbl != "MIDLEWALL" or showMidleWalls
                     l = line.new(x1=bar_index - 100, y1=p, x2=bar_index, y2=p, xloc=xloc.bar_index, extend=extend.both, color=col, width=w, style=sty)
                     array.push(active_lines, l)
                     
                     // Rótulo dinâmico dependendo da escala e configurações visuais
                     bool draw_lbl = showLabels
-                    if lbl == "MID WALL" and not showMidLabels
+                    if lbl == "MIDLEWALL" and not showMidleLabels
                         draw_lbl := false
                     
                     if draw_lbl
