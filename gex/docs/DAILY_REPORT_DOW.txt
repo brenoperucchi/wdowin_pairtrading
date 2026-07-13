@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US30 Spot Atual:    52751.80
-    Gamma Flip Point:   52641.48
+    US30 Spot Atual:    52733.09
+    Gamma Flip Point:   52645.01
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 52566.77
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 52641.48
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 51984.16
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 52561.78
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 52645.01
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 53038.41
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $565.0        | 56529.15           | $              0.00M | Width 1
   Wall       | $560.0        | 56028.90           | $              0.00M | Width 1
   Wall       | $555.0        | 55528.64           | $              0.15M | Width 1
   Wall       | $550.0        | 55028.38           | $              0.00M | Width 1
   Wall       | $545.0        | 54528.12           | $              0.01M | Width 1
-  Wall       | $540.0        | 54027.86           | $              0.84M | Width 1
-  Wall       | $535.0        | 53527.61           | $              2.20M | Width 2
-  Wall       | $530.0        | 53027.35           | $             56.10M | Width 2
-  Wall       | $525.0        | 52527.09           | $            187.84M | Width 3
-  Wall       | $520.0        | 52026.83           | $             -1.34M | Width 1
+  Wall       | $540.0        | 54027.86           | $              0.81M | Width 1
+  Wall       | $535.0        | 53527.61           | $              2.05M | Width 2
+  Wall       | $530.0        | 53027.35           | $             47.99M | Width 2
+  Wall       | $525.0        | 52527.09           | $            272.10M | Width 3
+  Wall       | $520.0        | 52026.83           | $             -1.44M | Width 1
   Wall       | $515.0        | 51526.57           | $             -0.04M | Width 1
   Wall       | $510.0        | 51026.32           | $             -0.02M | Width 1
   Wall       | $505.0        | 50526.06           | $             -0.00M | Width 1
   Wall       | $500.0        | 50025.80           | $             -0.14M | Width 1
   Wall       | $495.0        | 49525.54           | $             -0.01M | Width 1
   Wall       | $490.0        | 49025.28           | $             -0.00M | Width 1
+  Wall       | $485.0        | 48525.03           | $             -0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy DIA.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

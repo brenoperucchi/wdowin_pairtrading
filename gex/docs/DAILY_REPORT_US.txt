@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    SPY Spot Atual:    $753.12  (Equiv. ES: ~7531.2)
-    Gamma Flip Point:  $752.91  (Equiv. ES:  7530.28)
+    SPY Spot Atual:    $752.84  (Equiv. ES: ~7528.4)
+    Gamma Flip Point:  $752.81  (Equiv. ES:  7529.26)
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : ES 7521.00 | SPY $751.98
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : ES 7530.28 | SPY $752.91
-    [+] MAX GAMMA (Teto Gravitacional)    : ES 7543.71 | SPY $754.26
+    [-] MIN GAMMA (Piso de Queda Livre)   : ES 7518.20 | SPY $751.71
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : ES 7529.26 | SPY $752.81
+    [+] MAX GAMMA (Teto Gravitacional)    : ES 7540.90 | SPY $753.97
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE SPY   | EQUIVALENTE ES   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $790.00      | ES 7901.21      | $               1.76M | Width 1
-  WALL *     | $785.00      | ES 7851.20      | $               0.00M | Width 1
-  WALL *     | $780.00      | ES 7801.19      | $               0.15M | Width 1
-  WALL *     | $775.00      | ES 7751.18      | $               0.38M | Width 1
-  WALL *     | $770.00      | ES 7701.18      | $               2.89M | Width 1
-  WALL *     | $765.00      | ES 7651.17      | $               1.49M | Width 1
-  WALL **    | $760.00      | ES 7601.16      | $              31.33M | Width 2
-  WALL ***   | $755.00      | ES 7551.15      | $          -11187.77M | Width 3
-  WALL **    | $750.00      | ES 7501.15      | $            -144.98M | Width 2
-  WALL *     | $745.00      | ES 7451.14      | $             -24.32M | Width 1
-  WALL *     | $740.00      | ES 7401.13      | $              -0.37M | Width 1
-  WALL *     | $735.00      | ES 7351.12      | $              -9.99M | Width 1
-  WALL *     | $730.00      | ES 7301.12      | $              -0.23M | Width 1
+  WALL *     | $790.00      | ES 7901.21      | $               1.46M | Width 1
+  WALL *     | $785.00      | ES 7851.20      | $               1.32M | Width 1
+  WALL *     | $780.00      | ES 7801.19      | $               0.12M | Width 1
+  WALL *     | $775.00      | ES 7751.18      | $               0.30M | Width 1
+  WALL *     | $770.00      | ES 7701.18      | $               2.54M | Width 1
+  WALL *     | $765.00      | ES 7651.17      | $               1.07M | Width 1
+  WALL *     | $760.00      | ES 7601.16      | $              21.97M | Width 1
+  WALL ***   | $755.00      | ES 7551.15      | $           10073.80M | Width 3
+  WALL **    | $750.00      | ES 7501.15      | $            -712.83M | Width 2
+  WALL **    | $745.00      | ES 7451.14      | $             -31.76M | Width 2
+  WALL *     | $740.00      | ES 7401.13      | $              -0.53M | Width 1
+  WALL *     | $735.00      | ES 7351.12      | $             -11.44M | Width 1
+  WALL *     | $730.00      | ES 7301.12      | $              -0.27M | Width 1
   WALL *     | $725.00      | ES 7251.11      | $              -0.00M | Width 1
-  WALL *     | $720.00      | ES 7201.10      | $              -0.82M | Width 1
-  WALL *     | $715.00      | ES 7151.09      | $              -1.29M | Width 1
+  WALL *     | $720.00      | ES 7201.10      | $              -0.88M | Width 1
+  WALL *     | $715.00      | ES 7151.09      | $              -1.39M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

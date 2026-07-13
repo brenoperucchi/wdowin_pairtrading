@@ -1,0 +1,170 @@
+Input
+  GammaMax(179020.9);       // Valor do Max Gamma do dia
+  GammaMin(160576.3);       // Valor do Min Gamma do dia
+  GammaFlip(172420.3);      // Valor do Gamma Flip do dia
+  FatorConversao(1.001587); // Fator teorico (Ex: 1.002117 para WIN, ou 1.000 para DOL)
+  Espacamento(1000);        // Espaçamento dos strikes (Ex: 1000 para WIN, ou 10 para DOL)
+  CentroPersonalizado(0.0); // Se > 0, força este valor como strike central (Ex: 175000) em vez de calcular do Flip
+  CorWallsAlta(clLime);     // Cor das Walls acima do Flip (Call/GEX +)
+  CorWallsBaixa(clRed);     // Cor das Walls abaixo do Flip (Put/GEX -)
+  CorMidWallsAlta(clGray);  // Cor das MidWalls acima do Flip
+  CorMidWallsBaixa(clDkGray); // Cor das MidWalls abaixo do Flip
+  EspessuraForte(3);        // Espessura das Walls centrais (mais importantes/ATM)
+  EspessuraMedia(2);        // Espessura das Walls intermediárias
+  EspessuraFraca(1);        // Espessura das Walls distantes e MidWalls
+
+Var
+  Centro : float;
+  wall1, wall2, wall3, wall4, wall5, wall6, wall7, wall8, wall9, wall10, wall11, wall12, wall13, wall14, wall15, wall16, wall17, wall18, wall19, wall20, wall21, wall22, wall23, wall24, wall25, wall26, wall27, wall28, wall29, wall30, wall31 : float;
+  mid1, mid2, mid3, mid4, mid5, mid6, mid7, mid8, mid9, mid10, mid11, mid12, mid13, mid14, mid15, mid16, mid17, mid18, mid19, mid20, mid21, mid22, mid23, mid24, mid25, mid26, mid27, mid28, mid29, mid30 : float;
+
+Begin
+  // Calcula o strike central (ou usa o strike personalizado se fornecido)
+  if CentroPersonalizado > 0 then
+    Centro := CentroPersonalizado
+  else
+    Centro := Round(GammaFlip / (Espacamento * FatorConversao)) * Espacamento;
+
+  // Reconstrói as 31 principais Walls teóricas ao redor do centro (-15 a +15 strikes)
+  wall1  := (Centro - 15 * Espacamento) * FatorConversao;
+  wall2  := (Centro - 14 * Espacamento) * FatorConversao;
+  wall3  := (Centro - 13 * Espacamento) * FatorConversao;
+  wall4  := (Centro - 12 * Espacamento) * FatorConversao;
+  wall5  := (Centro - 11 * Espacamento) * FatorConversao;
+  wall6  := (Centro - 10 * Espacamento) * FatorConversao;
+  wall7  := (Centro - 9 * Espacamento) * FatorConversao;
+  wall8  := (Centro - 8 * Espacamento) * FatorConversao;
+  wall9  := (Centro - 7 * Espacamento) * FatorConversao;
+  wall10 := (Centro - 6 * Espacamento) * FatorConversao;
+  wall11 := (Centro - 5 * Espacamento) * FatorConversao;
+  wall12 := (Centro - 4 * Espacamento) * FatorConversao;
+  wall13 := (Centro - 3 * Espacamento) * FatorConversao;
+  wall14 := (Centro - 2 * Espacamento) * FatorConversao;
+  wall15 := (Centro - 1 * Espacamento) * FatorConversao;
+  wall16 := (Centro) * FatorConversao;
+  wall17 := (Centro + 1 * Espacamento) * FatorConversao;
+  wall18 := (Centro + 2 * Espacamento) * FatorConversao;
+  wall19 := (Centro + 3 * Espacamento) * FatorConversao;
+  wall20 := (Centro + 4 * Espacamento) * FatorConversao;
+  wall21 := (Centro + 5 * Espacamento) * FatorConversao;
+  wall22 := (Centro + 6 * Espacamento) * FatorConversao;
+  wall23 := (Centro + 7 * Espacamento) * FatorConversao;
+  wall24 := (Centro + 8 * Espacamento) * FatorConversao;
+  wall25 := (Centro + 9 * Espacamento) * FatorConversao;
+  wall26 := (Centro + 10 * Espacamento) * FatorConversao;
+  wall27 := (Centro + 11 * Espacamento) * FatorConversao;
+  wall28 := (Centro + 12 * Espacamento) * FatorConversao;
+  wall29 := (Centro + 13 * Espacamento) * FatorConversao;
+  wall30 := (Centro + 14 * Espacamento) * FatorConversao;
+  wall31 := (Centro + 15 * Espacamento) * FatorConversao;
+
+  // Reconstrói as 30 MidWalls (pontos médios, -14.5 a +14.5 strikes)
+  mid1  := (Centro - 14.5 * Espacamento) * FatorConversao;
+  mid2  := (Centro - 13.5 * Espacamento) * FatorConversao;
+  mid3  := (Centro - 12.5 * Espacamento) * FatorConversao;
+  mid4  := (Centro - 11.5 * Espacamento) * FatorConversao;
+  mid5  := (Centro - 10.5 * Espacamento) * FatorConversao;
+  mid6  := (Centro - 9.5 * Espacamento) * FatorConversao;
+  mid7  := (Centro - 8.5 * Espacamento) * FatorConversao;
+  mid8  := (Centro - 7.5 * Espacamento) * FatorConversao;
+  mid9  := (Centro - 6.5 * Espacamento) * FatorConversao;
+  mid10 := (Centro - 5.5 * Espacamento) * FatorConversao;
+  mid11 := (Centro - 4.5 * Espacamento) * FatorConversao;
+  mid12 := (Centro - 3.5 * Espacamento) * FatorConversao;
+  mid13 := (Centro - 2.5 * Espacamento) * FatorConversao;
+  mid14 := (Centro - 1.5 * Espacamento) * FatorConversao;
+  mid15 := (Centro - 0.5 * Espacamento) * FatorConversao;
+  mid16 := (Centro + 0.5 * Espacamento) * FatorConversao;
+  mid17 := (Centro + 1.5 * Espacamento) * FatorConversao;
+  mid18 := (Centro + 2.5 * Espacamento) * FatorConversao;
+  mid19 := (Centro + 3.5 * Espacamento) * FatorConversao;
+  mid20 := (Centro + 4.5 * Espacamento) * FatorConversao;
+  mid21 := (Centro + 5.5 * Espacamento) * FatorConversao;
+  mid22 := (Centro + 6.5 * Espacamento) * FatorConversao;
+  mid23 := (Centro + 7.5 * Espacamento) * FatorConversao;
+  mid24 := (Centro + 8.5 * Espacamento) * FatorConversao;
+  mid25 := (Centro + 9.5 * Espacamento) * FatorConversao;
+  mid26 := (Centro + 10.5 * Espacamento) * FatorConversao;
+  mid27 := (Centro + 11.5 * Espacamento) * FatorConversao;
+  mid28 := (Centro + 12.5 * Espacamento) * FatorConversao;
+  mid29 := (Centro + 13.5 * Espacamento) * FatorConversao;
+  mid30 := (Centro + 14.5 * Espacamento) * FatorConversao;
+
+  // --- PLOTAGENS ESPECIAIS ---
+  // Plot 1: Gamma Max (Verde)
+  SetPlotColor(1, clGreen); SetPlotWidth(1, 3); Plot(GammaMax);
+
+  // Plot 2: Gamma Min (Vermelho)
+  SetPlotColor(2, clRed); SetPlotWidth(2, 3); Plot2(GammaMin);
+
+  // Plot 3: Gamma Flip (Amarelo)
+  SetPlotColor(3, clYellow); SetPlotWidth(3, 2); Plot3(GammaFlip);
+
+  // --- PLOTAGENS DAS WALLS (31 Linhas) ---
+  if wall1 > GammaFlip then SetPlotColor(4, CorWallsAlta) else SetPlotColor(4, CorWallsBaixa); SetPlotWidth(4, EspessuraFraca); Plot4(wall1);
+  if wall2 > GammaFlip then SetPlotColor(5, CorWallsAlta) else SetPlotColor(5, CorWallsBaixa); SetPlotWidth(5, EspessuraFraca); Plot5(wall2);
+  if wall3 > GammaFlip then SetPlotColor(6, CorWallsAlta) else SetPlotColor(6, CorWallsBaixa); SetPlotWidth(6, EspessuraFraca); Plot6(wall3);
+  if wall4 > GammaFlip then SetPlotColor(7, CorWallsAlta) else SetPlotColor(7, CorWallsBaixa); SetPlotWidth(7, EspessuraFraca); Plot7(wall4);
+  if wall5 > GammaFlip then SetPlotColor(8, CorWallsAlta) else SetPlotColor(8, CorWallsBaixa); SetPlotWidth(8, EspessuraFraca); Plot8(wall5);
+  if wall6 > GammaFlip then SetPlotColor(9, CorWallsAlta) else SetPlotColor(9, CorWallsBaixa); SetPlotWidth(9, EspessuraFraca); Plot9(wall6);
+  if wall7 > GammaFlip then SetPlotColor(10, CorWallsAlta) else SetPlotColor(10, CorWallsBaixa); SetPlotWidth(10, EspessuraFraca); Plot10(wall7);
+  if wall8 > GammaFlip then SetPlotColor(11, CorWallsAlta) else SetPlotColor(11, CorWallsBaixa); SetPlotWidth(11, EspessuraFraca); Plot11(wall8);
+  if wall9 > GammaFlip then SetPlotColor(12, CorWallsAlta) else SetPlotColor(12, CorWallsBaixa); SetPlotWidth(12, EspessuraFraca); Plot12(wall9);
+  if wall10 > GammaFlip then SetPlotColor(13, CorWallsAlta) else SetPlotColor(13, CorWallsBaixa); SetPlotWidth(13, EspessuraFraca); Plot13(wall10);
+  if wall11 > GammaFlip then SetPlotColor(14, CorWallsAlta) else SetPlotColor(14, CorWallsBaixa); SetPlotWidth(14, EspessuraFraca); Plot14(wall11);
+  if wall12 > GammaFlip then SetPlotColor(15, CorWallsAlta) else SetPlotColor(15, CorWallsBaixa); SetPlotWidth(15, EspessuraFraca); Plot15(wall12);
+  
+  // ATM / Região Central (Mais Fortes)
+  if wall13 > GammaFlip then SetPlotColor(16, CorWallsAlta) else SetPlotColor(16, CorWallsBaixa); SetPlotWidth(16, EspessuraMedia); Plot16(wall13);
+  if wall14 > GammaFlip then SetPlotColor(17, CorWallsAlta) else SetPlotColor(17, CorWallsBaixa); SetPlotWidth(17, EspessuraMedia); Plot17(wall14);
+  if wall15 > GammaFlip then SetPlotColor(18, CorWallsAlta) else SetPlotColor(18, CorWallsBaixa); SetPlotWidth(18, EspessuraForte); Plot18(wall15);
+  if wall16 > GammaFlip then SetPlotColor(19, CorWallsAlta) else SetPlotColor(19, CorWallsBaixa); SetPlotWidth(19, EspessuraForte); Plot19(wall16);
+  if wall17 > GammaFlip then SetPlotColor(20, CorWallsAlta) else SetPlotColor(20, CorWallsBaixa); SetPlotWidth(20, EspessuraForte); Plot20(wall17);
+  if wall18 > GammaFlip then SetPlotColor(21, CorWallsAlta) else SetPlotColor(21, CorWallsBaixa); SetPlotWidth(21, EspessuraMedia); Plot21(wall18);
+  if wall19 > GammaFlip then SetPlotColor(22, CorWallsAlta) else SetPlotColor(22, CorWallsBaixa); SetPlotWidth(22, EspessuraMedia); Plot22(wall19);
+  
+  if wall20 > GammaFlip then SetPlotColor(23, CorWallsAlta) else SetPlotColor(23, CorWallsBaixa); SetPlotWidth(23, EspessuraFraca); Plot23(wall20);
+  if wall21 > GammaFlip then SetPlotColor(24, CorWallsAlta) else SetPlotColor(24, CorWallsBaixa); SetPlotWidth(24, EspessuraFraca); Plot24(wall21);
+  if wall22 > GammaFlip then SetPlotColor(25, CorWallsAlta) else SetPlotColor(25, CorWallsBaixa); SetPlotWidth(25, EspessuraFraca); Plot25(wall22);
+  if wall23 > GammaFlip then SetPlotColor(26, CorWallsAlta) else SetPlotColor(26, CorWallsBaixa); SetPlotWidth(26, EspessuraFraca); Plot26(wall23);
+  if wall24 > GammaFlip then SetPlotColor(27, CorWallsAlta) else SetPlotColor(27, CorWallsBaixa); SetPlotWidth(27, EspessuraFraca); Plot27(wall24);
+  if wall25 > GammaFlip then SetPlotColor(28, CorWallsAlta) else SetPlotColor(28, CorWallsBaixa); SetPlotWidth(28, EspessuraFraca); Plot28(wall25);
+  if wall26 > GammaFlip then SetPlotColor(29, CorWallsAlta) else SetPlotColor(29, CorWallsBaixa); SetPlotWidth(29, EspessuraFraca); Plot29(wall26);
+  if wall27 > GammaFlip then SetPlotColor(30, CorWallsAlta) else SetPlotColor(30, CorWallsBaixa); SetPlotWidth(30, EspessuraFraca); Plot30(wall27);
+  if wall28 > GammaFlip then SetPlotColor(31, CorWallsAlta) else SetPlotColor(31, CorWallsBaixa); SetPlotWidth(31, EspessuraFraca); Plot31(wall28);
+  if wall29 > GammaFlip then SetPlotColor(32, CorWallsAlta) else SetPlotColor(32, CorWallsBaixa); SetPlotWidth(32, EspessuraFraca); Plot32(wall29);
+  if wall30 > GammaFlip then SetPlotColor(33, CorWallsAlta) else SetPlotColor(33, CorWallsBaixa); SetPlotWidth(33, EspessuraFraca); Plot33(wall30);
+  if wall31 > GammaFlip then SetPlotColor(34, CorWallsAlta) else SetPlotColor(34, CorWallsBaixa); SetPlotWidth(34, EspessuraFraca); Plot34(wall31);
+
+  // --- PLOTAGENS DAS MIDWALLS (30 Linhas / Tracejado) ---
+  if mid1 > GammaFlip then SetPlotColor(35, CorMidWallsAlta) else SetPlotColor(35, CorMidWallsBaixa); SetPlotWidth(35, EspessuraFraca); SetPlotStyle(35, 1); Plot35(mid1);
+  if mid2 > GammaFlip then SetPlotColor(36, CorMidWallsAlta) else SetPlotColor(36, CorMidWallsBaixa); SetPlotWidth(36, EspessuraFraca); SetPlotStyle(36, 1); Plot36(mid2);
+  if mid3 > GammaFlip then SetPlotColor(37, CorMidWallsAlta) else SetPlotColor(37, CorMidWallsBaixa); SetPlotWidth(37, EspessuraFraca); SetPlotStyle(37, 1); Plot37(mid3);
+  if mid4 > GammaFlip then SetPlotColor(38, CorMidWallsAlta) else SetPlotColor(38, CorMidWallsBaixa); SetPlotWidth(38, EspessuraFraca); SetPlotStyle(38, 1); Plot38(mid4);
+  if mid5 > GammaFlip then SetPlotColor(39, CorMidWallsAlta) else SetPlotColor(39, CorMidWallsBaixa); SetPlotWidth(39, EspessuraFraca); SetPlotStyle(39, 1); Plot39(mid5);
+  if mid6 > GammaFlip then SetPlotColor(40, CorMidWallsAlta) else SetPlotColor(40, CorMidWallsBaixa); SetPlotWidth(40, EspessuraFraca); SetPlotStyle(40, 1); Plot40(mid6);
+  if mid7 > GammaFlip then SetPlotColor(41, CorMidWallsAlta) else SetPlotColor(41, CorMidWallsBaixa); SetPlotWidth(41, EspessuraFraca); SetPlotStyle(41, 1); Plot41(mid7);
+  if mid8 > GammaFlip then SetPlotColor(42, CorMidWallsAlta) else SetPlotColor(42, CorMidWallsBaixa); SetPlotWidth(42, EspessuraFraca); SetPlotStyle(42, 1); Plot42(mid8);
+  if mid9 > GammaFlip then SetPlotColor(43, CorMidWallsAlta) else SetPlotColor(43, CorMidWallsBaixa); SetPlotWidth(43, EspessuraFraca); SetPlotStyle(43, 1); Plot43(mid9);
+  if mid10 > GammaFlip then SetPlotColor(44, CorMidWallsAlta) else SetPlotColor(44, CorMidWallsBaixa); SetPlotWidth(44, EspessuraFraca); SetPlotStyle(44, 1); Plot44(mid10);
+  if mid11 > GammaFlip then SetPlotColor(45, CorMidWallsAlta) else SetPlotColor(45, CorMidWallsBaixa); SetPlotWidth(45, EspessuraFraca); SetPlotStyle(45, 1); Plot45(mid11);
+  if mid12 > GammaFlip then SetPlotColor(46, CorMidWallsAlta) else SetPlotColor(46, CorMidWallsBaixa); SetPlotWidth(46, EspessuraFraca); SetPlotStyle(46, 1); Plot46(mid12);
+  if mid13 > GammaFlip then SetPlotColor(47, CorMidWallsAlta) else SetPlotColor(47, CorMidWallsBaixa); SetPlotWidth(47, EspessuraFraca); SetPlotStyle(47, 1); Plot47(mid13);
+  if mid14 > GammaFlip then SetPlotColor(48, CorMidWallsAlta) else SetPlotColor(48, CorMidWallsBaixa); SetPlotWidth(48, EspessuraFraca); SetPlotStyle(48, 1); Plot48(mid14);
+  if mid15 > GammaFlip then SetPlotColor(49, CorMidWallsAlta) else SetPlotColor(49, CorMidWallsBaixa); SetPlotWidth(49, EspessuraFraca); SetPlotStyle(49, 1); Plot49(mid15);
+  if mid16 > GammaFlip then SetPlotColor(50, CorMidWallsAlta) else SetPlotColor(50, CorMidWallsBaixa); SetPlotWidth(50, EspessuraFraca); SetPlotStyle(50, 1); Plot50(mid16);
+  if mid17 > GammaFlip then SetPlotColor(51, CorMidWallsAlta) else SetPlotColor(51, CorMidWallsBaixa); SetPlotWidth(51, EspessuraFraca); SetPlotStyle(51, 1); Plot51(mid17);
+  if mid18 > GammaFlip then SetPlotColor(52, CorMidWallsAlta) else SetPlotColor(52, CorMidWallsBaixa); SetPlotWidth(52, EspessuraFraca); SetPlotStyle(52, 1); Plot52(mid18);
+  if mid19 > GammaFlip then SetPlotColor(53, CorMidWallsAlta) else SetPlotColor(53, CorMidWallsBaixa); SetPlotWidth(53, EspessuraFraca); SetPlotStyle(53, 1); Plot53(mid19);
+  if mid20 > GammaFlip then SetPlotColor(54, CorMidWallsAlta) else SetPlotColor(54, CorMidWallsBaixa); SetPlotWidth(54, EspessuraFraca); SetPlotStyle(54, 1); Plot54(mid20);
+  if mid21 > GammaFlip then SetPlotColor(55, CorMidWallsAlta) else SetPlotColor(55, CorMidWallsBaixa); SetPlotWidth(55, EspessuraFraca); SetPlotStyle(55, 1); Plot55(mid21);
+  if mid22 > GammaFlip then SetPlotColor(56, CorMidWallsAlta) else SetPlotColor(56, CorMidWallsBaixa); SetPlotWidth(56, EspessuraFraca); SetPlotStyle(56, 1); Plot56(mid22);
+  if mid23 > GammaFlip then SetPlotColor(57, CorMidWallsAlta) else SetPlotColor(57, CorMidWallsBaixa); SetPlotWidth(57, EspessuraFraca); SetPlotStyle(57, 1); Plot57(mid23);
+  if mid24 > GammaFlip then SetPlotColor(58, CorMidWallsAlta) else SetPlotColor(58, CorMidWallsBaixa); SetPlotWidth(58, EspessuraFraca); SetPlotStyle(58, 1); Plot58(mid24);
+  if mid25 > GammaFlip then SetPlotColor(59, CorMidWallsAlta) else SetPlotColor(59, CorMidWallsBaixa); SetPlotWidth(59, EspessuraFraca); SetPlotStyle(59, 1); Plot59(mid25);
+  if mid26 > GammaFlip then SetPlotColor(60, CorMidWallsAlta) else SetPlotColor(60, CorMidWallsBaixa); SetPlotWidth(60, EspessuraFraca); SetPlotStyle(60, 1); Plot60(mid26);
+  if mid27 > GammaFlip then SetPlotColor(61, CorMidWallsAlta) else SetPlotColor(61, CorMidWallsBaixa); SetPlotWidth(61, EspessuraFraca); SetPlotStyle(61, 1); Plot61(mid27);
+  if mid28 > GammaFlip then SetPlotColor(62, CorMidWallsAlta) else SetPlotColor(62, CorMidWallsBaixa); SetPlotWidth(62, EspessuraFraca); SetPlotStyle(62, 1); Plot62(mid28);
+  if mid29 > GammaFlip then SetPlotColor(63, CorMidWallsAlta) else SetPlotColor(63, CorMidWallsBaixa); SetPlotWidth(63, EspessuraFraca); SetPlotStyle(63, 1); Plot63(mid29);
+  if mid30 > GammaFlip then SetPlotColor(64, CorMidWallsAlta) else SetPlotColor(64, CorMidWallsBaixa); SetPlotWidth(64, EspessuraFraca); SetPlotStyle(64, 1); Plot64(mid30);
+End;
