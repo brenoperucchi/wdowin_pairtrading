@@ -1,19 +1,19 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - BITCOIN / BTC-USD
-  Vencimento de Referencia: 2026-07-15 | Data Ref: 14/07/2026
+  Vencimento de Referencia: 2026-07-16 | Data Ref: 15/07/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Bitcoin Spot Atual: $65179.46
-    Gamma Flip Point:   $62621.71
-    Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:        ALTA / LATERALIZACAO
-    Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
+    Bitcoin Spot Atual: $64858.46
+    Gamma Flip Point:   $65074.70
+    Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
+    Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $60757.74
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $62621.71
-    [+] MAX GAMMA (Teto Gravitacional)    : BTC $65146.71
+    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $63065.89
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $65074.70
+    [+] MAX GAMMA (Teto Gravitacional)    : BTC $66455.48
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
@@ -21,19 +21,20 @@
 -----------------------------------------------------------------
   WALL *     | $71000.00    | BTC $71000.00     | $               0.00M | Width 1
   WALL *     | $70000.00    | BTC $70000.00     | $               0.00M | Width 1
-  WALL *     | $69000.00    | BTC $69000.00     | $               0.00M | Width 1
-  WALL *     | $68000.00    | BTC $68000.00     | $               0.05M | Width 1
-  WALL *     | $67000.00    | BTC $67000.00     | $               0.11M | Width 1
-  WALL **    | $66000.00    | BTC $66000.00     | $               5.66M | Width 2
-  WALL ***   | $65000.00    | BTC $65000.00     | $              22.44M | Width 3
-  WALL *     | $64000.00    | BTC $64000.00     | $               1.18M | Width 1
-  WALL *     | $63000.00    | BTC $63000.00     | $               0.98M | Width 1
-  WALL **    | $62000.00    | BTC $62000.00     | $              -1.48M | Width 2
-  WALL *     | $61000.00    | BTC $61000.00     | $              -0.33M | Width 1
-  WALL *     | $60000.00    | BTC $60000.00     | $              -0.26M | Width 1
-  WALL *     | $59000.00    | BTC $59000.00     | $              -0.02M | Width 1
+  WALL *     | $69000.00    | BTC $69000.00     | $               0.02M | Width 1
+  WALL *     | $68000.00    | BTC $68000.00     | $               0.02M | Width 1
+  WALL *     | $67000.00    | BTC $67000.00     | $               0.13M | Width 1
+  WALL **    | $66000.00    | BTC $66000.00     | $               1.08M | Width 2
+  WALL **    | $65000.00    | BTC $65000.00     | $               1.22M | Width 2
+  WALL ***   | $64000.00    | BTC $64000.00     | $              -2.80M | Width 3
+  WALL *     | $63000.00    | BTC $63000.00     | $              -0.08M | Width 1
+  WALL *     | $62000.00    | BTC $62000.00     | $              -0.37M | Width 1
+  WALL *     | $61000.00    | BTC $61000.00     | $              -0.03M | Width 1
+  WALL *     | $60000.00    | BTC $60000.00     | $              -0.05M | Width 1
+  WALL *     | $59000.00    | BTC $59000.00     | $              -0.01M | Width 1
   WALL *     | $58000.00    | BTC $58000.00     | $              -0.00M | Width 1
   WALL *     | $57000.00    | BTC $57000.00     | $              -0.00M | Width 1
+  WALL *     | $56000.00    | BTC $56000.00     | $              -0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na Deribit.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
