@@ -1,8 +1,17 @@
 {
     "ticker": "WIN",
     "ref_date": "2026-07-14",
-    "updated_at": "2026-07-15 08:47:51",
+    "updated_at": "2026-07-15 18:03:51",
     "walls": [
+        {
+            "price": 168088.836,
+            "type": "Wall",
+            "color": "#ffffff",
+            "width": 2,
+            "style": 0,
+            "strike_ibov": 168000,
+            "gex": 0.0
+        },
         {
             "price": 169089.365,
             "type": "Wall",
@@ -16,7 +25,7 @@
             "price": 170089.894,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_ibov": 170000,
             "gex": 0.0
@@ -91,7 +100,7 @@
             "width": 3,
             "style": 0,
             "strike_ibov": 178000,
-            "gex": 2.1455300310954315e-251
+            "gex": 7.845028689899591e-264
         },
         {
             "price": 180095.181,
@@ -139,13 +148,12 @@
             "gex": 0.0
         },
         {
-            "price": 186098.354,
-            "type": "Wall",
-            "color": "#ffffff",
+            "price": 168589.101,
+            "type": "MidWall",
+            "color": "#808080",
             "width": 1,
             "style": 0,
-            "strike_ibov": 186000,
-            "gex": 0.0
+            "gex": 0
         },
         {
             "price": 169589.629,
@@ -260,31 +268,23 @@
             "gex": 0
         },
         {
-            "price": 185598.09,
-            "type": "MidWall",
-            "color": "#808080",
-            "width": 1,
-            "style": 0,
-            "gex": 0
-        },
-        {
-            "price": 180099.437,
+            "price": 181088.171,
             "type": "MaxGamma",
             "color": "#00ff00",
             "width": 3,
             "style": 0,
-            "gex": 3264277201535.0312
+            "gex": 2537635497314.67
         },
         {
-            "price": 161084.955,
+            "price": 166086.784,
             "type": "MinGamma",
             "color": "#ff0000",
             "width": 3,
             "style": 0,
-            "gex": -1059202060957.9271
+            "gex": -1843634573001.4067
         },
         {
-            "price": 189427.296,
+            "price": 190731.92,
             "type": "GammaFlip",
             "color": "#ffff00",
             "width": 2,
