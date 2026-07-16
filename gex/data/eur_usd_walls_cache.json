@@ -1,8 +1,23 @@
 {
     "ticker": "EUR_USD",
     "ref_date": "2026-07-17",
-    "updated_at": "2026-07-15 22:10:50",
+    "updated_at": "2026-07-15 22:19:29",
     "walls": [
+        {
+            "price": 1.09,
+            "type": "Wall",
+            "width": 3,
+            "style": 0,
+            "strike_spy": 109,
+            "gex": 86936.1721013281
+        },
+        {
+            "price": 1.095,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
         {
             "price": 1.1,
             "type": "Wall",
@@ -21,7 +36,7 @@
         {
             "price": 1.12,
             "type": "Wall",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_spy": 112,
             "gex": 460.8869512124465
@@ -51,7 +66,7 @@
         {
             "price": 1.15,
             "type": "Wall",
-            "width": 3,
+            "width": 2,
             "style": 0,
             "strike_spy": 115,
             "gex": 16007.594045738293
