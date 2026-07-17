@@ -125,6 +125,14 @@ var
   line29Color : integer;
   line29Width : integer;
   line29Style : integer;
+  line30 : float;
+  line30Color : integer;
+  line30Width : integer;
+  line30Style : integer;
+  line31 : float;
+  line31Color : integer;
+  line31Width : integer;
+  line31Style : integer;
 
 BEGIN
   clMagicWall := clLime;
@@ -143,7 +151,7 @@ BEGIN
   begin
     if isWIN then
     begin
-      line1 := 166665.657;
+      line1 := 166577.573;
       line1Color := clMagicWall;
       line1Width := 1;
       line1Style := 0;
@@ -151,7 +159,7 @@ BEGIN
       SetPlotWidth(1, line1Width);
       SetPlotStyle(1, line1Style);
       Plot(line1);
-      line2 := 167170.704;
+      line2 := 167082.353;
       line2Color := clMidleWall;
       line2Width := 1;
       line2Style := 0;
@@ -159,7 +167,7 @@ BEGIN
       SetPlotWidth(2, line2Width);
       SetPlotStyle(2, line2Style);
       Plot2(line2);
-      line3 := 167675.752;
+      line3 := 167587.134;
       line3Color := clMagicWall;
       line3Width := 1;
       line3Style := 0;
@@ -167,7 +175,7 @@ BEGIN
       SetPlotWidth(3, line3Width);
       SetPlotStyle(3, line3Style);
       Plot3(line3);
-      line4 := 168180.800;
+      line4 := 168091.915;
       line4Color := clMidleWall;
       line4Width := 1;
       line4Style := 0;
@@ -175,7 +183,7 @@ BEGIN
       SetPlotWidth(4, line4Width);
       SetPlotStyle(4, line4Style);
       Plot4(line4);
-      line5 := 168685.847;
+      line5 := 168596.695;
       line5Color := clMagicWall;
       line5Width := 1;
       line5Style := 0;
@@ -183,7 +191,7 @@ BEGIN
       SetPlotWidth(5, line5Width);
       SetPlotStyle(5, line5Style);
       Plot5(line5);
-      line6 := 169190.894;
+      line6 := 169101.476;
       line6Color := clMidleWall;
       line6Width := 1;
       line6Style := 0;
@@ -191,7 +199,7 @@ BEGIN
       SetPlotWidth(6, line6Width);
       SetPlotStyle(6, line6Style);
       Plot6(line6);
-      line7 := 169695.942;
+      line7 := 169606.256;
       line7Color := clMagicWall;
       line7Width := 1;
       line7Style := 0;
@@ -199,7 +207,7 @@ BEGIN
       SetPlotWidth(7, line7Width);
       SetPlotStyle(7, line7Style);
       Plot7(line7);
-      line8 := 170200.990;
+      line8 := 170111.036;
       line8Color := clMidleWall;
       line8Width := 1;
       line8Style := 0;
@@ -207,7 +215,7 @@ BEGIN
       SetPlotWidth(8, line8Width);
       SetPlotStyle(8, line8Style);
       Plot8(line8);
-      line9 := 170706.037;
+      line9 := 170615.817;
       line9Color := clMagicWall;
       line9Width := 1;
       line9Style := 0;
@@ -215,31 +223,31 @@ BEGIN
       SetPlotWidth(9, line9Width);
       SetPlotStyle(9, line9Style);
       Plot9(line9);
-      line10 := 171126.264;
-      line10Color := clFlip;
-      line10Width := 2;
+      line10 := 171120.598;
+      line10Color := clMidleWall;
+      line10Width := 1;
       line10Style := 0;
       SetPlotColor(10, line10Color);
       SetPlotWidth(10, line10Width);
       SetPlotStyle(10, line10Style);
       Plot10(line10);
-      line11 := 171211.084;
-      line11Color := clMidleWall;
-      line11Width := 1;
+      line11 := 171495.137;
+      line11Color := clFlip;
+      line11Width := 2;
       line11Style := 0;
       SetPlotColor(11, line11Color);
       SetPlotWidth(11, line11Width);
       SetPlotStyle(11, line11Style);
       Plot11(line11);
-      line12 := 171716.131;
+      line12 := 171625.378;
       line12Color := clMagicWall;
-      line12Width := 1;
+      line12Width := 2;
       line12Style := 0;
       SetPlotColor(12, line12Color);
       SetPlotWidth(12, line12Width);
       SetPlotStyle(12, line12Style);
       Plot12(line12);
-      line13 := 172221.178;
+      line13 := 172130.159;
       line13Color := clMidleWall;
       line13Width := 1;
       line13Style := 0;
@@ -247,7 +255,7 @@ BEGIN
       SetPlotWidth(13, line13Width);
       SetPlotStyle(13, line13Style);
       Plot13(line13);
-      line14 := 172726.226;
+      line14 := 172634.939;
       line14Color := clMagicWall;
       line14Width := 1;
       line14Style := 0;
@@ -255,7 +263,7 @@ BEGIN
       SetPlotWidth(14, line14Width);
       SetPlotStyle(14, line14Style);
       Plot14(line14);
-      line15 := 173231.274;
+      line15 := 173139.720;
       line15Color := clMidleWall;
       line15Width := 1;
       line15Style := 0;
@@ -263,7 +271,7 @@ BEGIN
       SetPlotWidth(15, line15Width);
       SetPlotStyle(15, line15Style);
       Plot15(line15);
-      line16 := 173736.321;
+      line16 := 173644.500;
       line16Color := clMagicWall;
       line16Width := 1;
       line16Style := 0;
@@ -271,7 +279,7 @@ BEGIN
       SetPlotWidth(16, line16Width);
       SetPlotStyle(16, line16Style);
       Plot16(line16);
-      line17 := 174241.368;
+      line17 := 174149.281;
       line17Color := clMidleWall;
       line17Width := 1;
       line17Style := 0;
@@ -279,7 +287,7 @@ BEGIN
       SetPlotWidth(17, line17Width);
       SetPlotStyle(17, line17Style);
       Plot17(line17);
-      line18 := 174746.416;
+      line18 := 174654.062;
       line18Color := clMagicWall;
       line18Width := 1;
       line18Style := 0;
@@ -287,7 +295,7 @@ BEGIN
       SetPlotWidth(18, line18Width);
       SetPlotStyle(18, line18Style);
       Plot18(line18);
-      line19 := 175756.511;
+      line19 := 175663.623;
       line19Color := clMidleWall;
       line19Width := 1;
       line19Style := 0;
@@ -295,7 +303,7 @@ BEGIN
       SetPlotWidth(19, line19Width);
       SetPlotStyle(19, line19Style);
       Plot19(line19);
-      line20 := 176766.606;
+      line20 := 176673.184;
       line20Color := clMagicWall;
       line20Width := 1;
       line20Style := 0;
@@ -303,7 +311,7 @@ BEGIN
       SetPlotWidth(20, line20Width);
       SetPlotStyle(20, line20Style);
       Plot20(line20);
-      line21 := 177271.654;
+      line21 := 177177.965;
       line21Color := clMidleWall;
       line21Width := 1;
       line21Style := 0;
@@ -311,7 +319,7 @@ BEGIN
       SetPlotWidth(21, line21Width);
       SetPlotStyle(21, line21Style);
       Plot21(line21);
-      line22 := 177776.701;
+      line22 := 177682.745;
       line22Color := clMagicWall;
       line22Width := 2;
       line22Style := 0;
@@ -319,7 +327,7 @@ BEGIN
       SetPlotWidth(22, line22Width);
       SetPlotStyle(22, line22Style);
       Plot22(line22);
-      line23 := 178281.748;
+      line23 := 178187.525;
       line23Color := clMidleWall;
       line23Width := 1;
       line23Style := 0;
@@ -327,7 +335,7 @@ BEGIN
       SetPlotWidth(23, line23Width);
       SetPlotStyle(23, line23Style);
       Plot23(line23);
-      line24 := 178786.796;
+      line24 := 178692.306;
       line24Color := clMagicWall;
       line24Width := 1;
       line24Style := 0;
@@ -335,7 +343,7 @@ BEGIN
       SetPlotWidth(24, line24Width);
       SetPlotStyle(24, line24Style);
       Plot24(line24);
-      line25 := 179291.844;
+      line25 := 179197.087;
       line25Color := clMidleWall;
       line25Width := 1;
       line25Style := 0;
@@ -343,10 +351,19 @@ BEGIN
       SetPlotWidth(25, line25Width);
       SetPlotStyle(25, line25Style);
       Plot25(line25);
-      NoPlot(26);
+      line26 := 179701.867;
+      line26Color := clMagicWall;
+      line26Width := 1;
+      line26Style := 0;
+      SetPlotColor(26, line26Color);
+      SetPlotWidth(26, line26Width);
+      SetPlotStyle(26, line26Style);
+      Plot26(line26);
       NoPlot(27);
       NoPlot(28);
       NoPlot(29);
+      NoPlot(30);
+      NoPlot(31);
     end
     else if isDOL then
     begin
@@ -382,7 +399,7 @@ BEGIN
       SetPlotWidth(4, line4Width);
       SetPlotStyle(4, line4Style);
       Plot4(line4);
-      line5 := 4949.070;
+      line5 := 4947.450;
       line5Color := clMinGamma;
       line5Width := 3;
       line5Style := 0;
@@ -430,23 +447,23 @@ BEGIN
       SetPlotWidth(10, line10Width);
       SetPlotStyle(10, line10Style);
       Plot10(line10);
-      line11 := 5070.820;
-      line11Color := clFlip;
-      line11Width := 2;
+      line11 := 5065.000;
+      line11Color := clMidleWall;
+      line11Width := 1;
       line11Style := 0;
       SetPlotColor(11, line11Color);
       SetPlotWidth(11, line11Width);
       SetPlotStyle(11, line11Style);
       Plot11(line11);
-      line12 := 5075.000;
-      line12Color := clMidleWall;
-      line12Width := 1;
+      line12 := 5073.190;
+      line12Color := clFlip;
+      line12Width := 2;
       line12Style := 0;
       SetPlotColor(12, line12Color);
       SetPlotWidth(12, line12Width);
       SetPlotStyle(12, line12Style);
       Plot12(line12);
-      line13 := 5100.000;
+      line13 := 5080.000;
       line13Color := clMagicWall;
       line13Width := 1;
       line13Style := 0;
@@ -454,7 +471,7 @@ BEGIN
       SetPlotWidth(13, line13Width);
       SetPlotStyle(13, line13Style);
       Plot13(line13);
-      line14 := 5110.000;
+      line14 := 5090.000;
       line14Color := clMidleWall;
       line14Width := 1;
       line14Style := 0;
@@ -462,7 +479,7 @@ BEGIN
       SetPlotWidth(14, line14Width);
       SetPlotStyle(14, line14Style);
       Plot14(line14);
-      line15 := 5120.000;
+      line15 := 5100.000;
       line15Color := clMagicWall;
       line15Width := 1;
       line15Style := 0;
@@ -470,7 +487,7 @@ BEGIN
       SetPlotWidth(15, line15Width);
       SetPlotStyle(15, line15Style);
       Plot15(line15);
-      line16 := 5135.000;
+      line16 := 5110.000;
       line16Color := clMidleWall;
       line16Width := 1;
       line16Style := 0;
@@ -478,7 +495,7 @@ BEGIN
       SetPlotWidth(16, line16Width);
       SetPlotStyle(16, line16Style);
       Plot16(line16);
-      line17 := 5150.000;
+      line17 := 5120.000;
       line17Color := clMagicWall;
       line17Width := 1;
       line17Style := 0;
@@ -486,7 +503,7 @@ BEGIN
       SetPlotWidth(17, line17Width);
       SetPlotStyle(17, line17Style);
       Plot17(line17);
-      line18 := 5165.000;
+      line18 := 5135.000;
       line18Color := clMidleWall;
       line18Width := 1;
       line18Style := 0;
@@ -494,7 +511,7 @@ BEGIN
       SetPlotWidth(18, line18Width);
       SetPlotStyle(18, line18Style);
       Plot18(line18);
-      line19 := 5180.000;
+      line19 := 5150.000;
       line19Color := clMagicWall;
       line19Width := 1;
       line19Style := 0;
@@ -502,7 +519,7 @@ BEGIN
       SetPlotWidth(19, line19Width);
       SetPlotStyle(19, line19Style);
       Plot19(line19);
-      line20 := 5190.000;
+      line20 := 5165.000;
       line20Color := clMidleWall;
       line20Width := 1;
       line20Style := 0;
@@ -510,15 +527,15 @@ BEGIN
       SetPlotWidth(20, line20Width);
       SetPlotStyle(20, line20Style);
       Plot20(line20);
-      line21 := 5200.000;
+      line21 := 5180.000;
       line21Color := clMagicWall;
-      line21Width := 2;
+      line21Width := 1;
       line21Style := 0;
       SetPlotColor(21, line21Color);
       SetPlotWidth(21, line21Width);
       SetPlotStyle(21, line21Style);
       Plot21(line21);
-      line22 := 5225.000;
+      line22 := 5190.000;
       line22Color := clMidleWall;
       line22Width := 1;
       line22Style := 0;
@@ -526,15 +543,15 @@ BEGIN
       SetPlotWidth(22, line22Width);
       SetPlotStyle(22, line22Style);
       Plot22(line22);
-      line23 := 5250.000;
+      line23 := 5200.000;
       line23Color := clMagicWall;
-      line23Width := 3;
+      line23Width := 2;
       line23Style := 0;
       SetPlotColor(23, line23Color);
       SetPlotWidth(23, line23Width);
       SetPlotStyle(23, line23Style);
       Plot23(line23);
-      line24 := 5275.000;
+      line24 := 5225.000;
       line24Color := clMidleWall;
       line24Width := 1;
       line24Style := 0;
@@ -542,15 +559,15 @@ BEGIN
       SetPlotWidth(24, line24Width);
       SetPlotStyle(24, line24Style);
       Plot24(line24);
-      line25 := 5300.000;
+      line25 := 5250.000;
       line25Color := clMagicWall;
-      line25Width := 1;
+      line25Width := 3;
       line25Style := 0;
       SetPlotColor(25, line25Color);
       SetPlotWidth(25, line25Width);
       SetPlotStyle(25, line25Style);
       Plot25(line25);
-      line26 := 5325.000;
+      line26 := 5275.000;
       line26Color := clMidleWall;
       line26Width := 1;
       line26Style := 0;
@@ -558,7 +575,7 @@ BEGIN
       SetPlotWidth(26, line26Width);
       SetPlotStyle(26, line26Style);
       Plot26(line26);
-      line27 := 5350.000;
+      line27 := 5300.000;
       line27Color := clMagicWall;
       line27Width := 1;
       line27Style := 0;
@@ -566,7 +583,7 @@ BEGIN
       SetPlotWidth(27, line27Width);
       SetPlotStyle(27, line27Style);
       Plot27(line27);
-      line28 := 5375.000;
+      line28 := 5325.000;
       line28Color := clMidleWall;
       line28Width := 1;
       line28Style := 0;
@@ -574,14 +591,30 @@ BEGIN
       SetPlotWidth(28, line28Width);
       SetPlotStyle(28, line28Style);
       Plot28(line28);
-      line29 := 5376.290;
-      line29Color := clMaxGamma;
-      line29Width := 3;
+      line29 := 5350.000;
+      line29Color := clMagicWall;
+      line29Width := 1;
       line29Style := 0;
       SetPlotColor(29, line29Color);
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
+      line30 := 5375.000;
+      line30Color := clMidleWall;
+      line30Width := 1;
+      line30Style := 0;
+      SetPlotColor(30, line30Color);
+      SetPlotWidth(30, line30Width);
+      SetPlotStyle(30, line30Style);
+      Plot30(line30);
+      line31 := 5375.420;
+      line31Color := clMaxGamma;
+      line31Width := 3;
+      line31Style := 0;
+      SetPlotColor(31, line31Color);
+      SetPlotWidth(31, line31Width);
+      SetPlotStyle(31, line31Style);
+      Plot31(line31);
     end
     else
     begin
@@ -614,6 +647,8 @@ BEGIN
       NoPlot(27);
       NoPlot(28);
       NoPlot(29);
+      NoPlot(30);
+      NoPlot(31);
     end;
   end
   else
@@ -647,5 +682,7 @@ BEGIN
       NoPlot(27);
       NoPlot(28);
       NoPlot(29);
+      NoPlot(30);
+      NoPlot(31);
   end;
 END;

@@ -4,16 +4,16 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    EURUSD Spot Atual: 1.14364
-    Gamma Flip Point:  1.04494
+    EURUSD Spot Atual: 1.14456
+    Gamma Flip Point:  1.04521
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.06021
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.04494
-    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 1.09045
+    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.05955
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.04521
+    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 1.09670
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
@@ -22,9 +22,8 @@
   Wall       | $115.0        | 1.1500             | $              0.01M | Width 2
   Wall       | $113.0        | 1.1300             | $              0.00M | Width 1
   Wall       | $112.0        | 1.1200             | $              0.00M | Width 1
-  Wall       | $111.0        | 1.1100             | $             -0.00M | Width 2
-  Wall       | $110.0        | 1.1000             | $              0.00M | Width 1
-  Wall       | $109.0        | 1.0900             | $              0.08M | Width 3
+  Wall       | $110.0        | 1.1000             | $              0.00M | Width 2
+  Wall       | $109.0        | 1.0900             | $              0.11M | Width 3
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy FXE.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
