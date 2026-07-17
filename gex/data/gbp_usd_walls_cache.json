@@ -1,7 +1,7 @@
 {
     "ticker": "GBP_USD",
     "ref_date": "2026-07-17",
-    "updated_at": "2026-07-17 07:31:01",
+    "updated_at": "2026-07-17 08:36:45",
     "walls": [
         {
             "price": 1.28,
@@ -9,7 +9,7 @@
             "width": 2,
             "style": 0,
             "strike_spy": 128,
-            "gex": -779.5637105269767
+            "gex": -2338.69113158093
         },
         {
             "price": 1.281,
@@ -582,17 +582,17 @@
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 66848.13206474841
+            "gex": 66763.43923026556
         },
         {
             "price": 1.2306,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -271972.90164382604
+            "gex": -256162.77775115735
         },
         {
-            "price": 1.2908,
+            "price": 1.2929,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
