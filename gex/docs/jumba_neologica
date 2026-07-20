@@ -147,7 +147,7 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26") or (GetAsset() = "WINQ26") or (GetAsset() = "INDQ26") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOM26") or (GetAsset() = "DOLM26") or (GetAsset() = "WDON26") or (GetAsset() = "DOLN26") or (GetAsset() = "WDOQ26") or (GetAsset() = "DOLQ26");
 
-  if (((Date = ELDate(2026, 07, 17)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date = ELDate(2026, 07, 20)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
@@ -399,17 +399,17 @@ BEGIN
       SetPlotWidth(4, line4Width);
       SetPlotStyle(4, line4Style);
       Plot4(line4);
-      line5 := 4947.450;
-      line5Color := clMinGamma;
-      line5Width := 3;
+      line5 := 4950.000;
+      line5Color := clMagicWall;
+      line5Width := 1;
       line5Style := 0;
       SetPlotColor(5, line5Color);
       SetPlotWidth(5, line5Width);
       SetPlotStyle(5, line5Style);
       Plot5(line5);
-      line6 := 4950.000;
-      line6Color := clMagicWall;
-      line6Width := 1;
+      line6 := 4955.350;
+      line6Color := clMinGamma;
+      line6Width := 3;
       line6Style := 0;
       SetPlotColor(6, line6Color);
       SetPlotWidth(6, line6Width);
@@ -455,7 +455,7 @@ BEGIN
       SetPlotWidth(11, line11Width);
       SetPlotStyle(11, line11Style);
       Plot11(line11);
-      line12 := 5073.190;
+      line12 := 5078.570;
       line12Color := clFlip;
       line12Width := 2;
       line12Style := 0;
@@ -599,17 +599,17 @@ BEGIN
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
-      line30 := 5375.000;
-      line30Color := clMidleWall;
-      line30Width := 1;
+      line30 := 5372.800;
+      line30Color := clMaxGamma;
+      line30Width := 3;
       line30Style := 0;
       SetPlotColor(30, line30Color);
       SetPlotWidth(30, line30Width);
       SetPlotStyle(30, line30Style);
       Plot30(line30);
-      line31 := 5375.420;
-      line31Color := clMaxGamma;
-      line31Width := 3;
+      line31 := 5375.000;
+      line31Color := clMidleWall;
+      line31Width := 1;
       line31Style := 0;
       SetPlotColor(31, line31Color);
       SetPlotWidth(31, line31Width);
