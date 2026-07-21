@@ -139,11 +139,11 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26") or (GetAsset() = "WINQ26") or (GetAsset() = "INDQ26") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOM26") or (GetAsset() = "DOLM26") or (GetAsset() = "WDON26") or (GetAsset() = "DOLN26") or (GetAsset() = "WDOQ26") or (GetAsset() = "DOLQ26");
 
-  if (((Date = ELDate(2026, 07, 20)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date = ELDate(2026, 07, 21)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
-      line1 := 163810.943;
+      line1 := 164276.050;
       line1Color := clMinGamma;
       line1Width := 3;
       line1Style := 0;
@@ -247,7 +247,7 @@ BEGIN
       SetPlotWidth(13, line13Width);
       SetPlotStyle(13, line13Style);
       Plot13(line13);
-      line14 := 172100.208;
+      line14 := 172460.022;
       line14Color := clFlip;
       line14Width := 2;
       line14Style := 0;
@@ -418,7 +418,7 @@ BEGIN
       SetPlotWidth(5, line5Width);
       SetPlotStyle(5, line5Style);
       Plot5(line5);
-      line6 := 4955.590;
+      line6 := 4965.370;
       line6Color := clMinGamma;
       line6Width := 3;
       line6Style := 0;
@@ -466,17 +466,17 @@ BEGIN
       SetPlotWidth(11, line11Width);
       SetPlotStyle(11, line11Style);
       Plot11(line11);
-      line12 := 5078.570;
-      line12Color := clFlip;
-      line12Width := 2;
+      line12 := 5080.000;
+      line12Color := clMagicWall;
+      line12Width := 1;
       line12Style := 0;
       SetPlotColor(12, line12Color);
       SetPlotWidth(12, line12Width);
       SetPlotStyle(12, line12Style);
       Plot12(line12);
-      line13 := 5080.000;
-      line13Color := clMagicWall;
-      line13Width := 1;
+      line13 := 5083.880;
+      line13Color := clFlip;
+      line13Width := 2;
       line13Style := 0;
       SetPlotColor(13, line13Color);
       SetPlotWidth(13, line13Width);
