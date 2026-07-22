@@ -4,32 +4,32 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Bitcoin Spot Atual: $66028.91
-    Gamma Flip Point:   $65153.43
+    Bitcoin Spot Atual: $65895.00
+    Gamma Flip Point:   $65277.72
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $63673.10
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $65153.43
-    [+] MAX GAMMA (Teto Gravitacional)    : BTC $67057.50
+    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $63808.88
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $65277.72
+    [+] MAX GAMMA (Teto Gravitacional)    : BTC $67053.96
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE BTC   | EQUIVALENTE USD  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
   WALL *     | $72000.00    | BTC $72000.00     | $               0.00M | Width 1
-  WALL *     | $71000.00    | BTC $71000.00     | $               0.01M | Width 1
-  WALL *     | $70000.00    | BTC $70000.00     | $               0.04M | Width 1
-  WALL *     | $69000.00    | BTC $69000.00     | $               0.14M | Width 1
-  WALL *     | $68000.00    | BTC $68000.00     | $               0.72M | Width 1
-  WALL **    | $67000.00    | BTC $67000.00     | $               2.73M | Width 2
-  WALL ***   | $66000.00    | BTC $66000.00     | $               3.20M | Width 3
-  WALL *     | $65000.00    | BTC $65000.00     | $              -0.18M | Width 1
-  WALL **    | $64000.00    | BTC $64000.00     | $              -0.99M | Width 2
-  WALL *     | $63000.00    | BTC $63000.00     | $              -0.03M | Width 1
-  WALL *     | $62000.00    | BTC $62000.00     | $              -0.11M | Width 1
+  WALL *     | $71000.00    | BTC $71000.00     | $               0.00M | Width 1
+  WALL *     | $70000.00    | BTC $70000.00     | $               0.03M | Width 1
+  WALL *     | $69000.00    | BTC $69000.00     | $               0.12M | Width 1
+  WALL *     | $68000.00    | BTC $68000.00     | $               1.33M | Width 1
+  WALL **    | $67000.00    | BTC $67000.00     | $               2.50M | Width 2
+  WALL ***   | $66000.00    | BTC $66000.00     | $               3.37M | Width 3
+  WALL *     | $65000.00    | BTC $65000.00     | $              -0.57M | Width 1
+  WALL **    | $64000.00    | BTC $64000.00     | $              -1.37M | Width 2
+  WALL *     | $63000.00    | BTC $63000.00     | $              -0.11M | Width 1
+  WALL *     | $62000.00    | BTC $62000.00     | $              -0.18M | Width 1
   WALL *     | $61000.00    | BTC $61000.00     | $              -0.01M | Width 1
   WALL *     | $60000.00    | BTC $60000.00     | $              -0.00M | Width 1
   WALL *     | $59000.00    | BTC $59000.00     | $              -0.00M | Width 1
