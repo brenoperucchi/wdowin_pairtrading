@@ -1,122 +1,122 @@
 {
     "ticker": "USD_JPY",
     "ref_date": "2026-08-21",
-    "updated_at": "2026-07-22 18:04:18",
+    "updated_at": "2026-07-23 07:33:11",
     "walls": [
         {
-            "price": 156.62,
+            "price": 156.878,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 54.0,
-            "gex": -103934.71369559014
+            "gex": 0.04166158502622601
         },
         {
-            "price": 158.07,
+            "price": 158.33,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 159.521,
+            "price": 159.783,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 55.0,
-            "gex": 31711.004704594983
+            "gex": 0.007705146041578671
         },
         {
-            "price": 160.971,
+            "price": 161.236,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 162.421,
+            "price": 162.688,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 56.0,
-            "gex": 283318.92630691
+            "gex": 3.0505608673560803e-05
         },
         {
-            "price": 163.871,
+            "price": 164.14,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 165.321,
+            "price": 165.593,
             "type": "Wall",
             "width": 3,
             "style": 0,
             "strike_spy": 57.0,
-            "gex": -2000287.1102694015
+            "gex": -268381.6214871091
         },
         {
-            "price": 166.772,
+            "price": 167.046,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 168.222,
+            "price": 168.498,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 58.0,
-            "gex": -442734.5809780287
+            "gex": -2149.4240877917578
         },
         {
-            "price": 169.672,
+            "price": 169.95,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 171.122,
+            "price": 171.403,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 59.0,
+            "gex": -0.9344087358260484
+        },
+        {
+            "price": 172.856,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 174.308,
             "type": "Wall",
             "width": 2,
             "style": 0,
-            "strike_spy": 59.0,
-            "gex": -1228550.931657215
-        },
-        {
-            "price": 172.572,
-            "type": "MidWall",
-            "width": 1,
-            "style": 0,
-            "gex": 0.0
-        },
-        {
-            "price": 174.022,
-            "type": "Wall",
-            "width": 1,
-            "style": 0,
             "strike_spy": 60.0,
-            "gex": -61404.61172725888
+            "gex": -21.06398327254589
         },
         {
-            "price": 146.779,
+            "price": 162.125,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": -100137.65888688278
+            "gex": 1805567.3771788778
         },
         {
-            "price": 167.432,
+            "price": 164.916,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -4583574.984908292
+            "gex": -2775045.2033888916
         },
         {
-            "price": 163.088,
+            "price": 162.617,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
