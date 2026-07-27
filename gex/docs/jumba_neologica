@@ -121,6 +121,10 @@ var
   line28Color : integer;
   line28Width : integer;
   line28Style : integer;
+  line29 : float;
+  line29Color : integer;
+  line29Width : integer;
+  line29Style : integer;
 
 BEGIN
   clMagicWall := clLime;
@@ -135,7 +139,7 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26") or (GetAsset() = "WINQ26") or (GetAsset() = "INDQ26") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOM26") or (GetAsset() = "DOLM26") or (GetAsset() = "WDON26") or (GetAsset() = "DOLN26") or (GetAsset() = "WDOQ26") or (GetAsset() = "DOLQ26");
 
-  if (((Date = ELDate(2026, 07, 24)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date = ELDate(2026, 07, 27)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
@@ -335,6 +339,7 @@ BEGIN
       NoPlot(26);
       NoPlot(27);
       NoPlot(28);
+      NoPlot(29);
     end
     else if isDOL then
     begin
@@ -402,7 +407,7 @@ BEGIN
       SetPlotWidth(8, line8Width);
       SetPlotStyle(8, line8Style);
       Plot8(line8);
-      line9 := 5028.030;
+      line9 := 5035.440;
       line9Color := clMinGamma;
       line9Width := 3;
       line9Style := 0;
@@ -482,7 +487,7 @@ BEGIN
       SetPlotWidth(18, line18Width);
       SetPlotStyle(18, line18Style);
       Plot18(line18);
-      line19 := 5151.050;
+      line19 := 5151.390;
       line19Color := clFlip;
       line19Width := 2;
       line19Style := 0;
@@ -562,6 +567,14 @@ BEGIN
       SetPlotWidth(28, line28Width);
       SetPlotStyle(28, line28Style);
       Plot28(line28);
+      line29 := 5350.000;
+      line29Color := clMagicWall;
+      line29Width := 1;
+      line29Style := 0;
+      SetPlotColor(29, line29Color);
+      SetPlotWidth(29, line29Width);
+      SetPlotStyle(29, line29Style);
+      Plot29(line29);
     end
     else
     begin
@@ -593,6 +606,7 @@ BEGIN
       NoPlot(26);
       NoPlot(27);
       NoPlot(28);
+      NoPlot(29);
     end;
   end
   else
@@ -625,5 +639,6 @@ BEGIN
       NoPlot(26);
       NoPlot(27);
       NoPlot(28);
+      NoPlot(29);
   end;
 END;
