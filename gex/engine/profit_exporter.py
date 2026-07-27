@@ -2,6 +2,7 @@ import datetime
 import subprocess
 import os
 import json
+import re
 
 def get_ntsl_asset_checks(ref_date=None):
     """
@@ -195,6 +196,11 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     now = datetime.datetime.now()
     date_str = f"ELDate({now.year}, {now.month:02d}, {now.day:02d})"
     
+    # Calcular o início da plotagem (retrocede 3 dias na segunda-feira para cobrir fim de semana, ou 1 dia nos demais dias)
+    prev_days = 3 if now.weekday() == 0 else 1
+    prev_date = now.date() - datetime.timedelta(days=prev_days)
+    prev_date_str = f"ELDate({prev_date.year}, {prev_date.month:02d}, {prev_date.day:02d})"
+    
     # WIN checks
     win_checks = ['"WINFUT"', '"INDFUT"']
     try:
@@ -242,7 +248,7 @@ BEGIN
   isWIN := {win_asset_condition};
   isDOL := {dol_asset_condition};
 
-  if (((Date = {date_str}) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date >= {prev_date_str}) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
@@ -327,6 +333,75 @@ def export_to_profit(walls, output_path, current_win=None):
         current_dol=None
     )
 
+def update_magic_wall_manual(win_walls, current_win=None):
+    """
+    Atualiza os parâmetros no topo do arquivo MagicWallManual.nts (GammaMax, GammaMin, GammaFlip, FatorConversao)
+    com os valores calculados do dia de hoje.
+    """
+    if not win_walls:
+        return
+
+    gamma_max = None
+    gamma_min = None
+    gamma_flip = None
+    factor = 1.008189  # fallback padrão
+
+    for w in win_walls:
+        w_type = w.get('type')
+        if w_type == 'MaxGamma':
+            gamma_max = w['price']
+        elif w_type == 'MinGamma':
+            gamma_min = w['price']
+        elif w_type == 'GammaFlip':
+            gamma_flip = w['price']
+            if 'factor' in w and w['factor']:
+                factor = w['factor']
+
+    if gamma_max is None or gamma_min is None or gamma_flip is None:
+        return
+
+    manual_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "gex", "docs", "MagicWallManual.nts"
+    )
+
+    if not os.path.exists(manual_path):
+        return
+
+    try:
+        with open(manual_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Substituir os valores de Input no topo do arquivo
+        content = re.sub(r'GammaMax\([\d\.]+\);', f'GammaMax({gamma_max:.1f});', content)
+        content = re.sub(r'GammaMin\([\d\.]+\);', f'GammaMin({gamma_min:.1f});', content)
+        content = re.sub(r'GammaFlip\([\d\.]+\);', f'GammaFlip({gamma_flip:.1f});', content)
+        content = re.sub(r'FatorConversao\([\d\.]+\);', f'FatorConversao({factor:.6f});', content)
+
+        with open(manual_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        print(f"[Exporter] MagicWallManual.nts atualizado com sucesso (Flip={gamma_flip:.1f}, Factor={factor:.6f})")
+
+        # Copiar para as pastas de estratégia do Profit e Scalper
+        nelogica_targets = [
+            r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy",
+            r"C:\Users\ryzen\AppData\Roaming\Nelogica\Scalper\strategy",
+        ]
+        for strategy_dir in nelogica_targets:
+            if os.path.exists(strategy_dir):
+                dest_file = os.path.join(strategy_dir, "MagicWallManual.nts")
+                with open(dest_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                nelogica_subdir = os.path.join(strategy_dir, "Nelogica")
+                if os.path.exists(nelogica_subdir):
+                    src_dest = os.path.join(nelogica_subdir, "MagicWallManual.src")
+                    with open(src_dest, 'w', encoding='utf-8') as f:
+                        f.write(content)
+    except Exception as e:
+        print(f"[Exporter] Aviso: Não foi possível atualizar MagicWallManual.nts ({e})")
+
+
 def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
     """
     Deploy completo unificado para Nelogica: carrega WIN e DOL do cache,
@@ -358,6 +433,9 @@ def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
         current_win=current_win,
         current_dol=current_dol
     )
+    
+    # 2.1 Atualizar o MagicWallManual.nts estático com os parâmetros do dia
+    update_magic_wall_manual(win_walls, current_win=current_win)
     
     # 3. Salvar em todas as pastas da Nelogica
     nelogica_targets = [
