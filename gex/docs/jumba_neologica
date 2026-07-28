@@ -125,6 +125,10 @@ var
   line29Color : integer;
   line29Width : integer;
   line29Style : integer;
+  line30 : float;
+  line30Color : integer;
+  line30Width : integer;
+  line30Style : integer;
 
 BEGIN
   clMagicWall := clLime;
@@ -375,6 +379,7 @@ BEGIN
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
+      NoPlot(30);
     end
     else if isDOL then
     begin
@@ -442,7 +447,7 @@ BEGIN
       SetPlotWidth(8, line8Width);
       SetPlotStyle(8, line8Style);
       Plot8(line8);
-      line9 := 5038.760;
+      line9 := 5041.000;
       line9Color := clMinGamma;
       line9Width := 3;
       line9Style := 0;
@@ -610,6 +615,14 @@ BEGIN
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
+      line30 := 5375.000;
+      line30Color := clMidleWall;
+      line30Width := 1;
+      line30Style := 0;
+      SetPlotColor(30, line30Color);
+      SetPlotWidth(30, line30Width);
+      SetPlotStyle(30, line30Style);
+      Plot30(line30);
     end
     else
     begin
@@ -642,6 +655,7 @@ BEGIN
       NoPlot(27);
       NoPlot(28);
       NoPlot(29);
+      NoPlot(30);
     end;
   end
   else
@@ -675,5 +689,6 @@ BEGIN
       NoPlot(27);
       NoPlot(28);
       NoPlot(29);
+      NoPlot(30);
   end;
 END;
