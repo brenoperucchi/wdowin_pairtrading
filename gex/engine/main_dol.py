@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from gex.engine.black76 import black76_gamma, implied_volatility_newton_raphson
 from gex.engine.b3_dol_parser import get_b3_dol_options_data
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+from gex.engine.mt5_prices import init_mt5_robust
 
 MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
 
@@ -47,7 +48,7 @@ def get_wdo_price():
     """
     Busca o preço atual do contrato ativo WDO do MT5.
     """
-    if not mt5.initialize(MT5_PATH):
+    if not init_mt5_robust(MT5_PATH):
         print("MT5 DOL: Erro ao inicializar. Usando fallback manual.")
         return None, None
         
@@ -171,6 +172,10 @@ def run_dol_gex_pipeline():
         expiry_str = expiry_date.strftime("%Y-%m-%d")
         
     else:
+        # Filtra apenas vencimentos que não expiraram (>= hoje)
+        today_str = today.isoformat()
+        df_options = df_options[df_options['expiry'].str[:10] >= today_str].copy()
+        
         # 3. Filtrar pelo vencimento mais próximo
         front_month = df_options['expiry'].min()
         df_front = df_options[df_options['expiry'] == front_month].copy()
@@ -194,15 +199,23 @@ def run_dol_gex_pipeline():
         
         # 5. Tentativa de IV Dinâmico via ATM Call do MT5
         try:
-            if mt5.initialize(MT5_PATH):
+            if init_mt5_robust():
                 atm_strike = min(df_front['strike'].unique(), key=lambda s: abs(s - current_wdo))
                 atm_calls = df_front[(df_front['strike'] == atm_strike) & (df_front['type'] == 'CALL')]
                 if not atm_calls.empty:
                     atm_ticker = atm_calls.iloc[0]['ticker']
                     mt5.symbol_select(atm_ticker, True)
+                    
+                    c_market = None
                     tick_opt = mt5.symbol_info_tick(atm_ticker)
                     if tick_opt and tick_opt.last > 0:
                         c_market = tick_opt.last
+                    else:
+                        rates_d1 = mt5.copy_rates_from_pos(atm_ticker, mt5.TIMEFRAME_D1, 0, 5)
+                        if rates_d1 is not None and len(rates_d1) > 0:
+                            c_market = float(rates_d1[-1][4])
+                            
+                    if c_market and c_market > 0:
                         dynamic_iv = implied_volatility_newton_raphson(
                             C_market=c_market,
                             F=current_wdo,
@@ -214,6 +227,7 @@ def run_dol_gex_pipeline():
                         )
                         if 0.02 <= dynamic_iv <= 0.60:
                             iv = dynamic_iv
+                            print(f"      [MT5] Opção ATM {atm_ticker} capturada: R$ {c_market:.2f} -> IV Calculada: {iv*100:.2f}%")
                             print(f"      Opção ATM {atm_ticker} -> Preço MT5: R$ {c_market:.2f} -> IV Calculada: {iv*100:.2f}%")
                 mt5.shutdown()
         except Exception as e:

@@ -8,13 +8,72 @@ Logica de sincronizacao:
   4. Retorna o fator sincronizado F_WIN/S_IBOV
 """
 
+import os
 import re
 import time
 import MetaTrader5 as mt5
 from datetime import datetime, timezone, timedelta
 
 MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
+TICKMILL_MT5_PATH = "C:/Program Files/Tickmill MT5 Terminal/terminal64.exe"
 SYMBOL_IBOV = "IBOV"
+
+
+def get_global_mt5_price(symbol_mt5, terminal_path=TICKMILL_MT5_PATH):
+    """
+    Busca o preço de fechamento do último bar M1/M5 do símbolo no MT5 da corretora (ex: US500, USTEC, US30, XAUUSD, BTCUSD).
+    Tenta primeiro no terminal Tickmill, com fallback para o terminal padrão se necessário.
+    
+    :param symbol_mt5: Código do ativo no MT5 (ex: 'US500', 'USTEC', 'US30', 'XAUUSD', 'BTCUSD', 'EURUSD', 'GBPUSD', 'USDJPY')
+    :return: (float price, datetime bar_time) ou (None, None) se falhar
+    """
+    paths_to_try = [p for p in [terminal_path, MT5_PATH] if os.path.exists(p)]
+    
+    for p in paths_to_try:
+        if not mt5.initialize(p):
+            continue
+            
+        mt5.symbol_select(symbol_mt5, True)
+        rates = mt5.copy_rates_from_pos(symbol_mt5, mt5.TIMEFRAME_M1, 0, 5)
+        if rates is None or len(rates) == 0:
+            rates = mt5.copy_rates_from_pos(symbol_mt5, mt5.TIMEFRAME_M5, 0, 5)
+            
+        if rates is not None and len(rates) > 0:
+            last_bar = rates[-1]
+            price = float(last_bar[4])  # Close
+            bar_time = datetime.fromtimestamp(last_bar[0], timezone.utc)
+            mt5.shutdown()
+            return price, bar_time
+            
+        mt5.shutdown()
+        
+    return None, None
+
+
+def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio):
+    """
+    Calcula a razão de conversão perfeitamente sincronizada entre o CFD do MT5
+    e o preço Spot do ETF correspondente.
+    
+    :param etf_spot_price: Preço spot atual do ETF (ex: SPY $748.28)
+    :param symbol_mt5: Símbolo correspondente no MT5 (ex: 'US500')
+    :param fallback_ratio: Razão padrão caso o MT5 esteja offline
+    :return: (float ratio, float mt5_price, str status_msg)
+    """
+    if not etf_spot_price or etf_spot_price <= 0:
+        return fallback_ratio, None, "Erro: Preço Spot ETF inválido"
+        
+    price_mt5, bar_time = get_global_mt5_price(symbol_mt5)
+    
+    if price_mt5 and price_mt5 > 0:
+        ratio = price_mt5 / etf_spot_price
+        time_str = bar_time.strftime('%H:%M:%S UTC') if bar_time else 'Agora'
+        msg = f"MT5 ({symbol_mt5}: {price_mt5:.2f} @ {time_str}) / ETF Spot (${etf_spot_price:.2f}) -> Ratio: {ratio:.6f}"
+        return ratio, price_mt5, msg
+    else:
+        msg = f"[Fallback Teórico] MT5 offline para {symbol_mt5}. Usando ratio padrão: {fallback_ratio:.6f}"
+        return fallback_ratio, None, msg
+
 
 
 def _get_expected_trading_day():
@@ -195,58 +254,90 @@ def get_mt5_prices(max_retries=6, retry_delay=5):
     return f_win, s_ibov, win_bar_time
 
 
+def init_mt5_robust(path=None, max_attempts=3):
+    """
+    Inicializa conexão com o MetaTrader 5 aplicando retries e priorizando o terminal com dados B3 (XP).
+    """
+    candidate_paths = [
+        "C:/Program Files/MetaTrader 5 Terminal/terminal64.exe",
+        "C:/Program Files/MetaTrader 5/terminal64.exe"
+    ]
+    if path and path not in candidate_paths:
+        candidate_paths.insert(0, path)
+        
+    for p in candidate_paths:
+        if not os.path.exists(p):
+            continue
+        for attempt in range(1, max_attempts + 1):
+            if mt5.initialize(p):
+                info = mt5.terminal_info()
+                if info and info.connected:
+                    return True
+            time.sleep(0.3)
+            
+    for attempt in range(1, max_attempts + 1):
+        if mt5.initialize():
+            return True
+        time.sleep(0.3)
+    return False
+
+
 def get_option_price(ticker, target_hour=16, target_minute=55, max_attempts=3):
     """
     Busca o preco de fechamento de uma opcao no MT5.
     Tenta pegar a vela M5 exata do horario target (ex: 16:55).
-    Se nao houver liquidez no momento exato, pega a ultima disponivel do dia.
+    Se nao houver liquidez no momento exato, pega a ultima M5, D1 ou o tick.last.
     
     :param ticker: Codigo da opcao (ex: IBOVK120)
     :return: float (preco de fechamento) ou None se falhar
     """
-    if not mt5.initialize(MT5_PATH):
+    if not init_mt5_robust(MT5_PATH):
         return None
         
     mt5.symbol_select(ticker, True)
-    
-    # Verifica se o simbolo existe e tem last price hoje
     tick = mt5.symbol_info_tick(ticker)
-    if tick is None:
-        return None
-        
-    # Puxar ultimas velas M5 com retry resiliente
+    
+    # 1. Puxar ultimas velas M5 com retry resiliente
     rates = None
     for attempt in range(1, max_attempts + 1):
         rates = mt5.copy_rates_from_pos(ticker, mt5.TIMEFRAME_M5, 0, 500)
         if rates is not None and len(rates) > 0:
             break
-        print(f"MT5: Carregando dados para {ticker} (tentativa {attempt}/{max_attempts})...")
-        time.sleep(1)
+        time.sleep(0.5)
         
-    if rates is None or len(rates) == 0:
-        return None
+    if rates is not None and len(rates) > 0:
+        target_bar = rates[-1]
+        found_exact = False
+        latest_date = datetime.fromtimestamp(rates[-1][0], timezone.utc).date()
         
-    # Tenta achar a vela especifica no mesmo dia do ultimo registro
-    target_bar = rates[-1]
-    found_exact = False
-    latest_date = datetime.fromtimestamp(rates[-1][0], timezone.utc).date()
-    
-    for b in reversed(rates):
-        dt = datetime.fromtimestamp(b[0], timezone.utc)
-        if dt.date() == latest_date and dt.hour == target_hour and dt.minute == target_minute:
-            target_bar = b
-            found_exact = True
-            break
-            
-    # O preco de fechamento e o indice 4 na tupla do copy_rates
-    price = float(target_bar[4])
-    
-    if not found_exact:
-        print(f"MT5: {ticker} sem trade as {target_hour}:{target_minute} em {latest_date}. Usando ultima (R$ {price:.2f}).")
-    else:
-        print(f"MT5: {ticker} preco capturado as {target_hour}:{target_minute} em {latest_date} -> R$ {price:.2f}")
+        for b in reversed(rates):
+            dt = datetime.fromtimestamp(b[0], timezone.utc)
+            if dt.date() == latest_date and dt.hour == target_hour and dt.minute == target_minute:
+                target_bar = b
+                found_exact = True
+                break
+                
+        price = float(target_bar[4])
+        if not found_exact:
+            print(f"MT5: {ticker} sem trade M5 as {target_hour}:{target_minute} em {latest_date}. Usando ultima M5 (R$ {price:.2f}).")
+        else:
+            print(f"MT5: {ticker} preco capturado M5 as {target_hour}:{target_minute} em {latest_date} -> R$ {price:.2f}")
+        return price
         
-    return price
+    # 2. Fallback para vela D1 (diaria)
+    rates_d1 = mt5.copy_rates_from_pos(ticker, mt5.TIMEFRAME_D1, 0, 5)
+    if rates_d1 is not None and len(rates_d1) > 0:
+        price = float(rates_d1[-1][4])
+        print(f"MT5: {ticker} sem velas M5. Usando fechamento D1 -> R$ {price:.2f}")
+        return price
+
+    # 3. Fallback para tick.last
+    if tick is not None and tick.last > 0:
+        price = float(tick.last)
+        print(f"MT5: {ticker} sem historico de velas. Usando ultimo tick -> R$ {price:.2f}")
+        return price
+        
+    return None
 
 
 if __name__ == "__main__":
