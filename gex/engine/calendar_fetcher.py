@@ -163,10 +163,11 @@ def fetch_economic_calendar():
         # Trava de Segurança: se o relatório de hoje já existia com dados válidos, não sobrescrever com erro!
         if os.path.exists(report_path):
             try:
-                with open(report_path, "r", encoding="utf-8") as f:
+                with open(report_path, "r", encoding="utf-8", errors="ignore") as f:
                     existing_text = f.read()
-                if today_str in existing_text and ("ALTO IMPACTO" in existing_text or "MÉDIO IMPACTO" in existing_text):
-                    print("Aviso: Falha temporária na busca. Preservando relatório válido anterior para hoje.")
+                if today_str in existing_text and len(existing_text) > 200:
+                    print("Aviso: Falha temporária na busca. Preservando relatório válido anterior para hoje:\n")
+                    print(existing_text)
                     return
             except Exception:
                 pass
