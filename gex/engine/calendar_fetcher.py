@@ -65,8 +65,12 @@ def fetch_economic_calendar():
                 page.set_extra_http_headers({
                     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
                 })
-                page.goto(url, wait_until="commit", timeout=25000)
-                page.wait_for_timeout(4000)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                try:
+                    page.wait_for_selector("tr.eventRow", timeout=15000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(1000)
                 content = page.content()
                 browser.close()
                 
