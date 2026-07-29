@@ -60,8 +60,8 @@ def fetch_economic_calendar():
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page()
-                page.goto(url, wait_until="commit", timeout=30000)
-                page.wait_for_selector("table.ecoCalTable", timeout=20000)
+                page.goto(url, wait_until="load", timeout=30000)
+                page.wait_for_selector("tr.eventRow", timeout=20000)
                 content = page.content()
                 browser.close()
                 
