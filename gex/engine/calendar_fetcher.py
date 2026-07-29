@@ -58,78 +58,69 @@ def fetch_economic_calendar():
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                page = context.new_page()
-                
-                page.goto(url, wait_until="domcontentloaded", timeout=25000)
-                page.wait_for_selector("table.ecoCalTable", timeout=15000)
+                page = browser.new_page()
+                page.goto(url, wait_until="commit", timeout=30000)
+                page.wait_for_selector("table.ecoCalTable", timeout=20000)
                 content = page.content()
                 browser.close()
                 
-                soup = BeautifulSoup(content, 'html.parser')
-                table = soup.select_one("table.ecoCalTable")
-                current_date = None
-                
-                events_high.clear()
-                events_medium.clear()
-                events_low.clear()
-                
-                if table:
-                    for r in table.select("tr"):
-                        classes = r.get("class", [])
-                        if 'theader' in classes:
-                            current_date = parse_portuguese_date(r.text.strip())
-                        elif 'eventRow' in classes and current_date == today:
-                            time_td = r.select_one("td.time")
-                            country_td = r.select_one("td.flagCur")
-                            event_td = r.select_one("td.event")
-                            sentiment_td = r.select_one("td.sentiment")
-                            
-                            time_val = time_td.text.strip() if time_td else ""
-                            country_val = country_td.text.strip() if country_td else ""
-                            event_val = event_td.text.strip() if event_td else ""
-                            
-                            if country_val in ['USD', 'BRL'] and time_val and event_val:
-                                bulls = 1
-                                if sentiment_td:
-                                    img_key = str(sentiment_td.get("data-img_key") or "")
-                                    if "bull3" in img_key:
-                                        bulls = 3
-                                    elif "bull2" in img_key:
-                                        bulls = 2
-                                    elif "bull1" in img_key:
-                                        bulls = 1
-                                    else:
-                                        full_bulls = len(sentiment_td.select("i.grayFullBullishIcon"))
-                                        if full_bulls > 0:
-                                            bulls = full_bulls
-                                            
-                                event_item = {
-                                    "time": time_val,
-                                    "country": country_val,
-                                    "event": event_val
-                                }
-                                
-                                if bulls >= 3:
-                                    events_high.append(event_item)
-                                elif bulls == 2:
-                                    events_medium.append(event_item)
+            soup = BeautifulSoup(content, 'html.parser')
+            table = soup.select_one("table.ecoCalTable")
+            current_date = None
+            
+            local_high = []
+            local_medium = []
+            local_low = []
+            
+            if table:
+                for r in table.select("tr"):
+                    classes = r.get("class", [])
+                    if 'theader' in classes:
+                        current_date = parse_portuguese_date(r.text.strip())
+                    elif 'eventRow' in classes and current_date == today:
+                        time_td = r.select_one("td.time")
+                        country_td = r.select_one("td.flagCur")
+                        event_td = r.select_one("td.event")
+                        sentiment_td = r.select_one("td.sentiment")
+                        
+                        time_val = time_td.text.strip() if time_td else ""
+                        country_val = country_td.text.strip() if country_td else ""
+                        event_val = event_td.text.strip() if event_td else ""
+                        
+                        if country_val in ['USD', 'BRL'] and time_val and event_val:
+                            bulls = 1
+                            if sentiment_td:
+                                img_key = str(sentiment_td.get("data-img_key") or "")
+                                if "bull3" in img_key:
+                                    bulls = 3
+                                elif "bull2" in img_key:
+                                    bulls = 2
+                                elif "bull1" in img_key:
+                                    bulls = 1
                                 else:
-                                    events_low.append(event_item)
-                                    
-                if events_high or events_medium or events_low:
-                    break
-        except Exception as e:
-            if attempt == 3:
-                output_lines.append(f"[ERRO] Falha ao buscar calendário econômico: {e}")
-                output_lines.append("============================================================")
-                report_text = "\n".join(output_lines)
-                print(report_text)
-                with open(report_path, "w", encoding="utf-8") as f:
-                    f.write(report_text)
-                return
+                                    full_bulls = len(sentiment_td.select("i.grayFullBullishIcon"))
+                                    if full_bulls > 0:
+                                        bulls = full_bulls
+                                        
+                            event_item = {
+                                "time": time_val,
+                                "country": country_val,
+                                "event": event_val
+                            }
+                            
+                            if bulls >= 3:
+                                local_high.append(event_item)
+                            elif bulls == 2:
+                                local_medium.append(event_item)
+                            else:
+                                local_low.append(event_item)
+                                
+            if local_high or local_medium or local_low:
+                events_high = local_high
+                events_medium = local_medium
+                events_low = local_low
+                break
+        except Exception:
             import time
             time.sleep(2)
 
