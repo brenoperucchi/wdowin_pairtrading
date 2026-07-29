@@ -165,7 +165,7 @@ def fetch_economic_calendar():
             try:
                 with open(report_path, "r", encoding="utf-8", errors="ignore") as f:
                     existing_text = f.read()
-                if today_str in existing_text and len(existing_text) > 200:
+                if today_str in existing_text and "IMPACTO" in existing_text:
                     print("Aviso: Falha temporária na busca. Preservando relatório válido anterior para hoje:\n")
                     print(existing_text)
                     return
