@@ -6,22 +6,30 @@ from playwright.sync_api import sync_playwright
 
 def parse_portuguese_date(date_str):
     """
-    Parses a date string in Portuguese format like "segunda-feira, 27 de julho de 2026"
-    or "27 de julho de 2026" and returns a datetime.date object.
+    Parses a date string in Portuguese format like "segunda-feira, 27 de julho de 2026",
+    "27 de julho", or "Hoje, 27 de julho" and returns a datetime.date object.
     """
     try:
         date_str = date_str.replace('\xa0', ' ').strip()
+        if "hoje" in date_str.lower():
+            return datetime.date.today()
         if "," in date_str:
             date_str = date_str.split(",")[1].strip()
         parts = [p.strip() for p in date_str.split(" de ")]
+        months = {
+            "janeiro": 1, "fevereiro": 2, "março": 3, "abril": 4, "maio": 5, "junho": 6,
+            "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12
+        }
         if len(parts) == 3:
             day = int(parts[0])
             month_name = parts[1].lower()
             year = int(parts[2])
-            months = {
-                "janeiro": 1, "fevereiro": 2, "março": 3, "abril": 4, "maio": 5, "junho": 6,
-                "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12
-            }
+            if month_name in months:
+                return datetime.date(year, months[month_name], day)
+        elif len(parts) == 2:
+            day = int(parts[0])
+            month_name = parts[1].lower()
+            year = datetime.date.today().year
             if month_name in months:
                 return datetime.date(year, months[month_name], day)
     except Exception:
