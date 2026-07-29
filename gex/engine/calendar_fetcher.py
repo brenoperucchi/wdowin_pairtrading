@@ -10,19 +10,20 @@ def parse_portuguese_date(date_str):
     or "27 de julho de 2026" and returns a datetime.date object.
     """
     try:
+        date_str = date_str.replace('\xa0', ' ').strip()
         if "," in date_str:
             date_str = date_str.split(",")[1].strip()
-        parts = date_str.split(" de ")
+        parts = [p.strip() for p in date_str.split(" de ")]
         if len(parts) == 3:
             day = int(parts[0])
-            month_name = parts[1].lower().strip()
+            month_name = parts[1].lower()
             year = int(parts[2])
             months = {
                 "janeiro": 1, "fevereiro": 2, "março": 3, "abril": 4, "maio": 5, "junho": 6,
                 "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12
             }
-            month = months.get(month_name, 1)
-            return datetime.date(year, month, day)
+            if month_name in months:
+                return datetime.date(year, months[month_name], day)
     except Exception:
         pass
     return None
