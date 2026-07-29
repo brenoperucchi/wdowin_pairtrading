@@ -63,7 +63,7 @@ def fetch_economic_calendar():
     events_medium = []
     events_low = []
     
-    for attempt in range(1, 4):
+    for attempt in range(1, 11):
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -82,7 +82,7 @@ def fetch_economic_calendar():
                 
             soup = BeautifulSoup(content, 'html.parser')
             table = soup.select_one("table.ecoCalTable")
-            current_date = None
+            current_date = today
             
             local_high = []
             local_medium = []
@@ -92,7 +92,9 @@ def fetch_economic_calendar():
                 for r in table.select("tr"):
                     classes = r.get("class", [])
                     if 'theader' in classes:
-                        current_date = parse_portuguese_date(r.text.strip())
+                        parsed_d = parse_portuguese_date(r.text.strip())
+                        if parsed_d:
+                            current_date = parsed_d
                     elif 'eventRow' in classes and current_date == today:
                         time_td = r.select_one("td.time")
                         country_td = r.select_one("td.flagCur")
