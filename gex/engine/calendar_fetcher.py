@@ -68,13 +68,17 @@ def fetch_economic_calendar():
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page(
+                    viewport={"width": 1280, "height": 800},
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
                 page.set_extra_http_headers({
                     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
                 })
-                page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_selector("tr.eventRow", timeout=35000)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                try:
+                    page.wait_for_selector("tr.eventRow", timeout=15000)
+                except Exception:
+                    pass
                 content = page.content()
                 browser.close()
                 
@@ -158,6 +162,16 @@ def fetch_economic_calendar():
             output_lines.append(f"   - [{e['time']}] [{e['country']}] {e['event']}")
             
     if not (events_high or events_medium or events_low):
+        # Trava de Segurança: se o relatório de hoje já existia com dados válidos, não sobrescrever com erro!
+        if os.path.exists(report_path):
+            try:
+                with open(report_path, "r", encoding="utf-8") as f:
+                    existing_text = f.read()
+                if today_str in existing_text and ("ALTO IMPACTO" in existing_text or "MÉDIO IMPACTO" in existing_text):
+                    print("Aviso: Falha temporária na busca. Preservando relatório válido anterior para hoje.")
+                    return
+            except Exception:
+                pass
         output_lines.append("\n [-] Nenhum evento econômico (USD/BRL) agendado para hoje.")
         
     output_lines.append("\n============================================================")
