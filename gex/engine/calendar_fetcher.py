@@ -62,8 +62,16 @@ def fetch_economic_calendar():
             )
             page = context.new_page()
             
-            page.goto(url, wait_until="commit", timeout=30000)
-            page.wait_for_selector("tr.eventRow", timeout=25000)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            except Exception:
+                pass
+                
+            try:
+                page.wait_for_selector("tr.eventRow", timeout=15000)
+            except Exception:
+                pass
+                
             content = page.content()
             browser.close()
             
