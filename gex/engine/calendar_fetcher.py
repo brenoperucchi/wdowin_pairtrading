@@ -66,8 +66,7 @@ def fetch_economic_calendar():
                     "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
                 })
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                page.evaluate("window.scrollTo(0, 500)")
-                page.wait_for_timeout(2000)
+                page.wait_for_selector("tr.eventRow", timeout=20000)
                 content = page.content()
                 browser.close()
                 
