@@ -2,8 +2,8 @@
   CALENDÁRIO ECONÔMICO (BRASIL & EUA) - 29/07/2026
   Fuso Horário: Brasília (GMT-3) | Fonte: Investing.com
 ============================================================
-[ERRO] Falha ao buscar calendário econômico: Page.goto: Timeout 30000ms exceeded.
+[ERRO] Falha ao buscar calendário econômico: Page.wait_for_selector: Timeout 25000ms exceeded.
 Call log:
-  - navigating to "https://ec.forexprostools.com/?columns=time,country,importance,event&calType=day&timeZone=12&lang=12", waiting until "load"
+  - waiting for locator("tr.eventRow") to be visible
 
 ============================================================
