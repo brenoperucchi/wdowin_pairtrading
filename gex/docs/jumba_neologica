@@ -447,7 +447,7 @@ BEGIN
       SetPlotWidth(8, line8Width);
       SetPlotStyle(8, line8Style);
       Plot8(line8);
-      line9 := 5046.400;
+      line9 := 5045.880;
       line9Color := clMinGamma;
       line9Width := 3;
       line9Style := 0;
