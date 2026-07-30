@@ -125,10 +125,6 @@ var
   line29Color : integer;
   line29Width : integer;
   line29Style : integer;
-  line30 : float;
-  line30Color : integer;
-  line30Width : integer;
-  line30Style : integer;
 
 BEGIN
   clMagicWall := clLime;
@@ -379,7 +375,6 @@ BEGIN
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
-      NoPlot(30);
     end
     else if isDOL then
     begin
@@ -433,7 +428,7 @@ BEGIN
       Plot6(line6);
       line7 := 5000.000;
       line7Color := clMagicWall;
-      line7Width := 1;
+      line7Width := 2;
       line7Style := 0;
       SetPlotColor(7, line7Color);
       SetPlotWidth(7, line7Width);
@@ -455,7 +450,7 @@ BEGIN
       SetPlotWidth(9, line9Width);
       SetPlotStyle(9, line9Style);
       Plot9(line9);
-      line10 := 5051.520;
+      line10 := 5051.280;
       line10Color := clMinGamma;
       line10Width := 3;
       line10Style := 0;
@@ -489,7 +484,7 @@ BEGIN
       Plot13(line13);
       line14 := 5100.000;
       line14Color := clMagicWall;
-      line14Width := 2;
+      line14Width := 1;
       line14Style := 0;
       SetPlotColor(14, line14Color);
       SetPlotWidth(14, line14Width);
@@ -599,30 +594,8 @@ BEGIN
       SetPlotWidth(27, line27Width);
       SetPlotStyle(27, line27Style);
       Plot27(line27);
-      line28 := 5325.000;
-      line28Color := clMidleWall;
-      line28Width := 1;
-      line28Style := 0;
-      SetPlotColor(28, line28Color);
-      SetPlotWidth(28, line28Width);
-      SetPlotStyle(28, line28Style);
-      Plot28(line28);
-      line29 := 5350.000;
-      line29Color := clMagicWall;
-      line29Width := 1;
-      line29Style := 0;
-      SetPlotColor(29, line29Color);
-      SetPlotWidth(29, line29Width);
-      SetPlotStyle(29, line29Style);
-      Plot29(line29);
-      line30 := 5375.000;
-      line30Color := clMidleWall;
-      line30Width := 1;
-      line30Style := 0;
-      SetPlotColor(30, line30Color);
-      SetPlotWidth(30, line30Width);
-      SetPlotStyle(30, line30Style);
-      Plot30(line30);
+      NoPlot(28);
+      NoPlot(29);
     end
     else
     begin
@@ -655,7 +628,6 @@ BEGIN
       NoPlot(27);
       NoPlot(28);
       NoPlot(29);
-      NoPlot(30);
     end;
   end
   else
@@ -689,6 +661,5 @@ BEGIN
       NoPlot(27);
       NoPlot(28);
       NoPlot(29);
-      NoPlot(30);
   end;
 END;
