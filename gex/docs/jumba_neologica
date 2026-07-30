@@ -143,7 +143,7 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINM26") or (GetAsset() = "INDM26") or (GetAsset() = "WINQ26") or (GetAsset() = "INDQ26") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOM26") or (GetAsset() = "DOLM26") or (GetAsset() = "WDON26") or (GetAsset() = "DOLN26") or (GetAsset() = "WDOQ26") or (GetAsset() = "DOLQ26");
 
-  if (((Date >= ELDate(2026, 07, 28)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date >= ELDate(2026, 07, 29)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
@@ -447,16 +447,16 @@ BEGIN
       SetPlotWidth(8, line8Width);
       SetPlotStyle(8, line8Style);
       Plot8(line8);
-      line9 := 5045.880;
-      line9Color := clMinGamma;
+      line9 := 5050.000;
+      line9Color := clMagicWall;
       line9Width := 3;
       line9Style := 0;
       SetPlotColor(9, line9Color);
       SetPlotWidth(9, line9Width);
       SetPlotStyle(9, line9Style);
       Plot9(line9);
-      line10 := 5050.000;
-      line10Color := clMagicWall;
+      line10 := 5051.520;
+      line10Color := clMinGamma;
       line10Width := 3;
       line10Style := 0;
       SetPlotColor(10, line10Color);
@@ -489,7 +489,7 @@ BEGIN
       Plot13(line13);
       line14 := 5100.000;
       line14Color := clMagicWall;
-      line14Width := 1;
+      line14Width := 2;
       line14Style := 0;
       SetPlotColor(14, line14Color);
       SetPlotWidth(14, line14Width);
@@ -519,7 +519,7 @@ BEGIN
       SetPlotWidth(17, line17Width);
       SetPlotStyle(17, line17Style);
       Plot17(line17);
-      line18 := 5147.760;
+      line18 := 5147.830;
       line18Color := clFlip;
       line18Width := 2;
       line18Style := 0;
@@ -561,7 +561,7 @@ BEGIN
       Plot22(line22);
       line23 := 5200.000;
       line23Color := clMagicWall;
-      line23Width := 2;
+      line23Width := 1;
       line23Style := 0;
       SetPlotColor(23, line23Color);
       SetPlotWidth(23, line23Width);
