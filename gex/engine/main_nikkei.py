@@ -56,31 +56,22 @@ def get_nikkei_spot_and_chain():
         print("      ERRO: Nenhuma data de vencimento encontrada para EWJ.")
         return None, None, None, None
         
-    # 4. Baixar a grade de opções (com fallback de liquidez)
+    # 4. Baixar a grade de opções (priorizando o vencimento mais próximo / front-month)
     opt_chain = None
     front_expiry = None
-    best_active_count = 0
     
-    for expiry in expirations[:10]:
+    for expiry in expirations[:5]:
         try:
             chain = ewj_ticker.option_chain(expiry)
-            calls_oi = chain.calls['openInterest'] if 'openInterest' in chain.calls.columns else pd.Series(dtype=int)
-            puts_oi = chain.puts['openInterest'] if 'openInterest' in chain.puts.columns else pd.Series(dtype=int)
+            calls_oi = chain.calls['openInterest'].fillna(0).sum() if 'openInterest' in chain.calls.columns else 0
+            puts_oi = chain.puts['openInterest'].fillna(0).sum() if 'openInterest' in chain.puts.columns else 0
+            calls_vol = chain.calls['volume'].fillna(0).sum() if 'volume' in chain.calls.columns else 0
+            puts_vol = chain.puts['volume'].fillna(0).sum() if 'volume' in chain.puts.columns else 0
             
-            active_calls = calls_oi[calls_oi > 0].count()
-            active_puts = puts_oi[puts_oi > 0].count()
-            active_count = active_calls + active_puts
-            
-            if active_count >= 10:
+            if (calls_oi + puts_oi + calls_vol + puts_vol) > 0:
                 opt_chain = chain
                 front_expiry = expiry
-                best_active_count = active_count
                 break
-                
-            if active_count > best_active_count:
-                opt_chain = chain
-                front_expiry = expiry
-                best_active_count = active_count
         except Exception:
             continue
             
@@ -94,47 +85,47 @@ def get_nikkei_spot_and_chain():
     puts = opt_chain.puts
     options = []
     
-    total_oi_calls = calls['openInterest'].fillna(0).astype(int).gt(0).sum()
-    total_oi_puts = puts['openInterest'].fillna(0).astype(int).gt(0).sum()
-    total_active_oi = total_oi_calls + total_oi_puts
-    
-    use_volume_fallback = total_active_oi < 10
-    if use_volume_fallback:
-        print(f"      [Aviso] Pouco Open Interest detectado ({total_active_oi} contratos). Ativando fallback para Volume!")
+    # Filtrar opções estritamente dentro de ±8% do preço Spot do ETF EWJ (evita strikes distantes tipo $55-$75)
+    ewj_min_strike = current_ewj * 0.92
+    ewj_max_strike = current_ewj * 1.08
     
     for _, row in calls.iterrows():
+        strike = float(row['strike'])
+        if not (ewj_min_strike <= strike <= ewj_max_strike):
+            continue
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
         volume = int(row['volume']) if not pd.isna(row['volume']) else 0
-        if use_volume_fallback and oi == 0:
-            oi = volume
+        if oi == 0:
+            oi = max(volume, 1) # Garante liquidez mínima para strikes ATM perto do spot
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.20
-        if oi > 0:
-            options.append({
-                "ticker": row['contractSymbol'],
-                "type": "CALL",
-                "strike": float(row['strike']),
-                "expiry": front_expiry,
-                "oi": oi,
-                "iv": iv
-            })
+        options.append({
+            "ticker": row['contractSymbol'],
+            "type": "CALL",
+            "strike": strike,
+            "expiry": front_expiry,
+            "oi": oi,
+            "iv": iv
+        })
             
     for _, row in puts.iterrows():
+        strike = float(row['strike'])
+        if not (ewj_min_strike <= strike <= ewj_max_strike):
+            continue
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
         volume = int(row['volume']) if not pd.isna(row['volume']) else 0
-        if use_volume_fallback and oi == 0:
-            oi = volume
+        if oi == 0:
+            oi = max(volume, 1)
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.20
-        if oi > 0:
-            options.append({
-                "ticker": row['contractSymbol'],
-                "type": "PUT",
-                "strike": float(row['strike']),
-                "expiry": front_expiry,
-                "oi": oi,
-                "iv": iv
-            })
+        options.append({
+            "ticker": row['contractSymbol'],
+            "type": "PUT",
+            "strike": strike,
+            "expiry": front_expiry,
+            "oi": oi,
+            "iv": iv
+        })
             
-    print(f"      {len(options)} contratos de opções ativos carregados.")
+    print(f"      {len(options)} contratos de opções ativos (dentro de ±8% do Spot EWJ) carregados.")
     df_options = pd.DataFrame(options)
     return current_spot, current_ewj, front_expiry, df_options
 
@@ -200,21 +191,21 @@ def run_nikkei_gex_pipeline():
     all_strikes = sorted(gex_per_strike.keys())
     current_jp_approx = current_ewj * conv_ratio
     
-    # Filtrar strikes dentro de ±15% do preço spot JP225 (ETF tem strikes muito espaçados)
-    range_pct = 0.15
+    # Filtrar strikes estritamente dentro de ±6% do preço spot JP225
+    range_pct = 0.06
     lower_bound = current_jp_approx * (1 - range_pct)
     upper_bound = current_jp_approx * (1 + range_pct)
     filtered_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
     
     if len(filtered_strikes) < 3:
-        # Fallback: pegar os 8 mais próximos do ATM
+        # Se houver poucas opções ativas, pega no máximo os 8 mais próximos do ATM
         filtered_strikes = sorted(all_strikes, key=lambda s: abs(s - current_jp_approx))[:8]
         filtered_strikes = sorted(filtered_strikes)
     
     atm_strike = min(filtered_strikes, key=lambda s: abs(s - current_jp_approx))
     atm_idx = filtered_strikes.index(atm_strike)
     
-    num_walls = min(16, len(filtered_strikes))
+    num_walls = min(12, len(filtered_strikes))
     start_idx = max(0, atm_idx - num_walls // 2)
     end_idx = min(len(filtered_strikes), start_idx + num_walls)
     start_idx = max(0, end_idx - num_walls)

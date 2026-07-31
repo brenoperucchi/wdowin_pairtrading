@@ -72,39 +72,47 @@ def get_russell_spot_and_chain():
     if use_volume_fallback:
         print(f"      [Aviso] Pouco Open Interest detectado ({total_active_oi} contratos). Ativando fallback para Volume!")
     
+    # Filtrar opções estritamente dentro de ±8% do preço Spot do ETF IWM
+    iwm_min_strike = current_iwm * 0.92
+    iwm_max_strike = current_iwm * 1.08
+    
     for _, row in calls.iterrows():
+        strike = float(row['strike'])
+        if not (iwm_min_strike <= strike <= iwm_max_strike):
+            continue
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
         volume = int(row['volume']) if not pd.isna(row['volume']) else 0
-        if use_volume_fallback and oi == 0:
-            oi = volume
+        if oi == 0:
+            oi = max(volume, 1)
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.18
-        if oi > 0:
-            options.append({
-                "ticker": row['contractSymbol'],
-                "type": "CALL",
-                "strike": float(row['strike']),
-                "expiry": front_expiry,
-                "oi": oi,
-                "iv": iv
-            })
+        options.append({
+            "ticker": row['contractSymbol'],
+            "type": "CALL",
+            "strike": strike,
+            "expiry": front_expiry,
+            "oi": oi,
+            "iv": iv
+        })
             
     for _, row in puts.iterrows():
+        strike = float(row['strike'])
+        if not (iwm_min_strike <= strike <= iwm_max_strike):
+            continue
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
         volume = int(row['volume']) if not pd.isna(row['volume']) else 0
-        if use_volume_fallback and oi == 0:
-            oi = volume
+        if oi == 0:
+            oi = max(volume, 1)
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.18
-        if oi > 0:
-            options.append({
-                "ticker": row['contractSymbol'],
-                "type": "PUT",
-                "strike": float(row['strike']),
-                "expiry": front_expiry,
-                "oi": oi,
-                "iv": iv
-            })
+        options.append({
+            "ticker": row['contractSymbol'],
+            "type": "PUT",
+            "strike": strike,
+            "expiry": front_expiry,
+            "oi": oi,
+            "iv": iv
+        })
             
-    print(f"      {len(options)} contratos de opções ativos carregados.")
+    print(f"      {len(options)} contratos de opções ativos (dentro de ±8% do Spot IWM) carregados.")
     df_options = pd.DataFrame(options)
     return current_spot, current_iwm, front_expiry, df_options
 
@@ -169,7 +177,7 @@ def run_russell_gex_pipeline():
     all_strikes = sorted(gex_per_strike.keys())
     current_rut_approx = current_iwm * conv_ratio
     
-    range_pct = 0.15
+    range_pct = 0.06
     lower_bound = current_rut_approx * (1 - range_pct)
     upper_bound = current_rut_approx * (1 + range_pct)
     filtered_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]

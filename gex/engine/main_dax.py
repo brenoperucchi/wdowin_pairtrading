@@ -94,47 +94,47 @@ def get_dax_spot_and_chain():
     puts = opt_chain.puts
     options = []
     
-    total_oi_calls = calls['openInterest'].fillna(0).astype(int).gt(0).sum()
-    total_oi_puts = puts['openInterest'].fillna(0).astype(int).gt(0).sum()
-    total_active_oi = total_oi_calls + total_oi_puts
-    
-    use_volume_fallback = total_active_oi < 10
-    if use_volume_fallback:
-        print(f"      [Aviso] Pouco Open Interest detectado ({total_active_oi} contratos). Ativando fallback para Volume!")
+    # Filtrar opções estritamente dentro de ±8% do preço Spot do ETF EWG
+    ewg_min_strike = current_ewg * 0.92
+    ewg_max_strike = current_ewg * 1.08
     
     for _, row in calls.iterrows():
+        strike = float(row['strike'])
+        if not (ewg_min_strike <= strike <= ewg_max_strike):
+            continue
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
         volume = int(row['volume']) if not pd.isna(row['volume']) else 0
-        if use_volume_fallback and oi == 0:
-            oi = volume
+        if oi == 0:
+            oi = max(volume, 1)
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.18
-        if oi > 0:
-            options.append({
-                "ticker": row['contractSymbol'],
-                "type": "CALL",
-                "strike": float(row['strike']),
-                "expiry": front_expiry,
-                "oi": oi,
-                "iv": iv
-            })
+        options.append({
+            "ticker": row['contractSymbol'],
+            "type": "CALL",
+            "strike": strike,
+            "expiry": front_expiry,
+            "oi": oi,
+            "iv": iv
+        })
             
     for _, row in puts.iterrows():
+        strike = float(row['strike'])
+        if not (ewg_min_strike <= strike <= ewg_max_strike):
+            continue
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
         volume = int(row['volume']) if not pd.isna(row['volume']) else 0
-        if use_volume_fallback and oi == 0:
-            oi = volume
+        if oi == 0:
+            oi = max(volume, 1)
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.18
-        if oi > 0:
-            options.append({
-                "ticker": row['contractSymbol'],
-                "type": "PUT",
-                "strike": float(row['strike']),
-                "expiry": front_expiry,
-                "oi": oi,
-                "iv": iv
-            })
+        options.append({
+            "ticker": row['contractSymbol'],
+            "type": "PUT",
+            "strike": strike,
+            "expiry": front_expiry,
+            "oi": oi,
+            "iv": iv
+        })
             
-    print(f"      {len(options)} contratos de opções ativos carregados.")
+    print(f"      {len(options)} contratos de opções ativos (dentro de ±8% do Spot EWG) carregados.")
     df_options = pd.DataFrame(options)
     return current_spot, current_ewg, front_expiry, df_options
 
@@ -200,8 +200,8 @@ def run_dax_gex_pipeline():
     all_strikes = sorted(gex_per_strike.keys())
     current_dax_approx = current_ewg * conv_ratio
     
-    # Filtrar strikes dentro de ±15% do preço spot DAX (ETF tem strikes muito espaçados)
-    range_pct = 0.15
+    # Filtrar strikes estritamente dentro de ±6% do preço spot DAX
+    range_pct = 0.06
     lower_bound = current_dax_approx * (1 - range_pct)
     upper_bound = current_dax_approx * (1 + range_pct)
     filtered_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
