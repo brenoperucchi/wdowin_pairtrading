@@ -14,7 +14,7 @@ import time
 import MetaTrader5 as mt5
 from datetime import datetime, timezone, timedelta
 
-MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
+MT5_PATH = "C:/Program Files/MetaTrader 5 Terminal/terminal64.exe"
 TICKMILL_MT5_PATH = "C:/Program Files/Tickmill MT5 Terminal/terminal64.exe"
 SYMBOL_IBOV = "IBOV"
 
@@ -143,7 +143,27 @@ def get_mt5_prices(max_retries=6, retry_delay=5):
     Returns:
         tuple: (f_win, s_ibov, win_bar_time) ou (None, None, None) se falhar
     """
-    if not mt5.initialize(MT5_PATH):
+    # Tenta conectar no terminal B3 que contem os simbolos WIN/IBOV
+    paths_to_try = [
+        MT5_PATH,
+        "C:/Program Files/MetaTrader 5/terminal64.exe",
+        TICKMILL_MT5_PATH
+    ]
+    init_success = False
+    for p in paths_to_try:
+        if os.path.exists(p) and mt5.initialize(p):
+            syms = mt5.symbols_get("WIN*")
+            if syms and len(syms) > 0:
+                init_success = True
+                break
+            mt5.shutdown()
+            
+    if not init_success:
+        # Fallback para inicialização genérica se nenhuma rota específica encontrou WIN*
+        if mt5.initialize():
+            init_success = True
+                
+    if not init_success:
         print(f"MT5: Erro ao inicializar ({mt5.last_error()})")
         print(f"     Verifique se o MetaTrader 5 esta aberto.")
         return None, None, None
