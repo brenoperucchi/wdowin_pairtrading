@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - DOLAR FUTURO (DOL / WDO)
-  Vencimento de Referencia: 2026-09-01 | Data Ref: 10/08/2026
+  Vencimento de Referencia: 2026-09-01 | Data Ref: 11/08/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Dólar Futuro Atual: 5136.50 (WDOU26)
-    Gamma Flip Point:   5276.01
+    Dólar Futuro Atual: 5133.00 (WDOU26)
+    Gamma Flip Point:   5273.46
     Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 4979.05
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL 5276.01
-    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5515.93
+    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 4980.82
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL 5273.46
+    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5512.17
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE REAL  | EQUIVALENTE DOL  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $5.350       | DOL 5350.00      | $              -2.09M | Width 1
-  WALL *     | $5.300       | DOL 5300.00      | $              19.11M | Width 1
-  WALL *     | $5.280       | DOL 5280.00      | $               0.93M | Width 1
-  WALL *     | $5.250       | DOL 5250.00      | $              50.65M | Width 1
+  WALL *     | $5.300       | DOL 5300.00      | $              18.56M | Width 1
+  WALL *     | $5.280       | DOL 5280.00      | $               0.92M | Width 1
+  WALL *     | $5.250       | DOL 5250.00      | $              50.49M | Width 1
   WALL *     | $5.220       | DOL 5220.00      | $               0.29M | Width 1
-  WALL *     | $5.200       | DOL 5200.00      | $             -76.27M | Width 1
+  WALL *     | $5.200       | DOL 5200.00      | $             -77.53M | Width 1
   WALL *     | $5.180       | DOL 5180.00      | $               0.00M | Width 1
-  WALL *     | $5.150       | DOL 5150.00      | $               5.24M | Width 1
+  WALL *     | $5.150       | DOL 5150.00      | $               5.39M | Width 1
   WALL *     | $5.120       | DOL 5120.00      | $               0.00M | Width 1
-  WALL **    | $5.100       | DOL 5100.00      | $             -99.32M | Width 2
-  WALL *     | $5.080       | DOL 5080.00      | $              -3.11M | Width 1
-  WALL *     | $5.050       | DOL 5050.00      | $             -44.47M | Width 1
-  WALL *     | $5.020       | DOL 5020.00      | $              -0.26M | Width 1
-  WALL **    | $5.000       | DOL 5000.00      | $             -98.47M | Width 2
-  WALL ***   | $4.950       | DOL 4950.00      | $            -157.42M | Width 3
-  WALL *     | $4.900       | DOL 4900.00      | $              -9.82M | Width 1
+  WALL **    | $5.100       | DOL 5100.00      | $            -102.91M | Width 2
+  WALL *     | $5.080       | DOL 5080.00      | $              -3.22M | Width 1
+  WALL *     | $5.050       | DOL 5050.00      | $             -46.04M | Width 1
+  WALL *     | $5.020       | DOL 5020.00      | $              -0.27M | Width 1
+  WALL **    | $5.000       | DOL 5000.00      | $            -101.12M | Width 2
+  WALL ***   | $4.950       | DOL 4950.00      | $            -159.19M | Width 3
+  WALL *     | $4.900       | DOL 4900.00      | $              -9.70M | Width 1
+  WALL *     | $4.880       | DOL 4880.00      | $               0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na B3.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
