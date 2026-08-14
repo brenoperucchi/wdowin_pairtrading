@@ -155,7 +155,7 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINQ26") or (GetAsset() = "INDQ26") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26") or (GetAsset() = "WINZ26") or (GetAsset() = "INDZ26");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDON26") or (GetAsset() = "DOLN26") or (GetAsset() = "WDOQ26") or (GetAsset() = "DOLQ26") or (GetAsset() = "WDOU26") or (GetAsset() = "DOLU26");
 
-  if (((Date >= ELDate(2026, 08, 12)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date >= ELDate(2026, 08, 13)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
@@ -167,17 +167,17 @@ BEGIN
       SetPlotWidth(1, line1Width);
       SetPlotStyle(1, line1Style);
       Plot(line1);
-      line2 := 163276.177;
-      line2Color := clRed;
-      line2Width := 1;
+      line2 := 163153.176;
+      line2Color := clMinGamma;
+      line2Width := 3;
       line2Style := 0;
       SetPlotColor(2, line2Color);
       SetPlotWidth(2, line2Width);
       SetPlotStyle(2, line2Style);
       Plot2(line2);
-      line3 := 163495.216;
-      line3Color := clMinGamma;
-      line3Width := 3;
+      line3 := 163276.177;
+      line3Color := clRed;
+      line3Width := 1;
       line3Style := 0;
       SetPlotColor(3, line3Color);
       SetPlotWidth(3, line3Width);
@@ -303,7 +303,7 @@ BEGIN
       SetPlotWidth(18, line18Width);
       SetPlotStyle(18, line18Style);
       Plot18(line18);
-      line19 := 172319.753;
+      line19 := 172020.579;
       line19Color := clFlip;
       line19Width := 2;
       line19Style := 0;
@@ -405,7 +405,7 @@ BEGIN
     end
     else if isDOL then
     begin
-      line1 := 4979.840;
+      line1 := 4981.720;
       line1Color := clMinGamma;
       line1Width := 3;
       line1Style := 0;
@@ -510,7 +510,7 @@ BEGIN
       SetPlotStyle(13, line13Style);
       Plot13(line13);
       line14 := 5150.000;
-      line14Color := clLime;
+      line14Color := clRed;
       line14Width := 1;
       line14Style := 0;
       SetPlotColor(14, line14Color);
@@ -581,7 +581,7 @@ BEGIN
       SetPlotWidth(22, line22Width);
       SetPlotStyle(22, line22Style);
       Plot22(line22);
-      line23 := 5254.120;
+      line23 := 5256.860;
       line23Color := clFlip;
       line23Width := 2;
       line23Style := 0;
