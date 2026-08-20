@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Bitcoin Spot Atual: $71868.50
-    Gamma Flip Point:   $71868.50
+    Bitcoin Spot Atual: $72621.50
+    Gamma Flip Point:   $72621.50
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $79055.35
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $71868.50
-    [+] MAX GAMMA (Teto Gravitacional)    : BTC $70171.10
+    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $79883.65
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $72621.50
+    [+] MAX GAMMA (Teto Gravitacional)    : BTC $71855.14
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE BTC   | EQUIVALENTE USD  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL **    | $75000.00    | BTC $75000.00     | $               4.42M | Width 2
-  WALL *     | $73000.00    | BTC $73000.00     | $               0.04M | Width 1
-  WALL ***   | $72000.00    | BTC $72000.00     | $              20.11M | Width 3
-  WALL *     | $71000.00    | BTC $71000.00     | $               0.08M | Width 1
-  WALL **    | $70000.00    | BTC $70000.00     | $               4.42M | Width 2
-  WALL *     | $69000.00    | BTC $69000.00     | $               2.74M | Width 1
-  WALL *     | $68000.00    | BTC $68000.00     | $               1.95M | Width 1
-  WALL *     | $67000.00    | BTC $67000.00     | $               1.91M | Width 1
-  WALL *     | $66000.00    | BTC $66000.00     | $               0.86M | Width 1
-  WALL *     | $65000.00    | BTC $65000.00     | $               0.54M | Width 1
-  WALL *     | $64000.00    | BTC $64000.00     | $               0.02M | Width 1
-  WALL *     | $63000.00    | BTC $63000.00     | $              -0.01M | Width 1
-  WALL *     | $62000.00    | BTC $62000.00     | $              -0.03M | Width 1
-  WALL *     | $61000.00    | BTC $61000.00     | $              -0.01M | Width 1
-  WALL *     | $60000.00    | BTC $60000.00     | $              -0.01M | Width 1
-  WALL *     | $59000.00    | BTC $59000.00     | $              -0.00M | Width 1
+  WALL *     | $80000.00    | BTC $80000.00     | $               0.03M | Width 1
+  WALL *     | $77000.00    | BTC $77000.00     | $               0.01M | Width 1
+  WALL **    | $75000.00    | BTC $75000.00     | $               5.44M | Width 2
+  WALL *     | $74000.00    | BTC $74000.00     | $               1.78M | Width 1
+  WALL **    | $73000.00    | BTC $73000.00     | $               2.78M | Width 2
+  WALL ***   | $72000.00    | BTC $72000.00     | $              17.86M | Width 3
+  WALL *     | $71000.00    | BTC $71000.00     | $              -0.15M | Width 1
+  WALL *     | $70000.00    | BTC $70000.00     | $               1.03M | Width 1
+  WALL *     | $69000.00    | BTC $69000.00     | $               1.95M | Width 1
+  WALL *     | $68000.00    | BTC $68000.00     | $               1.58M | Width 1
+  WALL *     | $67000.00    | BTC $67000.00     | $               0.96M | Width 1
+  WALL *     | $66000.00    | BTC $66000.00     | $               0.32M | Width 1
+  WALL *     | $65000.00    | BTC $65000.00     | $               0.26M | Width 1
+  WALL *     | $64000.00    | BTC $64000.00     | $               0.01M | Width 1
+  WALL *     | $63000.00    | BTC $63000.00     | $              -0.00M | Width 1
+  WALL *     | $62000.00    | BTC $62000.00     | $              -0.02M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na Deribit.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
