@@ -1,83 +1,143 @@
 {
     "ticker": "CHINA_FXI",
     "ref_date": "2026-08-21",
-    "updated_at": "2026-08-21 07:34:22",
+    "updated_at": "2026-08-21 18:04:43",
     "current_price": null,
     "walls": [
         {
-            "price": 14087.6,
+            "price": 13996.8,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 34.0,
-            "gex": -0.4014427372876362
+            "gex": -3117328.9107829146
         },
         {
-            "price": 14294.8,
+            "price": 14099.7,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14501.9,
+            "price": 14202.6,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 34.5,
+            "gex": -783931.7680531781
+        },
+        {
+            "price": 14305.6,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14408.5,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 35.0,
-            "gex": -1.6739285555252497
+            "gex": -7326534.987203071
         },
         {
-            "price": 14709.0,
+            "price": 14511.4,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14916.2,
+            "price": 14614.3,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 35.5,
+            "gex": -835068.776880676
+        },
+        {
+            "price": 14717.2,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14820.1,
             "type": "Wall",
             "width": 3,
             "style": 0,
             "strike_spy": 36.0,
-            "gex": 2503.0280402066114
+            "gex": 29818547.77087355
         },
         {
-            "price": 15123.4,
+            "price": 14923.0,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 15330.6,
+            "price": 15026.0,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 36.5,
+            "gex": 436248.3919862846
+        },
+        {
+            "price": 15128.9,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 15231.8,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 37.0,
-            "gex": 54.228092302884576
+            "gex": 4670383.379222343
         },
         {
-            "price": 15648.4,
+            "price": 15334.7,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 15437.6,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 37.5,
+            "gex": 544943.2442741427
+        },
+        {
+            "price": 14918.3,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 33912.90091390553
+            "gex": 38914454.18111985
         },
         {
-            "price": 13598.6,
+            "price": 14324.8,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -1892013.3277699007
+            "gex": -39997191.88182708
         },
         {
-            "price": 14826.0,
+            "price": 14645.5,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
             "gex": 0.0,
-            "factor": 414.33980259822926
+            "factor": 411.67037782309933
         }
     ]
 }
