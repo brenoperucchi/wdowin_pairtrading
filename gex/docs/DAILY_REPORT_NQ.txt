@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - NASDAQ 100 / NQ
-  Vencimento de Referencia: 2026-08-27 | Data Ref: 27/08/2026
+  Vencimento de Referencia: 2026-08-28 | Data Ref: 28/08/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    NQ Futuro Atual:   29565.18  (QQQ Spot: $721.11)
-    Gamma Flip Point:  29484.23
+    NQ Futuro Atual:   29548.05  (QQQ Spot: $721.11)
+    Gamma Flip Point:  29544.71
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : NQ 28837.19
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : NQ 29484.23
-    [+] MAX GAMMA (Teto Gravitacional)    : NQ 29609.75
+    [-] MIN GAMMA (Piso de Queda Livre)   : NQ 29414.42
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : NQ 29544.71
+    [+] MAX GAMMA (Teto Gravitacional)    : NQ 29592.59
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE QQQ   | EQUIVALENTE NQ   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $755.00      | NQ 30954.66     | $              19.68M | Width 1
-  WALL *     | $750.00      | NQ 30749.66     | $              85.47M | Width 1
-  WALL *     | $745.00      | NQ 30544.66     | $              49.26M | Width 1
-  WALL *     | $740.00      | NQ 30339.66     | $             231.15M | Width 1
-  WALL *     | $735.00      | NQ 30134.66     | $             859.44M | Width 1
-  WALL **    | $730.00      | NQ 29929.67     | $            4847.06M | Width 2
-  WALL ***   | $725.00      | NQ 29724.67     | $           11844.44M | Width 3
-  WALL *     | $720.00      | NQ 29519.67     | $            4473.68M | Width 1
-  WALL **    | $715.00      | NQ 29314.67     | $            9400.68M | Width 2
-  WALL *     | $710.00      | NQ 29109.68     | $            -183.57M | Width 1
-  WALL *     | $705.00      | NQ 28904.68     | $           -1125.11M | Width 1
-  WALL *     | $700.00      | NQ 28699.68     | $           -1571.95M | Width 1
-  WALL *     | $695.00      | NQ 28494.68     | $            -434.85M | Width 1
-  WALL *     | $690.00      | NQ 28289.68     | $            -388.85M | Width 1
-  WALL *     | $685.00      | NQ 28084.69     | $            -354.37M | Width 1
-  WALL *     | $680.00      | NQ 27879.69     | $            -220.30M | Width 1
+  WALL *     | $755.00      | NQ 30936.72     | $               0.82M | Width 1
+  WALL *     | $750.00      | NQ 30731.84     | $               0.00M | Width 1
+  WALL *     | $745.00      | NQ 30526.96     | $               0.57M | Width 1
+  WALL *     | $740.00      | NQ 30322.08     | $              28.50M | Width 1
+  WALL *     | $735.00      | NQ 30117.20     | $              61.43M | Width 1
+  WALL *     | $730.00      | NQ 29912.33     | $            1450.23M | Width 1
+  WALL **    | $725.00      | NQ 29707.45     | $            9500.22M | Width 2
+  WALL ***   | $720.00      | NQ 29502.57     | $         -414882.59M | Width 3
+  WALL **    | $715.00      | NQ 29297.69     | $           -5922.15M | Width 2
+  WALL *     | $710.00      | NQ 29092.81     | $             -91.29M | Width 1
+  WALL *     | $705.00      | NQ 28887.93     | $            -651.34M | Width 1
+  WALL *     | $700.00      | NQ 28683.05     | $             -33.90M | Width 1
+  WALL *     | $695.00      | NQ 28478.17     | $              -0.28M | Width 1
+  WALL *     | $690.00      | NQ 28273.29     | $             -62.03M | Width 1
+  WALL *     | $685.00      | NQ 28068.41     | $             -18.27M | Width 1
+  WALL *     | $680.00      | NQ 27863.54     | $              -3.77M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
