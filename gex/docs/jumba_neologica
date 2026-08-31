@@ -404,7 +404,7 @@ BEGIN
       SetPlotWidth(1, line1Width);
       SetPlotStyle(1, line1Style);
       Plot(line1);
-      line2 := 4960.230;
+      line2 := 4958.320;
       line2Color := clMinGamma;
       line2Width := 3;
       line2Style := 0;
@@ -556,7 +556,7 @@ BEGIN
       SetPlotWidth(20, line20Width);
       SetPlotStyle(20, line20Style);
       Plot20(line20);
-      line21 := 5202.220;
+      line21 := 5202.240;
       line21Color := clFlip;
       line21Width := 2;
       line21Style := 0;
@@ -636,7 +636,7 @@ BEGIN
       SetPlotWidth(30, line30Width);
       SetPlotStyle(30, line30Style);
       Plot30(line30);
-      line31 := 5325.150;
+      line31 := 5328.300;
       line31Color := clMaxGamma;
       line31Width := 3;
       line31Style := 0;

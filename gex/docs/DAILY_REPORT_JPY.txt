@@ -1,37 +1,37 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - USD/JPY
-  Vencimento de Referencia: 2026-09-18 | Data Ref: 29/08/2026
+  Vencimento de Referencia: 2026-09-18 | Data Ref: 31/08/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    USDJPY Spot Atual:  160.072
+    USDJPY Spot Atual:  159.726
     FXY ETF Spot:       $57.25
-    Fator de Conv.:     2.7960
-    Gamma Flip Point:   160.072
+    Fator de Conv.:     2.7900
+    Gamma Flip Point:   159.322
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : USDJPY 166.266
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : USDJPY 160.072
-    [+] MAX GAMMA (Teto Gravitacional)    : USDJPY 144.065
+    [-] MIN GAMMA (Piso de Queda Livre)   : USDJPY 161.412
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : USDJPY 159.322
+    [+] MAX GAMMA (Teto Gravitacional)    : USDJPY 158.683
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE FXY   | EQUIVALENTE USDJPY | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $62.00        | 173.353            | $             -0.19M | Width 1
-  Wall       | $61.00        | 170.557            | $             -0.21M | Width 1
-  Wall       | $60.00        | 167.761            | $             -9.14M | Width 3
-  Wall       | $59.00        | 164.965            | $             -0.48M | Width 1
-  Wall       | $58.00        | 162.169            | $             -2.95M | Width 2
-  Wall       | $57.00        | 159.373            | $             -0.05M | Width 1
-  Wall       | $56.00        | 156.577            | $             -0.61M | Width 2
-  Wall       | $55.00        | 153.781            | $             -0.01M | Width 1
-  Wall       | $54.00        | 150.985            | $              0.01M | Width 1
-  Wall       | $53.00        | 148.189            | $              0.01M | Width 1
-  Wall       | $52.00        | 145.393            | $              0.00M | Width 1
+  Wall       | $62.00        | 172.978            | $             -0.00M | Width 1
+  Wall       | $61.00        | 170.188            | $             -0.00M | Width 1
+  Wall       | $60.00        | 167.398            | $             -0.00M | Width 2
+  Wall       | $59.00        | 164.608            | $             -0.00M | Width 1
+  Wall       | $58.00        | 161.818            | $             -0.03M | Width 3
+  Wall       | $57.00        | 159.029            | $              0.00M | Width 2
+  Wall       | $56.00        | 156.239            | $              0.00M | Width 1
+  Wall       | $55.00        | 153.449            | $              0.00M | Width 1
+  Wall       | $54.00        | 150.659            | $              0.00M | Width 1
+  Wall       | $53.00        | 147.869            | $              0.00M | Width 1
+  Wall       | $52.00        | 145.079            | $              0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy FXY.
 FXY rastreia o Yen vs USD (inversamente correlacionado ao USDJPY).
