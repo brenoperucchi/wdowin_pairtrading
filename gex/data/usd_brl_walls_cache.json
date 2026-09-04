@@ -1,8 +1,8 @@
 {
     "ticker": "USD_BRL",
     "ref_date": "2026-09-04",
-    "updated_at": "2026-09-04 09:05:48",
-    "current_price": 5141.5,
+    "updated_at": "2026-09-04 18:11:57",
+    "current_price": 5152.5,
     "walls": [
         {
             "price": 4500.0,
@@ -10,7 +10,7 @@
             "width": 3,
             "style": 0,
             "strike_spy": 4500,
-            "gex": -8165.808037436362
+            "gex": -6275.111360907547
         },
         {
             "price": 5425.0,
@@ -28,21 +28,21 @@
             "gex": 0.0
         },
         {
-            "price": 5655.65,
+            "price": 5667.75,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": -0.001084055740370582
+            "gex": -0.0006905493002550877
         },
         {
-            "price": 4627.35,
+            "price": 4637.25,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -19296255.155336604
+            "gex": -18245945.60172014
         },
         {
-            "price": 5141.5,
+            "price": 5152.5,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,

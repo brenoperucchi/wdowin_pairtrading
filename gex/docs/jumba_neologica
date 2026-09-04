@@ -105,10 +105,6 @@ var
   line24Color : integer;
   line24Width : integer;
   line24Style : integer;
-  line25 : float;
-  line25Color : integer;
-  line25Width : integer;
-  line25Style : integer;
 
 BEGIN
   clMagicWall := clLime;
@@ -143,7 +139,7 @@ BEGIN
       SetPlotWidth(2, line2Width);
       SetPlotStyle(2, line2Style);
       Plot2(line2);
-      line3 := 179047.898;
+      line3 := 179035.446;
       line3Color := clFlip;
       line3Width := 2;
       line3Style := 0;
@@ -319,18 +315,10 @@ BEGIN
       SetPlotWidth(24, line24Width);
       SetPlotStyle(24, line24Style);
       Plot24(line24);
-      line25 := 196742.723;
-      line25Color := clMidleWall;
-      line25Width := 1;
-      line25Style := 0;
-      SetPlotColor(25, line25Color);
-      SetPlotWidth(25, line25Width);
-      SetPlotStyle(25, line25Style);
-      Plot25(line25);
     end
     else if isDOL then
     begin
-      line1 := 5141.500;
+      line1 := 5152.500;
       line1Color := clFlip;
       line1Width := 2;
       line1Style := 0;
@@ -361,7 +349,6 @@ BEGIN
       NoPlot(22);
       NoPlot(23);
       NoPlot(24);
-      NoPlot(25);
     end
     else
     begin
@@ -389,7 +376,6 @@ BEGIN
       NoPlot(22);
       NoPlot(23);
       NoPlot(24);
-      NoPlot(25);
     end;
   end
   else
@@ -418,6 +404,5 @@ BEGIN
       NoPlot(22);
       NoPlot(23);
       NoPlot(24);
-      NoPlot(25);
   end;
 END;
