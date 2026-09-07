@@ -4,7 +4,7 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    XAUUSD Spot Atual: $4395.73
+    XAUUSD Spot Atual: $4406.31
     Gamma Flip Point:  $4090.87
     Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
@@ -19,14 +19,14 @@
 -----------------------------------------------------------------
   TIPO       | STRIKE GLD   | EQUIVALENTE XAUUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $425.0        | 4592.73            | $             -0.50M | Width 1
-  Wall       | $420.0        | 4538.70            | $             -0.16M | Width 1
-  Wall       | $415.0        | 4484.67            | $             10.64M | Width 2
-  Wall       | $410.0        | 4430.63            | $              8.95M | Width 1
-  Wall       | $405.0        | 4376.60            | $            -27.23M | Width 3
-  Wall       | $400.0        | 4322.57            | $             -9.68M | Width 2
-  Wall       | $395.0        | 4268.54            | $             -2.05M | Width 1
-  Wall       | $390.0        | 4214.51            | $             -1.08M | Width 1
+  Wall       | $425.0        | 4603.79            | $             -0.50M | Width 1
+  Wall       | $420.0        | 4549.62            | $             -0.16M | Width 1
+  Wall       | $415.0        | 4495.46            | $             10.64M | Width 2
+  Wall       | $410.0        | 4441.30            | $              8.95M | Width 1
+  Wall       | $405.0        | 4387.14            | $            -27.23M | Width 3
+  Wall       | $400.0        | 4332.97            | $             -9.68M | Width 2
+  Wall       | $395.0        | 4278.81            | $             -2.05M | Width 1
+  Wall       | $390.0        | 4224.65            | $             -1.08M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy GLD.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

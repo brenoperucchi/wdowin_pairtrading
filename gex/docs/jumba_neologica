@@ -151,7 +151,7 @@ BEGIN
   begin
     if isWIN then
     begin
-      line1 := 175457.071;
+      line1 := 175475.774;
       line1Color := clFlip;
       line1Width := 2;
       line1Style := 0;
