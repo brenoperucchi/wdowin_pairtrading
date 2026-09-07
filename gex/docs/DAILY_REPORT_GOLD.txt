@@ -1,32 +1,32 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GOLD / XAUUSD
-  Vencimento de Referencia: 2026-09-04 | Data Ref: 04/09/2026
+  Vencimento de Referencia: 2026-09-08 | Data Ref: 07/09/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    XAUUSD Spot Atual: $4431.17
-    Gamma Flip Point:  $4071.01
+    XAUUSD Spot Atual: $4395.73
+    Gamma Flip Point:  $4090.87
     Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : XAUUSD $3943.01
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : XAUUSD $4071.01
-    [+] MAX GAMMA (Teto Gravitacional)    : XAUUSD $4106.54
+    [-] MIN GAMMA (Piso de Queda Livre)   : XAUUSD $4000.25
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : XAUUSD $4090.87
+    [+] MAX GAMMA (Teto Gravitacional)    : XAUUSD $4180.12
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE GLD   | EQUIVALENTE XAUUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $425.0        | 4629.76            | $             12.51M | Width 1
-  Wall       | $420.0        | 4575.29            | $            -19.29M | Width 1
-  Wall       | $415.0        | 4520.82            | $            -18.35M | Width 1
-  Wall       | $410.0        | 4466.36            | $            309.08M | Width 3
-  Wall       | $405.0        | 4411.89            | $            -19.42M | Width 1
-  Wall       | $400.0        | 4357.42            | $            -28.21M | Width 1
-  Wall       | $395.0        | 4302.95            | $           -264.87M | Width 2
-  Wall       | $390.0        | 4248.49            | $           -178.60M | Width 2
+  Wall       | $425.0        | 4592.73            | $             -0.50M | Width 1
+  Wall       | $420.0        | 4538.70            | $             -0.16M | Width 1
+  Wall       | $415.0        | 4484.67            | $             10.64M | Width 2
+  Wall       | $410.0        | 4430.63            | $              8.95M | Width 1
+  Wall       | $405.0        | 4376.60            | $            -27.23M | Width 3
+  Wall       | $400.0        | 4322.57            | $             -9.68M | Width 2
+  Wall       | $395.0        | 4268.54            | $             -2.05M | Width 1
+  Wall       | $390.0        | 4214.51            | $             -1.08M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy GLD.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
