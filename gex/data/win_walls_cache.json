@@ -1,9 +1,18 @@
 {
     "ticker": "WIN",
     "ref_date": "2026-09-10",
-    "updated_at": "2026-09-11 07:31:56",
-    "current_price": 190440.0,
+    "updated_at": "2026-09-11 18:11:34",
+    "current_price": 189040.0,
     "walls": [
+        {
+            "price": 179502.381,
+            "type": "Wall",
+            "color": "#ffffff",
+            "width": 2,
+            "style": 0,
+            "strike_ibov": 177000,
+            "gex": 0.0
+        },
         {
             "price": 180516.519,
             "type": "Wall",
@@ -11,7 +20,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 178000,
-            "gex": -1878756887.2718143
+            "gex": 0.0
         },
         {
             "price": 182544.795,
@@ -20,7 +29,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 180000,
-            "gex": 23312946624.21103
+            "gex": 0.0
         },
         {
             "price": 183558.932,
@@ -29,7 +38,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 181000,
-            "gex": 29523523197.466583
+            "gex": 0.0
         },
         {
             "price": 184573.07,
@@ -38,7 +47,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 182000,
-            "gex": 41843123932.49615
+            "gex": 0.0
         },
         {
             "price": 185587.208,
@@ -47,7 +56,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 183000,
-            "gex": 114074851690.98866
+            "gex": 0.0
         },
         {
             "price": 187615.483,
@@ -56,25 +65,25 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 185000,
-            "gex": 113655136369.21866
+            "gex": 0.0
         },
         {
             "price": 188629.621,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 2,
+            "width": 3,
             "style": 0,
             "strike_ibov": 186000,
-            "gex": 408978687254.35486
+            "gex": 2.1487467958231468e-51
         },
         {
             "price": 189643.759,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 3,
+            "width": 2,
             "style": 0,
             "strike_ibov": 187000,
-            "gex": 553888564471.7191
+            "gex": 8.875030711323339e-126
         },
         {
             "price": 190657.897,
@@ -83,16 +92,16 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 188000,
-            "gex": -274610695182.8906
+            "gex": 0.0
         },
         {
             "price": 192686.172,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_ibov": 190000,
-            "gex": 397205050956.1182
+            "gex": 0.0
         },
         {
             "price": 193700.31,
@@ -101,7 +110,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 191000,
-            "gex": 317194664576.0055
+            "gex": 0.0
         },
         {
             "price": 194714.448,
@@ -110,7 +119,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 192000,
-            "gex": 69249323282.71715
+            "gex": 0.0
         },
         {
             "price": 195728.585,
@@ -119,7 +128,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 193000,
-            "gex": 88120597085.05276
+            "gex": 0.0
         },
         {
             "price": 197756.861,
@@ -128,7 +137,7 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 195000,
-            "gex": 330980379385.78156
+            "gex": 0.0
         },
         {
             "price": 198770.999,
@@ -137,16 +146,15 @@
             "width": 1,
             "style": 0,
             "strike_ibov": 196000,
-            "gex": 82286154046.05206
+            "gex": 0.0
         },
         {
-            "price": 199785.136,
-            "type": "Wall",
-            "color": "#ffffff",
+            "price": 180009.45,
+            "type": "MidWall",
+            "color": "#808080",
             "width": 1,
             "style": 0,
-            "strike_ibov": 197000,
-            "gex": 59216514910.25774
+            "gex": 0
         },
         {
             "price": 181530.657,
@@ -261,31 +269,23 @@
             "gex": 0
         },
         {
-            "price": 199278.068,
-            "type": "MidWall",
-            "color": "#808080",
-            "width": 1,
-            "style": 0,
-            "gex": 0
-        },
-        {
-            "price": 198670.07,
+            "price": 189609.97,
             "type": "MaxGamma",
             "color": "#00ff00",
             "width": 3,
             "style": 0,
-            "gex": 3572900749675.786
+            "gex": 41227215429624.305
         },
         {
-            "price": 170343.317,
+            "price": 174410.774,
             "type": "MinGamma",
             "color": "#ff0000",
             "width": 3,
             "style": 0,
-            "gex": -608738745627.4348
+            "gex": -33513026372800.01
         },
         {
-            "price": 176695.357,
+            "price": 189989.95,
             "type": "GammaFlip",
             "color": "#ffff00",
             "width": 2,
