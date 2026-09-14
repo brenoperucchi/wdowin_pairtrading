@@ -1,8 +1,8 @@
 {
     "ticker": "WIN",
-    "ref_date": "2026-09-10",
-    "updated_at": "2026-09-11 18:11:34",
-    "current_price": 189040.0,
+    "ref_date": "2026-09-11",
+    "updated_at": "2026-09-14 07:35:53",
+    "current_price": 196275.0,
     "walls": [
         {
             "price": 179502.381,
@@ -17,7 +17,7 @@
             "price": 180516.519,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 1,
+            "width": 2,
             "style": 0,
             "strike_ibov": 178000,
             "gex": 0.0
@@ -71,19 +71,19 @@
             "price": 188629.621,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 3,
+            "width": 1,
             "style": 0,
             "strike_ibov": 186000,
-            "gex": 2.1487467958231468e-51
+            "gex": 0.0
         },
         {
             "price": 189643.759,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_ibov": 187000,
-            "gex": 8.875030711323339e-126
+            "gex": 0.0
         },
         {
             "price": 190657.897,
@@ -125,10 +125,10 @@
             "price": 195728.585,
             "type": "Wall",
             "color": "#ffffff",
-            "width": 1,
+            "width": 3,
             "style": 0,
             "strike_ibov": 193000,
-            "gex": 0.0
+            "gex": 3.243735842701979e-129
         },
         {
             "price": 197756.861,
@@ -269,23 +269,23 @@
             "gex": 0
         },
         {
-            "price": 189609.97,
+            "price": 207913.417,
             "type": "MaxGamma",
             "color": "#00ff00",
             "width": 3,
             "style": 0,
-            "gex": 41227215429624.305
+            "gex": 71603625006965.19
         },
         {
-            "price": 174410.774,
+            "price": 165304.975,
             "type": "MinGamma",
             "color": "#ff0000",
             "width": 3,
             "style": 0,
-            "gex": -33513026372800.01
+            "gex": -5179054599301.29
         },
         {
-            "price": 189989.95,
+            "price": 179902.312,
             "type": "GammaFlip",
             "color": "#ffff00",
             "width": 2,
