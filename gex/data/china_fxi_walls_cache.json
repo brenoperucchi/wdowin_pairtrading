@@ -1,83 +1,143 @@
 {
     "ticker": "CHINA_FXI",
     "ref_date": "2026-09-14",
-    "updated_at": "2026-09-14 07:43:14",
+    "updated_at": "2026-09-14 18:19:28",
     "current_price": null,
     "walls": [
         {
-            "price": 13762.1,
+            "price": 13625.3,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 33.0,
-            "gex": -40.0436107232722
+            "gex": -5079450.653187453
         },
         {
-            "price": 13970.6,
+            "price": 13728.5,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14179.2,
+            "price": 13831.7,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 33.5,
+            "gex": -776183.4032310421
+        },
+        {
+            "price": 13935.0,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14038.2,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 34.0,
-            "gex": -1028.4191338530334
+            "gex": -7272622.154614799
         },
         {
-            "price": 14387.7,
+            "price": 14141.4,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14596.2,
+            "price": 14244.6,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 34.5,
+            "gex": -1878603.8044218584
+        },
+        {
+            "price": 14347.8,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14451.1,
             "type": "Wall",
             "width": 3,
             "style": 0,
             "strike_spy": 35.0,
-            "gex": 197047.46644660685
+            "gex": -14787133.231560571
         },
         {
-            "price": 14804.7,
+            "price": 14554.3,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 15013.2,
+            "price": 14657.5,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 35.5,
+            "gex": 3842400.1636246694
+        },
+        {
+            "price": 14760.7,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14863.9,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 36.0,
-            "gex": 45.58695413335483
+            "gex": -12861764.682446057
         },
         {
-            "price": 14549.7,
+            "price": 14967.2,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 15070.4,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 36.5,
+            "gex": 186566.02601498796
+        },
+        {
+            "price": 15303.0,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 2933811.000999397
+            "gex": -1069900.1000501434
         },
         {
-            "price": 13711.3,
+            "price": 14074.2,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -7721618.3036834495
+            "gex": -43073857.24831434
         },
         {
-            "price": 14322.9,
+            "price": 14385.0,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
             "gex": 0.0,
-            "factor": 417.03390258110875
+            "factor": 412.88748384036654
         }
     ]
 }

@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    SPY Spot Atual:    $764.29  (Equiv. ES: ~7642.9)
-    Gamma Flip Point:  $763.91  (Equiv. ES:  7600.30)
-    Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:       ALTA / LATERALIZACAO
-    Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
+    SPY Spot Atual:    $760.88  (Equiv. ES: ~7608.8)
+    Gamma Flip Point:  $762.96  (Equiv. ES:  7649.36)
+    Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
+    Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : ES 7562.03 | SPY $760.07
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : ES 7600.30 | SPY $763.91
-    [+] MAX GAMMA (Teto Gravitacional)    : ES 7607.88 | SPY $764.67
+    [-] MIN GAMMA (Piso de Queda Livre)   : ES 7617.05 | SPY $759.73
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : ES 7649.36 | SPY $762.96
+    [+] MAX GAMMA (Teto Gravitacional)    : ES 7709.05 | SPY $768.91
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE SPY   | EQUIVALENTE ES   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $800.00      | ES 7959.35      | $               0.01M | Width 1
-  WALL *     | $795.00      | ES 7909.60      | $               0.00M | Width 1
-  WALL *     | $790.00      | ES 7859.85      | $               0.00M | Width 1
-  WALL *     | $785.00      | ES 7810.11      | $               0.07M | Width 1
-  WALL *     | $780.00      | ES 7760.36      | $               0.00M | Width 1
-  WALL *     | $775.00      | ES 7710.62      | $               1.44M | Width 1
-  WALL *     | $770.00      | ES 7660.87      | $               3.67M | Width 1
-  WALL **    | $765.00      | ES 7611.12      | $              88.19M | Width 2
-  WALL ***   | $760.00      | ES 7561.38      | $             -91.29M | Width 3
-  WALL **    | $755.00      | ES 7511.63      | $              -8.34M | Width 2
-  WALL *     | $750.00      | ES 7461.89      | $              -0.01M | Width 1
-  WALL *     | $745.00      | ES 7412.14      | $              -0.50M | Width 1
-  WALL *     | $740.00      | ES 7362.39      | $              -0.01M | Width 1
-  WALL *     | $735.00      | ES 7312.65      | $              -0.00M | Width 1
-  WALL *     | $730.00      | ES 7262.90      | $              -0.45M | Width 1
-  WALL *     | $725.00      | ES 7213.16      | $              -0.27M | Width 1
+  WALL *     | $768.00      | ES 7699.93      | $              86.23M | Width 1
+  WALL *     | $767.00      | ES 7689.91      | $              29.45M | Width 1
+  WALL *     | $766.00      | ES 7679.88      | $             -11.74M | Width 1
+  WALL *     | $765.00      | ES 7669.86      | $            -175.48M | Width 1
+  WALL **    | $764.00      | ES 7659.83      | $            -318.22M | Width 2
+  WALL *     | $763.00      | ES 7649.80      | $            -309.67M | Width 1
+  WALL *     | $762.00      | ES 7639.78      | $            -263.02M | Width 1
+  WALL *     | $761.00      | ES 7629.75      | $             -95.19M | Width 1
+  WALL ***   | $760.00      | ES 7619.73      | $           -1461.49M | Width 3
+  WALL **    | $759.00      | ES 7609.70      | $            -397.09M | Width 2
+  WALL *     | $758.00      | ES 7599.68      | $            -195.21M | Width 1
+  WALL *     | $757.00      | ES 7589.65      | $            -151.41M | Width 1
+  WALL *     | $756.00      | ES 7579.62      | $             -56.45M | Width 1
+  WALL *     | $755.00      | ES 7569.60      | $            -129.57M | Width 1
+  WALL *     | $754.00      | ES 7559.57      | $             -33.99M | Width 1
+  WALL *     | $753.00      | ES 7549.55      | $             -25.22M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
