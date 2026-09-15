@@ -231,17 +231,17 @@ BEGIN
       SetPlotWidth(15, line15Width);
       SetPlotStyle(15, line15Style);
       Plot15(line15);
-      line16 := 188663.088;
-      line16Color := clFlip;
-      line16Width := 2;
+      line16 := 189136.690;
+      line16Color := clMidleWall;
+      line16Width := 1;
       line16Style := 0;
       SetPlotColor(16, line16Color);
       SetPlotWidth(16, line16Width);
       SetPlotStyle(16, line16Style);
       Plot16(line16);
-      line17 := 189136.690;
-      line17Color := clMidleWall;
-      line17Width := 1;
+      line17 := 189139.368;
+      line17Color := clFlip;
+      line17Width := 2;
       line17Style := 0;
       SetPlotColor(17, line17Color);
       SetPlotWidth(17, line17Width);
@@ -271,7 +271,7 @@ BEGIN
       SetPlotWidth(20, line20Width);
       SetPlotStyle(20, line20Style);
       Plot20(line20);
-      line21 := 193858.070;
+      line21 := 194525.475;
       line21Color := clMinGamma;
       line21Width := 3;
       line21Style := 0;
@@ -282,16 +282,16 @@ BEGIN
     end
     else if isDOL then
     begin
-      line1 := 4999.890;
-      line1Color := clMinGamma;
+      line1 := 5000.000;
+      line1Color := clRed;
       line1Width := 3;
       line1Style := 0;
       SetPlotColor(1, line1Color);
       SetPlotWidth(1, line1Width);
       SetPlotStyle(1, line1Style);
       Plot(line1);
-      line2 := 5000.000;
-      line2Color := clRed;
+      line2 := 5000.160;
+      line2Color := clMinGamma;
       line2Width := 3;
       line2Style := 0;
       SetPlotColor(2, line2Color);
@@ -330,7 +330,7 @@ BEGIN
       SetPlotWidth(6, line6Width);
       SetPlotStyle(6, line6Style);
       Plot6(line6);
-      line7 := 5239.580;
+      line7 := 5239.570;
       line7Color := clFlip;
       line7Width := 2;
       line7Style := 0;
