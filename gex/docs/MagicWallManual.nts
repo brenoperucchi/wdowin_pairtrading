@@ -1,7 +1,7 @@
 Input
-  GammaMax(205128.1);       // Valor do Max Gamma do dia
-  GammaMin(156574.9);       // Valor do Min Gamma do dia
-  GammaFlip(169493.5);      // Valor do Gamma Flip do dia
+  GammaMax(204915.6);       // Valor do Max Gamma do dia
+  GammaMin(156988.8);       // Valor do Min Gamma do dia
+  GammaFlip(169942.1);      // Valor do Gamma Flip do dia
   FatorConversao(1.014138); // Fator teorico (Ex: 1.002117 para WIN, ou 1.000 para DOL)
   Espacamento(1000);        // Espaçamento dos strikes (Ex: 1000 para WIN, ou 10 para DOL)
   CentroPersonalizado(0.0); // Se > 0, força este valor como strike central (Ex: 175000) em vez de calcular do Flip
