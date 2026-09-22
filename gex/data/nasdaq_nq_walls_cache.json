@@ -1,153 +1,153 @@
 {
     "ticker": "NASDAQ_NQ",
     "ref_date": "2026-09-22",
-    "updated_at": "2026-09-22 07:42:15",
+    "updated_at": "2026-09-22 18:16:06",
     "current_price": null,
     "walls": [
         {
-            "price": 28811.97,
-            "type": "Wall",
-            "width": 1,
-            "style": 0,
-            "strike_spy": 700,
-            "gex": -25972411.154459924
-        },
-        {
-            "price": 29017.77,
+            "price": 28952.92,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 705,
-            "gex": -29579556.94507267
+            "gex": -164580202.86848477
         },
         {
-            "price": 29223.57,
+            "price": 29158.26,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 710,
-            "gex": -45767450.63600966
+            "gex": -166724265.1741889
         },
         {
-            "price": 29429.37,
+            "price": 29363.6,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 715,
-            "gex": -483872.08255777974
+            "gex": -23000202.919883266
         },
         {
-            "price": 29635.17,
+            "price": 29568.94,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 720,
-            "gex": -36687585.54647298
+            "gex": 701337012.1807377
         },
         {
-            "price": 29840.97,
+            "price": 29774.28,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 725,
-            "gex": -941573452.8628417
+            "gex": -300249614.4560535
         },
         {
-            "price": 30046.77,
+            "price": 29979.62,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 730,
-            "gex": -179637588.87917948
+            "gex": -847003448.7417903
         },
         {
-            "price": 30252.57,
+            "price": 30184.96,
             "type": "Wall",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_spy": 735,
-            "gex": -7008530188.822333
+            "gex": 1462955263.2412882
         },
         {
-            "price": 30458.37,
+            "price": 30390.3,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 740,
-            "gex": 2199969861.829817
+            "gex": 9532305394.91835
         },
         {
-            "price": 30664.17,
+            "price": 30595.64,
+            "type": "Wall",
+            "width": 2,
+            "style": 0,
+            "strike_spy": 745,
+            "gex": 15001089712.691547
+        },
+        {
+            "price": 30800.98,
             "type": "Wall",
             "width": 3,
             "style": 0,
-            "strike_spy": 745,
-            "gex": 11086457371.191923
-        },
-        {
-            "price": 30869.97,
-            "type": "Wall",
-            "width": 1,
-            "style": 0,
             "strike_spy": 750,
-            "gex": 2077629722.517219
+            "gex": 29822535751.656254
         },
         {
-            "price": 31075.77,
+            "price": 31006.32,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 755,
-            "gex": 1430447.6709708055
+            "gex": 4591766966.449031
         },
         {
-            "price": 31281.57,
+            "price": 31211.66,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 760,
-            "gex": 77692168.81405391
+            "gex": 972569075.3014996
         },
         {
-            "price": 31487.36,
+            "price": 31417.0,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 765,
-            "gex": 1826080.1177091985
+            "gex": 231141402.01273444
         },
         {
-            "price": 31693.16,
+            "price": 31622.34,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 770,
-            "gex": 15692.634940881104
+            "gex": 63690499.85256884
         },
         {
-            "price": 31898.96,
+            "price": 31827.68,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 775,
-            "gex": 30592539.949960493
+            "gex": 103326618.64496678
         },
         {
-            "price": 30779.58,
+            "price": 32033.02,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 780,
+            "gex": 27735705.348942447
+        },
+        {
+            "price": 30712.1,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 390181074444.1658
+            "gex": 274921154548.5179
         },
         {
-            "price": 30258.16,
+            "price": 30002.52,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -628414294501.0657
+            "gex": -73691773640.00163
         },
         {
-            "price": 30507.62,
+            "price": 30479.74,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,

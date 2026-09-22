@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US30 Spot Atual:    52048.83
-    Gamma Flip Point:   52121.55
+    US30 Spot Atual:    51863.69
+    Gamma Flip Point:   51171.22
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 51699.00
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 52121.55
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 52380.98
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 50193.61
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 51171.22
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 52589.99
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $527.0        | 52922.41           | $              0.01M | Width 1
-  Wall       | $526.0        | 52821.99           | $              0.09M | Width 1
-  Wall       | $525.0        | 52721.57           | $              2.28M | Width 2
-  Wall       | $524.0        | 52621.15           | $              0.00M | Width 1
-  Wall       | $523.0        | 52520.73           | $              0.41M | Width 1
-  Wall       | $522.0        | 52420.30           | $              0.10M | Width 1
-  Wall       | $521.0        | 52319.88           | $             64.18M | Width 2
-  Wall       | $520.0        | 52219.46           | $           1083.01M | Width 3
-  Wall       | $519.0        | 52119.04           | $             -0.00M | Width 1
-  Wall       | $518.0        | 52018.62           | $             -0.00M | Width 1
-  Wall       | $517.0        | 51918.19           | $             -0.04M | Width 1
-  Wall       | $516.0        | 51817.77           | $             -0.00M | Width 1
-  Wall       | $515.0        | 51717.35           | $             -0.00M | Width 1
-  Wall       | $514.0        | 51616.93           | $             -0.02M | Width 1
-  Wall       | $513.0        | 51516.51           | $             -0.01M | Width 1
-  Wall       | $512.0        | 51416.08           | $             -0.00M | Width 1
+  Wall       | $526.0        | 52635.14           | $              1.85M | Width 1
+  Wall       | $525.0        | 52535.08           | $             17.03M | Width 1
+  Wall       | $524.0        | 52435.01           | $              1.34M | Width 1
+  Wall       | $523.0        | 52334.94           | $              7.35M | Width 1
+  Wall       | $522.0        | 52234.88           | $             44.17M | Width 3
+  Wall       | $521.0        | 52134.81           | $             17.10M | Width 1
+  Wall       | $520.0        | 52034.74           | $             25.25M | Width 2
+  Wall       | $519.0        | 51934.68           | $              0.70M | Width 1
+  Wall       | $518.0        | 51834.61           | $              7.26M | Width 1
+  Wall       | $517.0        | 51734.54           | $             -1.44M | Width 1
+  Wall       | $516.0        | 51634.48           | $             40.10M | Width 2
+  Wall       | $515.0        | 51534.41           | $             -5.50M | Width 1
+  Wall       | $514.0        | 51434.34           | $             -4.10M | Width 1
+  Wall       | $513.0        | 51334.28           | $             -2.79M | Width 1
+  Wall       | $512.0        | 51234.21           | $             -2.50M | Width 1
+  Wall       | $511.0        | 51134.14           | $             -0.49M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy DIA.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
