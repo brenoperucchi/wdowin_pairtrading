@@ -1,126 +1,126 @@
 {
     "ticker": "NIKKEI_JP225",
-    "ref_date": "2026-09-21",
-    "updated_at": "2026-09-21 18:16:04",
+    "ref_date": "2026-09-22",
+    "updated_at": "2026-09-22 07:42:40",
     "current_price": null,
     "walls": [
         {
-            "price": 64548.0,
+            "price": 64674.1,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 95.0,
-            "gex": -6369.3723957197
+            "gex": -2.0449057074426857
         },
         {
-            "price": 64887.7,
+            "price": 65014.5,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 95.5,
-            "gex": 90452.73163902207
+            "gex": -47.78259630418446
         },
         {
-            "price": 65227.5,
+            "price": 65354.9,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 96.0,
-            "gex": 40094.296500072116
+            "gex": -495.5702358865368
         },
         {
-            "price": 65567.2,
+            "price": 65695.3,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 96.5,
-            "gex": -18207.009342353867
+            "gex": -1.6965298336724042
         },
         {
-            "price": 65906.9,
+            "price": 66035.7,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 97.0,
+            "gex": -2941.115220523031
+        },
+        {
+            "price": 66376.0,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 97.5,
+            "gex": -196.78643288121378
+        },
+        {
+            "price": 66716.4,
             "type": "Wall",
             "width": 3,
             "style": 0,
-            "strike_spy": 97.0,
-            "gex": -1050987.5583301566
+            "strike_spy": 98.0,
+            "gex": 1159418.7730016198
         },
         {
-            "price": 66246.7,
+            "price": 67056.8,
             "type": "Wall",
             "width": 2,
             "style": 0,
-            "strike_spy": 97.5,
-            "gex": -124141.14542074646
-        },
-        {
-            "price": 66586.4,
-            "type": "Wall",
-            "width": 1,
-            "style": 0,
-            "strike_spy": 98.0,
-            "gex": -15797.369323713516
-        },
-        {
-            "price": 66926.1,
-            "type": "Wall",
-            "width": 1,
-            "style": 0,
             "strike_spy": 98.5,
-            "gex": 58908.841272567865
+            "gex": 15851.911729021045
         },
         {
-            "price": 67265.8,
+            "price": 67397.2,
             "type": "Wall",
-            "width": 1,
+            "width": 2,
             "style": 0,
             "strike_spy": 99.0,
-            "gex": 10843.167763552145
+            "gex": 6534.589605357049
         },
         {
-            "price": 67605.6,
+            "price": 67737.6,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 99.5,
-            "gex": 81.61246751371834
+            "gex": 8.936507147012449
         },
         {
-            "price": 67945.3,
+            "price": 68078.0,
             "type": "Wall",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_spy": 100.0,
-            "gex": -441244.6122575175
+            "gex": 76.64696843709689
         },
         {
-            "price": 68624.7,
+            "price": 68758.8,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 101.0,
-            "gex": 4178.9474680506555
+            "gex": 0.36404693900688867
         },
         {
-            "price": 73215.1,
+            "price": 67057.8,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 42954.581694973946
+            "gex": 1208853.1110352466
         },
         {
-            "price": 65187.9,
+            "price": 64376.9,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -2805042.2035378525
+            "gex": -419346.9740295994
         },
         {
-            "price": 72383.7,
+            "price": 66590.9,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
             "gex": 0.0,
-            "factor": 679.4528442431365
+            "factor": 680.7799165299369
         }
     ]
 }

@@ -1,180 +1,150 @@
 {
     "ticker": "GBP_USD",
     "ref_date": "2026-12-18",
-    "updated_at": "2026-09-21 18:15:49",
+    "updated_at": "2026-09-22 07:42:23",
     "current_price": null,
     "walls": [
         {
-            "price": 1.27848,
-            "type": "Wall",
-            "width": 2,
-            "style": 0,
-            "strike_spy": 123,
-            "gex": 11910.803327414387
-        },
-        {
-            "price": 1.28368,
-            "type": "MidWall",
-            "width": 1,
-            "style": 0,
-            "gex": 0.0
-        },
-        {
-            "price": 1.28887,
+            "price": 1.27904,
             "type": "Wall",
             "width": 3,
             "style": 0,
-            "strike_spy": 124,
-            "gex": 31807.116156457436
+            "strike_spy": 123,
+            "gex": 11936.806887337472
         },
         {
-            "price": 1.29407,
+            "price": 1.28424,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 1.29927,
+            "price": 1.28944,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 124,
+            "gex": -1608.2461234460607
+        },
+        {
+            "price": 1.29464,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 1.29984,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 125,
-            "gex": 9533.674207837152
+            "gex": -11315.576030603852
         },
         {
-            "price": 1.30446,
+            "price": 1.31024,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 1.30966,
+            "price": 1.32064,
             "type": "Wall",
-            "width": 1,
-            "style": 0,
-            "strike_spy": 126,
-            "gex": 546.9339871552854
-        },
-        {
-            "price": 1.31486,
-            "type": "MidWall",
-            "width": 1,
-            "style": 0,
-            "gex": 0.0
-        },
-        {
-            "price": 1.32006,
-            "type": "Wall",
-            "width": 1,
+            "width": 2,
             "style": 0,
             "strike_spy": 127,
-            "gex": 8121.794181872672
+            "gex": 8143.771642989483
         },
         {
-            "price": 1.32525,
+            "price": 1.32584,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 1.33045,
+            "price": 1.33104,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 128,
-            "gex": 412.514912587691
+            "gex": -1775.748625936168
         },
         {
-            "price": 1.33564,
+            "price": 1.33624,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 1.34084,
+            "price": 1.34144,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 129,
-            "gex": -559.4847352966913
+            "gex": -559.3745996536531
         },
         {
-            "price": 1.34604,
+            "price": 1.35184,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 1.35124,
-            "type": "Wall",
-            "width": 1,
-            "style": 0,
-            "strike_spy": 130,
-            "gex": -7161.610185879405
-        },
-        {
-            "price": 1.35643,
-            "type": "MidWall",
-            "width": 1,
-            "style": 0,
-            "gex": 0.0
-        },
-        {
-            "price": 1.36163,
+            "price": 1.36223,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 131,
-            "gex": -450.3219409005301
+            "gex": 2710.1333410220223
         },
         {
-            "price": 1.36683,
+            "price": 1.36743,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 1.37203,
+            "price": 1.37263,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 132,
-            "gex": -6478.113141668024
+            "gex": 1196.090636745263
         },
         {
-            "price": 1.37722,
+            "price": 1.37783,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 1.38242,
+            "price": 1.38303,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 133,
-            "gex": 1401.6196692119875
-        },
-        {
-            "price": 1.2368,
-            "type": "MaxGamma",
-            "width": 3,
-            "style": 0,
-            "gex": 57625.39132807981
+            "gex": 1405.1652114936903
         },
         {
             "price": 1.3499,
+            "type": "MaxGamma",
+            "width": 3,
+            "style": 0,
+            "gex": 24349.223794667843
+        },
+        {
+            "price": 1.2213,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": 37394.58809658114
+            "gex": 7126.148973983329
         },
         {
             "price": 1.2856,
