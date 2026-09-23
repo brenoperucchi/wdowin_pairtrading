@@ -151,11 +151,11 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINQ26") or (GetAsset() = "INDQ26") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26") or (GetAsset() = "WINZ26") or (GetAsset() = "INDZ26");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOQ26") or (GetAsset() = "DOLQ26") or (GetAsset() = "WDOU26") or (GetAsset() = "DOLU26") or (GetAsset() = "WDOV26") or (GetAsset() = "DOLV26");
 
-  if (((Date >= ELDate(2026, 09, 21)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date >= ELDate(2026, 09, 22)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
-      line1 := 173977.180;
+      line1 := 174997.655;
       line1Color := clFlip;
       line1Width := 2;
       line1Style := 0;
@@ -486,7 +486,7 @@ BEGIN
       SetPlotWidth(9, line9Width);
       SetPlotStyle(9, line9Style);
       Plot9(line9);
-      line10 := 4991.520;
+      line10 := 4993.960;
       line10Color := clMinGamma;
       line10Width := 3;
       line10Style := 0;
@@ -544,7 +544,7 @@ BEGIN
       Plot16(line16);
       line17 := 5100.000;
       line17Color := clRed;
-      line17Width := 1;
+      line17Width := 2;
       line17Style := 0;
       SetPlotColor(17, line17Color);
       SetPlotWidth(17, line17Width);
@@ -582,7 +582,7 @@ BEGIN
       SetPlotWidth(21, line21Width);
       SetPlotStyle(21, line21Style);
       Plot21(line21);
-      line22 := 5189.660;
+      line22 := 5185.810;
       line22Color := clFlip;
       line22Width := 2;
       line22Style := 0;
@@ -632,7 +632,7 @@ BEGIN
       Plot27(line27);
       line28 := 5250.000;
       line28Color := clLime;
-      line28Width := 2;
+      line28Width := 1;
       line28Style := 0;
       SetPlotColor(28, line28Color);
       SetPlotWidth(28, line28Width);
