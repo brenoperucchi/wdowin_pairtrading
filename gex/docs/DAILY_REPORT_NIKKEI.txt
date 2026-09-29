@@ -4,12 +4,12 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Nikkei 225 Spot/CFD Atual: 65575.2  (EWJ Spot: $96.83)
-    Gamma Flip Point:         65560.0
-    Regime de Gamma:          POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:              ALTA / LATERALIZACAO
+    Nikkei 225 Spot/CFD Atual: 66144.2  (EWJ Spot: $96.51)
+    Gamma Flip Point:         69115.1
+    Regime de Gamma:          NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:              QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : JP225 64487.8
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : JP225 65560.0
-    [+] MAX GAMMA (Teto de Exaustao)      : JP225 66992.2
+    [-] MIN GAMMA (Piso de Queda Livre)   : JP225 64914.4
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : JP225 69115.1
+    [+] MAX GAMMA (Teto de Exaustao)      : JP225 70299.0

@@ -4,12 +4,12 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Russell 2000 Spot/CFD Atual: 2824.35  (IWM Spot: $280.02)
-    Gamma Flip Point:           2824.04
-    Regime de Gamma:            POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:                ALTA / LATERALIZACAO
+    Russell 2000 Spot/CFD Atual: 2814.25  (IWM Spot: $279.01)
+    Gamma Flip Point:           2815.47
+    Regime de Gamma:            NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:                QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US2000 2814.42
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US2000 2824.04
-    [+] MAX GAMMA (Teto de Exaustao)      : US2000 2834.28
+    [-] MIN GAMMA (Piso de Queda Livre)   : US2000 2812.84
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US2000 2815.47
+    [+] MAX GAMMA (Teto de Exaustao)      : US2000 2866.58

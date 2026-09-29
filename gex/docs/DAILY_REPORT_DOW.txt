@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US30 Spot Atual:    51481.51
-    Gamma Flip Point:   53298.81
+    US30 Spot Atual:    51349.92
+    Gamma Flip Point:   51506.40
     Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 46290.15
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 53298.81
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 56576.85
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 50228.08
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 51506.40
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 52397.31
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $610.0        | 61037.38           | $              0.00M | Width 1
-  Wall       | $572.0        | 57235.05           | $              0.00M | Width 1
-  Wall       | $501.0        | 50130.70           | $              0.20M | Width 3
-  Wall       | $498.0        | 49830.52           | $              0.01M | Width 2
-  Wall       | $476.0        | 47629.17           | $              0.00M | Width 1
-  Wall       | $474.0        | 47429.05           | $              0.00M | Width 1
-  Wall       | $469.0        | 46928.74           | $              0.00M | Width 1
-  Wall       | $468.0        | 46828.68           | $              0.00M | Width 1
-  Wall       | $466.0        | 46628.56           | $              0.00M | Width 1
-  Wall       | $462.0        | 46228.31           | $              0.00M | Width 1
-  Wall       | $461.0        | 46128.25           | $              0.06M | Width 2
-  Wall       | $460.0        | 46028.19           | $              0.01M | Width 1
-  Wall       | $456.0        | 45627.94           | $              0.00M | Width 1
-  Wall       | $445.0        | 44527.27           | $              0.00M | Width 1
-  Wall       | $444.0        | 44427.21           | $              0.00M | Width 1
-  Wall       | $443.0        | 44327.15           | $              0.00M | Width 1
+  Wall       | $520.0        | 52103.59           | $              2.43M | Width 1
+  Wall       | $519.0        | 52003.39           | $              1.37M | Width 1
+  Wall       | $518.0        | 51903.19           | $              6.32M | Width 1
+  Wall       | $517.0        | 51802.99           | $             -4.27M | Width 1
+  Wall       | $516.0        | 51702.79           | $             14.40M | Width 3
+  Wall       | $515.0        | 51602.59           | $             -0.53M | Width 1
+  Wall       | $514.0        | 51502.39           | $             -7.40M | Width 2
+  Wall       | $513.0        | 51402.19           | $             -5.19M | Width 1
+  Wall       | $512.0        | 51301.99           | $             -5.03M | Width 1
+  Wall       | $511.0        | 51201.80           | $             -3.95M | Width 1
+  Wall       | $510.0        | 51101.60           | $             -1.50M | Width 1
+  Wall       | $509.0        | 51001.40           | $             -7.45M | Width 2
+  Wall       | $508.0        | 50901.20           | $             -4.42M | Width 1
+  Wall       | $507.0        | 50801.00           | $             -4.51M | Width 1
+  Wall       | $506.0        | 50700.80           | $             -1.69M | Width 1
+  Wall       | $505.0        | 50600.60           | $             -0.40M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy DIA.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

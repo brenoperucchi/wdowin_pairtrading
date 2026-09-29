@@ -1,83 +1,143 @@
 {
     "ticker": "CHINA_FXI",
     "ref_date": "2026-09-29",
-    "updated_at": "2026-09-29 07:43:33",
+    "updated_at": "2026-09-29 18:16:20",
     "current_price": null,
     "walls": [
         {
-            "price": 13415.9,
+            "price": 13154.0,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 32.0,
+            "gex": -2712.4655470630096
+        },
+        {
+            "price": 13256.8,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 13359.6,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 32.5,
+            "gex": -4065.4534067812883
+        },
+        {
+            "price": 13462.4,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 13565.1,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 33.0,
-            "gex": 26137.50121773267
+            "gex": -2243654.0360294604
         },
         {
-            "price": 13619.2,
+            "price": 13667.8,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 13822.5,
+            "price": 13770.6,
             "type": "Wall",
             "width": 1,
             "style": 0,
-            "strike_spy": 34.0,
-            "gex": -0.0001352266541164566
+            "strike_spy": 33.5,
+            "gex": -12650.61481923707
         },
         {
-            "price": 14025.8,
+            "price": 13873.4,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14229.0,
+            "price": 13976.1,
             "type": "Wall",
             "width": 3,
             "style": 0,
-            "strike_spy": 35.0,
-            "gex": 430436.8276368522
+            "strike_spy": 34.0,
+            "gex": -5902510.185975937
         },
         {
-            "price": 14432.3,
+            "price": 14078.9,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14635.6,
+            "price": 14181.7,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 34.5,
+            "gex": -112279.24850287102
+        },
+        {
+            "price": 14284.4,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14387.2,
             "type": "Wall",
             "width": 2,
             "style": 0,
-            "strike_spy": 36.0,
-            "gex": 117.77171013136652
+            "strike_spy": 35.0,
+            "gex": -1764731.372619266
         },
         {
-            "price": 14108.0,
+            "price": 14490.0,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14592.7,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 35.5,
+            "gex": 44794.446455006466
+        },
+        {
+            "price": 14527.1,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 3797665.518788941
+            "gex": 26705641.754103135
         },
         {
-            "price": 13703.1,
+            "price": 13799.7,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -14103889.749507353
+            "gex": -9866746.167194467
         },
         {
-            "price": 13794.2,
+            "price": 14088.0,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
             "gex": 0.0,
-            "factor": 406.54377361439515
+            "factor": 411.06319400788357
         }
     ]
 }
