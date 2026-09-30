@@ -1,83 +1,143 @@
 {
     "ticker": "CHINA_FXI",
     "ref_date": "2026-09-30",
-    "updated_at": "2026-09-30 07:43:22",
+    "updated_at": "2026-09-30 18:20:12",
     "current_price": null,
     "walls": [
         {
-            "price": 13183.3,
+            "price": 13110.0,
             "type": "Wall",
             "width": 1,
             "style": 0,
             "strike_spy": 32.0,
-            "gex": -1.0651170499461458
+            "gex": -48046.130244299755
         },
         {
-            "price": 13389.3,
+            "price": 13212.4,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 13595.3,
+            "price": 13314.9,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 32.5,
+            "gex": -3112.469249323957
+        },
+        {
+            "price": 13417.3,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 13519.7,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 33.0,
-            "gex": 28226.493135832505
+            "gex": -1124149.557957256
         },
         {
-            "price": 13801.3,
+            "price": 13622.2,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14007.3,
+            "price": 13724.6,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 33.5,
+            "gex": -9038.020527701745
+        },
+        {
+            "price": 13827.0,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 13929.4,
             "type": "Wall",
             "width": 3,
             "style": 0,
             "strike_spy": 34.0,
-            "gex": 248784.50165910067
+            "gex": -3251784.734209325
         },
         {
-            "price": 14213.3,
+            "price": 14031.8,
             "type": "MidWall",
             "width": 1,
             "style": 0,
             "gex": 0.0
         },
         {
-            "price": 14419.3,
+            "price": 14134.3,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 34.5,
+            "gex": -62502.99099690244
+        },
+        {
+            "price": 14236.7,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14339.1,
             "type": "Wall",
             "width": 2,
             "style": 0,
             "strike_spy": 35.0,
-            "gex": 3513.6783315639627
+            "gex": 2898535.7092068056
         },
         {
-            "price": 13886.5,
+            "price": 14441.5,
+            "type": "MidWall",
+            "width": 1,
+            "style": 0,
+            "gex": 0.0
+        },
+        {
+            "price": 14543.9,
+            "type": "Wall",
+            "width": 1,
+            "style": 0,
+            "strike_spy": 35.5,
+            "gex": 56552.545459700945
+        },
+        {
+            "price": 14490.9,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 2861794.7530966382
+            "gex": 23362276.171926294
         },
         {
-            "price": 13073.4,
+            "price": 13538.4,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": 13792.619355897823
+            "gex": -4722004.860580815
         },
         {
-            "price": 13949.6,
+            "price": 13880.3,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
             "gex": 0.0,
-            "factor": 411.97872854542646
+            "factor": 409.68841306465396
         }
     ]
 }
