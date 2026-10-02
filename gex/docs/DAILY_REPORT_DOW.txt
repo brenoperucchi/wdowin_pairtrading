@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - DOW JONES / US30
-  Vencimento de Referencia: 2026-10-02 | Data Ref: 01/10/2026
+  Vencimento de Referencia: 2026-10-02 | Data Ref: 02/10/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
     US30 Spot Atual:    50926.56
-    Gamma Flip Point:   51117.08
-    Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
-    Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
-    Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
+    Gamma Flip Point:   51156.76
+    Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
+    Vies do Dia:        ALTA / LATERALIZACAO
+    Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 50115.30
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 51117.08
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 52213.03
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 51100.55
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 51156.76
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 51203.42
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $516.0        | 51647.01           | $              1.66M | Width 1
-  Wall       | $515.0        | 51546.92           | $              7.54M | Width 1
-  Wall       | $514.0        | 51446.83           | $              4.99M | Width 1
-  Wall       | $513.0        | 51346.74           | $              8.73M | Width 1
-  Wall       | $512.0        | 51246.65           | $             -3.23M | Width 1
-  Wall       | $511.0        | 51146.56           | $              8.09M | Width 1
-  Wall       | $510.0        | 51046.47           | $            -13.57M | Width 2
-  Wall       | $509.0        | 50946.38           | $             -4.90M | Width 1
-  Wall       | $508.0        | 50846.28           | $            -22.48M | Width 3
-  Wall       | $507.0        | 50746.19           | $            -18.15M | Width 2
-  Wall       | $506.0        | 50646.10           | $             -9.49M | Width 1
-  Wall       | $505.0        | 50546.01           | $             -3.14M | Width 1
-  Wall       | $504.0        | 50445.92           | $             -1.85M | Width 1
-  Wall       | $503.0        | 50345.83           | $             -2.32M | Width 1
-  Wall       | $502.0        | 50245.74           | $             -2.38M | Width 1
-  Wall       | $501.0        | 50145.65           | $             -5.09M | Width 1
+  Wall       | $516.0        | 51920.28           | $              0.01M | Width 1
+  Wall       | $515.0        | 51819.66           | $              0.56M | Width 1
+  Wall       | $514.0        | 51719.04           | $              0.28M | Width 1
+  Wall       | $513.0        | 51618.42           | $              0.01M | Width 1
+  Wall       | $512.0        | 51517.80           | $              0.21M | Width 1
+  Wall       | $511.0        | 51417.18           | $              6.57M | Width 2
+  Wall       | $510.0        | 51316.56           | $             10.43M | Width 2
+  Wall       | $509.0        | 51215.94           | $             63.06M | Width 3
+  Wall       | $508.0        | 51115.32           | $             -6.42M | Width 1
+  Wall       | $507.0        | 51014.69           | $             -0.30M | Width 1
+  Wall       | $506.0        | 50914.07           | $             -3.49M | Width 1
+  Wall       | $505.0        | 50813.45           | $             -0.11M | Width 1
+  Wall       | $504.0        | 50712.83           | $             -0.00M | Width 1
+  Wall       | $503.0        | 50612.21           | $             -0.99M | Width 1
+  Wall       | $502.0        | 50511.59           | $             -0.06M | Width 1
+  Wall       | $501.0        | 50410.97           | $             -0.01M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy DIA.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
