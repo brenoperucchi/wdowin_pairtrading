@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - DOLAR FUTURO (DOL / WDO)
-  Vencimento de Referencia: 2026-11-02 | Data Ref: 02/10/2026
+  Vencimento de Referencia: 2026-11-02 | Data Ref: 05/10/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Dólar Futuro Atual: 5245.50 (WDOX26)
-    Gamma Flip Point:   5222.99
+    Dólar Futuro Atual: 5257.00 (WDOX26)
+    Gamma Flip Point:   5222.43
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 4905.47
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL 5222.99
-    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5590.81
+    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 4910.94
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL 5222.43
+    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5587.21
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE REAL  | EQUIVALENTE DOL  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL ***   | $5.500       | DOL 5500.00      | $             933.96M | Width 3
-  WALL *     | $5.450       | DOL 5450.00      | $              68.61M | Width 1
-  WALL *     | $5.400       | DOL 5400.00      | $             487.46M | Width 1
-  WALL *     | $5.380       | DOL 5380.00      | $               3.58M | Width 1
-  WALL *     | $5.350       | DOL 5350.00      | $             409.77M | Width 1
-  WALL *     | $5.300       | DOL 5300.00      | $              58.07M | Width 1
-  WALL *     | $5.280       | DOL 5280.00      | $              -4.48M | Width 1
-  WALL *     | $5.250       | DOL 5250.00      | $              90.61M | Width 1
-  WALL **    | $5.200       | DOL 5200.00      | $             780.76M | Width 2
-  WALL *     | $5.150       | DOL 5150.00      | $             -76.69M | Width 1
-  WALL **    | $5.100       | DOL 5100.00      | $            -552.50M | Width 2
-  WALL *     | $5.050       | DOL 5050.00      | $            -251.79M | Width 1
-  WALL *     | $5.000       | DOL 5000.00      | $            -405.82M | Width 1
-  WALL *     | $4.980       | DOL 4980.00      | $             -51.22M | Width 1
-  WALL *     | $4.950       | DOL 4950.00      | $            -285.88M | Width 1
-  WALL *     | $4.920       | DOL 4920.00      | $            -244.64M | Width 1
+  WALL ***   | $5.500       | DOL 5500.00      | $             999.10M | Width 3
+  WALL *     | $5.450       | DOL 5450.00      | $              73.31M | Width 1
+  WALL *     | $5.400       | DOL 5400.00      | $             518.37M | Width 1
+  WALL *     | $5.380       | DOL 5380.00      | $               3.79M | Width 1
+  WALL *     | $5.350       | DOL 5350.00      | $             432.11M | Width 1
+  WALL *     | $5.300       | DOL 5300.00      | $              60.50M | Width 1
+  WALL *     | $5.280       | DOL 5280.00      | $              -4.64M | Width 1
+  WALL *     | $5.250       | DOL 5250.00      | $              92.91M | Width 1
+  WALL **    | $5.200       | DOL 5200.00      | $             784.78M | Width 2
+  WALL *     | $5.180       | DOL 5180.00      | $               0.00M | Width 1
+  WALL *     | $5.150       | DOL 5150.00      | $             -75.26M | Width 1
+  WALL **    | $5.100       | DOL 5100.00      | $            -527.14M | Width 2
+  WALL *     | $5.050       | DOL 5050.00      | $            -232.56M | Width 1
+  WALL *     | $5.000       | DOL 5000.00      | $            -381.42M | Width 1
+  WALL *     | $4.980       | DOL 4980.00      | $             -44.69M | Width 1
+  WALL *     | $4.950       | DOL 4950.00      | $            -244.16M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na B3.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
