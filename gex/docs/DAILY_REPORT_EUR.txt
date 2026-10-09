@@ -4,28 +4,29 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    EURUSD Spot Atual: 1.12110
-    Gamma Flip Point:  1.03367
+    EURUSD Spot Atual: 1.12012
+    Gamma Flip Point:  1.00657
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.05970
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.03367
-    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 1.03994
+    [-] MIN GAMMA (Piso de Queda Livre)   : EURUSD 1.05006
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD 1.00657
+    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD 0.99656
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE FXE   | EQUIVALENTE EURUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $108.0        | 1.1698             | $              0.00M | Width 1
-  Wall       | $107.0        | 1.1590             | $              0.00M | Width 2
-  Wall       | $106.0        | 1.1482             | $              0.00M | Width 1
-  Wall       | $105.0        | 1.1374             | $              0.00M | Width 3
-  Wall       | $104.0        | 1.1265             | $              0.00M | Width 2
-  Wall       | $103.0        | 1.1157             | $             -0.00M | Width 1
-  Wall       | $102.0        | 1.1049             | $              0.00M | Width 1
+  Wall       | $108.0        | 1.1703             | $              0.01M | Width 1
+  Wall       | $107.0        | 1.1595             | $              0.08M | Width 1
+  Wall       | $106.0        | 1.1486             | $             -0.96M | Width 2
+  Wall       | $105.0        | 1.1378             | $             -5.61M | Width 3
+  Wall       | $104.0        | 1.1269             | $             -0.11M | Width 2
+  Wall       | $103.0        | 1.1161             | $             -0.09M | Width 1
+  Wall       | $102.0        | 1.1053             | $              0.09M | Width 1
+  Wall       | $100.0        | 1.0836             | $             -0.01M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy FXE.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
