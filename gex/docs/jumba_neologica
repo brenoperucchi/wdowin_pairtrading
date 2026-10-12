@@ -155,11 +155,11 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINQ26") or (GetAsset() = "INDQ26") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26") or (GetAsset() = "WINZ26") or (GetAsset() = "INDZ26");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOU26") or (GetAsset() = "DOLU26") or (GetAsset() = "WDOV26") or (GetAsset() = "DOLV26") or (GetAsset() = "WDOX26") or (GetAsset() = "DOLX26");
 
-  if (((Date >= ELDate(2026, 10, 08)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date >= ELDate(2026, 10, 09)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
-      line1 := 186256.283;
+      line1 := 186413.003;
       line1Color := clFlip;
       line1Width := 2;
       line1Style := 0;
@@ -200,7 +200,7 @@ BEGIN
       SetPlotStyle(5, line5Style);
       Plot5(line5);
       line6 := 205869.963;
-      line6Color := clRed;
+      line6Color := clLime;
       line6Width := 1;
       line6Style := 0;
       SetPlotColor(6, line6Color);
@@ -216,7 +216,7 @@ BEGIN
       SetPlotStyle(7, line7Style);
       Plot7(line7);
       line8 := 206884.101;
-      line8Color := clLime;
+      line8Color := clRed;
       line8Width := 1;
       line8Style := 0;
       SetPlotColor(8, line8Color);
@@ -474,25 +474,25 @@ BEGIN
       SetPlotWidth(6, line6Width);
       SetPlotStyle(6, line6Style);
       Plot6(line6);
-      line7 := 4887.610;
-      line7Color := clMinGamma;
-      line7Width := 3;
+      line7 := 4890.000;
+      line7Color := clMidleWall;
+      line7Width := 1;
       line7Style := 0;
       SetPlotColor(7, line7Color);
       SetPlotWidth(7, line7Width);
       SetPlotStyle(7, line7Style);
       Plot7(line7);
-      line8 := 4890.000;
-      line8Color := clMidleWall;
-      line8Width := 1;
+      line8 := 4900.000;
+      line8Color := clRed;
+      line8Width := 3;
       line8Style := 0;
       SetPlotColor(8, line8Color);
       SetPlotWidth(8, line8Width);
       SetPlotStyle(8, line8Style);
       Plot8(line8);
-      line9 := 4900.000;
-      line9Color := clRed;
-      line9Width := 2;
+      line9 := 4903.210;
+      line9Color := clMinGamma;
+      line9Width := 3;
       line9Style := 0;
       SetPlotColor(9, line9Color);
       SetPlotWidth(9, line9Width);
@@ -524,7 +524,7 @@ BEGIN
       Plot12(line12);
       line13 := 4950.000;
       line13Color := clRed;
-      line13Width := 1;
+      line13Width := 2;
       line13Style := 0;
       SetPlotColor(13, line13Color);
       SetPlotWidth(13, line13Width);
@@ -594,33 +594,33 @@ BEGIN
       SetPlotWidth(21, line21Width);
       SetPlotStyle(21, line21Style);
       Plot21(line21);
-      line22 := 5110.160;
-      line22Color := clFlip;
-      line22Width := 2;
+      line22 := 5125.000;
+      line22Color := clMidleWall;
+      line22Width := 1;
       line22Style := 0;
       SetPlotColor(22, line22Color);
       SetPlotWidth(22, line22Width);
       SetPlotStyle(22, line22Style);
       Plot22(line22);
-      line23 := 5125.000;
-      line23Color := clMidleWall;
+      line23 := 5150.000;
+      line23Color := clRed;
       line23Width := 1;
       line23Style := 0;
       SetPlotColor(23, line23Color);
       SetPlotWidth(23, line23Width);
       SetPlotStyle(23, line23Style);
       Plot23(line23);
-      line24 := 5150.000;
-      line24Color := clRed;
+      line24 := 5165.000;
+      line24Color := clMidleWall;
       line24Width := 1;
       line24Style := 0;
       SetPlotColor(24, line24Color);
       SetPlotWidth(24, line24Width);
       SetPlotStyle(24, line24Style);
       Plot24(line24);
-      line25 := 5165.000;
-      line25Color := clMidleWall;
-      line25Width := 1;
+      line25 := 5174.040;
+      line25Color := clFlip;
+      line25Width := 2;
       line25Style := 0;
       SetPlotColor(25, line25Color);
       SetPlotWidth(25, line25Width);
@@ -644,7 +644,7 @@ BEGIN
       Plot27(line27);
       line28 := 5200.000;
       line28Color := clLime;
-      line28Width := 3;
+      line28Width := 1;
       line28Style := 0;
       SetPlotColor(28, line28Color);
       SetPlotWidth(28, line28Width);
