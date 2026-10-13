@@ -4,32 +4,33 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    GBPUSD Spot Atual: 1.32421
-    Gamma Flip Point:  1.29292
-    Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
-    Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
-    Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
+    GBPUSD Spot Atual: 1.32548
+    Gamma Flip Point:  1.27420
+    Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
+    Vies do Dia:       ALTA / LATERALIZACAO
+    Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.27140
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.29292
-    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.33329
+    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.33791
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.27420
+    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.26299
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE FXB   | EQUIVALENTE GBPUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $133.0        | 1.3870             | $              0.00M | Width 1
-  Wall       | $132.0        | 1.3766             | $              0.00M | Width 1
-  Wall       | $131.0        | 1.3661             | $              0.00M | Width 1
-  Wall       | $129.0        | 1.3453             | $              0.00M | Width 1
-  Wall       | $128.0        | 1.3349             | $             -0.00M | Width 1
-  Wall       | $127.0        | 1.3244             | $             -0.01M | Width 2
-  Wall       | $125.0        | 1.3036             | $             -0.01M | Width 3
-  Wall       | $124.0        | 1.2931             | $             -0.00M | Width 1
-  Wall       | $123.0        | 1.2827             | $              0.01M | Width 2
-  Wall       | $122.0        | 1.2723             | $             -0.00M | Width 1
-  Wall       | $121.0        | 1.2618             | $             -0.00M | Width 1
+  Wall       | $133.0        | 1.3835             | $              0.00M | Width 1
+  Wall       | $132.0        | 1.3731             | $             -0.00M | Width 1
+  Wall       | $131.0        | 1.3627             | $              0.00M | Width 1
+  Wall       | $130.0        | 1.3523             | $             -0.01M | Width 1
+  Wall       | $129.0        | 1.3419             | $              0.00M | Width 1
+  Wall       | $128.0        | 1.3315             | $             -0.00M | Width 1
+  Wall       | $127.0        | 1.3211             | $              0.12M | Width 3
+  Wall       | $126.0        | 1.3107             | $              0.00M | Width 1
+  Wall       | $125.0        | 1.3003             | $              0.02M | Width 2
+  Wall       | $124.0        | 1.2899             | $              0.04M | Width 2
+  Wall       | $123.0        | 1.2795             | $              0.01M | Width 1
+  Wall       | $122.0        | 1.2691             | $             -0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy FXB.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

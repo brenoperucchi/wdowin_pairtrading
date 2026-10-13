@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    SPY Spot Atual:    $778.10  (Equiv. ES: ~7781.0)
-    Gamma Flip Point:  $777.95  (Equiv. ES:  7800.09)
+    SPY Spot Atual:    $778.01  (Equiv. ES: ~7780.1)
+    Gamma Flip Point:  $777.42  (Equiv. ES:  7799.89)
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : ES 7789.83 | SPY $776.93
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : ES 7800.09 | SPY $777.95
-    [+] MAX GAMMA (Teto Gravitacional)    : ES 7813.35 | SPY $779.27
+    [-] MIN GAMMA (Piso de Queda Livre)   : ES 7786.21 | SPY $776.06
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : ES 7799.89 | SPY $777.42
+    [+] MAX GAMMA (Teto Gravitacional)    : ES 7817.59 | SPY $779.18
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE SPY   | EQUIVALENTE ES   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $785.00      | ES 7870.77      | $               0.10M | Width 1
-  WALL *     | $784.00      | ES 7860.75      | $               1.18M | Width 1
-  WALL *     | $783.00      | ES 7850.72      | $              21.93M | Width 1
-  WALL *     | $782.00      | ES 7840.69      | $             157.41M | Width 1
-  WALL *     | $781.00      | ES 7830.67      | $               7.31M | Width 1
-  WALL **    | $780.00      | ES 7820.64      | $             966.81M | Width 2
-  WALL **    | $779.00      | ES 7810.61      | $            3101.71M | Width 2
-  WALL ***   | $778.00      | ES 7800.59      | $          -49277.70M | Width 3
-  WALL *     | $777.00      | ES 7790.56      | $            -866.87M | Width 1
-  WALL *     | $776.00      | ES 7780.53      | $            -297.88M | Width 1
-  WALL *     | $775.00      | ES 7770.51      | $              -2.11M | Width 1
-  WALL *     | $774.00      | ES 7760.48      | $            -103.24M | Width 1
-  WALL *     | $773.00      | ES 7750.46      | $             -11.73M | Width 1
-  WALL *     | $772.00      | ES 7740.43      | $              -1.08M | Width 1
-  WALL *     | $771.00      | ES 7730.40      | $              -0.03M | Width 1
-  WALL *     | $770.00      | ES 7720.38      | $             -28.19M | Width 1
+  WALL *     | $785.00      | ES 7875.95      | $              87.82M | Width 1
+  WALL *     | $784.00      | ES 7865.92      | $              80.22M | Width 1
+  WALL *     | $783.00      | ES 7855.88      | $             104.43M | Width 1
+  WALL *     | $782.00      | ES 7845.85      | $             181.43M | Width 1
+  WALL *     | $781.00      | ES 7835.82      | $             267.43M | Width 1
+  WALL **    | $780.00      | ES 7825.79      | $             956.41M | Width 2
+  WALL ***   | $779.00      | ES 7815.75      | $            1851.30M | Width 3
+  WALL **    | $778.00      | ES 7805.72      | $           -1588.09M | Width 2
+  WALL *     | $777.00      | ES 7795.69      | $            -822.87M | Width 1
+  WALL *     | $776.00      | ES 7785.65      | $             -38.90M | Width 1
+  WALL *     | $775.00      | ES 7775.62      | $              61.19M | Width 1
+  WALL *     | $774.00      | ES 7765.59      | $             -42.59M | Width 1
+  WALL *     | $773.00      | ES 7755.55      | $               3.73M | Width 1
+  WALL *     | $772.00      | ES 7745.52      | $             -26.53M | Width 1
+  WALL *     | $771.00      | ES 7735.49      | $             -44.85M | Width 1
+  WALL *     | $770.00      | ES 7725.46      | $             -28.11M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
