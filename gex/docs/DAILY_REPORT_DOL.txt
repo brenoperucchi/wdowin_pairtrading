@@ -4,37 +4,37 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Dólar Futuro Atual: 5066.00 (WDOX26)
+    Dólar Futuro Atual: 5111.50 (WDOX26)
     Gamma Flip Point:   5164.97
     Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 4905.62
+    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 4908.58
     [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL 5164.97
-    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5496.23
+    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5494.22
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE REAL  | EQUIVALENTE DOL  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $5.300       | DOL 5300.00      | $             152.60M | Width 1
+  WALL *     | $5.320       | DOL 5320.00      | $              93.77M | Width 1
+  WALL *     | $5.300       | DOL 5300.00      | $             260.54M | Width 1
   WALL *     | $5.280       | DOL 5280.00      | $               0.00M | Width 1
-  WALL *     | $5.250       | DOL 5250.00      | $             163.04M | Width 1
-  WALL *     | $5.200       | DOL 5200.00      | $             958.46M | Width 1
+  WALL *     | $5.250       | DOL 5250.00      | $             246.02M | Width 1
+  WALL ***   | $5.200       | DOL 5200.00      | $            1276.56M | Width 3
   WALL *     | $5.180       | DOL 5180.00      | $               0.00M | Width 1
-  WALL *     | $5.150       | DOL 5150.00      | $             -89.44M | Width 1
-  WALL *     | $5.100       | DOL 5100.00      | $            -869.38M | Width 1
-  WALL *     | $5.050       | DOL 5050.00      | $            -395.84M | Width 1
-  WALL **    | $5.000       | DOL 5000.00      | $            -975.61M | Width 2
-  WALL *     | $4.980       | DOL 4980.00      | $            -168.52M | Width 1
-  WALL **    | $4.950       | DOL 4950.00      | $           -1127.12M | Width 2
-  WALL *     | $4.920       | DOL 4920.00      | $            -932.10M | Width 1
-  WALL ***   | $4.900       | DOL 4900.00      | $           -1312.57M | Width 3
-  WALL *     | $4.880       | DOL 4880.00      | $            -315.89M | Width 1
-  WALL *     | $4.850       | DOL 4850.00      | $            -416.10M | Width 1
-  WALL *     | $4.800       | DOL 4800.00      | $            -115.28M | Width 1
+  WALL *     | $5.150       | DOL 5150.00      | $            -105.02M | Width 1
+  WALL **    | $5.100       | DOL 5100.00      | $            -898.90M | Width 2
+  WALL *     | $5.050       | DOL 5050.00      | $            -359.94M | Width 1
+  WALL *     | $5.000       | DOL 5000.00      | $            -779.18M | Width 1
+  WALL *     | $4.980       | DOL 4980.00      | $            -126.07M | Width 1
+  WALL *     | $4.950       | DOL 4950.00      | $            -789.62M | Width 1
+  WALL *     | $4.920       | DOL 4920.00      | $            -611.27M | Width 1
+  WALL **    | $4.900       | DOL 4900.00      | $            -805.52M | Width 2
+  WALL *     | $4.880       | DOL 4880.00      | $            -181.35M | Width 1
+  WALL *     | $4.850       | DOL 4850.00      | $            -223.39M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na B3.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
