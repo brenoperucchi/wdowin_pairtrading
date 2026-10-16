@@ -1,15 +1,15 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - NIKKEI 225 / JP225
-  Vencimento de Referencia: 2026-10-16 | Data Ref: 15/10/2026
+  Vencimento de Referencia: 2026-10-16 | Data Ref: 16/10/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Nikkei 225 Spot/CFD Atual: 65433.2  (EWJ Spot: $95.43)
-    Gamma Flip Point:         65433.2
-    Regime de Gamma:          POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:              ALTA / LATERALIZACAO
+    Nikkei 225 Spot/CFD Atual: 65497.2  (EWJ Spot: $95.43)
+    Gamma Flip Point:         65514.2
+    Regime de Gamma:          NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:              QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : JP225 64940.0
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : JP225 65433.2
-    [+] MAX GAMMA (Teto de Exaustao)      : JP225 71976.5
+    [-] MIN GAMMA (Piso de Queda Livre)   : JP225 64806.0
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : JP225 65514.2
+    [+] MAX GAMMA (Teto de Exaustao)      : JP225 65925.1
