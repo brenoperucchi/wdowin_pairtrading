@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - BITCOIN / BTC-USD
-  Vencimento de Referencia: 2026-10-23 | Data Ref: 22/10/2026
+  Vencimento de Referencia: 2026-10-24 | Data Ref: 23/10/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Bitcoin Spot Atual: $81303.50
-    Gamma Flip Point:   $82113.21
+    Bitcoin Spot Atual: $81601.50
+    Gamma Flip Point:   $82840.33
     Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $78892.99
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $82113.21
-    [+] MAX GAMMA (Teto Gravitacional)    : BTC $86900.78
+    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $79510.21
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $82840.33
+    [+] MAX GAMMA (Teto Gravitacional)    : BTC $86563.20
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE BTC   | EQUIVALENTE USD  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $88000.00    | BTC $88000.00     | $               0.24M | Width 1
-  WALL *     | $87000.00    | BTC $87000.00     | $               0.63M | Width 1
-  WALL *     | $86000.00    | BTC $86000.00     | $               1.31M | Width 1
-  WALL *     | $85000.00    | BTC $85000.00     | $               1.11M | Width 1
-  WALL **    | $84000.00    | BTC $84000.00     | $               4.66M | Width 2
-  WALL *     | $83000.00    | BTC $83000.00     | $               1.55M | Width 1
-  WALL *     | $82000.00    | BTC $82000.00     | $               0.74M | Width 1
-  WALL *     | $81000.00    | BTC $81000.00     | $              -4.17M | Width 1
-  WALL ***   | $80000.00    | BTC $80000.00     | $             -10.57M | Width 3
-  WALL *     | $79000.00    | BTC $79000.00     | $              -3.40M | Width 1
-  WALL **    | $78000.00    | BTC $78000.00     | $              -8.54M | Width 2
-  WALL *     | $76000.00    | BTC $76000.00     | $              -1.34M | Width 1
-  WALL *     | $75000.00    | BTC $75000.00     | $              -0.63M | Width 1
-  WALL *     | $74000.00    | BTC $74000.00     | $              -0.41M | Width 1
-  WALL *     | $73000.00    | BTC $73000.00     | $              -0.09M | Width 1
-  WALL *     | $70000.00    | BTC $70000.00     | $              -0.01M | Width 1
+  WALL *     | $89000.00    | BTC $89000.00     | $               0.00M | Width 1
+  WALL *     | $88000.00    | BTC $88000.00     | $               0.01M | Width 1
+  WALL *     | $87000.00    | BTC $87000.00     | $               0.07M | Width 1
+  WALL *     | $86000.00    | BTC $86000.00     | $               0.20M | Width 1
+  WALL *     | $85000.00    | BTC $85000.00     | $               0.42M | Width 1
+  WALL **    | $84000.00    | BTC $84000.00     | $              -0.81M | Width 2
+  WALL *     | $83000.00    | BTC $83000.00     | $               0.10M | Width 1
+  WALL *     | $82000.00    | BTC $82000.00     | $              -0.58M | Width 1
+  WALL *     | $81000.00    | BTC $81000.00     | $               0.08M | Width 1
+  WALL ***   | $80000.00    | BTC $80000.00     | $              -1.58M | Width 3
+  WALL **    | $79000.00    | BTC $79000.00     | $              -0.80M | Width 2
+  WALL *     | $78000.00    | BTC $78000.00     | $              -0.64M | Width 1
+  WALL *     | $77000.00    | BTC $77000.00     | $              -0.12M | Width 1
+  WALL *     | $76000.00    | BTC $76000.00     | $              -0.03M | Width 1
+  WALL *     | $75000.00    | BTC $75000.00     | $              -0.00M | Width 1
+  WALL *     | $74000.00    | BTC $74000.00     | $              -0.03M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na Deribit.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
