@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "WDO×WIN Pair Trading System Architecture",
+    "subtitle": "FastAPI & React Trading Engine with Kalman Filter and HMM Regime Classifier",
+    "output": "wdo-win-pair-trading.html"
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Browser / UI",
+      "sublabel": "Trader Interface",
+      "pos": [40, 300],
+      "size": [120, 60]
+    },
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "React Frontend",
+      "sublabel": "Vite - Port 5174",
+      "pos": [200, 300],
+      "size": [130, 60]
+    },
+    {
+      "id": "backend",
+      "type": "backend",
+      "label": "FastAPI Backend",
+      "sublabel": "Uvicorn - Port 8080",
+      "pos": [370, 300],
+      "size": [130, 60],
+      "tag": "server.py"
+    },
+    {
+      "id": "signals",
+      "type": "backend",
+      "label": "Signal Engine",
+      "sublabel": "OLS / Kalman Filter",
+      "pos": [560, 150],
+      "size": [130, 60],
+      "tag": "core/signals.py"
+    },
+    {
+      "id": "hmm",
+      "type": "backend",
+      "label": "HMM Classifier",
+      "sublabel": "M30 Regime Supervisor",
+      "pos": [560, 300],
+      "size": [130, 60],
+      "tag": "core/hmm_background.py"
+    },
+    {
+      "id": "trade_engine",
+      "type": "backend",
+      "label": "Trade Engine",
+      "sublabel": "Execution Logic",
+      "pos": [560, 450],
+      "size": [130, 60],
+      "tag": "core/trade_engine.py"
+    },
+    {
+      "id": "beta_json",
+      "type": "database",
+      "label": "State Caching",
+      "sublabel": "beta_ultimo.json",
+      "pos": [750, 150],
+      "size": [130, 60]
+    },
+    {
+      "id": "mt5",
+      "type": "external",
+      "label": "MT5 Terminal",
+      "sublabel": "WIN$N & WDO$N",
+      "pos": [750, 300],
+      "size": [130, 60],
+      "tag": "Broker Link"
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite DB",
+      "sublabel": "trades.db",
+      "pos": [750, 450],
+      "size": [130, 60]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "FastAPI App Server / core/",
+      "wraps": ["backend", "signals", "hmm", "trade_engine"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Local Data & Broker Execution",
+      "wraps": ["beta_json", "mt5", "db"]
+    }
+  ],
+  "connections": [
+    {
+      "from": "user",
+      "to": "frontend",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "from": "frontend",
+      "to": "backend",
+      "label": "REST / WebSockets",
+      "variant": "emphasis",
+      "labelDy": -24
+    },
+    {
+      "from": "backend",
+      "to": "signals",
+      "label": "Z-score query",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "from": "backend",
+      "to": "hmm",
+      "label": "Regime query",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "backend",
+      "to": "trade_engine",
+      "label": "Execute orders",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "from": "signals",
+      "to": "beta_json",
+      "label": "Update state",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "signals",
+      "to": "mt5",
+      "label": "Fetch bars",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "from": "hmm",
+      "to": "mt5",
+      "label": "M30 bars feed",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "trade_engine",
+      "to": "db",
+      "label": "Log history",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "trade_engine",
+      "to": "mt5",
+      "label": "Send tickets",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ingress & UI",
+      "items": [
+        "Trader accesses setup parameters and status on React Dashboard (Port 5174)",
+        "REST API & WebSockets expose signal states, performance metrics, and system control"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Backend Core Engine",
+      "items": [
+        "Signals: OLS / V2 Kalman filtering for mini index & mini dollar",
+        "HMM: M30 regime classifier checks if regime is BULL to filter entries",
+        "Trade Engine: Coordinates dual z-score routing, orders, SL/TP/BE"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Data & Execution",
+      "items": [
+        "MetaTrader 5: Broker execution connection for WIN$N & WDO$N symbols",
+        "SQLite: Persists trade metrics & execution history in trades.db",
+        "beta_ultimo.json: Caches Kalman filter states between system runs"
+      ]
+    }
+  ]
+}

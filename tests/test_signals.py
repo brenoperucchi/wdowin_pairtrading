@@ -64,6 +64,11 @@ def test_get_signal_attention_zone():
     assert sig["id"] == "atencao"
 
 
-def test_get_signal_hmm_bull_blocks():
-    sig = get_signal(2.0, hmm_state="BULL")
-    assert sig["id"] == "bloqueioHMM"
+def test_get_signal_entry_buy():
+    sig = get_signal(1.5)
+    assert sig["id"] == "compraWdo"
+
+
+def test_get_signal_entry_sell():
+    sig = get_signal(-1.5)
+    assert sig["id"] == "compraWin"

@@ -2,36 +2,48 @@ import numpy as np
 import pandas as pd
 from .black76 import black76_gamma
 
-def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry_days=27, r=0.1425):
+def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry_days=27, r=0.1425, use_anchored_factor=True):
     """
     Calcula o perfil GEX completo e gera as Jumba Walls.
     
-    Algoritmo (engenharia reversa do Jumba Trader):
-    
-    1. GRID: 8 Walls em cada strike IBOV (a cada 1000 pts), convertidos para WIN
-       pelo fator teorico derivado da taxa de juros (r).
-    2. MidWalls: Ponto medio entre cada par de Walls consecutivas (500 pts IBOV).
-    3. Width: Proporcional ao |GEX_net| de cada strike.
-       - Width 3 = strike com maior GEX (Wall principal)
-       - Width 2 = segundo maior GEX (Wall secundaria)
-       - Width 1 = demais
-    4. Tres niveis especiais derivados da Market Gamma Curve:
-       - MaxGamma: preco hipotetico onde gamma positivo e maximo
-       - MinGamma: preco hipotetico onde gamma negativo e maximo (mais negativo)
-       - GammaFlip: preco onde GEX_net cruza zero
+    Se use_anchored_factor=True: usa o fator de custodia ancorado no inicio do ciclo do vencimento (27 dias uteis),
+    preservando a liquidez real dos Market Makers (ex: 176.710 e 177.758).
+    Se use_anchored_factor=False: usa o fator dinamico diario.
     """
     
-    # Filtrar apenas o Vencimento Mais Proximo (Front-Month)
+    # Filtrar apenas o Vencimento Mais Proximo (Front-Month) com liquidez minima
+    MIN_CONTRACTS = 5
+    MIN_STRIKES = 3
     options_df = options_df.copy()
-    front_month = options_df['expiry'].min()
+    all_expiries = sorted(options_df['expiry'].unique())
+    
+    front_month = None
+    for exp in all_expiries:
+        exp_df = options_df[options_df['expiry'] == exp]
+        n_contracts = len(exp_df)
+        n_strikes = exp_df['strike'].nunique()
+        if n_contracts >= MIN_CONTRACTS and n_strikes >= MIN_STRIKES:
+            front_month = exp
+            break
+        else:
+            print(f"  [Skip] Vencimento {exp} ignorado: {n_contracts} contratos, {n_strikes} strikes (min: {MIN_CONTRACTS}/{MIN_STRIKES})")
+    
+    if front_month is None:
+        # Fallback: usar o vencimento com mais contratos
+        front_month = options_df.groupby('expiry').size().idxmax()
+        print(f"  [Fallback] Nenhum vencimento atingiu o minimo. Usando {front_month} (maior OI).")
+    
     options_df = options_df[options_df['expiry'] == front_month].copy()
-    print(f"  Front-Month Selecionado: {front_month} ({len(options_df)} contratos)")
+    print(f"  Front-Month Selecionado: {front_month} ({len(options_df)} contratos, {options_df['strike'].nunique()} strikes)")
     
     # --- 1. Fator de conversao IBOV -> WIN Teorico ---
+    cycle_days = 27 if use_anchored_factor else expiry_days
     T = max(1/252, expiry_days / 252)
-    factor = (1 + r) ** T
+    T_factor = max(1/252, cycle_days / 252)
     
-    print(f"  Taxa de Juros (r): {r*100:.2f}%")
+    factor = (1 + r) ** T_factor
+    
+    print(f"  Taxa de Juros (r): {r*100:.2f}% | Modo: {'ANCORADO (Custodia Ciclo)' if use_anchored_factor else 'DINAMICO (Diario)'}")
     print(f"  Fator Teorico IBOV->WIN: {factor:.6f} (MT5 era {current_win/current_ibov:.6f})")
     print(f"  T (anos): {T:.4f}, IV: {iv}")
     
@@ -197,7 +209,8 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
         "color": "#ffff00",  # clYellow
         "width": 2,
         "style": 0,
-        "gex": 0
+        "gex": 0,
+        "factor": factor
     })
     
     print(f"  MaxGamma:  {max_gamma_price:.1f}")

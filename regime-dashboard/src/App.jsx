@@ -12,6 +12,7 @@ import BrokerFlowPanel from "./components/BrokerFlowPanel";
 import FlowDeltaChart from "./components/FlowDeltaChart";
 import FlowScoreChart from "./components/FlowScoreChart";
 import FlowAccelerationChart from "./components/FlowAccelerationChart";
+import IntradayCompassPanel from "./components/IntradayCompassPanel";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -25,6 +26,7 @@ const API_DI_URL = "http://localhost:8080/api/di-regime";
 const API_HISTORY_URL = "http://localhost:8080/api/history";
 const API_FLOW_URL = "http://localhost:8080/api/flow";
 const API_FLOW_REALTIME_URL = "http://localhost:8080/api/flow/realtime";
+const API_COMPASS_URL = "http://localhost:8080/api/compass/etapa1";
 const POLL_MS = 2500;
 
 function alignTimestampTo2025(epochSeconds) {
@@ -131,6 +133,8 @@ export default function App() {
     const flowScoreChartRef = useRef(null);
     const flowAccelerationChartRef = useRef(null);
     const [showSetup, setShowSetup] = useState(false);
+    const [workspaceTab, setWorkspaceTab] = useState("COCKPIT"); // "COCKPIT" | "RAIO_X" | "STAT_ARB"
+    const [compassData, setCompassData] = useState(null);
     const [gexWalls, setGexWalls] = useState([]);
     const [weights, setWeights] = useState({
         "XP": -1,
@@ -316,6 +320,23 @@ export default function App() {
         }
         pollFlow();
         const t = setInterval(pollFlow, 250); // atualiza a cada 250ms (4x por segundo)
+        return () => { active = false; clearInterval(t); };
+    }, [isViewingHistory]);
+
+    useEffect(() => {
+        if (import.meta.env.PROD || isViewingHistory) return;
+        let active = true;
+        async function pollCompass() {
+            try {
+                const res = await fetch(API_COMPASS_URL);
+                if (res.ok) {
+                    const json = await res.json();
+                    if (active && json && json.ok) setCompassData(json);
+                }
+            } catch (e) {}
+        }
+        pollCompass();
+        const t = setInterval(pollCompass, 1800);
         return () => { active = false; clearInterval(t); };
     }, [isViewingHistory]);
 
@@ -891,7 +912,7 @@ export default function App() {
             if (fsChart && fsCrosshairHandler) fsChart.unsubscribeCrosshairMove(fsCrosshairHandler);
             if (faChart && faCrosshairHandler) faChart.unsubscribeCrosshairMove(faCrosshairHandler);
         };
-    }, [paddedSignals, flowData, flowScore5mData, iafChartData, weights, classifications, meta, flowMode]); // Re-bind when data, weights, or classifications update
+    }, [paddedSignals, flowData, flowScore5mData, iafChartData, weights, classifications, meta, flowMode, workspaceTab]); // Re-bind when data, weights, or classifications update
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -1133,10 +1154,69 @@ export default function App() {
                 </div>
             )}
 
+            {/* ——— Barra Principal de Seleção de Tela (3 Modos Limpos) ———————————————————— */}
+            <div style={{
+                background: "#090f16",
+                borderBottom: "1px solid #18293a",
+                padding: "8px 20px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 10,
+            }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {[
+                        { id: "COCKPIT", label: "🧭 1. COCKPIT OPERACIONAL (SINAIS NO TEMPO & PAREDES)", accent: "#00e87a" },
+                        { id: "RAIO_X", label: "🔬 2. RAIO-X DE DADOS (CORRETORAS PROFIT & GRADE OPÇÕES)", accent: "#00d4ff" },
+                        { id: "STAT_ARB", label: "📐 3. STAT-ARB & Z-SCORE (GRÁFICOS WIN × WDO × DI)", accent: "#c8a444" },
+                    ].map(tab => {
+                        const active = !isViewingHistory && workspaceTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => {
+                                    if (isViewingHistory) setSelectedDate("");
+                                    setWorkspaceTab(tab.id);
+                                }}
+                                style={{
+                                    padding: "7px 14px",
+                                    fontSize: 10.5,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    letterSpacing: 0.6,
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    border: active ? `1.5px solid ${tab.accent}` : "1px solid #1c2d3e",
+                                    background: active ? `${tab.accent}22` : "#0d151e",
+                                    color: active ? tab.accent : "#8ca5b5",
+                                    transition: "all 0.2s ease",
+                                }}
+                            >
+                                {tab.label}
+                            </button>
+                        );
+                    })}
+                </div>
+                {compassData?.updated_at && (
+                    <span style={{ fontSize: 10, color: "#7f96a8" }}>
+                        Fluxo Profit/MT5 atualizado às <strong style={{ color: "#00e87a" }}>{compassData.updated_at}</strong>
+                    </span>
+                )}
+            </div>
+
             {/* ——— Main content ———————————————————————————————————————————————————————————— */}
             <div style={{ flex: 1, padding: "14px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
 
                 {showSetup && <SetupMatadorPanel tradeEngine={data?.trade_engine} />}
+
+                {!isViewingHistory && (workspaceTab === "COCKPIT" || workspaceTab === "RAIO_X") && (
+                    <IntradayCompassPanel
+                        compassData={compassData}
+                        mode={workspaceTab}
+                        onChangeMode={setWorkspaceTab}
+                    />
+                )}
 
                 {/* History mode banner */}
                 {isViewingHistory && (
@@ -1156,10 +1236,12 @@ export default function App() {
                     </div>
                 )}
 
+                {(isViewingHistory || workspaceTab === "STAT_ARB") && (
+                <>
                 {/* Compact Regime Health Strip — above charts */}
                 {(() => {
-                    const zWdo = isViewingHistory ? lastBar.z_raw_wdo : currentZ;
-                    const zDi = lastBar.z_raw_di;
+                    const zWdo = isViewingHistory ? lastBar.z : currentZ;
+                    const zDi = isViewingHistory ? (lastBar.z_di ?? lastBar.z_unfiltered_di ?? 0) : (diData?.current_z ?? 0);
                     const betaH = data?.regime_health?.beta;
                     const diBetaH = diData?.regime_health?.beta;
                     const diRhoH = diData?.regime_health?.rho;
@@ -1282,6 +1364,8 @@ export default function App() {
 
                 {/* Trading Guide */}
                 <TradingGuide />
+                </>
+                )}
             </div>
 
             {/* ── Footer ──────────────────────────────────────────────────────────── */}

@@ -18,3 +18,13 @@ beta_ultimo.json
 .gemini/
 serviceAccountKey.json
 .firebase/
+
+# Live Tape Reading CSVs & Temporary Scratch/Logs
+RTD/*.csv
+logs/
+gex/logs/
+scratch/
+gex/scratch/
+*.log
+=
+regime-dashboard/check_console.cjs

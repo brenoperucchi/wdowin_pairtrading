@@ -190,7 +190,7 @@ def run_dol_gex_pipeline():
         expiry_days = max(1, expiry_days)
         T = max(1/252, expiry_days / 252)
         
-        r = 0.1425  # Selic ~14.25%
+        r = 0.1400  # Selic ~14.00%
         iv = 0.12  # IV padrão histórica estável para USD/BRL
         
         print(f"\n[2/5] Parâmetros de Cálculo Black-76:")
@@ -434,7 +434,7 @@ def run_dol_gex_pipeline():
     # Salvar cache e atualizar TradingView
     tv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")
     try:
-        save_walls_to_cache(walls, ticker="usd_brl", ref_date=today)
+        save_walls_to_cache(walls, ticker="usd_brl", ref_date=today, current_price=current_wdo)
         export_unified_tradingview(output_path=tv_path)
     except Exception as e:
         print(f"      Aviso: Nao foi possivel salvar para o TradingView ({e})")
@@ -447,6 +447,13 @@ def run_dol_gex_pipeline():
     except Exception as e:
         print(f"      Aviso: Falha no deploy Nelogica ({e})")
         
+    # Exportar para o MetaTrader 5 (Common\Files e mt5\Files)
+    try:
+        from .mt5_exporter import export_wdo_to_mt5_common
+        export_wdo_to_mt5_common(walls, ref_date=today, session_date=today, current_wdo=current_wdo)
+    except Exception as e:
+        print(f"      Aviso: Falha no export MT5 WDO ({e})")
+
     print("\n" + "=" * 60)
     print("  Pipeline Dólar concluído com sucesso!")
     print("=" * 60)

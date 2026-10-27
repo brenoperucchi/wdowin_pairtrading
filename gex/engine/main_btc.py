@@ -11,6 +11,7 @@ from scipy.stats import norm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+from gex.engine.mt5_prices import get_global_mt5_price
 
 def black_scholes_gamma(S, K, T, sigma, r=0.05):
     """
@@ -128,6 +129,14 @@ def run_btc_gex_pipeline():
     if df_options is None or df_options.empty:
         print("ERRO: Dados Deribit inválidos.")
         sys.exit(1)
+        
+    price_btc_mt5, bar_time = get_global_mt5_price("BTCUSD")
+    if price_btc_mt5 and price_btc_mt5 > 0:
+        time_str = bar_time.strftime('%H:%M:%S UTC') if bar_time else 'Agora'
+        print(f"      [Sincronização MT5] BTCUSD MT5: ${price_btc_mt5:.2f} @ {time_str} (Deribit: ${current_btc:.2f})")
+        current_btc = price_btc_mt5
+    else:
+        print(f"      [Deribit Spot] Deribit Spot BTC: ${current_btc:.2f}")
         
     # 2. Parâmetros temporais (Opções Cripto rodam 24/7/365 de forma contínua)
     expiry_date = datetime.datetime.strptime(expiry_str, "%Y-%m-%d").date()

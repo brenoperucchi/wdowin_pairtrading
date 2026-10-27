@@ -10,6 +10,7 @@ from scipy.stats import norm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+from gex.engine.mt5_prices import get_global_mt5_price, get_synchronized_etf_ratio
 
 def garman_kohlhagen_gamma(S, K, T, sigma, rd, rf):
     """
@@ -87,11 +88,23 @@ def get_fxy_spot_and_chain():
     calls = opt_chain.calls
     puts = opt_chain.puts
     
+    total_oi_calls = calls['openInterest'].fillna(0).astype(int).gt(0).sum()
+    total_oi_puts = puts['openInterest'].fillna(0).astype(int).gt(0).sum()
+    total_active_oi = total_oi_calls + total_oi_puts
+    
+    use_volume_fallback = total_active_oi < 15
+    if use_volume_fallback:
+        print(f"      [Aviso] Pouco Open Interest detectado ({total_active_oi} contratos). Ativando fallback para Volume!")
+        
     options = []
     
     # Processar Calls
     for _, row in calls.iterrows():
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.08
         if oi > 0:
             options.append({
@@ -106,6 +119,10 @@ def get_fxy_spot_and_chain():
     # Processar Puts
     for _, row in puts.iterrows():
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.08
         if oi > 0:
             options.append({
@@ -143,6 +160,12 @@ def run_jpy_gex_pipeline():
         print("ERRO: Não foi possível obter os dados de opções.")
         sys.exit(1)
         
+    fallback_ratio = conv_factor
+    conv_ratio, price_jpy_mt5, ratio_msg = get_synchronized_etf_ratio(current_fxy, "USDJPY", fallback_ratio)
+    if price_jpy_mt5 and price_jpy_mt5 > 0:
+        current_usdjpy = price_jpy_mt5
+        conv_factor = conv_ratio
+        
     # 2. Calcular tempo de vencimento T e parâmetros
     expiry_date = datetime.datetime.strptime(expiry_str, "%Y-%m-%d").date()
     today = datetime.date.today()
@@ -159,10 +182,11 @@ def run_jpy_gex_pipeline():
     print(f"\n[2/5] Parâmetros de Garman-Kohlhagen (base 252 dias):")
     print(f"      Vencimento: {expiry_str} | Dias úteis: {expiry_days}")
     print(f"      rd (USD) = {rd*100:.2f}% | rf (JPY) = {rf*100:.2f}% | T = {T:.4f}")
+    print(f"      Sincronização MT5: {ratio_msg}")
     
-    # 3. Agrupar strikes por 0.20 pontos de FXY (equivalente a ~0.56 pontos de USDJPY)
+    # 3. Agrupar strikes por 0.05 pontos de FXY (equivalente a ~0.14 pontos de USDJPY)
     print(f"\n[3/5] Calculando GEX e gerando Jumba Walls...")
-    df_options['strike_round'] = (df_options['strike'] / 0.20).round() * 0.20
+    df_options['strike_round'] = (df_options['strike'] / 0.05).round() * 0.05
     
     gex_per_strike = {}
     multiplier = 100
@@ -240,7 +264,7 @@ def run_jpy_gex_pipeline():
             "gex": info['gex_net']
         })
         
-    # Adicionar MidWalls entre as Walls consecutivas
+    # Adicionar MidWalls (ponto médio entre Walls consecutivas)
     walls_basic_sorted = sorted(walls_basic, key=lambda x: x['price'])
     walls = []
     
@@ -249,17 +273,10 @@ def run_jpy_gex_pipeline():
         if i < len(walls_basic_sorted) - 1:
             w1 = walls_basic_sorted[i]['price']
             w2 = walls_basic_sorted[i+1]['price']
-            diff = w2 - w1
-            
-            target_spacing = 0.10  # 10 pips (0.10 Yen)
-            num_steps = int(round(diff / target_spacing))
-            num_steps = max(2, num_steps)
-            
-            step = diff / num_steps
-            for j in range(1, num_steps):
-                mid_price = w1 + j * step
+            if (w2 - w1) <= 3.50:
+                mid_price = round((w1 + w2) / 2, 3)
                 walls.append({
-                    "price": round(mid_price, 3),
+                    "price": mid_price,
                     "type": "MidWall",
                     "width": 1,
                     "style": 0,

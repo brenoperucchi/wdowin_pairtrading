@@ -1,0 +1,177 @@
+{
+  =============================================================================
+  INDICADOR: Nuvem de Aceleracao do Fluxo (Flow Price Acceleration Cloud Overlay)
+  PLATAFORMA: Nelogica Profit (NTS - ProfitScript)
+  DESCRICAO: Avalia a Media Movel da Aceleracao do Fluxo de Ordens, calculada como
+             a Agressividade Relativa (Saldo de Agressao / Volume) multiplicada 
+             pelo impacto real no preco (Variacao Absoluta do Fechamento).
+             Plota uma nuvem direcional diretamente sobre os candles de preco.
+             
+  COMO INSERIR NO GRÁFICO PRINCIPAL DE PREÇOS:
+  1. No gráfico de preços (candles), clique com o botão direito e selecione "Inserir Indicador".
+  2. Procure pelo nome desta estratégia compilada e insira "No Gráfico" (e NÃO em uma nova janela).
+  
+  COMO CONFIGURAR A DISTÂNCIA / SENSIBILIDADE:
+  1. Vá nas propriedades do indicador.
+  2. Ajuste o parâmetro "FatorDesvio" (valor padrão: 2.0). 
+     Como o indicador calcula a aceleração diretamente em pontos (self-scaling), 
+     o FatorDesvio serve apenas como um multiplicador visual para alargar ou estreitar
+     a nuvem ao redor do preço médio de fechamento.
+  3. Se a nuvem estiver muito larga, diminua o FatorDesvio para 1.0 ou 0.5.
+     Se estiver muito fina ou queira dar mais destaque, aumente para 3.0 ou 5.0.
+     
+  COMO ATIVAR A NUVEM (PREENCHIMENTO DE COR):
+  1. Clique com o botão direito em cima de uma das linhas do indicador.
+  2. Vá em "Propriedades".
+  3. Acesse a aba "Preenchimento".
+  4. Marque a opção de preenchimento entre a Linha 1 (Média Curta) e a Linha 2 (Média Longa).
+  5. Defina a cor Verde para quando a Curta estiver acima (Aceleração Altista),
+     e Vermelha para quando estiver abaixo (Aceleração Baixista).
+  =============================================================================
+}
+
+
+Input
+  PeriodoCurto(40);
+  PeriodoLongo(100);
+  FatorDesvio(1.0);   // Multiplicador visual da amplitude do oscilador
+  FiltroNeutro(0.30); // Sensibilidade neutra (0.30 = fluxo menor que 30% da média recente)
+
+Var
+  MediaCurta : Float;
+  MediaLonga : Float;
+  LinhaCurta : Float;
+  LinhaLonga : Float;
+  MediaAbsAcel : Float; // Média da aceleração absoluta recente
+  EmaCurta : Float;     // EMA simples da curta
+  EmaEmaCurta : Float;  // EMA da EMA curta (para DEMA)
+  EmaLonga : Float;     // EMA simples da longa
+  EmaEmaLonga : Float;  // EMA da EMA longa (para DEMA)
+  FluxoBase : Float;    // Sinal base de fluxo
+  DataHoje : Integer;
+  Ano : Integer;
+  Mes : Integer;
+  Dia : Integer;
+  DataLimite : Integer;
+  i : Integer;
+  DiasSubtrair : Integer;
+  DiaSemanaHoje : Integer;
+  valZeller : Integer;
+  K_Zeller : Integer;
+  J_Zeller : Integer;
+  Mes_Zeller : Integer;
+  Ano_Zeller : Integer;
+
+Begin
+  // 1. Calcula o sinal base de fluxo
+  FluxoBase := (AgressionVolBalance * 1.0) / (Volume + 0.00001);
+
+  // 2. Calcula DEMA (Double Exponential Moving Average) para ponderação forte nos valores recentes
+  //    DEMA = 2 * EMA(n) - EMA(EMA(n)) -> reduz o lag e dá muito mais peso ao presente
+  EmaCurta := MediaExp(PeriodoCurto, FluxoBase);
+  EmaEmaCurta := MediaExp(PeriodoCurto, EmaCurta);
+  MediaCurta := (2.0 * EmaCurta) - EmaEmaCurta;
+
+  EmaLonga := MediaExp(PeriodoLongo, FluxoBase);
+  EmaEmaLonga := MediaExp(PeriodoLongo, EmaLonga);
+  MediaLonga := (2.0 * EmaLonga) - EmaEmaLonga;
+
+  // 3. Calcula a média do desvio absoluto recente (suavizado em 50 períodos) para auto-escala
+  MediaAbsAcel := MediaExp(50, Abs(MediaCurta));
+
+  // 4. Define as linhas do oscilador (Multiplicado por 100.000 para normalizar a escala visual no eixo Y)
+  LinhaCurta := MediaCurta * FatorDesvio * 100000.0;
+  LinhaLonga := MediaLonga * FatorDesvio * 100000.0;
+
+  // 4. Calcula a data limite (ontem / pregão anterior) baseada na data atual do sistema
+  DataHoje := CurrentDate;
+  Ano := IntPortion((DataHoje - 1000000) / 10000);
+  Mes := IntPortion((Mod(DataHoje - 1000000, 10000)) / 100);
+  Dia := Mod(DataHoje, 100);
+
+  // Calcula o dia da semana via Congruência de Zeller para saber se hoje é segunda-feira
+  Mes_Zeller := Mes;
+  Ano_Zeller := Ano;
+  If (Mes_Zeller <= 2) Then
+    Begin
+      Mes_Zeller := Mes_Zeller + 12;
+      Ano_Zeller := Ano_Zeller - 1;
+    End;
+  J_Zeller := 20;
+  K_Zeller := Ano_Zeller;
+  valZeller := Dia + IntPortion(13 * (Mes_Zeller + 1) / 5) + K_Zeller + IntPortion(K_Zeller / 4) + IntPortion(J_Zeller / 4) - (2 * J_Zeller);
+  DiaSemanaHoje := Mod(valZeller + 700, 7); // 0=Sáb, 1=Dom, 2=Seg, 3=Ter, 4=Qua, 5=Qui, 6=Sex
+
+  // Segunda-feira (2) volta 3 dias (para sexta-feira); Domingo (1) volta 2 dias; Sábado (0) volta 1 dia; outros dias voltam 1 dia
+  If (DiaSemanaHoje = 2) Then
+    DiasSubtrair := 3
+  Else If (DiaSemanaHoje = 1) Then
+    DiasSubtrair := 2
+  Else If (DiaSemanaHoje = 0) Then
+    DiasSubtrair := 1
+  Else
+    DiasSubtrair := 1;
+
+  // Realiza a subtração de dias respeitando o calendário
+  For i := 1 To DiasSubtrair Do
+    Begin
+      Dia := Dia - 1;
+      If (Dia = 0) Then
+        Begin
+          Mes := Mes - 1;
+          If (Mes = 0) Then
+            Begin
+              Mes := 12;
+              Ano := Ano - 1;
+            End;
+          
+          If (Mes = 1) or (Mes = 3) or (Mes = 5) or (Mes = 7) or (Mes = 8) or (Mes = 10) or (Mes = 12) Then
+            Dia := 31
+          Else If (Mes = 4) or (Mes = 6) or (Mes = 9) or (Mes = 11) Then
+            Dia := 30
+          Else If (Mes = 2) Then
+            Begin
+              If (Mod(Ano, 4) = 0) Then
+                Dia := 29
+              Else
+                Dia := 28;
+            End;
+        End;
+    End;
+
+  DataLimite := 1000000 + (Ano * 10000) + (Mes * 100) + Dia;
+
+  // 5. Plota e colore apenas a partir do dia anterior (DataLimite)
+  If (Date >= DataLimite) Then
+    Begin
+      // Define as cores ANTES de plotar (obrigatório no ProfitScript)
+      SetPlotColor(3, RGB(128, 128, 128)); // Eixo Zero: Cinza neutro
+      SetPlotStyle(3, 2);                  // Eixo Zero: Estilo Tracejado
+
+      If (LinhaCurta > LinhaLonga) Then
+        Begin
+          // Cruzamento Altista: Curta acima da Longa = Verde
+          SetPlotColor(1, RGB(0, 232, 122));
+          SetPlotColor(2, RGB(0, 232, 122));
+          PaintBar(RGB(0, 232, 122));
+        End
+      Else
+        Begin
+          // Cruzamento Baixista: Curta abaixo da Longa = Vermelho
+          SetPlotColor(1, RGB(255, 56, 96));
+          SetPlotColor(2, RGB(255, 56, 96));
+          PaintBar(RGB(255, 56, 96));
+        End;
+
+      // Plota DEPOIS de definir as cores
+      Plot(LinhaCurta);  // Linha 1 (Média Curta)
+      Plot2(LinhaLonga); // Linha 2 (Média Longa)
+      Plot3(0.0);        // Linha 3 (Eixo Zero)
+    End
+  Else
+    Begin
+      NoPlot(1);
+      NoPlot(2);
+      NoPlot(3);
+    End;
+End;

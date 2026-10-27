@@ -14,7 +14,7 @@ import time
 import MetaTrader5 as mt5
 from datetime import datetime, timezone, timedelta
 
-MT5_PATH = "C:/Program Files/MetaTrader 5 Terminal/terminal64.exe"
+MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
 TICKMILL_MT5_PATH = "C:/Program Files/Tickmill MT5 Terminal/terminal64.exe"
 SYMBOL_IBOV = "IBOV"
 
@@ -78,25 +78,19 @@ def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio):
 
 def _get_expected_trading_day():
     """
-    Retorna a data esperada para o processamento do dia de hoje.
-    Se já passou das 17:00, o esperado é hoje (se for dia útil).
-    Caso contrário, é o dia útil anterior.
+    Retorna a data esperada para o processamento do dia de hoje,
+    respeitando feriados nacionais e a API de workday da B3.
     """
+    try:
+        from gex.engine.main import get_expected_trading_day
+        return get_expected_trading_day()
+    except Exception:
+        pass
     now = datetime.now()
-    
-    def is_weekday(d):
-        return d.weekday() < 5
-        
-    if now.hour >= 17:
-        ref = now.date()
-        while not is_weekday(ref):
-            ref -= timedelta(days=1)
-        return ref
-    else:
-        prev = now.date() - timedelta(days=1)
-        while not is_weekday(prev):
-            prev -= timedelta(days=1)
-        return prev
+    prev = now.date() - timedelta(days=1)
+    while prev.weekday() >= 5:
+        prev -= timedelta(days=1)
+    return prev
 
 
 def _detect_active_win():

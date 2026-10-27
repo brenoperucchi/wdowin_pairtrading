@@ -792,7 +792,10 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
             win_val = float(win_prices[win_idx]) if 0 <= win_idx < win_len else 0.0
             entry["win_price"] = win_val
             
-        z_di_val = di_map.get(local_ts, 0.0) if di_map else 0.0
+        dt_key = entry["date"] + " " + entry["bar_time"]
+        z_di_val = 0.0
+        if di_map:
+            z_di_val = di_map.get(dt_key) or di_map.get(local_ts) or 0.0
         entry["z_di"] = z_di_val
         
         z_wdo = round(float(z_arr[i]), 3)
@@ -1206,6 +1209,7 @@ def regime_v2():
     if _di_cache and "history" in _di_cache:
         for dh in _di_cache["history"]:
             dt_str = dh.get("date", "") + " " + dh.get("bar_time", "")
+            di_map[dt_str] = dh.get("z", 0.0)
             try:
                 local_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
                 di_map[int(local_dt.timestamp())] = dh.get("z", 0.0)
@@ -1571,9 +1575,13 @@ def history_endpoint(days: int = 30):
 
             for i, t in enumerate(di_t):
                 local_ts = int(t) + TIME_OFFSET
-                z_di_map[local_ts] = round(float(z_di_arr[i]), 3) if i < len(z_di_arr) else 0.0
+                dt_key = datetime.fromtimestamp(local_ts).strftime("%Y-%m-%d %H:%M")
+                val = round(float(z_di_arr[i]), 3) if i < len(z_di_arr) else 0.0
+                z_di_map[local_ts] = val
+                z_di_map[dt_key] = val
 
         # --- NWE for history ---
+        # (NWE line, upper, lower, is_up)
         nwe_line, nwe_u, nwe_l, nwe_is_up = calc_nwe_with_bands(
             ac, bandwidth=NWE_BANDWIDTH, lookback=NWE_LOOKBACK, mult_mae=NWE_MULT_MAE
         )
@@ -1594,7 +1602,10 @@ def history_endpoint(days: int = 30):
 
             ols_idx = i + ols_offset
             z_ols_val = round(float(z_ols[ols_idx]), 3) if 0 <= ols_idx < len(z_ols) else 0.0
-            z_di_val = z_di_map.get(local_ts, None)
+            dt_key = dt.strftime("%Y-%m-%d %H:%M")
+            z_di_val = z_di_map.get(dt_key) if z_di_map else None
+            if z_di_val is None and z_di_map:
+                z_di_val = z_di_map.get(local_ts, None)
 
             win_idx = i + (len(tc) - n)
             win_val = float(ac[win_idx]) if 0 <= win_idx < len(ac) else 0.0
@@ -2058,6 +2069,70 @@ def update_flow(
     _last_flow_update[sym] = time.time()
     
     return {"status": "success", "broker": brk, "symbol": sym, "net": net}
+
+# ─── Etapa 1, 2 & 3: Motor de Microestrutura + Caminho A (Dealers GEX) + Caminho B (Opções) ────
+@app.get("/api/compass/etapa1")
+@app.get("/api/compass/all")
+@app.get("/api/flow/microstructure")
+def get_compass_etapa1():
+    """Retorna o snapshot completo unificado das Etapas 1, 2 (Caminho A) e 3 (Caminho B) e sincroniza _broker_flow."""
+    try:
+        from core.profit_mt5_flow_engine import flow_engine_singleton
+        snap = flow_engine_singleton.update()
+        win_b = snap.get("WIN", {}).get("brokers", {})
+        if win_b:
+            any_vol = False
+            for brk, bdata in win_b.items():
+                if bdata.get("vol", 0) > 0 or bdata.get("net", 0) != 0:
+                    any_vol = True
+                if brk not in _broker_flow["WIN"]:
+                    _broker_flow["WIN"][brk] = {"id": str(len(_broker_flow["WIN"])), "net": 0, "avg": 0.0, "vol": 0, "buy": 0, "sell": 0}
+                    if brk not in _broker_list:
+                        _broker_list.append(brk)
+                _broker_flow["WIN"][brk]["net"] = bdata.get("net", 0)
+                _broker_flow["WIN"][brk]["buy"] = bdata.get("aggr_buy", bdata.get("buy", 0))
+                _broker_flow["WIN"][brk]["sell"] = bdata.get("aggr_sell", bdata.get("sell", 0))
+                _broker_flow["WIN"][brk]["vol"] = bdata.get("vol", 0)
+            if any_vol:
+                _last_flow_update["WIN"] = time.time()
+        return snap
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/compass/etapa2")
+@app.get("/api/compass/dealer-gex")
+def get_compass_etapa2():
+    """Retorna a análise da Etapa 2 (Caminho A — Pressão de Hedge Dinâmico dos Dealers GEX cruzada com o Fluxo Profit/MT5)."""
+    try:
+        from core.profit_mt5_flow_engine import flow_engine_singleton
+        snap = flow_engine_singleton.update()
+        return {
+            "ok": snap.get("ok", True),
+            "timestamp": snap.get("timestamp"),
+            "updated_at": snap.get("updated_at"),
+            "WIN": snap.get("WIN", {}).get("caminho_a", {}),
+            "WDO": snap.get("WDO", {}).get("caminho_a", {}),
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/compass/etapa3")
+@app.get("/api/compass/options-radar")
+def get_compass_etapa3():
+    """Retorna a análise da Etapa 3 (Caminho B — Radar Ao Vivo da Cadeia de Opções BOVA11/IBOV, Fluxo Call vs Put e Skew IV)."""
+    try:
+        from core.options_live_radar_engine import options_radar_singleton
+        return options_radar_singleton.update()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}
 
 # ─── Startup ─────────────────────────────────────────────────────────────────
 # NOTE: HMM background thread DISABLED — no longer used in this project.

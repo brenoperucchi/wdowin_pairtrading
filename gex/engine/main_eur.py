@@ -10,6 +10,7 @@ from scipy.stats import norm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+from gex.engine.mt5_prices import get_synchronized_etf_ratio
 
 def garman_kohlhagen_gamma(S, K, T, sigma, rd, rf):
     """
@@ -77,11 +78,23 @@ def get_fxe_spot_and_chain():
     calls = opt_chain.calls
     puts = opt_chain.puts
     
+    total_oi_calls = calls['openInterest'].fillna(0).astype(int).gt(0).sum()
+    total_oi_puts = puts['openInterest'].fillna(0).astype(int).gt(0).sum()
+    total_active_oi = total_oi_calls + total_oi_puts
+    
+    use_volume_fallback = total_active_oi < 15
+    if use_volume_fallback:
+        print(f"      [Aviso] Pouco Open Interest detectado ({total_active_oi} contratos). Ativando fallback para Volume!")
+        
     options = []
     
     # Processar Calls
     for _, row in calls.iterrows():
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.08
         if oi > 0:
             options.append({
@@ -96,6 +109,10 @@ def get_fxe_spot_and_chain():
     # Processar Puts
     for _, row in puts.iterrows():
         oi = int(row['openInterest']) if not pd.isna(row['openInterest']) else 0
+        volume = int(row['volume']) if not pd.isna(row['volume']) else 0
+        if use_volume_fallback and oi == 0:
+            oi = volume
+            
         iv = float(row['impliedVolatility']) if not pd.isna(row['impliedVolatility']) else 0.08
         if oi > 0:
             options.append({
@@ -120,7 +137,7 @@ def run_eur_gex_pipeline():
     print("=" * 60)
     
     # 1. Carregar dados reais
-    current_spot, current_fxe, df_options, expiry_str = get_fxe_spot_and_chain()
+    current_eur, current_fxe, df_options, expiry_str = get_fxe_spot_and_chain()
     if df_options is None or df_options.empty:
         print("ERRO: Não foi possível obter os dados de opções.")
         sys.exit(1)
@@ -138,13 +155,19 @@ def run_eur_gex_pipeline():
     rd = 0.0515   # US SOFR (Taxa Doméstica) ~ 5.15%
     rf = 0.0375   # ECB rate (Taxa Estrangeira Euro) ~ 3.75%
     
+    fallback_ratio = (current_eur / current_fxe) if current_fxe > 0 else 0.0108
+    conv_ratio, price_eur_mt5, ratio_msg = get_synchronized_etf_ratio(current_fxe, "EURUSD", fallback_ratio)
+    if price_eur_mt5 and price_eur_mt5 > 0:
+        current_eur = price_eur_mt5
+    
     print(f"\n[2/5] Parâmetros de Garman-Kohlhagen (base 252 dias):")
     print(f"      Vencimento: {expiry_str} | Dias úteis: {expiry_days}")
     print(f"      rd (USD) = {rd*100:.2f}% | rf (EUR) = {rf*100:.2f}% | T = {T:.4f}")
+    print(f"      Sincronização MT5: {ratio_msg}")
     
-    # 3. Agrupar strikes por 50 pips de EURUSD (equivalente a 0.50 pontos de strike no FXE)
+    # 3. Agrupar strikes por 10 pips de EURUSD (equivalente a 0.10 pontos de strike no FXE)
     print(f"\n[3/5] Calculando GEX e gerando Jumba Walls...")
-    df_options['strike_round'] = (df_options['strike'] / 0.50).round() * 0.50
+    df_options['strike_round'] = (df_options['strike'] / 0.10).round() * 0.10
     
     gex_per_strike = {}
     multiplier = 100
@@ -163,8 +186,8 @@ def run_eur_gex_pipeline():
                 
             gex_net += gex_contrib
             
-        # Converter strike do FXE para equivalente EURUSD spot
-        strike_eur = strike_fxe / 100.0
+        # Converter strike do FXE para equivalente EURUSD spot via conv_ratio MT5
+        strike_eur = strike_fxe * conv_ratio
         gex_per_strike[strike_eur] = {
             'gex_net': gex_net,
             'abs_gex': abs(gex_net),
@@ -174,19 +197,19 @@ def run_eur_gex_pipeline():
         
     # Selecionar strikes próximos do ATM (dentro de ±5% do spot)
     all_strikes = sorted(gex_per_strike.keys())
-    lower_bound = current_spot * 0.95
-    upper_bound = current_spot * 1.05
+    lower_bound = current_eur * 0.95
+    upper_bound = current_eur * 1.05
     nearby_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
     
     # Fallback: se poucos strikes dentro de ±5%, expandir para ±10%
     if len(nearby_strikes) < 4:
-        lower_bound = current_spot * 0.90
-        upper_bound = current_spot * 1.10
+        lower_bound = current_eur * 0.90
+        upper_bound = current_eur * 1.10
         nearby_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
     
     # Limitar a no máximo 16 strikes mais próximos do ATM
     num_walls = 16
-    nearby_strikes.sort(key=lambda s: abs(s - current_spot))
+    nearby_strikes.sort(key=lambda s: abs(s - current_eur))
     selected_strikes = sorted(nearby_strikes[:num_walls])
     
     print(f"      Strikes selecionados: {len(selected_strikes)} dentro de [{lower_bound:.4f}, {upper_bound:.4f}]")
@@ -204,13 +227,13 @@ def run_eur_gex_pipeline():
         else:
             width_map[strike] = 1
             
-    # Montar Walls básicas em EURUSD
+    # Montar Walls básicas em EURUSD (5 casas decimais de precisão)
     walls_basic = []
     for strike_eur in selected_strikes:
         info = gex_per_strike[strike_eur]
         
         walls_basic.append({
-            "price": round(strike_eur, 4),
+            "price": round(strike_eur, 5),
             "type": "Wall",
             "width": width_map.get(strike_eur, 1),
             "style": 0,
@@ -218,21 +241,25 @@ def run_eur_gex_pipeline():
             "gex": info['gex_net']
         })
         
-    # Adicionar MidWalls entre as Walls consecutivas
+    # Adicionar MidWalls (ponto médio entre Walls consecutivas)
     walls_basic_sorted = sorted(walls_basic, key=lambda x: x['price'])
     walls = []
     
     for i in range(len(walls_basic_sorted)):
         walls.append(walls_basic_sorted[i])
         if i < len(walls_basic_sorted) - 1:
-            mid_price = (walls_basic_sorted[i]['price'] + walls_basic_sorted[i+1]['price']) / 2
-            walls.append({
-                "price": round(mid_price, 4),
-                "type": "MidWall",
-                "width": 1,
-                "style": 0,
-                "gex": 0.0
-            })
+            w1 = walls_basic_sorted[i]['price']
+            w2 = walls_basic_sorted[i+1]['price']
+            # Apenas criar MidWall se a distância entre walls consecutivas for normal (<= 250 pips)
+            if (w2 - w1) <= 0.0250:
+                mid_price = round((w1 + w2) / 2, 5)
+                walls.append({
+                    "price": mid_price,
+                    "type": "MidWall",
+                    "width": 1,
+                    "style": 0,
+                    "gex": 0.0
+                })
             
     # 4. Calcular Market Gamma Curve (MaxGamma, MinGamma, GammaFlip)
     sweep_prices = np.linspace(current_fxe * 0.95, current_fxe * 1.05, 200)
@@ -325,7 +352,7 @@ def run_eur_gex_pipeline():
         "=" * 65,
         "",
         "[+] STATUS DO MERCADO (REGIME GEX):",
-        f"    EURUSD Spot Atual: {current_spot:.5f}",
+        f"    EURUSD Spot Atual: {current_eur:.5f}",
         f"    Gamma Flip Point:  {flip_eur:.5f}",
         f"    Regime de Gamma:   {regime}",
         f"    Vies do Dia:       {bias}",

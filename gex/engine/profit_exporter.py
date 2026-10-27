@@ -79,25 +79,39 @@ def get_ntsl_dol_asset_checks(ref_date=None):
         asset_checks.append(f'DOL{code}{year_suffix}')
     return asset_checks
 
-def load_cached_walls(ticker):
-    """
-    Carrega as walls salvas em cache para um determinado ticker.
-    """
+def load_cached_walls_data(ticker):
     dir_name = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cache_path = os.path.join(dir_name, "data", f"{ticker.lower()}_walls_cache.json")
     if os.path.exists(cache_path):
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get("walls", [])
+                return json.load(f)
         except Exception as e:
             print(f"[Exporter] Erro ao ler cache {ticker}: {e}")
-    return []
+    return {}
 
-def get_approx_current_price(walls, default_val):
-    for w in walls:
-        if w['type'] == 'GammaFlip':
-            return w['price']
+def load_cached_walls(ticker):
+    """
+    Carrega as walls salvas em cache para um determinado ticker.
+    """
+    data = load_cached_walls_data(ticker)
+    return data.get("walls", [])
+
+def load_cached_current_price(ticker):
+    """
+    Carrega o preco atual salvo em cache para um determinado ticker.
+    """
+    data = load_cached_walls_data(ticker)
+    return data.get("current_price")
+
+def get_approx_current_price(walls, default_val, ticker=None):
+    if ticker:
+        cp = load_cached_current_price(ticker)
+        if cp is not None and cp > 0:
+            return cp
+    wall_prices = [w['price'] for w in walls if w.get('type') == 'Wall']
+    if wall_prices:
+        return sum(wall_prices) / len(wall_prices)
     if walls:
         return sum(w['price'] for w in walls) / len(walls)
     return default_val
@@ -121,7 +135,7 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
         lower_bound = current_win * 0.95
         upper_bound = current_win * 1.05
         for w in win_walls:
-            if lower_bound <= w['price'] <= upper_bound:
+            if w['type'] == 'GammaFlip' or (lower_bound <= w['price'] <= upper_bound):
                 win_filtered.append(w)
             else:
                 print(f"[Exporter] Ignorando nivel WIN {w['type']} em {w['price']:.1f} por estar fora do range de +-5% ({lower_bound:.1f} - {upper_bound:.1f})")
@@ -135,7 +149,7 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
         lower_bound = current_dol * 0.95
         upper_bound = current_dol * 1.05
         for w in dol_walls:
-            if lower_bound <= w['price'] <= upper_bound:
+            if w['type'] == 'GammaFlip' or (lower_bound <= w['price'] <= upper_bound):
                 dol_filtered.append(w)
             else:
                 print(f"[Exporter] Ignorando nivel DOL {w['type']} em {w['price']:.1f} por estar fora do range de +-5% ({lower_bound:.1f} - {upper_bound:.1f})")
@@ -152,10 +166,35 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
         lines_declarations.append(f"  line{i}Width : integer;")
         lines_declarations.append(f"  line{i}Style : integer;")
         
+    win_flip = next((w['price'] for w in win_walls if w.get('type') == 'GammaFlip'), None)
+    dol_flip = next((w['price'] for w in dol_walls if w.get('type') == 'GammaFlip'), None)
+
+    def get_wall_color(w, flip_price=None):
+        w_type = w.get('type')
+        if w_type == 'GammaFlip':
+            return 'clFlip'
+        elif w_type == 'MaxGamma':
+            return 'clMaxGamma'
+        elif w_type == 'MinGamma':
+            return 'clMinGamma'
+        elif w_type == 'Wall':
+            gex = w.get('gex', 0)
+            if gex < 0:
+                return 'clRed'        # Put Wall (Vermelho / Suporte)
+            elif gex > 0:
+                return 'clLime'       # Call Wall (Verde Neon / Resistência)
+            elif flip_price is not None and w['price'] < flip_price:
+                return 'clRed'
+            else:
+                return 'clLime'
+        elif w_type == 'MidWall':
+            return 'clMidleWall'
+        return 'clMagicWall'
+
     # Construir atribuições e plotagens para WIN
     win_blocks = []
     for i, w in enumerate(win_sorted, start=1):
-        c_var = color_map.get(w['type'], "clMagicWall")
+        c_var = get_wall_color(w, win_flip)
         width = w.get('width', 1)
         style = w.get('style', 0)
         win_blocks.append(f"      line{i} := {w['price']:.3f};")
@@ -173,7 +212,7 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     # Construir atribuições e plotagens para DOL
     dol_blocks = []
     for i, w in enumerate(dol_sorted, start=1):
-        c_var = color_map.get(w['type'], "clMagicWall")
+        c_var = get_wall_color(w, dol_flip)
         width = w.get('width', 1)
         style = w.get('style', 0)
         dol_blocks.append(f"      line{i} := {w['price']:.3f};")
@@ -402,30 +441,34 @@ def update_magic_wall_manual(win_walls, current_win=None):
         print(f"[Exporter] Aviso: Não foi possível atualizar MagicWallManual.nts ({e})")
 
 
-def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
+def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None, strategy_name="MagicWall"):
+    return export_all(ticker=ticker, walls=walls, current_price=current_price, strategy_name=strategy_name)
+
+def export_all(ticker="WIN", walls=None, current_price=None, strategy_name="MagicWall"):
     """
     Deploy completo unificado para Nelogica: carrega WIN e DOL do cache,
-    combina-os e exporta o código NTSL para ambas as plataformas.
+    combina-os e exporta o codigo NTSL para ambas as plataformas.
     """
     # 1. Carregar os dados
     if ticker.upper() == "WIN":
         win_walls = walls if walls is not None else load_cached_walls("win")
         dol_walls = load_cached_walls("usd_brl")
-        current_win = current_price
-        current_dol = get_approx_current_price(dol_walls, 5200)
+        current_win = current_price if current_price is not None else get_approx_current_price(win_walls, 174000, ticker="win")
+        current_dol = get_approx_current_price(dol_walls, 5200, ticker="usd_brl")
     else:
         win_walls = load_cached_walls("win")
         dol_walls = walls if walls is not None else load_cached_walls("usd_brl")
-        current_win = get_approx_current_price(win_walls, 174000)
-        current_dol = current_price
+        current_win = get_approx_current_price(win_walls, 174000, ticker="win")
+        current_dol = current_price if current_price is not None else get_approx_current_price(dol_walls, 5200, ticker="usd_brl")
         
-    # Caminho base do repositório
+    # Caminho base do repositorio
+    doc_suffix = "" if strategy_name == "MagicWall" else "_dinamico"
     base_file = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "gex", "docs", "jumba_neologica"
+        "gex", "docs", f"jumba_neologica{doc_suffix}"
     )
     
-    # 2. Gerar e salvar no repositório
+    # 2. Gerar e salvar no repositorio
     ntsl_code = export_to_profit_unified(
         win_walls=win_walls,
         dol_walls=dol_walls,
@@ -434,13 +477,14 @@ def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
         current_dol=current_dol
     )
     
-    # 2.1 Atualizar o MagicWallManual.nts estático com os parâmetros do dia
-    update_magic_wall_manual(win_walls, current_win=current_win)
+    # 2.1 Atualizar o MagicWallManual.nts estatico com os parametros do dia (apenas para a versao principal)
+    if strategy_name == "MagicWall":
+        update_magic_wall_manual(win_walls, current_win=current_win)
     
     # 3. Salvar em todas as pastas da Nelogica
     nelogica_targets = [
-        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy", "MagicWall"),
-        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Scalper\strategy", "MagicWall"),
+        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Profit\strategy", strategy_name),
+        (r"C:\Users\ryzen\AppData\Roaming\Nelogica\Scalper\strategy", strategy_name),
     ]
     
     for strategy_dir, name in nelogica_targets:
@@ -451,7 +495,7 @@ def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
             else:
                 continue
         
-        # Salvar .nne (formato de importação)
+        # Salvar .nne (formato de importacao)
         nne_path = os.path.join(strategy_dir, f"{name}.nne")
         export_to_profit_unified(
             win_walls=win_walls,
@@ -469,14 +513,9 @@ def deploy_to_nelogica(walls=None, ticker="WIN", current_price=None):
                 f.write(ntsl_code)
             print(f"[Exporter] Fonte .src salvo em: {src_path}")
             
-    # 4. Copiar para a clipboard do Windows
-    if copy_to_clipboard(ntsl_code):
-        print("[Exporter] Código NTSL unificado copiado para a clipboard do Windows! (Ctrl+V no Scalper)")
+    # 4. Copiar para a clipboard do Windows (apenas para a versao principal)
+    if strategy_name == "MagicWall":
+        if copy_to_clipboard(ntsl_code):
+            print("[Exporter] Codigo NTSL unificado (Ancorado) copiado para a clipboard do Windows! (Ctrl+V no Scalper)")
         
-    # 5. Enviar notificação toast
-    send_toast_notification(
-        "GEX MagicWall Unificado",
-        f"Níveis WIN e DOL atualizados e prontos na clipboard. Cole no Scalper."
-    )
-    
     return ntsl_code

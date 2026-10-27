@@ -10,6 +10,7 @@ from scipy.stats import norm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+from gex.engine.mt5_prices import get_synchronized_etf_ratio
 
 def black_scholes_gamma(S, K, T, sigma, r):
     """
@@ -173,11 +174,17 @@ def run_gold_gex_pipeline():
     
     r = 0.0515   # US SOFR ~ 5.15%
     
+    fallback_ratio = current_spot / current_gld if current_gld > 0 else 11.0
+    conv_ratio, price_xau_mt5, ratio_msg = get_synchronized_etf_ratio(current_gld, "XAUUSD", fallback_ratio)
+    if price_xau_mt5 and price_xau_mt5 > 0:
+        current_spot = price_xau_mt5
+    
     print(f"\n[2/5] Parâmetros de precificação (base 252 dias):")
     print(f"      Vencimento: {expiry_str} | Dias úteis: {expiry_days}")
     print(f"      r = {r*100:.2f}% | T = {T:.4f}")
+    print(f"      Sincronização MT5: {ratio_msg}")
     
-    # Agrupar strikes do GLD por $5.0 (equivalente a $50.0 de Spot Gold) para evitar poluicao visual (alinhado com SPY e QQQ)
+    # Agrupar strikes do GLD por $5.0
     df_options['strike_round'] = (df_options['strike'] / 5.0).round() * 5.0
     
     gex_per_strike = {}
@@ -196,8 +203,8 @@ def run_gold_gex_pipeline():
                 
             gex_net += gex_contrib
             
-        # Converter strike do GLD para equivalente XAUUSD spot (* 10)
-        strike_gold = strike_gld * 10.0
+        # Converter strike do GLD para equivalente XAUUSD spot via conv_ratio MT5
+        strike_gold = strike_gld * conv_ratio
         gex_per_strike[strike_gold] = {
             'gex_net': gex_net,
             'abs_gex': abs(gex_net),
@@ -251,7 +258,7 @@ def run_gold_gex_pipeline():
             "gex": info['gex_net']
         })
         
-    # Adicionar MidWalls entre as Walls consecutivas usando target spacing
+    # Adicionar MidWalls (ponto médio entre Walls consecutivas)
     walls_basic_sorted = sorted(walls_basic, key=lambda x: x['price'])
     walls = []
     
@@ -260,22 +267,14 @@ def run_gold_gex_pipeline():
         if i < len(walls_basic_sorted) - 1:
             w1 = walls_basic_sorted[i]['price']
             w2 = walls_basic_sorted[i+1]['price']
-            diff = w2 - w1
-            
-            target_spacing = 25.0  # Espacamento alvo de 25.0 pontos em Gold spot
-            num_steps = int(round(diff / target_spacing))
-            num_steps = max(2, num_steps)
-            
-            step = diff / num_steps
-            for j in range(1, num_steps):
-                mid_price = w1 + j * step
-                walls.append({
-                    "price": round(mid_price, 2),
-                    "type": "MidWall",
-                    "width": 1,
-                    "style": 0,
-                    "gex": 0.0
-                })
+            mid_price = round((w1 + w2) / 2, 2)
+            walls.append({
+                "price": mid_price,
+                "type": "MidWall",
+                "width": 1,
+                "style": 0,
+                "gex": 0.0
+            })
             
     # 4. Calcular Market Gamma Curve (MaxGamma, MinGamma, GammaFlip)
     sweep_prices = np.linspace(current_gld * 0.90, current_gld * 1.10, 200)

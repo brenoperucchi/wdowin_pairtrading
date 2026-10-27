@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from gex.engine.black76 import black76_gamma
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+from gex.engine.mt5_prices import get_synchronized_etf_ratio
 
 def get_spy_spot_and_chain():
     """
@@ -136,12 +137,15 @@ def run_us_gex_pipeline():
     r = 0.0515   # SOFR ~5.15%
     q = 0.0130   # Dividend Yield SPX ~1.30%
     
-    # Fator de Carrego Líquido para o Futuro ES
+    # Fator de Carrego Líquido para o Futuro ES e Sincronização MT5
     carry_factor = np.exp((r - q) * T)
+    fallback_ratio = 10.0 * carry_factor
+    conv_ratio, price_es_mt5, ratio_msg = get_synchronized_etf_ratio(current_spy, "US500", fallback_ratio)
     
     print(f"\n[2/5] Parâmetros do Modelo Black-76:")
     print(f"      Vencimento: {expiry_str} | Dias úteis: {expiry_days}")
     print(f"      r = {r*100:.2f}% | q = {q*100:.2f}% | carry_factor = {carry_factor:.6f}")
+    print(f"      Sincronização MT5: {ratio_msg}")
     
     # 3. Agrupar strikes e calcular GEX por nível
     print(f"\n[3/5] Calculando GEX e gerando Jumba Walls...")
@@ -198,7 +202,7 @@ def run_us_gex_pipeline():
     walls_basic = []
     for strike_spy in selected_strikes:
         info = gex_per_strike[strike_spy]
-        price_es = strike_spy * 10 * carry_factor
+        price_es = strike_spy * conv_ratio
         
         walls_basic.append({
             "price": round(price_es, 2),
@@ -209,22 +213,8 @@ def run_us_gex_pipeline():
             "gex": info['gex_net']
         })
         
-    # Adicionar MidWalls entre as Walls consecutivas
     # Ordenar primeiro para garantir os pontos médios corretos
-    walls_basic_sorted = sorted(walls_basic, key=lambda x: x['price'])
-    walls = []
-    
-    for i in range(len(walls_basic_sorted)):
-        walls.append(walls_basic_sorted[i])
-        if i < len(walls_basic_sorted) - 1:
-            mid_price = (walls_basic_sorted[i]['price'] + walls_basic_sorted[i+1]['price']) / 2
-            walls.append({
-                "price": round(mid_price, 2),
-                "type": "MidWall",
-                "width": 1,
-                "style": 0,
-                "gex": 0.0
-            })
+    walls = sorted(walls_basic, key=lambda x: x['price'])
             
     # 4. Calcular Market Gamma Curve (MaxGamma, MinGamma, GammaFlip)
     sweep_prices = np.linspace(current_spy * 0.90, current_spy * 1.10, 200)
@@ -247,12 +237,12 @@ def run_us_gex_pipeline():
     # MaxGamma
     max_gamma_idx = np.argmax(gex_values)
     max_gamma_spy = float(prices[max_gamma_idx])
-    max_gamma_es = max_gamma_spy * 10 * carry_factor
+    max_gamma_es = max_gamma_spy * conv_ratio
     
     # MinGamma
     min_gamma_idx = np.argmin(gex_values)
     min_gamma_spy = float(prices[min_gamma_idx])
-    min_gamma_es = min_gamma_spy * 10 * carry_factor
+    min_gamma_es = min_gamma_spy * conv_ratio
     
     # GammaFlip
     flip_spy = None
@@ -272,7 +262,7 @@ def run_us_gex_pipeline():
     if flip_spy is None:
         flip_spy = current_spy
         
-    flip_es = flip_spy * 10 * carry_factor
+    flip_es = flip_spy * conv_ratio
     
     # Adicionar níveis especiais
     walls.append({

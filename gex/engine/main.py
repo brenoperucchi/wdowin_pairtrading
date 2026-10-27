@@ -27,11 +27,31 @@ def get_yfinance_ibov_close(target_date):
         print(f"      [yfinance] Erro ao buscar IBOV: {e}")
     return None
 
+# Feriados nacionais fixos no Brasil (mês, dia)
+BR_HOLIDAYS_FIXED = {
+    (1, 1),   # Ano Novo
+    (4, 21),  # Tiradentes
+    (5, 1),   # Dia do Trabalho
+    (9, 7),   # Independência do Brasil
+    (10, 12), # Nossa Senhora Aparecida
+    (11, 2),  # Finados
+    (11, 15), # Proclamação da República
+    (11, 20), # Consciência Negra
+    (12, 25), # Natal
+}
+
+def is_b3_trading_day(d):
+    """Retorna True se d for dia de semana e não for feriado nacional."""
+    if d.weekday() >= 5: # 5 = Saturday, 6 = Sunday
+        return False
+    if (d.month, d.day) in BR_HOLIDAYS_FIXED:
+        return False
+    return True
+
 def get_previous_trading_day(ref_date=None):
     """
-    Retorna o dia útil anterior ao ref_date (por padrão hoje).
-    Se hoje for segunda, retorna sexta.
-    Se hoje for domingo ou sábado, retorna sexta.
+    Retorna o dia útil anterior ao ref_date (por padrão hoje),
+    pulando finais de semana e feriados nacionais brasileiros.
     """
     if ref_date is None:
         ref_date = datetime.date.today()
@@ -39,24 +59,30 @@ def get_previous_trading_day(ref_date=None):
         ref_date = ref_date.date()
         
     prev = ref_date - datetime.timedelta(days=1)
-    while prev.weekday() >= 5: # 5 = Saturday, 6 = Sunday
+    while not is_b3_trading_day(prev):
         prev = prev - datetime.timedelta(days=1)
     return prev
 
 def get_expected_trading_day():
     """
     Retorna a data esperada para o processamento do dia de hoje.
-    Se já passou das 17:00, o esperado é hoje (se for dia útil).
-    Caso contrário, é o dia útil anterior.
+    Antes das 17h, consulta primeiro a API oficial de workday da B3 para máxima precisão.
+    Fallback: se já passou das 17:00, o esperado é hoje (se for dia útil).
+    Caso contrário, é o dia de pregão anterior (respeitando feriados).
     """
     now = datetime.datetime.now()
-    if now.hour >= 17:
-        ref = now.date()
-        while ref.weekday() >= 5:
-            ref = ref - datetime.timedelta(days=1)
-        return ref
-    else:
-        return get_previous_trading_day(now.date())
+    if now.hour < 17:
+        try:
+            import requests
+            r_wd = requests.get("https://arquivos.b3.com.br/bdi/table/workday?", timeout=4)
+            if r_wd.status_code == 200:
+                raw_wd = r_wd.json().strip('"')
+                b3_date_str = raw_wd.split("T")[0]
+                return datetime.date.fromisoformat(b3_date_str)
+        except Exception:
+            pass
+
+    return get_previous_trading_day(now.date())
 
 def prompt_user_anomaly(expected_date, trading_date, mt5_date, default_win, default_ibov):
     """
@@ -198,11 +224,9 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     # 2. Dynamic Implied Volatility via Newton-Raphson
     print("[2/6] Calculando Volatilidade Implicita (Newton-Raphson)...")
     dynamic_iv = 0.20
-    r = 0.1425
-    
-    # Filtra apenas o vencimento mais proximo (front-month)
-    front_month = df_options['expiry'].min()
-    df_front = df_options[df_options['expiry'] == front_month].copy()
+    r_anchored = 0.1400  # Selic do início do ciclo (novo ciclo Out/26 = 14.00%)
+    r_current = 0.1400   # Selic atual pós-COPOM (para o recálculo dinâmico)
+    r = r_anchored
     
     # Calcula data de hoje ou extrai da data do CSV
     from .b3_parser import _find_latest_oi_file
@@ -218,6 +242,33 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
         trading_date = datetime.date.today()
         
     trading_date_str = trading_date.isoformat()
+
+    # Filtra apenas vencimentos que não expiraram (>= data de negociação)
+    df_options = df_options[df_options['expiry'].str[:10] >= trading_date_str].copy()
+    
+    # Filtra apenas o vencimento mais proximo (front-month) com liquidez minima
+    MIN_CONTRACTS = 5
+    MIN_STRIKES = 3
+    all_expiries = sorted(df_options['expiry'].unique())
+    
+    front_month = None
+    for exp in all_expiries:
+        exp_df = df_options[df_options['expiry'] == exp]
+        n_contracts = len(exp_df)
+        n_strikes = exp_df['strike'].nunique()
+        if n_contracts >= MIN_CONTRACTS and n_strikes >= MIN_STRIKES:
+            front_month = exp
+            break
+        else:
+            print(f"      [Skip] Vencimento {exp} ignorado: {n_contracts} contratos, {n_strikes} strikes (min: {MIN_CONTRACTS}/{MIN_STRIKES})")
+    
+    if front_month is None:
+        # Fallback: usar o vencimento com mais contratos
+        front_month = df_options.groupby('expiry').size().idxmax()
+        print(f"      [Fallback] Nenhum vencimento atingiu o minimo. Usando {front_month} (maior OI).")
+    
+    df_front = df_options[df_options['expiry'] == front_month].copy()
+    
     expiry_date_str = front_month[:10]
     
     expiry_days = int(np.busday_count(trading_date_str, expiry_date_str))
@@ -260,18 +311,30 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     
     print()
     
-    # 3. Calculate GEX & Find Walls
-    print("[3/6] Calculando GEX e gerando Walls...")
+    # 3. Calculate GEX & Find Walls (Modo Ancorado de Custodia - RastroWeb)
+    print("[3/6] Calculando GEX e gerando Walls (Modo Ancorado de Custodia)...")
     walls = calculate_gex_profile(
         options_df=df_options, 
         current_win=current_win, 
         current_ibov=current_ibov,
         iv=dynamic_iv,
         expiry_days=expiry_days,
-        r=r
+        r=r_anchored,
+        use_anchored_factor=True
     )
     
-    print(f"\n      {len(walls)} linhas geradas:")
+    # Tambem calcula a versao dinamica para exportar MagicWall_Dinamico
+    walls_dynamic = calculate_gex_profile(
+        options_df=df_options, 
+        current_win=current_win, 
+        current_ibov=current_ibov,
+        iv=dynamic_iv,
+        expiry_days=expiry_days,
+        r=r_current,
+        use_anchored_factor=False
+    )
+    
+    print(f"\n      {len(walls)} linhas geradas (Modo Ancorado):")
     for w in walls:
         label = f"  {w['type']:12s} @ {w['price']:>12.3f} | Width {w['width']}"
         if w.get('strike_ibov'):
@@ -289,19 +352,14 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
             flip_price = w['price']
             break
             
-    report_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "DAILY_REPORT.txt")
-    generate_gex_report(current_win, flip_price, walls, output_path=report_path)
-        
-    # 5. Publish to Firebase
-    print(f"\n[5/7] Publicando no Firebase...")
-    push_walls_to_firebase(walls)
     
-    # 6. Deploy Nelogica (ProfitChart + Scalper) com clipboard e notificação
+    # 6. Deploy Nelogica (Scalper + Profit + Clipboard) - Ambos os Formatos
     print("\n[6/7] Deploy Nelogica (Scalper + Profit + Clipboard)...")
-    from .profit_exporter import deploy_to_nelogica
+    from .profit_exporter import export_all
     
     try:
-        deploy_to_nelogica(walls, ticker="WIN", current_price=current_win)
+        export_all(ticker="WIN", walls=walls, current_price=current_win, strategy_name="MagicWall")
+        export_all(ticker="WIN", walls=walls_dynamic, current_price=current_win, strategy_name="MagicWall_Dinamico")
     except Exception as e:
         print(f"      Aviso: Falha no deploy Nelogica ({e})")
         # Fallback: pelo menos salvar o arquivo base
@@ -316,11 +374,23 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     from .tradingview_exporter import save_walls_to_cache, export_unified_tradingview
     tv_file = "gex/docs/jumba_tradingview.pine"
     try:
-        save_walls_to_cache(walls, ticker="WIN", ref_date=trading_date)
+        save_walls_to_cache(walls, ticker="WIN", ref_date=trading_date, current_price=current_win)
         export_unified_tradingview(output_path=tv_file)
     except Exception as e:
         print(f"      Aviso: Nao foi possivel salvar para o TradingView ({e})")
     
+    # 8. Export to MT5 Common\Files + Firebase Backup
+    print("\n[8/8] Exportando MagicWalls para MetaTrader 5 (Common\\Files + Firebase)...")
+    try:
+        from .mt5_exporter import export_to_mt5_common
+        export_to_mt5_common(walls=walls, ref_date=trading_date, current_win=current_win)
+    except Exception as e:
+        print(f"      Aviso: Falha ao exportar para MT5 Common\\Files ({e})")
+    try:
+        push_walls_to_firebase(walls)
+    except Exception as e:
+        print(f"      Aviso: Falha ao publicar no Firebase ({e})")
+
     print("\n" + "=" * 50)
     print("  Pipeline concluido com sucesso!")
     print("=" * 50)

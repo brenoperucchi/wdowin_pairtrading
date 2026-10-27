@@ -5,22 +5,12 @@ import re
 import pandas as pd
 
 
-def _find_latest_oi_file():
+def _get_oi_candidates():
     """
-    Procura o arquivo de Posicoes em Aberto mais recente.
-    Busca em duas pastas (prioridade):
-      1. gex/data/  (pasta preferida)
-      2. raiz do projeto (fallback, caso o usuario jogue la)
-    
-    Aceita qualquer variacao de nome como:
-      - Posições em aberto-07-05-2026.csv
-      - posicoes em aberto-08-05-2026.csv
+    Retorna a lista de arquivos de Posicoes em Aberto ordenados por data de modificacao (mais recente primeiro).
     """
-    # gex/data/ folder
     gex_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(gex_dir, 'data')
-    
-    # project root (one level above gex/)
     project_root = os.path.dirname(gex_dir)
     
     search_dirs = [data_dir, project_root]
@@ -32,13 +22,16 @@ def _find_latest_oi_file():
             os.path.join(d, "posi*em aberto*.csv"),
         ]:
             candidates.extend(glob.glob(p))
-    
-    if not candidates:
-        return None
-    
-    # Mais recente pelo mtime
+            
+    # Elimina duplicatas de caminhos
+    candidates = list(set(candidates))
     candidates.sort(key=os.path.getmtime, reverse=True)
-    return candidates[0]
+    return candidates
+
+
+def _find_latest_oi_file():
+    candidates = _get_oi_candidates()
+    return candidates[0] if candidates else None
 
 
 def _get_ibov_expiration(year, month):
@@ -58,25 +51,12 @@ def _get_ibov_expiration(year, month):
     return datetime.datetime(closest.year, closest.month, closest.day)
 
 
-def get_b3_options_data(current_ibov=186000, file_path=None):
-    """
-    Parseia o arquivo de Posicoes em aberto da B3.
-    
-    Parametros:
-        current_ibov: Preco spot atual do IBOVESPA
-        file_path: Caminho explicito para o CSV. Se None, busca automaticamente.
-    """
-    if file_path is None:
-        file_path = _find_latest_oi_file()
-    
-    if file_path is None or not os.path.exists(file_path):
-        print("B3 Parser: ERRO - Nenhum arquivo 'Posicoes em aberto*.csv' encontrado.")
-        print("  Coloque o CSV baixado da B3 em:  gex/data/")
+def _parse_single_csv(file_path):
+    if not os.path.exists(file_path):
         return pd.DataFrame()
         
     print(f"B3 Parser: Lendo {os.path.basename(file_path)}...")
     
-    # Encontra a linha correta do cabecalho (que comeca com Instrumento financeiro)
     header_idx = 0
     with open(file_path, 'r', encoding='latin1') as f:
         for i, line in enumerate(f):
@@ -84,7 +64,11 @@ def get_b3_options_data(current_ibov=186000, file_path=None):
                 header_idx = i
                 break
                 
-    pos = pd.read_csv(file_path, sep=';', encoding='latin1', skiprows=header_idx, low_memory=False)
+    try:
+        pos = pd.read_csv(file_path, sep=';', encoding='latin1', skiprows=header_idx, low_memory=False)
+    except Exception as e:
+        print(f"B3 Parser: Erro ao ler CSV {file_path}: {e}")
+        return pd.DataFrame()
     
     options = []
     month_codes = {
@@ -139,5 +123,31 @@ def get_b3_options_data(current_ibov=186000, file_path=None):
             })
             
     df = pd.DataFrame(options)
-    print(f"B3 Parser: {len(df)} opcoes IBOV extraidas com sucesso.")
     return df
+
+
+def get_b3_options_data(current_ibov=186000, file_path=None):
+    """
+    Parseia o arquivo de Posicoes em aberto da B3.
+    Se o arquivo especificado/mais recente estiver incompleto (0 opcoes), ativa fallback automatico para arquivos anteriores.
+    """
+    if file_path is not None:
+        df = _parse_single_csv(file_path)
+        print(f"B3 Parser: {len(df)} opcoes IBOV extraidas de {os.path.basename(file_path)}.")
+        return df
+        
+    candidates = _get_oi_candidates()
+    if not candidates:
+        print("B3 Parser: ERRO - Nenhum arquivo 'Posicoes em aberto*.csv' encontrado.")
+        return pd.DataFrame()
+        
+    for cand in candidates:
+        df = _parse_single_csv(cand)
+        if len(df) > 0:
+            print(f"B3 Parser: {len(df)} opcoes IBOV extraidas com sucesso ({os.path.basename(cand)}).")
+            return df
+        else:
+            print(f"B3 Parser: [Aviso] {os.path.basename(cand)} contem 0 opcoes IBOV (arquivo incompleto). Tentando proximo arquivo...")
+            
+    print("B3 Parser: ERRO - Nenhum arquivo de Posicoes em Aberto contem opcoes IBOV validas.")
+    return pd.DataFrame()

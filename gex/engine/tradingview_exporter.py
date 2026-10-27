@@ -2,7 +2,7 @@ import datetime
 import json
 import os
 
-def save_walls_to_cache(walls, ticker, ref_date):
+def save_walls_to_cache(walls, ticker, ref_date, current_price=None):
     """
     Salva as walls calculadas em um arquivo JSON de cache para posterior consolidação.
     """
@@ -20,6 +20,7 @@ def save_walls_to_cache(walls, ticker, ref_date):
         "ticker": ticker.upper(),
         "ref_date": ref_date,
         "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "current_price": current_price,
         "walls": walls
     }
     
@@ -59,7 +60,11 @@ def _generate_pine_array_pushes(walls, ticker):
         "GBP_USD": "gbp",
         "GOLD_XAU": "gold",
         "DOW_US30": "dow",
-        "USD_JPY": "jpy"
+        "USD_JPY": "jpy",
+        "DAX_DE40": "dax",
+        "NIKKEI_JP225": "jp",
+        "RUSSELL_US2000": "rut",
+        "CHINA_FXI": "china"
     }
     prefix = prefix_map.get(ticker, "us")
     
@@ -124,7 +129,7 @@ def _generate_pine_array_pushes(walls, ticker):
                 lbl = w_type.upper()
                 
             if prefix in ('eur', 'gbp'):
-                block_lines.append(f"    array.push(pr, {p:.4f})")
+                block_lines.append(f"    array.push(pr, {p:.5f})")
             elif prefix == 'jpy':
                 block_lines.append(f"    array.push(pr, {p:.3f})")
             else:
@@ -153,7 +158,7 @@ def export_unified_tradingview(output_path):
     engine_dir = os.path.dirname(__file__)
     cache_dir = os.path.join(os.path.dirname(engine_dir), "data")
     
-    # Lista de caches
+    # Lista de caches (14 Ativos)
     cache_configs = [
         ("win", "win_walls_cache.json"),
         ("sp500_es", "sp500_es_walls_cache.json"),
@@ -164,7 +169,11 @@ def export_unified_tradingview(output_path):
         ("gbp_usd", "gbp_usd_walls_cache.json"),
         ("gold_xau", "gold_xau_walls_cache.json"),
         ("dow_us30", "dow_us30_walls_cache.json"),
-        ("usd_jpy", "usd_jpy_walls_cache.json")
+        ("usd_jpy", "usd_jpy_walls_cache.json"),
+        ("dax_de40", "dax_de40_walls_cache.json"),
+        ("nikkei_jp225", "nikkei_jp225_walls_cache.json"),
+        ("russell_us2000", "russell_us2000_walls_cache.json"),
+        ("china_fxi", "china_fxi_walls_cache.json")
     ]
     
     loaded_caches = {}
@@ -203,6 +212,10 @@ def export_unified_tradingview(output_path):
     gold_code = _generate_pine_array_pushes(loaded_caches.get("gold_xau", {}).get("walls", []), "GOLD_XAU")
     dow_code = _generate_pine_array_pushes(loaded_caches.get("dow_us30", {}).get("walls", []), "DOW_US30")
     jpy_code = _generate_pine_array_pushes(loaded_caches.get("usd_jpy", {}).get("walls", []), "USD_JPY")
+    dax_code = _generate_pine_array_pushes(loaded_caches.get("dax_de40", {}).get("walls", []), "DAX_DE40")
+    jp_code = _generate_pine_array_pushes(loaded_caches.get("nikkei_jp225", {}).get("walls", []), "NIKKEI_JP225")
+    rut_code = _generate_pine_array_pushes(loaded_caches.get("russell_us2000", {}).get("walls", []), "RUSSELL_US2000")
+    china_code = _generate_pine_array_pushes(loaded_caches.get("china_fxi", {}).get("walls", []), "CHINA_FXI")
     
     win_date = loaded_caches.get("win", {}).get("ref_date", "Não disponível")
     us_date = loaded_caches.get("sp500_es", {}).get("ref_date", "Não disponível")
@@ -214,10 +227,14 @@ def export_unified_tradingview(output_path):
     gold_date = loaded_caches.get("gold_xau", {}).get("ref_date", "Não disponível")
     dow_date = loaded_caches.get("dow_us30", {}).get("ref_date", "Não disponível")
     jpy_date = loaded_caches.get("usd_jpy", {}).get("ref_date", "Não disponível")
+    dax_date = loaded_caches.get("dax_de40", {}).get("ref_date", "Não disponível")
+    jp_date = loaded_caches.get("nikkei_jp225", {}).get("ref_date", "Não disponível")
+    rut_date = loaded_caches.get("russell_us2000", {}).get("ref_date", "Não disponível")
+    china_date = loaded_caches.get("china_fxi", {}).get("ref_date", "Não disponível")
     
     pine_code = f"""//@version=6
 // +-------------------------------------------------------------------------+
-// | Magic GEX Levels - Unificado 10 Ativos para TradingView                |
+// | Magic GEX Levels - Unificado 14 Ativos para TradingView                |
 // | Gerado em: {datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")}                     |
 // | Referências das Coletas:                                                |
 // | - WIN Futures  (B3) : {win_date}                                         |
@@ -230,11 +247,15 @@ def export_unified_tradingview(output_path):
 // | - Ouro / GLD   (Metal): {gold_date}                                        |
 // | - Dow / DIA    (EUA)  : {dow_date}                                         |
 // | - USD / JPY    (Forex): {jpy_date}                                         |
+// | - DAX 40 / EWG (Europa): {dax_date}                                        |
+// | - Nikkei 225   (Japão): {jp_date}                                         |
+// | - Russell 2000 (EUA)  : {rut_date}                                         |
+// | - China 50 / FXI(Ásia) : {china_date}                                       |
 // |                                                                         |
 // | Desenha os níveis automaticamente dependendo do ativo aberto no gráfico!|
 // +-------------------------------------------------------------------------+
 // indicator e variáveis globais
-indicator("Magic GEX Levels Unified (10 Ativos)", overlay=true, shorttitle="MagicGEX Unified", max_lines_count=200, max_labels_count=200)
+indicator("Magic GEX Levels Unified (14 Ativos)", overlay=true, shorttitle="MagicGEX Unified", max_lines_count=200, max_labels_count=200)
 
 // --- CONFIGURAÇÃO DE DATA ---
 g_date         = "Configuração Temporal"
@@ -326,6 +347,34 @@ var color[] jpy_colors = array.new_color()
 var int[] jpy_widths = array.new_int()
 var string[] jpy_styles = array.new_string()
 
+// 11. Arrays para DAX 40 / DE40 (Alemanha)
+var float[] dax_prices = array.new_float()
+var string[] dax_labels = array.new_string()
+var color[] dax_colors = array.new_color()
+var int[] dax_widths = array.new_int()
+var string[] dax_styles = array.new_string()
+
+// 12. Arrays para Nikkei 225 / JP225 (Japão)
+var float[] jp_prices = array.new_float()
+var string[] jp_labels = array.new_string()
+var color[] jp_colors = array.new_color()
+var int[] jp_widths = array.new_int()
+var string[] jp_styles = array.new_string()
+
+// 13. Arrays para Russell 2000 / US2000 (EUA)
+var float[] rut_prices = array.new_float()
+var string[] rut_labels = array.new_string()
+var color[] rut_colors = array.new_color()
+var int[] rut_widths = array.new_int()
+var string[] rut_styles = array.new_string()
+
+// 14. Arrays para China Large-Cap / CHINA50 (China)
+var float[] china_prices = array.new_float()
+var string[] china_labels = array.new_string()
+var color[] china_colors = array.new_color()
+var int[] china_widths = array.new_int()
+var string[] china_styles = array.new_string()
+
 // --- POPULANDO DADOS (blocos separados para evitar limite de bytecode e escopo local) ---
 
 // WIN Futures (B3)
@@ -358,9 +407,21 @@ var string[] jpy_styles = array.new_string()
 // USD / JPY (Forex)
 {jpy_code}
 
+// DAX 40 / DE40 (Alemanha)
+{dax_code}
+
+// Nikkei 225 / JP225 (Japão)
+{jp_code}
+
+// Russell 2000 / US2000 (EUA)
+{rut_code}
+
+// China 50 / CHINA50 (China)
+{china_code}
+
 // --- DETECÇÃO DINÂMICA E FALLBACK DE ATIVO ---
 g_asset         = "Configuração de Ativo"
-forced_asset    = input.string("Automático", "Forçar Ativo no Gráfico", options=["Automático", "WIN / B3", "SP500 / ES", "Nasdaq 100 / NQ", "Bitcoin / BTC", "Dólar / BRL", "EUR / USD", "GBP / USD", "Ouro / XAUUSD", "Dow Jones / US30", "USD / JPY"], group=g_asset)
+forced_asset    = input.string("Automático", "Forçar Ativo no Gráfico", options=["Automático", "WIN / B3", "SP500 / ES", "Nasdaq 100 / NQ", "Bitcoin / BTC", "Dólar / BRL", "EUR / USD", "GBP / USD", "Ouro / XAUUSD", "Dow Jones / US30", "USD / JPY", "DAX 40 / DE40", "Nikkei 225 / JP225", "Russell 2000 / US2000", "China 50 / CHINA50"], group=g_asset)
 
 ticker_upper = str.upper(syminfo.ticker)
 is_win_detected  = str.contains(ticker_upper, "WIN") or str.contains(ticker_upper, "IND") or str.contains(ticker_upper, "BRA50") or str.contains(ticker_upper, "BRA")
@@ -373,6 +434,10 @@ is_gbp_detected  = str.contains(ticker_upper, "GBPUSD") or (str.contains(ticker_
 is_gold_detected = str.contains(ticker_upper, "XAU") or str.contains(ticker_upper, "GOLD") or str.contains(ticker_upper, "GLD")
 is_dow_detected  = str.contains(ticker_upper, "US30") or str.contains(ticker_upper, "DIA") or str.contains(ticker_upper, "DJI") or str.contains(ticker_upper, "YM") or str.contains(ticker_upper, "DOW")
 is_jpy_detected  = str.contains(ticker_upper, "USDJPY") or (str.contains(ticker_upper, "JPY") and not str.contains(ticker_upper, "GBPJPY") and not str.contains(ticker_upper, "EURJPY")) or str.contains(ticker_upper, "FXY")
+is_dax_detected  = str.contains(ticker_upper, "DE40") or str.contains(ticker_upper, "GER40") or str.contains(ticker_upper, "DAX") or str.contains(ticker_upper, "EWG")
+is_jp_detected   = str.contains(ticker_upper, "JP225") or str.contains(ticker_upper, "JPN225") or str.contains(ticker_upper, "NI225") or str.contains(ticker_upper, "NIKKEI") or str.contains(ticker_upper, "EWJ")
+is_rut_detected  = str.contains(ticker_upper, "US2000") or str.contains(ticker_upper, "RUT") or str.contains(ticker_upper, "RUSSELL") or str.contains(ticker_upper, "IWM")
+is_china_detected = str.contains(ticker_upper, "CHINA50") or str.contains(ticker_upper, "CN50") or str.contains(ticker_upper, "FXI") or str.contains(ticker_upper, "CHINAH")
 
 is_win  = forced_asset == "WIN / B3" or (forced_asset == "Automático" and is_win_detected)
 is_nq   = forced_asset == "Nasdaq 100 / NQ" or (forced_asset == "Automático" and is_nq_detected)
@@ -383,8 +448,12 @@ is_gbp  = forced_asset == "GBP / USD" or (forced_asset == "Automático" and is_g
 is_gold = forced_asset == "Ouro / XAUUSD" or (forced_asset == "Automático" and is_gold_detected)
 is_dow  = forced_asset == "Dow Jones / US30" or (forced_asset == "Automático" and is_dow_detected)
 is_jpy  = forced_asset == "USD / JPY" or (forced_asset == "Automático" and is_jpy_detected)
+is_dax  = forced_asset == "DAX 40 / DE40" or (forced_asset == "Automático" and is_dax_detected)
+is_jp   = forced_asset == "Nikkei 225 / JP225" or (forced_asset == "Automático" and is_jp_detected)
+is_rut  = forced_asset == "Russell 2000 / US2000" or (forced_asset == "Automático" and is_rut_detected)
+is_china = forced_asset == "China 50 / CHINA50" or (forced_asset == "Automático" and is_china_detected)
 // Fallback inteligente para o SP500 / ES se nenhum outro ativo coincidir
-is_us   = forced_asset == "SP500 / ES" or (forced_asset == "Automático" and (is_us_detected or (not is_win and not is_nq and not is_btc and not is_dol and not is_eur and not is_gbp and not is_gold and not is_dow and not is_jpy)))
+is_us   = forced_asset == "SP500 / ES" or (forced_asset == "Automático" and (is_us_detected or (not is_win and not is_nq and not is_btc and not is_dol and not is_eur and not is_gbp and not is_gold and not is_dow and not is_jpy and not is_dax and not is_jp and not is_rut and not is_china)))
 
 var float[] prices = na
 var string[] labels = na
@@ -446,6 +515,30 @@ else if is_jpy
     colors := jpy_colors
     widths := jpy_widths
     styles := jpy_styles
+else if is_dax
+    prices := dax_prices
+    labels := dax_labels
+    colors := dax_colors
+    widths := dax_widths
+    styles := dax_styles
+else if is_jp
+    prices := jp_prices
+    labels := jp_labels
+    colors := jp_colors
+    widths := jp_widths
+    styles := jp_styles
+else if is_rut
+    prices := rut_prices
+    labels := rut_labels
+    colors := rut_colors
+    widths := rut_widths
+    styles := rut_styles
+else if is_china
+    prices := china_prices
+    labels := china_labels
+    colors := china_colors
+    widths := china_widths
+    styles := china_styles
 else if is_us
     prices := us_prices
     labels := us_labels
@@ -495,7 +588,7 @@ if is_target_date and barstate.islast
                         draw_lbl := false
                     
                     if draw_lbl
-                        string p_str = (is_eur or is_gbp) ? str.tostring(p, "#.####") : (is_jpy ? str.tostring(p, "#.###") : (scale_factor < 1.0 ? str.tostring(p, "#.####") : str.tostring(p, is_win ? "#" : "#.##")))
+                        string p_str = (is_eur or is_gbp) ? str.tostring(p, "#.#####") : (is_jpy ? str.tostring(p, "#.###") : (scale_factor < 1.0 ? str.tostring(p, "#.#####") : str.tostring(p, is_win ? "#" : "#.##")))
                         string label_text = lbl
                         if showPrices
                             label_text := label_text + " [" + p_str + "]"

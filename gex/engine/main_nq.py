@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from gex.engine.black76 import black76_gamma
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
+from gex.engine.mt5_prices import get_synchronized_etf_ratio
 
 def get_qqq_and_nq_prices():
     """
@@ -141,11 +142,15 @@ def run_nq_gex_pipeline():
     T = max(1/252, expiry_days / 252)
     
     r = 0.0515  # SOFR
-    conv_ratio = current_nq / current_qqq
+    fallback_ratio = current_nq / current_qqq if current_qqq > 0 else 41.0
+    conv_ratio, price_nq_mt5, ratio_msg = get_synchronized_etf_ratio(current_qqq, "USTEC", fallback_ratio)
+    if price_nq_mt5 and price_nq_mt5 > 0:
+        current_nq = price_nq_mt5
     
     print(f"\n[2/5] Parâmetros de Cálculo:")
     print(f"      Vencimento: {expiry_str} | Dias úteis: {expiry_days}")
     print(f"      Taxa (r): {r*100:.2f}% | Multiplicador NQ/QQQ: {conv_ratio:.6f}")
+    print(f"      Sincronização MT5: {ratio_msg}")
     
     # 3. Agrupar strikes e calcular GEX por nível
     print(f"\n[3/5] Calculando GEX e gerando Jumba Walls...")
@@ -217,21 +222,8 @@ def run_nq_gex_pipeline():
             "gex": info['gex_net']
         })
         
-    # Adicionar MidWalls
-    walls_basic_sorted = sorted(walls_basic, key=lambda x: x['price'])
-    walls = []
-    
-    for i in range(len(walls_basic_sorted)):
-        walls.append(walls_basic_sorted[i])
-        if i < len(walls_basic_sorted) - 1:
-            mid_price = (walls_basic_sorted[i]['price'] + walls_basic_sorted[i+1]['price']) / 2
-            walls.append({
-                "price": round(mid_price, 2),
-                "type": "MidWall",
-                "width": 1,
-                "style": 0,
-                "gex": 0.0
-            })
+    # Ordenar
+    walls = sorted(walls_basic, key=lambda x: x['price'])
             
     # 4. Calcular Market Gamma Curve (MaxGamma, MinGamma, GammaFlip)
     sweep_prices = np.linspace(current_nq * 0.90, current_nq * 1.10, 200)
