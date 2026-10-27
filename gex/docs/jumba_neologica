@@ -129,10 +129,6 @@ var
   line30Color : integer;
   line30Width : integer;
   line30Style : integer;
-  line31 : float;
-  line31Color : integer;
-  line31Width : integer;
-  line31Style : integer;
 
 BEGIN
   clMagicWall := clLime;
@@ -147,7 +143,7 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26") or (GetAsset() = "WINZ26") or (GetAsset() = "INDZ26") or (GetAsset() = "WING27") or (GetAsset() = "INDG27");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOU26") or (GetAsset() = "DOLU26") or (GetAsset() = "WDOV26") or (GetAsset() = "DOLV26") or (GetAsset() = "WDOX26") or (GetAsset() = "DOLX26");
 
-  if (((Date >= ELDate(2026, 10, 23)) and (Time >= 900) and (Time <= 1900))) then
+  if (((Date >= ELDate(2026, 10, 26)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
@@ -248,7 +244,7 @@ BEGIN
       SetPlotStyle(12, line12Style);
       Plot12(line12);
       line13 := 179502.381;
-      line13Color := clRed;
+      line13Color := clLime;
       line13Width := 1;
       line13Style := 0;
       SetPlotColor(13, line13Color);
@@ -383,7 +379,7 @@ BEGIN
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
-      line30 := 188400.000;
+      line30 := 188158.688;
       line30Color := clFlip;
       line30Width := 2;
       line30Style := 0;
@@ -391,11 +387,10 @@ BEGIN
       SetPlotWidth(30, line30Width);
       SetPlotStyle(30, line30Style);
       Plot30(line30);
-      NoPlot(31);
     end
     else if isDOL then
     begin
-      line1 := 5137.300;
+      line1 := 5134.490;
       line1Color := clFlip;
       line1Width := 2;
       line1Style := 0;
@@ -627,22 +622,7 @@ BEGIN
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
-      line30 := 5650.000;
-      line30Color := clLime;
-      line30Width := 1;
-      line30Style := 0;
-      SetPlotColor(30, line30Color);
-      SetPlotWidth(30, line30Width);
-      SetPlotStyle(30, line30Style);
-      Plot30(line30);
-      line31 := 5675.000;
-      line31Color := clMidleWall;
-      line31Width := 1;
-      line31Style := 0;
-      SetPlotColor(31, line31Color);
-      SetPlotWidth(31, line31Width);
-      SetPlotStyle(31, line31Style);
-      Plot31(line31);
+      NoPlot(30);
     end
     else
     begin
@@ -676,7 +656,6 @@ BEGIN
       NoPlot(28);
       NoPlot(29);
       NoPlot(30);
-      NoPlot(31);
     end;
   end
   else
@@ -711,6 +690,5 @@ BEGIN
       NoPlot(28);
       NoPlot(29);
       NoPlot(30);
-      NoPlot(31);
   end;
 END;
