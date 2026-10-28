@@ -8,6 +8,9 @@ __pycache__/
 
 # Runtime state
 trades.db
+trades.db-wal
+trades.db-shm
+research/trades.db
 beta_ultimo.json
 
 # Environment
@@ -28,3 +31,7 @@ gex/scratch/
 *.log
 =
 regime-dashboard/check_console.cjs
+gex_out*.txt
+uvicorn_*.txt
+prd_temp.txt
+gex/data/*.csv

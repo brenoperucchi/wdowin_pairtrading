@@ -99,6 +99,8 @@ def get_b3_dol_options_data(file_path=None):
         
         try:
             strike = float(strike_code)
+            if strike > 20000:
+                strike = strike / 100.0
         except ValueError:
             continue
             
@@ -108,11 +110,16 @@ def get_b3_dol_options_data(file_path=None):
             
         expiry_date = _get_dol_expiration(year, month_num)
         
-        oi_str = str(row.iloc[5]).replace('.', '').replace('-', '0').strip()
-        try:
-            oi = int(oi_str)
-        except:
-            oi = 0
+        oi = 0
+        for col_idx in (11, 5):
+            if len(row) > col_idx:
+                oi_str = str(row.iloc[col_idx]).replace('.', '').replace('-', '0').strip()
+                try:
+                    val = int(oi_str)
+                    if val > oi:
+                        oi = val
+                except Exception:
+                    pass
             
         if oi > 0:
             options.append({

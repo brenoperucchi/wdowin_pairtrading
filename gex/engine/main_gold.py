@@ -297,12 +297,12 @@ def run_gold_gex_pipeline():
     # MaxGamma
     max_gamma_idx = np.argmax(gex_values)
     max_gamma_gld = float(prices[max_gamma_idx])
-    max_gamma_gold = max_gamma_gld * 10.0
+    max_gamma_gold = max_gamma_gld * conv_ratio
     
     # MinGamma
     min_gamma_idx = np.argmin(gex_values)
     min_gamma_gld = float(prices[min_gamma_idx])
-    min_gamma_gold = min_gamma_gld * 10.0
+    min_gamma_gold = min_gamma_gld * conv_ratio
     
     # GammaFlip
     flip_gld = None
@@ -322,7 +322,7 @@ def run_gold_gex_pipeline():
     if flip_gld is None:
         flip_gld = current_gld
         
-    flip_gold = flip_gld * 10.0
+    flip_gold = flip_gld * conv_ratio
     
     # Adicionar níveis especiais
     walls.append({
@@ -403,7 +403,7 @@ def run_gold_gex_pipeline():
     print(f"      Relatório escrito em: {report_path}")
     
     # 5. Salvar cache para unificação
-    save_walls_to_cache(walls, ticker="gold_xau", ref_date=expiry_str)
+    save_walls_to_cache(walls, ticker="gold_xau", ref_date=today.isoformat())
     
     # 6. Re-compilar o indicador TradingView unificado
     tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")

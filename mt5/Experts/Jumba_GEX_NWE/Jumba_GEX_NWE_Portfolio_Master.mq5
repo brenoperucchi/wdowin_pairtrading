@@ -10,8 +10,8 @@
 #include <Jumba_GEX_NWE_Core.mqh>
 
 input group "=== 1. SELECAO DO PORTFOLIO & EXECUCAO ==="
-input ENUM_PORTFOLIO_PRESET InpPreset         = PRESET_TODAS_16_ATIVAS; // Preset de Portfólio (8 Estratégias Corr < 0.40)
-input ENUM_EXECUTION_MODE   InpExecMode       = EXEC_HEDGING_DIRECT_MAGIC; // Modo de Execução (Netting B3 ou Hedging)
+input ENUM_PORTFOLIO_PRESET InpPreset         = PRESET_PORT_01_COMPLETO; // Preset de Portfólio (8 Estratégias Corr < 0.40)
+input ENUM_EXECUTION_MODE   InpExecMode       = EXEC_NETTING_VIRTUAL_SYNC; // Modo de Execução (Netting B3 ou Hedging)
 input double                InpLotMultiplier  = 1.0;    // Multiplicador de Lotes (1.0 = Lote Base do Backtest)
 input double                InpMaxDailyLoss   = 2500.0; // Trava de Perda Máxima Diária do Portfólio (R$)
 input ulong                 InpBaseMagic      = 88000;  // Magic Number Base

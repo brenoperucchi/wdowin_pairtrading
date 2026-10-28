@@ -5,7 +5,7 @@
 #property copyright "Jumba Quant / Antigravity"
 #property version   "1.00"
 #property indicator_chart_window
-#property indicator_buffers 5
+#property indicator_buffers 6
 #property indicator_plots   5
 
 #property indicator_label1  "NWE50 Upper"
@@ -46,7 +46,7 @@ input double InpBandwidth30= 3.0;  // NWE Rápido: Bandwidth (h)
 input double InpMult30     = 1.6;  // NWE Rápido: Multiplicador MAE
 input int    InpMaxBars    = 1500; // Máximo de Barras Calculadas no Histórico
 
-double BufU50[], BufC50[], BufL50[], BufU30[], BufL30[];
+double BufU50[], BufC50[], BufL50[], BufU30[], BufL30[], BufC30[];
 double W50[], W30[];
 
 int OnInit()
@@ -56,6 +56,7 @@ int OnInit()
    SetIndexBuffer(2, BufL50, INDICATOR_DATA);
    SetIndexBuffer(3, BufU30, INDICATOR_DATA);
    SetIndexBuffer(4, BufL30, INDICATOR_DATA);
+   SetIndexBuffer(5, BufC30, INDICATOR_CALCULATIONS);
 
    ArrayResize(W50, InpLookback50);
    for(int k=0; k<InpLookback50; k++)
@@ -94,6 +95,7 @@ int OnCalculate(const int rates_total,
       BufL50[i] = EMPTY_VALUE;
       BufU30[i] = EMPTY_VALUE;
       BufL30[i] = EMPTY_VALUE;
+      BufC30[i] = EMPTY_VALUE;
      }
 
    for(int t=start_bar; t<rates_total; t++)
@@ -126,17 +128,17 @@ int OnCalculate(const int rates_total,
          num30 += W30[k] * close[t - k];
          den30 += W30[k];
         }
-      double c30 = (den30 > 0.0) ? (num30 / den30) : close[t];
+      BufC30[t] = (den30 > 0.0) ? (num30 / den30) : close[t];
 
       double sum_err30 = 0.0;
       for(int k=0; k<=l30; k++)
         {
-         double c_tk = (BufC50[t - k] != EMPTY_VALUE && BufC50[t - k] > 0.0) ? BufC50[t - k] : close[t - k];
+         double c_tk = (BufC30[t - k] != EMPTY_VALUE && BufC30[t - k] > 0.0) ? BufC30[t - k] : close[t - k];
          sum_err30 += MathAbs(close[t - k] - c_tk);
         }
       double mae30 = sum_err30 / (double)(l30 + 1);
-      BufU30[t] = c30 + mae30 * InpMult30;
-      BufL30[t] = c30 - mae30 * InpMult30;
+      BufU30[t] = BufC30[t] + mae30 * InpMult30;
+      BufL30[t] = BufC30[t] - mae30 * InpMult30;
      }
 
    return(rates_total);

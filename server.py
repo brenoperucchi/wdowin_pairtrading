@@ -46,7 +46,7 @@ from core.config import (
     WDO_KALMAN_Q, WDO_KALMAN_R, WDO_KALMAN_W,
 )
 from core.mt5_client import (
-    connect_mt5, fetch_bars, beta_state, save_beta_ultimo, load_beta_ultimo,
+    connect_mt5, fetch_bars, align_series_by_time, beta_state, save_beta_ultimo, load_beta_ultimo,
 )
 from core.signals import (
     calc_beta_ols, calc_half_life, calc_zscore,
@@ -474,9 +474,24 @@ app = FastAPI(title="WIN×WDO Regime Monitor", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+def _sync_firebase_dash(r_v2, r_di, perf, compass_snap=None):
+    ref = fdb.reference('dashboard')
+    payload = {
+        'regime': r_v2,
+        'di_regime': r_di,
+        'performance': perf,
+    }
+    if compass_snap is not None:
+        payload['compass'] = compass_snap
+    ref.set(payload)
+
+def _sync_firebase_hist(hist_list):
+    ref_hist = fdb.reference('history_30d')
+    ref_hist.set(hist_list)
 
 async def firebase_push_loop():
     print("[INFO] Firebase Sync Loop iniciado.")
@@ -485,10 +500,9 @@ async def firebase_push_loop():
     while True:
         try:
             if firebase_initialized:
-                # Chama as funções nativamente (cuidado com MT5: executado na main thread de evento)
-                r_v2 = regime_v2()
-                r_di = di_regime()
-                perf = get_performance()
+                r_v2 = await asyncio.to_thread(regime_v2)
+                r_di = await asyncio.to_thread(di_regime)
+                perf = await asyncio.to_thread(get_performance)
                 
                 current_time = time.time()
                 
@@ -498,19 +512,14 @@ async def firebase_push_loop():
                 
                 # Push para RTDB (dashboard live) a cada 15 segundos ou imediatamente se houver trade
                 if push_immediate or current_time - last_dash_update >= 15:
-                    ref = fdb.reference('dashboard')
-                    ref.set({
-                        'regime': r_v2,
-                        'di_regime': r_di,
-                        'performance': perf,
-                    })
+                    compass_snap = await asyncio.to_thread(get_compass_etapa1)
+                    await asyncio.to_thread(_sync_firebase_dash, r_v2, r_di, perf, compass_snap)
                     last_dash_update = current_time
 
                 # Push history_30d a cada 5 minutos (300 segundos) para economizar banda
                 if current_time - last_hist_update > 300:
-                    hist = history_endpoint(days=30)
-                    ref_hist = fdb.reference('history_30d')
-                    ref_hist.set(hist.get("history", []))
+                    hist = await asyncio.to_thread(history_endpoint, 30)
+                    await asyncio.to_thread(_sync_firebase_hist, hist.get("history", []))
                     last_hist_update = current_time
 
         except Exception as e:
@@ -520,6 +529,10 @@ async def firebase_push_loop():
 _trade_engine = TradeEngine(db_path="trades.db")
 _cache: dict = {}
 _cache_ts: float = 0.0
+_v2_cache: dict = {}
+_v2_cache_ts: float = 0.0
+_flow_api_cache: dict = {}
+_flow_api_cache_ts: float = 0.0
 
 # DI pair trading state
 _di_cache: dict = {}
@@ -545,19 +558,26 @@ _di_kalman_initialized = False
 # Johansen gate state (periodic recheck)
 _joh_wdo_state = {
     "gate_open": False, "trace_ratio": 0.0, "joh_beta": None,
-    "last_check_i": -999, "conviction": "N/A",
+    "last_check_i": -999, "last_check_ts": 0, "conviction": "N/A",
 }
 _joh_di_state = {
     "gate_open": False, "trace_ratio": 0.0, "joh_beta": None,
-    "last_check_i": -999, "conviction": "N/A",
+    "last_check_i": -999, "last_check_ts": 0, "conviction": "N/A",
 }
 
 
-def _compute_johansen_gate(closes_a, closes_b, state, bar_count):
-    """Recompute Johansen cointegration gate if enough bars elapsed.
+def _compute_johansen_gate(closes_a, closes_b, state, bar_count, last_bar_ts=None):
+    """Recompute Johansen cointegration gate if enough bars/time elapsed.
     Modifies state in-place. Returns (gate_open, trace_ratio, conviction, joh_beta).
     """
-    if bar_count - state["last_check_i"] >= JOH_RECHECK_BARS and len(closes_a) >= JOH_WINDOW:
+    should_recheck = False
+    if last_bar_ts is not None and last_bar_ts > 0:
+        if last_bar_ts - state.get("last_check_ts", 0) >= JOH_RECHECK_BARS * 300:
+            should_recheck = True
+    elif bar_count - state["last_check_i"] >= JOH_RECHECK_BARS:
+        should_recheck = True
+
+    if should_recheck and len(closes_a) >= JOH_WINDOW:
         try:
             y = np.column_stack([
                 closes_a[-JOH_WINDOW:],
@@ -580,6 +600,8 @@ def _compute_johansen_gate(closes_a, closes_b, state, bar_count):
             else:
                 state["conviction"] = "FRACA"
             state["last_check_i"] = bar_count
+            if last_bar_ts is not None:
+                state["last_check_ts"] = int(last_bar_ts)
         except Exception:
             pass
     return (
@@ -592,7 +614,9 @@ def _compute_johansen_gate(closes_a, closes_b, state, bar_count):
 
 # ─── DB init ─────────────────────────────────────────────────────────────────
 def init_db():
-    conn = sqlite3.connect("trades.db")
+    conn = sqlite3.connect("trades.db", timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS operations (
@@ -615,6 +639,26 @@ def init_db():
             be_active INTEGER DEFAULT 0
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS bar_history (
+            timestamp INTEGER PRIMARY KEY,
+            date_str TEXT,
+            bar_time TEXT,
+            win_price REAL,
+            wdo_price REAL,
+            di_price REAL,
+            spread_wdo REAL,
+            spread_di REAL,
+            z_wdo REAL,
+            z_di REAL,
+            nwe_center REAL,
+            nwe_upper REAL,
+            nwe_lower REAL,
+            nwe_is_up INTEGER,
+            flow_json TEXT
+        )
+    ''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_bar_history_date ON bar_history(date_str, timestamp)")
     try:
         c.execute("ALTER TABLE operations ADD COLUMN max_pts_favor REAL DEFAULT 0.0")
         c.execute("ALTER TABLE operations ADD COLUMN be_active INTEGER DEFAULT 0")
@@ -756,9 +800,9 @@ def do_backfill_if_empty():
             return
             
         print("[INFO] bar_history vazio. Iniciando backfill de 30 dias...")
-        import urllib.request
-        urllib.request.urlopen("http://localhost:8080/api/history?days=30")
-        print("[OK] Backfill concluido via chamada ao endpoint local.")
+        time.sleep(2.0)
+        history_endpoint(days=30)
+        print("[OK] Backfill concluido diretamente via history_endpoint.")
     except Exception as e:
         print(f"[ERRO] Falha no backfill: {e}")
 
@@ -1023,28 +1067,16 @@ def regime():
     beta_status_d = get_beta_status(beta_delta_pct)
     safe_to_trade = bool(rho_status["level"] < 2 and beta_status_d["level"] < 2 and _coint_cache["pvalue"] < 0.10 and not beta_unstable)
 
-    # V2 Kalman z for BUY routing
-    kf_temp = KalmanBetaFilter(initial_beta=BETA_INITIAL)
-    for y, x in zip(closes_a, closes_b):
-        kf_temp.update(float(y), float(x))
-    z_kalman = float(KalmanBetaFilter.rolling_zscore([s for _, s, _ in [kf_temp.update(float(y), float(x)) for y, x in zip(closes_a, closes_b)]], window=WINDOW)[-1]) if False else 0.0
-
-    # Recalculate properly
-    kf_temp2 = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
-    kf_spreads = []
-    for y, x in zip(closes_a, closes_b):
-        _, spread_t, _ = kf_temp2.update(float(y), float(x))
-        kf_spreads.append(spread_t)
-    z_kalman = float(KalmanBetaFilter.rolling_zscore(kf_spreads, window=WDO_KALMAN_W)[-1])
-
-    # Trade engine
-    now_dt = datetime.now()
-    trade_result = _trade_engine.evaluate(
-        z_wdo=current_z, z_di=0.0,
-        win_price=float(closes_a[-1]), wdo_price=float(closes_b[-1]),
-        rho=current_rho, beta_safe=safe_to_trade, hmm_state=hmm.current_hmm_regime,
-        hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_ols,
-    )
+    # Legacy V1 endpoint is read-only: do NOT trigger _trade_engine.evaluate() with unfiltered V1 OLS z-score
+    open_trades = _trade_engine._get_open_trades()
+    any_holding = any(t is not None for t in open_trades.values())
+    trade_result = {
+        "action": "HOLDING" if any_holding else "WAIT",
+        "holding": any_holding,
+        "exit_reason": None,
+        "pnl": None,
+        "strategies": {},
+    }
 
     history = _build_history(times_a[-BARS:], z_arr, spread_arr, win_prices=closes_a[-BARS:])
 
@@ -1061,45 +1093,60 @@ def regime():
 @app.get("/api/v2/regime")
 def regime_v2():
     """V2 endpoint — Kalman-based regime monitoring + Johansen gate."""
+    global _v2_cache, _v2_cache_ts, _last_win_price
+
+    if time.time() - _v2_cache_ts < CACHE_TTL and _v2_cache:
+        return _v2_cache
+
     if not connect_mt5():
         return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
 
     closes_a, times_a = fetch_bars(SYMBOL_A, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
     closes_b, times_b = fetch_bars(SYMBOL_B, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
 
-    global _last_win_price
     if closes_a is not None and len(closes_a) > 0:
         _last_win_price = float(closes_a[-1])
 
     if closes_a is None or closes_b is None:
         return {"error": "Sem dados.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
 
-    min_len = min(len(closes_a), len(closes_b))
-    ac, bc, tc = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
+    ac_full, bc_full, tc_full = align_series_by_time(closes_a, times_a, closes_b, times_b)
 
-    # Kalman filter
-    kf = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
+    # Kalman filter (with initial OLS alpha/beta to avoid scale inversion)
+    if len(ac_full) > 100:
+        init_b_wdo, init_a_wdo = np.polyfit(bc_full[:100], ac_full[:100], 1)
+    else:
+        init_b_wdo, init_a_wdo = BETA_INITIAL, 0.0
+
+    kf = KalmanBetaFilter(initial_beta=float(init_b_wdo), initial_alpha=float(init_a_wdo), trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
     spreads, kf_betas = [], []
-    beta_current = BETA_INITIAL
-    for y, x in zip(ac, bc):
-        beta, spread, var = kf.update(y, x)
+    beta_current = float(init_b_wdo)
+    for y, x in zip(ac_full, bc_full):
+        beta, spread, var = kf.update(float(y), float(x))
         spreads.append(spread)
         kf_betas.append(beta)
         beta_current = beta
 
     z_scores_full = KalmanBetaFilter.rolling_zscore(spreads, window=WDO_KALMAN_W)
+    ref_20d_win = min(BETA_REF_BARS, len(kf_betas))
+    beta_ref_20d = float(np.mean(kf_betas[-ref_20d_win:]) if ref_20d_win > 0 else beta_current)
+
+    # Johansen gate evaluated on full aligned series with bar timestamp tracking
+    joh_open, joh_ratio, joh_conv, joh_beta = _compute_johansen_gate(
+        ac_full, bc_full, _joh_wdo_state, len(ac_full), last_bar_ts=int(tc_full[-1])
+    )
     
     # ── NWE computation BEFORE slicing ───────────────────────────────────
     # Compute on the last 200 bars to prevent cone effect
-    nwe_lookback_bars = min(len(ac), BARS + 200)
-    ac_nwe = ac[-nwe_lookback_bars:]
+    nwe_lookback_bars = min(len(ac_full), BARS + 200)
+    ac_nwe = ac_full[-nwe_lookback_bars:]
     nwe_line_full, nwe_upper_full, nwe_lower_full, nwe_is_up_full = calc_nwe_with_bands(
         ac_nwe, bandwidth=NWE_BANDWIDTH, lookback=NWE_LOOKBACK, mult_mae=NWE_MULT_MAE
     )
 
     # ── Slice after burn-in to keep payload and NWE/OLS fast ────────────
-    if len(ac) > BARS:
-        ac, bc, tc = ac[-BARS:], bc[-BARS:], tc[-BARS:]
+    if len(ac_full) > BARS:
+        ac, bc, tc = ac_full[-BARS:], bc_full[-BARS:], tc_full[-BARS:]
         spreads = spreads[-BARS:]
         kf_betas = kf_betas[-BARS:]
         z_scores = z_scores_full[-BARS:]
@@ -1108,6 +1155,7 @@ def regime_v2():
         nwe_lower = nwe_lower_full[-BARS:]
         nwe_is_up_arr = nwe_is_up_full[-BARS:]
     else:
+        ac, bc, tc = ac_full, bc_full, tc_full
         z_scores = z_scores_full
         nwe_line = nwe_line_full
         nwe_upper = nwe_upper_full
@@ -1123,14 +1171,8 @@ def regime_v2():
     current_rho = float(rho_arr[-1])
     rho_status = get_rho_status(current_rho)
 
-    # Johansen gate
-    joh_open, joh_ratio, joh_conv, joh_beta = _compute_johansen_gate(
-        ac, bc, _joh_wdo_state, len(ac)
-    )
-
     # Beta health
-    beta_ref_20d = float(np.mean(kf_betas[-80:-40]) if len(kf_betas) > 80 else kf_betas[0])
-    beta_delta_pct = ((beta_current - beta_ref_20d) / abs(beta_ref_20d) * 100) if beta_ref_20d != 0 else 0
+    beta_delta_pct = (abs(beta_current - beta_ref_20d) / abs(beta_ref_20d) * 100) if beta_ref_20d != 0 else 0
     beta_status_d = get_beta_status(beta_delta_pct)
     safe_to_trade = bool(rho_status["level"] < 2 and beta_status_d["level"] < 2)
     nwe_is_up_now = bool(nwe_is_up_arr[-1])
@@ -1142,10 +1184,12 @@ def regime_v2():
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
     
     # ── Bar-close gate: entries only on confirmed bar close ──────────
-    # Detect if the last bar timestamp changed since last poll
+    # Detect if the last bar timestamp changed since last poll (do NOT trigger on initial server startup)
     last_bar_ts = int(tc[-1])
     bar_close_confirmed = False
-    if not hasattr(regime_v2, "_last_bar_ts") or regime_v2._last_bar_ts != last_bar_ts:
+    if not hasattr(regime_v2, "_last_bar_ts"):
+        regime_v2._last_bar_ts = last_bar_ts
+    elif regime_v2._last_bar_ts != last_bar_ts:
         bar_close_confirmed = True
         regime_v2._last_bar_ts = last_bar_ts
         # Force DI cache update on bar close to prevent race conditions in consensus logic
@@ -1154,19 +1198,21 @@ def regime_v2():
         # SAVE CLOSED BAR STATE TO DATABASE FOR PERSISTENCE
         try:
             if len(ac) > 1:
-                z_wdo_closed = z_scores[-2]
-                spread_wdo_closed = spreads[-2]
-                win_price_closed = ac[-2]
-                wdo_price_closed = bc[-2]
-                nwe_center_closed = nwe_line[-2]
-                nwe_upper_closed = nwe_upper[-2]
-                nwe_lower_closed = nwe_lower[-2]
-                nwe_is_up_closed = nwe_is_up_arr[-2]
+                z_wdo_closed = float(z_scores[-2])
+                spread_wdo_closed = float(spreads[-2])
+                win_price_closed = float(ac[-2])
+                wdo_price_closed = float(bc[-2])
+                nwe_center_closed = float(nwe_line[-2])
+                nwe_upper_closed = float(nwe_upper[-2])
+                nwe_lower_closed = float(nwe_lower[-2])
+                nwe_is_up_closed = bool(nwe_is_up_arr[-2])
                 closed_ts = int(tc[-2])
                 
                 z_di_closed = 0.0
-                if _di_cache and "history" in _di_cache and len(_di_cache["history"]) > 0:
-                    z_di_closed = _di_cache["history"][-1]["z"]
+                if _di_cache and "history" in _di_cache and len(_di_cache["history"]) > 1:
+                    z_di_closed = float(_di_cache["history"][-2]["z"])
+                elif _di_cache and "history" in _di_cache and len(_di_cache["history"]) > 0:
+                    z_di_closed = float(_di_cache["history"][-1]["z"])
                 
                 dt_c = datetime.fromtimestamp(closed_ts + TIME_OFFSET)
                 bar_time_c = dt_c.strftime("%H:%M")
@@ -1191,12 +1237,21 @@ def regime_v2():
     # Re-fetch DI cache after forced update
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
 
+    # On confirmed bar close, evaluate entry criteria using the just-closed bar [-2] to avoid newborn tick noise
+    eval_z_wdo = float(z_scores[-2]) if (bar_close_confirmed and len(z_scores) > 1) else current_z
+    eval_z_di = float(_di_cache["history"][-2]["z"]) if (bar_close_confirmed and _di_cache and len(_di_cache.get("history", [])) > 1) else float(z_di)
+    eval_win_px = float(ac[-2]) if (bar_close_confirmed and len(ac) > 1) else float(ac[-1])
+    eval_wdo_px = float(bc[-2]) if (bar_close_confirmed and len(bc) > 1) else float(bc[-1])
+    eval_nwe_up = bool(nwe_is_up_arr[-2]) if (bar_close_confirmed and len(nwe_is_up_arr) > 1) else nwe_is_up_now
+    eval_nwe_upper = float(nwe_upper[-2]) if (bar_close_confirmed and len(nwe_upper) > 1) else nwe_upper_now
+    eval_nwe_lower = float(nwe_lower[-2]) if (bar_close_confirmed and len(nwe_lower) > 1) else nwe_lower_now
+
     trade_result = _trade_engine.evaluate(
-        z_wdo=current_z, z_di=float(z_di),
-        win_price=float(ac[-1]), wdo_price=float(bc[-1]),
+        z_wdo=eval_z_wdo, z_di=eval_z_di,
+        win_price=eval_win_px, wdo_price=eval_wdo_px,
         rho=current_rho, beta_safe=safe_to_trade, hmm_state=hmm.current_hmm_regime,
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_current,
-        nwe_is_up=nwe_is_up_now, nwe_upper=nwe_upper_now, nwe_lower=nwe_lower_now,
+        nwe_is_up=eval_nwe_up, nwe_upper=eval_nwe_upper, nwe_lower=eval_nwe_lower,
         bar_close_confirmed=bar_close_confirmed,
     )
 
@@ -1264,6 +1319,8 @@ def regime_v2():
         "lower": round(nwe_lower_now, 2),
         "center": round(float(nwe_line[-1]), 2),
     }
+    _v2_cache = res
+    _v2_cache_ts = time.time()
     return res
 
 
@@ -1317,16 +1374,13 @@ def di_regime():
         return {"error": f"Sem dados para '{SYMBOL_A}'/'{DI_SYMBOL}'.",
                 "current_z": 0, "signal": _get_di_signal(0), "history": []}
 
-    min_len = min(len(closes_win), len(closes_di))
-    closes_win = closes_win[-min_len:]
-    closes_di = closes_di[-min_len:]
-    times_win = times_win[-min_len:]
+    closes_win, closes_di, times_win = align_series_by_time(closes_win, times_win, closes_di, times_di)
 
     today = datetime.now().date()
 
     # ── Johansen gate + beta ──────────────────────────────────────────
     joh_open, joh_ratio, joh_conv, joh_beta = _compute_johansen_gate(
-        closes_win, closes_di, _joh_di_state, len(closes_win)
+        closes_win, closes_di, _joh_di_state, len(closes_win), last_bar_ts=int(times_win[-1])
     )
 
     # ── DI Kalman z-score (Restored to Kalman Pure) ──
@@ -1490,11 +1544,21 @@ def get_performance():
 def get_gex_walls():
     import json
     try:
-        cache_path = os.path.join("gex", "data", "win_walls_cache.json")
-        if os.path.exists(cache_path):
-            with open(cache_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("walls", [])
+        for cand in [
+            os.path.join("gex", "data", "win_walls_cache.json"),
+            os.path.join("gex", "data", "jumba_gex_win_daily.json"),
+            os.path.join("gex", "data", "jumba_gex_win_history.json"),
+        ]:
+            if os.path.exists(cand):
+                with open(cand, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and "walls" in data:
+                        return data["walls"]
+                    elif isinstance(data, dict) and data:
+                        latest_key = sorted(data.keys())[-1]
+                        entry = data[latest_key]
+                        if isinstance(entry, dict) and "walls" in entry:
+                            return entry["walls"]
     except Exception as e:
         print(f"Erro ao ler walls localmente: {e}")
     return []
@@ -1536,13 +1600,15 @@ def history_endpoint(days: int = 30):
         if closes_a is None or closes_b is None:
             return {"error": "Sem dados WIN/WDO.", "history": [], "days": days}
 
-        min_len = min(len(closes_a), len(closes_b))
-        ac = closes_a[-min_len:]
-        bc = closes_b[-min_len:]
-        tc = times_a[-min_len:]
+        ac, bc, tc = align_series_by_time(closes_a, times_a, closes_b, times_b)
+        min_len = len(ac)
 
         # --- Kalman z-scores ---
-        kf = KalmanBetaFilter(initial_beta=BETA_INITIAL, trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
+        if len(ac) > 100:
+            init_b_wdo, init_a_wdo = np.polyfit(bc[:100], ac[:100], 1)
+        else:
+            init_b_wdo, init_a_wdo = BETA_INITIAL, 0.0
+        kf = KalmanBetaFilter(initial_beta=float(init_b_wdo), initial_alpha=float(init_a_wdo), trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
         kf_spreads = []
         for y, x in zip(ac, bc):
             _, spread_t, _ = kf.update(float(y), float(x))
@@ -1556,14 +1622,17 @@ def history_endpoint(days: int = 30):
         # --- DI z-scores (Kalman) ---
         z_di_map = {}
         if closes_di is not None:
-            min_di = min(len(ac), len(closes_di))
-            di_c = closes_di[-min_di:]
-            di_t = times_di[-min_di:]
-            win_for_di = ac[-min_di:]
+            win_for_di, di_c, di_t = align_series_by_time(closes_a, times_a, closes_di, times_di)
+
+            if len(win_for_di) > 100:
+                init_b_di, init_a_di = np.polyfit(di_c[:100], win_for_di[:100], 1)
+            else:
+                init_b_di, init_a_di = DI_BETA_INITIAL, 260000.0
 
             # DI Kalman filter
             kf_di = KalmanBetaFilter(
-                initial_beta=DI_BETA_INITIAL,
+                initial_beta=float(init_b_di),
+                initial_alpha=float(init_a_di),
                 trans_cov=DI_KALMAN_Q,
                 obs_cov=DI_KALMAN_R,
             )
@@ -1903,13 +1972,15 @@ def calculate_flow_acceleration(efficiency=None, bars_list=None):
                     
     return accelerator
 
-@app.get("/api/restart")
 @app.post("/api/restart")
-def restart_server():
-    import os
+def restart_server(request: Request):
+    import signal
     import threading
-    print("[INFO] Comando de reinicialização recebido pelo endpoint API. Encerrando processo...")
-    threading.Timer(0.5, lambda: os._exit(0)).start()
+    client_host = request.client.host if request.client else ""
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        return {"ok": False, "error": "Acesso permitido apenas via localhost."}
+    print("[INFO] Comando de reinicialização recebido pelo endpoint API. Encerrando processo com segurança...")
+    threading.Timer(0.5, lambda: signal.raise_signal(signal.SIGTERM)).start()
     return {"ok": True, "message": "Reiniciando servidor via PM2..."}
 
 @app.get("/api/flow/realtime")
@@ -1996,8 +2067,12 @@ def get_iaf_history(date_str: str = None):
 
 @app.get("/api/flow")
 def get_flow():
+    global _flow_api_cache, _flow_api_cache_ts
+    now_ts = time.time()
+    if now_ts - _flow_api_cache_ts < 1.0 and _flow_api_cache:
+        return _flow_api_cache
     eff_data = calculate_directional_efficiency()
-    return {
+    _flow_api_cache = {
         "brokers": _broker_list,
         "flow": _broker_flow,
         "history": _flow_history_bars,
@@ -2007,6 +2082,8 @@ def get_flow():
             "WIN": datetime.fromtimestamp(_last_flow_update["WIN"]).strftime("%H:%M:%S") if _last_flow_update["WIN"] > 0 else "SIMULADO"
         }
     }
+    _flow_api_cache_ts = now_ts
+    return _flow_api_cache
 
 @app.post("/api/flow/inject-history")
 async def inject_flow_history(request: Request):
@@ -2053,6 +2130,8 @@ def update_flow(
         return {"status": "ignored", "reason": "Excel error code filtered."}
     
     if brk not in _broker_flow[sym]:
+        if len(_broker_list) >= 50:
+            return {"error": "Limite máximo de corretoras atingido."}
         _broker_flow[sym][brk] = {"id": str(len(_broker_flow[sym])), "net": 0, "avg": 0.0, "vol": 0, "buy": 0, "sell": 0}
         if brk not in _broker_list:
             _broker_list.append(brk)

@@ -31,8 +31,14 @@ class TradeEngine:
         self.db_path = db_path
         self._init_db()
 
+    def _connect(self):
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+
     def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         c = conn.cursor()
         c.execute('''
             CREATE TABLE IF NOT EXISTS matador_ops (
@@ -68,7 +74,7 @@ class TradeEngine:
 
     def _get_open_trades(self):
         """Returns dict of open trades keyed by strategy."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         c = conn.cursor()
         c.execute(
             "SELECT id, direction, z_source, strategy, price_win_in, price_wdo_in, "
@@ -263,7 +269,7 @@ class TradeEngine:
 
     def _open_trade(self, direction, z_source, z_val,
                      win_price, wdo_price, rho, beta, hmm_state, strategy):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         c = conn.cursor()
         c.execute('''
             INSERT INTO matador_ops
@@ -335,14 +341,16 @@ class TradeEngine:
         }
 
     def _update_field(self, trade_id, field, value):
-        conn = sqlite3.connect(self.db_path)
+        if field not in ("max_pts_favor", "be_active"):
+            raise ValueError(f"Campo inválido em _update_field: {field}")
+        conn = self._connect()
         c = conn.cursor()
         c.execute(f"UPDATE matador_ops SET {field}=? WHERE id=?", (value, trade_id))
         conn.commit()
         conn.close()
 
     def _close_trade(self, trade_id, reason, win_out, wdo_out, pnl):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         c = conn.cursor()
         c.execute(
             "UPDATE matador_ops SET status='CLOSED', timestamp_out=?, "
@@ -404,7 +412,7 @@ class TradeEngine:
 
     def get_performance(self, limit: int = 50) -> dict:
         """Return performance stats for the dashboard — grouped by strategy."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         c = conn.cursor()
 
         # Per-strategy stats

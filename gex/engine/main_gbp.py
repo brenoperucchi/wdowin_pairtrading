@@ -282,12 +282,12 @@ def run_gbp_gex_pipeline():
     # MaxGamma
     max_gamma_idx = np.argmax(gex_values)
     max_gamma_fxb = float(prices[max_gamma_idx])
-    max_gamma_gbp = max_gamma_fxb / 100.0
+    max_gamma_gbp = max_gamma_fxb * conv_ratio
     
     # MinGamma
     min_gamma_idx = np.argmin(gex_values)
     min_gamma_fxb = float(prices[min_gamma_idx])
-    min_gamma_gbp = min_gamma_fxb / 100.0
+    min_gamma_gbp = min_gamma_fxb * conv_ratio
     
     # GammaFlip
     flip_fxb = None
@@ -307,7 +307,7 @@ def run_gbp_gex_pipeline():
     if flip_fxb is None:
         flip_fxb = current_fxb
         
-    flip_gbp = flip_fxb / 100.0
+    flip_gbp = flip_fxb * conv_ratio
     
     # Adicionar níveis especiais
     walls.append({
@@ -388,7 +388,7 @@ def run_gbp_gex_pipeline():
     print(f"      Relatório escrito em: {report_path}")
     
     # 5. Salvar cache para unificação
-    save_walls_to_cache(walls, ticker="gbp_usd", ref_date=expiry_str)
+    save_walls_to_cache(walls, ticker="gbp_usd", ref_date=today.isoformat())
     
     # 6. Re-compilar o indicador TradingView unificado
     tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")

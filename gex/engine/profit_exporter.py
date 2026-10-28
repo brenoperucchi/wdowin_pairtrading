@@ -135,7 +135,7 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
         lower_bound = current_win * 0.95
         upper_bound = current_win * 1.05
         for w in win_walls:
-            if w['type'] == 'GammaFlip' or (lower_bound <= w['price'] <= upper_bound):
+            if w['type'] in ('GammaFlip', 'MaxGamma', 'MinGamma') or (lower_bound <= w['price'] <= upper_bound):
                 win_filtered.append(w)
             else:
                 print(f"[Exporter] Ignorando nivel WIN {w['type']} em {w['price']:.1f} por estar fora do range de +-5% ({lower_bound:.1f} - {upper_bound:.1f})")
@@ -149,7 +149,7 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
         lower_bound = current_dol * 0.95
         upper_bound = current_dol * 1.05
         for w in dol_walls:
-            if w['type'] == 'GammaFlip' or (lower_bound <= w['price'] <= upper_bound):
+            if w['type'] in ('GammaFlip', 'MaxGamma', 'MinGamma') or (lower_bound <= w['price'] <= upper_bound):
                 dol_filtered.append(w)
             else:
                 print(f"[Exporter] Ignorando nivel DOL {w['type']} em {w['price']:.1f} por estar fora do range de +-5% ({lower_bound:.1f} - {upper_bound:.1f})")
@@ -196,11 +196,11 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     for i, w in enumerate(win_sorted, start=1):
         c_var = get_wall_color(w, win_flip)
         width = w.get('width', 1)
-        style = w.get('style', 0)
+        style_expr = 'stlMidleWall' if w.get('type') == 'MidWall' else str(w.get('style', 0))
         win_blocks.append(f"      line{i} := {w['price']:.3f};")
         win_blocks.append(f"      line{i}Color := {c_var};")
         win_blocks.append(f"      line{i}Width := {width};")
-        win_blocks.append(f"      line{i}Style := {style};")
+        win_blocks.append(f"      line{i}Style := {style_expr};")
         win_blocks.append(f"      SetPlotColor({i}, line{i}Color);")
         win_blocks.append(f"      SetPlotWidth({i}, line{i}Width);")
         win_blocks.append(f"      SetPlotStyle({i}, line{i}Style);")
@@ -214,11 +214,11 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
     for i, w in enumerate(dol_sorted, start=1):
         c_var = get_wall_color(w, dol_flip)
         width = w.get('width', 1)
-        style = w.get('style', 0)
+        style_expr = 'stlMidleWall' if w.get('type') == 'MidWall' else str(w.get('style', 0))
         dol_blocks.append(f"      line{i} := {w['price']:.3f};")
         dol_blocks.append(f"      line{i}Color := {c_var};")
         dol_blocks.append(f"      line{i}Width := {width};")
-        dol_blocks.append(f"      line{i}Style := {style};")
+        dol_blocks.append(f"      line{i}Style := {style_expr};")
         dol_blocks.append(f"      SetPlotColor({i}, line{i}Color);")
         dol_blocks.append(f"      SetPlotWidth({i}, line{i}Width);")
         dol_blocks.append(f"      SetPlotStyle({i}, line{i}Style);")

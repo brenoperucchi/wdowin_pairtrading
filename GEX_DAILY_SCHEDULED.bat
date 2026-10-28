@@ -15,9 +15,10 @@ if "%HH:~0,1%"==" " set HH=0%HH:~1,1%
 if %HH% GEQ 17 exit /b 0
 
 
-set YYYY=%date:~6,4%
-set MM=%date:~3,2%
-set DD=%date:~0,2%
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set TODAY_ISO=%%i
+set YYYY=%TODAY_ISO:~0,4%
+set MM=%TODAY_ISO:~5,2%
+set DD=%TODAY_ISO:~8,2%
 set LOG_DIR=%~dp0gex\logs\%YYYY%-%MM%
 set LOG_FILE=%LOG_DIR%\gex_daily_%YYYY%%MM%%DD%.log
 

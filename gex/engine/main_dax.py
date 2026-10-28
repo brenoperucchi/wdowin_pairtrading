@@ -155,8 +155,8 @@ def run_dax_gex_pipeline():
     expiry_days = max(1, expiry_days)
     T = max(1/252, expiry_days / 252)
     
-    rd = 0.0325   # ECB rate ~3.25%
-    rf = 0.0200   # EUR risk-free
+    rd = 0.0515   # USD domestic rate (EWG trades in USD)
+    rf = 0.0250   # EWG dividend yield
     
     # Sincronização MT5
     conv_ratio, _, ratio_msg = get_synchronized_etf_ratio(
@@ -256,8 +256,8 @@ def run_dax_gex_pipeline():
             w1 = walls_basic_sorted[i]['price']
             w2 = walls_basic_sorted[i+1]['price']
             if (w2 - w1) <= 800.0:
-                step = (w2 - w1) / 4.0
-                for frac in [1, 2, 3]:
+                step = (w2 - w1) / 2.0
+                for frac in [1]:
                     mid_price = round(w1 + step * frac, 2)
                     walls.append({
                         "price": mid_price,

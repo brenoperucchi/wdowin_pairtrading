@@ -633,7 +633,7 @@ public:
 
       double gains1 = 0.0, losses1 = 0.0;
       double gains2 = 0.0, losses2 = 0.0;
-      for(int k=0; k<14; k++)
+      for(int k=0; k<7; k++)
         {
          double d1 = rates[last - k].close - rates[last - k - 1].close;
          if(d1 > 0.0) gains1 += d1; else losses1 -= d1;
@@ -1015,11 +1015,35 @@ public:
       else
         {
          double target_net = 0.0;
-         for(int k=1; k<=16; k++)
+         if(MQLInfoInteger(MQL_TESTER))
            {
-            if(m_slots[k].enabled && m_slots[k].dir != 0)
-               target_net += m_slots[k].dir * m_slots[k].lots * m_lot_mult;
+            for(int k=1; k<=16; k++)
+              {
+               if(m_slots[k].enabled && m_slots[k].dir != 0)
+                  target_net += m_slots[k].dir * m_slots[k].lots * m_lot_mult;
+              }
            }
+         else
+           {
+            datetime now_loc = TimeLocal();
+            for(int k=1; k<=16; k++)
+              {
+               string gv_lots = StringFormat("JUMBA_WDO_LOTS_%s_%d", _Symbol, k);
+               string gv_time = StringFormat("JUMBA_WDO_TIME_%s_%d", _Symbol, k);
+               if(m_slots[k].enabled)
+                 {
+                  double my_l = (double)(m_slots[k].dir * m_slots[k].lots) * m_lot_mult;
+                  GlobalVariableSet(gv_lots, my_l);
+                  GlobalVariableSet(gv_time, (double)now_loc);
+                  target_net += my_l;
+                 }
+               else if(GlobalVariableCheck(gv_time) && (now_loc - (datetime)GlobalVariableGet(gv_time)) <= 90)
+                 {
+                  target_net += GlobalVariableGet(gv_lots);
+                 }
+              }
+           }
+         target_net = MathRound(target_net);
 
          double actual_net = 0.0;
          for(int i=PositionsTotal()-1; i>=0; i--)

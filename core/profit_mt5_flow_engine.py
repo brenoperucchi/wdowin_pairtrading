@@ -988,13 +988,19 @@ class ProfitMt5FlowEngine:
             avg_v = _clean_float(parts[avg_col]) if avg_col != -1 and len(parts) > avg_col else 0.0
             buy_v = _clean_int(parts[buy_col]) if buy_col != -1 and len(parts) > buy_col else 0
             sell_v = _clean_int(parts[sell_col]) if sell_col != -1 and len(parts) > sell_col else 0
-            state.brokers[b_name] = {
+            if b_name not in state.brokers:
+                state.brokers[b_name] = {
+                    "net": 0, "buy": 0, "sell": 0, "avg": 0.0, "vol": 0,
+                    "aggr_buy": 0, "aggr_sell": 0, "passive_buy": 0, "passive_sell": 0,
+                    "is_institutional": b_name in INSTITUTIONAL_BROKERS,
+                }
+            state.brokers[b_name].update({
                 "net": net_v,
                 "avg": avg_v,
                 "buy": buy_v,
                 "sell": sell_v,
                 "vol": buy_v + sell_v,
-            }
+            })
 
     def _parse_profit_trades_lines(self, lines: list, state: SymbolMicrostructureState, today_iso: str) -> int:
         base_dt = datetime.strptime(today_iso, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -1252,7 +1258,11 @@ class ProfitMt5FlowEngine:
             if not self._profit_active_today.get(asset_key, False):
                 state.source = f"MT5_TICKS_LIVE ({sym})"
 
-    def update(self) -> dict:
+    def update(self, force: bool = False) -> dict:
+        now_ts = time.time()
+        if not force and hasattr(self, "_cached_payload") and self._cached_payload and (now_ts - self._last_update_ts < 1.5):
+            return self._cached_payload
+
         today_str = datetime.now().strftime("%Y-%m-%d")
         if self.win_state.session_date != today_str:
             self.win_state.reset_session(today_str)
@@ -1265,7 +1275,9 @@ class ProfitMt5FlowEngine:
         self.wdo_state.reload_walls_if_needed()
 
         # 1. Backfill matinal do MT5 (se ainda não carregado) + 2. Stream Incremental do Profit CSV
-        self._poll_mt5_ticks(today_str)
+        from core.mt5_client import mt5_lock
+        with mt5_lock:
+            self._poll_mt5_ticks(today_str)
         self._poll_profit_rtd_folder()
 
         self._last_update_ts = time.time()
@@ -1288,13 +1300,14 @@ class ProfitMt5FlowEngine:
         # 4. Etapa 3 (Caminho B): Radar Ao Vivo da Cadeia de Opções (BOVA11 / IBOV)
         try:
             from core.options_live_radar_engine import options_radar_singleton
-            caminho_b_payload = options_radar_singleton.update(win_price=win_payload.get("last_price", 0.0))
+            with mt5_lock:
+                caminho_b_payload = options_radar_singleton.update(win_price=win_payload.get("last_price", 0.0))
             win_payload["caminho_b"] = caminho_b_payload
         except Exception as e:
             caminho_b_payload = {"ok": False, "error": str(e)}
             win_payload["caminho_b"] = caminho_b_payload
 
-        return {
+        self._cached_payload = {
             "ok": True,
             "timestamp": int(self._last_update_ts),
             "updated_at": datetime.now().strftime("%H:%M:%S"),
@@ -1309,6 +1322,7 @@ class ProfitMt5FlowEngine:
             },
             "caminho_b": caminho_b_payload,
         }
+        return self._cached_payload
 
     def _poll_profit_rtd_files(self):
         return self._poll_profit_rtd_folder()

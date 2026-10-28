@@ -165,10 +165,21 @@ class OptionTickerState:
         self.sell_deals += int(np.sum(is_s))
         self.last = float(price_new[-1])
 
-        self.ts_arr = np.concatenate([self.ts_arr, ts_new])
-        self.vol_arr = np.concatenate([self.vol_arr, vol_new])
-        self.side_arr = np.concatenate([self.side_arr, side_new])
-        self.price_arr = np.concatenate([self.price_arr, price_new])
+        if len(self.ts_arr) == 0:
+            self.ts_arr = ts_new.copy()
+            self.vol_arr = vol_new.copy()
+            self.side_arr = side_new.copy()
+            self.price_arr = price_new.copy()
+        else:
+            self.ts_arr = np.concatenate([self.ts_arr, ts_new])
+            self.vol_arr = np.concatenate([self.vol_arr, vol_new])
+            self.side_arr = np.concatenate([self.side_arr, side_new])
+            self.price_arr = np.concatenate([self.price_arr, price_new])
+            if len(self.ts_arr) > 50000:
+                self.ts_arr = self.ts_arr[-50000:]
+                self.vol_arr = self.vol_arr[-50000:]
+                self.side_arr = self.side_arr[-50000:]
+                self.price_arr = self.price_arr[-50000:]
 
 
 class OptionsLiveRadarEngine:

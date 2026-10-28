@@ -351,6 +351,7 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
         if w['type'] == 'GammaFlip':
             flip_price = w['price']
             break
+    generate_gex_report(current_win, flip_price, walls, output_path="gex/docs/DAILY_REPORT.txt")
             
     
     # 6. Deploy Nelogica (Scalper + Profit + Clipboard) - Ambos os Formatos

@@ -137,19 +137,19 @@ export default function App() {
     const [compassData, setCompassData] = useState(null);
     const [gexWalls, setGexWalls] = useState([]);
     const [weights, setWeights] = useState({
-        "XP": -1,
-        "UBS": 1,
-        "BTG": -1,
-        "IDEAL": 1,
-        "GENIAL": -1,
-        "JPMORGAN": 1,
-        "TULLETT": 1,
-        "MERRILL": 1,
-        "GOLDMAN": 1,
-        "MORGAN": 1,
-        "CITI": 1,
+        "XP": 1,
+        "UBS": -1,
+        "BTG": 1,
+        "IDEAL": -1,
+        "GENIAL": 1,
+        "JPMORGAN": -1,
+        "TULLETT": -1,
+        "MERRILL": -1,
+        "GOLDMAN": -1,
+        "MORGAN": -1,
+        "CITI": -1,
         "ITAU": 0,
-        "BRADESCO": 1
+        "BRADESCO": -1
     });
     const [classifications, setClassifications] = useState({
         "XP": "dummy",
@@ -172,11 +172,12 @@ export default function App() {
     // Listener or Fetcher for GEX Walls
     useEffect(() => {
         if (import.meta.env.PROD) {
-            const wallsRef = ref(db, 'daily_levels/win_gex/walls');
+            const wallsRef = ref(db, 'daily_levels/win_gex');
             const unsub = onValue(wallsRef, (snapshot) => {
                 const data = snapshot.val();
                 if (data) {
-                    setGexWalls(data);
+                    const list = Array.isArray(data) ? data : (data.walls ? Object.values(data.walls) : Object.values(data));
+                    setGexWalls(list.filter(w => w && typeof w === 'object' && w.price !== undefined));
                 } else {
                     setGexWalls([]);
                 }
@@ -236,6 +237,7 @@ export default function App() {
                         setHistory(val.regime?.history || []);
                         if (val.performance && !val.performance.error) setPerf(val.performance);
                         if (val.di_regime && !val.di_regime.error) setDiData(val.di_regime);
+                        if (val.compass && val.compass.ok) setCompassData(val.compass);
                         setStatus("live");
                         setError(null);
                         if (val.regime?.last_update) {
@@ -300,9 +302,9 @@ export default function App() {
         }
     }, [selectedDate, isViewingHistory]);
 
-    // Polling rápido do fluxo (apenas local)
+    // Polling rápido do fluxo (apenas local e quando na aba STAT_ARB)
     useEffect(() => {
-        if (import.meta.env.PROD || isViewingHistory) return;
+        if (import.meta.env.PROD || isViewingHistory || workspaceTab !== "STAT_ARB") return;
         
         let active = true;
         async function pollFlow() {
@@ -319,9 +321,9 @@ export default function App() {
             }
         }
         pollFlow();
-        const t = setInterval(pollFlow, 250); // atualiza a cada 250ms (4x por segundo)
+        const t = setInterval(pollFlow, 1500); // atualiza a cada 1.5s
         return () => { active = false; clearInterval(t); };
-    }, [isViewingHistory]);
+    }, [isViewingHistory, workspaceTab]);
 
     useEffect(() => {
         if (import.meta.env.PROD || isViewingHistory) return;
@@ -342,7 +344,7 @@ export default function App() {
 
     // Polling do indicador sintético de fluxo em tempo real (apenas local e live)
     useEffect(() => {
-        if (isViewingHistory) return;
+        if (import.meta.env.PROD || isViewingHistory || workspaceTab !== "STAT_ARB") return;
         
         let active = true;
         async function pollRealtimeFlow() {
@@ -366,10 +368,11 @@ export default function App() {
         pollRealtimeFlow();
         const t = setInterval(pollRealtimeFlow, 2500); // 2.5s update frequency
         return () => { active = false; clearInterval(t); };
-    }, [isViewingHistory, flowWeights]);
+    }, [isViewingHistory, flowWeights, workspaceTab]);
 
-    // Fetch IAF history (both live and historical date)
+    // Fetch IAF history (both live and historical date, local only)
     useEffect(() => {
+        if (import.meta.env.PROD) return;
         let active = true;
         async function fetchIafHistory() {
             try {
@@ -458,15 +461,17 @@ export default function App() {
         if (!date) { setHistDayData(null); return; }
         setHistLoading(true);
         try {
-            let jsonHistory = [];
-            if (import.meta.env.PROD) {
-                const histRef = ref(db, 'history_30d');
-                const snapshot = await get(histRef);
-                jsonHistory = snapshot.val() || [];
-            } else {
-                const res = await fetch(`${API_HISTORY_URL}?days=30`);
-                const json = await res.json();
-                jsonHistory = json.history || [];
+            let jsonHistory = fullHistory;
+            if (!jsonHistory || jsonHistory.length === 0) {
+                if (import.meta.env.PROD) {
+                    const histRef = ref(db, 'history_30d');
+                    const snapshot = await get(histRef);
+                    jsonHistory = snapshot.val() || [];
+                } else {
+                    const res = await fetch(`${API_HISTORY_URL}?days=30`);
+                    const json = await res.json();
+                    jsonHistory = json.history || [];
+                }
             }
 
             if (jsonHistory.length) {
@@ -479,7 +484,7 @@ export default function App() {
             }
         } catch (e) { /* ignore */ }
         setHistLoading(false);
-    }, []);
+    }, [fullHistory]);
 
     useEffect(() => { fetchDayData(selectedDate); }, [selectedDate, fetchDayData]);
 
@@ -801,7 +806,8 @@ export default function App() {
                         }
                     }
                     const cls = classifications[b] || "none";
-                    if (cls === "smart") followedSum += val;
+                    if (cls === "smart") followedSum -= val;
+                    else if (cls === "dummy") followedSum += val;
                 });
                 timeToFPrice.set(t, followedSum);
             } else {
@@ -912,7 +918,7 @@ export default function App() {
             if (fsChart && fsCrosshairHandler) fsChart.unsubscribeCrosshairMove(fsCrosshairHandler);
             if (faChart && faCrosshairHandler) faChart.unsubscribeCrosshairMove(faCrosshairHandler);
         };
-    }, [paddedSignals, flowData, flowScore5mData, iafChartData, weights, classifications, meta, flowMode, workspaceTab]); // Re-bind when data, weights, or classifications update
+    }, [paddedSignals, flowData, flowScore5mData, iafChartData, weights, classifications, meta, flowMode, workspaceTab, isViewingHistory]); // Re-bind when data, weights, or classifications update
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -1017,7 +1023,7 @@ export default function App() {
                             borderRadius: 4, padding: "3px 10px",
                             transition: "background 0.3s, border-color 0.3s"
                         }}>
-                            <span className="text-xxs text-muted" style={{ letterSpacing: 2 }}>ANÃLISE</span>
+                            <span className="text-xxs text-muted" style={{ letterSpacing: 2 }}>ANÁLISE</span>
                             <span className="text-sm font-bold" style={{ color: flash ? "#c8a444" : "#8ca5b5", letterSpacing: 1, transition: "color 0.3s" }}>
                                 {lastUpdate}
                             </span>
@@ -1341,6 +1347,8 @@ export default function App() {
                     flowMode={flowMode}
                     setFlowMode={setFlowMode}
                 />
+
+                {perf && <PerformancePanel perf={perf} />}
 
 
 

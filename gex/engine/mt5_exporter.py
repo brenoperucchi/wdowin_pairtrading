@@ -203,6 +203,14 @@ def export_wdo_to_mt5_common(walls, ref_date=None, session_date=None, current_wd
         with open(os.path.join(target_dir, "jumba_gex_wdo_history.csv"), "w", encoding="ascii", errors="ignore") as f:
             f.write(hist_content)
 
+    try:
+        import json
+        gex_data_dir = os.path.join(project_root, "gex", "data")
+        os.makedirs(gex_data_dir, exist_ok=True)
+        with open(os.path.join(gex_data_dir, "jumba_gex_wdo_daily.json"), "w", encoding="utf-8") as jf:
+            json.dump({"session_date": session_date_str, "current_wdo": current_wdo, "walls": walls}, jf, indent=2)
+    except Exception:
+        pass
     print(f"      [MT5 WDO Exporter] Arquivos WDO atualizados em Common\\Files ({len(walls)} niveis hoje | {len(hist_map)} dias no historico)")
     return common_dir
 

@@ -201,6 +201,7 @@ const IndexChart = forwardRef(({ history, walls = [], hideXAxis = false }, ref) 
         
         if (Array.isArray(wallList)) {
             wallList.forEach(w => {
+                if (!w || !Number.isFinite(Number(w.price))) return;
                 // Map type to visual style
                 let lineStyle = LineStyle.Solid;
                 let axisLabel = true;
@@ -220,7 +221,7 @@ const IndexChart = forwardRef(({ history, walls = [], hideXAxis = false }, ref) 
                 }
 
                 const line = winSeries.createPriceLine({
-                    price: w.price,
+                    price: Number(w.price),
                     color: w.color,
                     lineWidth: w.width,
                     lineStyle,

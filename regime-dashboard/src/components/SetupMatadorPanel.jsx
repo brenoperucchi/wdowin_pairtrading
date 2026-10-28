@@ -108,14 +108,14 @@ export default function SetupMatadorPanel({ tradeEngine }) {
           <span>Force Close: <span style={{ color: "#f5a623" }}>17:30</span></span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {action === "CLOSE" && pnl !== null && (
+          {action === "CLOSE" && pnl != null && Number.isFinite(Number(pnl)) && (
             <span style={{
               fontSize: 11, fontWeight: "bold", padding: "3px 8px", borderRadius: 4,
-              background: pnl >= 0 ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)",
-              color: pnl >= 0 ? "#00e87a" : "#ff3860",
-              border: `1px solid ${pnl >= 0 ? "#00e87a44" : "#ff386044"}`,
+              background: Number(pnl) >= 0 ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)",
+              color: Number(pnl) >= 0 ? "#00e87a" : "#ff3860",
+              border: `1px solid ${Number(pnl) >= 0 ? "#00e87a44" : "#ff386044"}`,
             }}>
-              {pnl >= 0 ? "+" : ""}R${pnl.toFixed(2)}
+              {Number(pnl) >= 0 ? "+" : ""}R${Number(pnl).toFixed(2)}
             </span>
           )}
           <div style={{

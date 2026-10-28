@@ -1135,7 +1135,35 @@ public:
                  }
                m_trade.SetExpertMagicNumber(slot_magic);
                bool sent = false;
-               if(delta > 0.0)
+               // Se for reducao parcial de posicao existente no mesmo sentido, usa PositionClosePartial
+               if(actual_lots != 0.0 && MathAbs(target_lots) < MathAbs(actual_lots) && target_lots * actual_lots > 0.0)
+                 {
+                  double vol_reduce = MathRound(MathAbs(delta));
+                  for(int i=PositionsTotal()-1; i>=0 && vol_reduce >= 0.99; i--)
+                    {
+                     if(m_pos.SelectByIndex(i) && m_pos.Symbol() == _Symbol && m_pos.Magic() == slot_magic)
+                       {
+                        double pv = m_pos.Volume();
+                        if(pv <= vol_reduce + 0.01)
+                          {
+                           if(m_trade.PositionClose(m_pos.Ticket()))
+                             {
+                              vol_reduce -= pv;
+                              sent = true;
+                             }
+                          }
+                        else
+                          {
+                           if(m_trade.PositionClosePartial(m_pos.Ticket(), vol_reduce))
+                             {
+                              vol_reduce = 0.0;
+                              sent = true;
+                             }
+                          }
+                       }
+                    }
+                 }
+               else if(delta > 0.0)
                   sent = m_trade.Buy(MathRound(delta), _Symbol, 0.0, sl_srv, tp_srv, m_slots[k].name);
                else if(delta < 0.0)
                   sent = m_trade.Sell(MathRound(-delta), _Symbol, 0.0, sl_srv, tp_srv, m_slots[k].name);
@@ -1348,8 +1376,7 @@ public:
                      m_slots[k].be_active = false;
                      m_slots[k].max_fav_pts = 0.0;
                      m_slots[k].curr_tp = (d == 1) ? Round5(m_slots[k].avg_price + m_slots[k].tp_avg_pts) : Round5(m_slots[k].avg_price - m_slots[k].tp_avg_pts);
-                     if(k == 13 || k == 14)
-                        m_slots[k].curr_sl = (d == 1) ? Round5(m_slots[k].avg_price - m_slots[k].max_sl_pts) : Round5(m_slots[k].avg_price + m_slots[k].max_sl_pts);
+                     m_slots[k].curr_sl = (d == 1) ? Round5(m_slots[k].avg_price - m_slots[k].max_sl_pts) : Round5(m_slots[k].avg_price + m_slots[k].max_sl_pts);
                      PrintFormat("[JUMBA %s] GRID PERNA 2 ATIVADA | Total Lotes=%d | Novo PM=%.0f | Novo TP=%.0f | Novo SL=%.0f",
                                  m_slots[k].name, m_slots[k].lots, m_slots[k].avg_price, m_slots[k].curr_tp, m_slots[k].curr_sl);
                     }
@@ -1366,8 +1393,7 @@ public:
                      m_slots[k].be_active = false;
                      m_slots[k].max_fav_pts = 0.0;
                      m_slots[k].curr_tp = (d == 1) ? Round5(m_slots[k].avg_price + m_slots[k].tp_avg_pts) : Round5(m_slots[k].avg_price - m_slots[k].tp_avg_pts);
-                     if(k == 13 || k == 14)
-                        m_slots[k].curr_sl = (d == 1) ? Round5(m_slots[k].avg_price - m_slots[k].max_sl_pts) : Round5(m_slots[k].avg_price + m_slots[k].max_sl_pts);
+                     m_slots[k].curr_sl = (d == 1) ? Round5(m_slots[k].avg_price - m_slots[k].max_sl_pts) : Round5(m_slots[k].avg_price + m_slots[k].max_sl_pts);
                      PrintFormat("[JUMBA %s] GRID PERNA 3 ATIVADA | Total Lotes=%d | Novo PM=%.0f | Novo TP=%.0f | Novo SL=%.0f",
                                  m_slots[k].name, m_slots[k].lots, m_slots[k].avg_price, m_slots[k].curr_tp, m_slots[k].curr_sl);
                     }

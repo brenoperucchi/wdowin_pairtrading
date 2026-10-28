@@ -115,6 +115,14 @@ def _generate_pine_array_pushes(walls, ticker):
                         lbl += f" (FXY {w['strike_spy']})"
                     elif prefix == "dxy":
                         lbl += f" (UUP {w['strike_spy']})"
+                    elif prefix == "dax":
+                        lbl += f" (EWG {w['strike_spy']})"
+                    elif prefix == "jp":
+                        lbl += f" (EWJ {w['strike_spy']})"
+                    elif prefix == "rut":
+                        lbl += f" (IWM {w['strike_spy']})"
+                    elif prefix == "china":
+                        lbl += f" (FXI {w['strike_spy']})"
                     else:
                         lbl += f" (SPY {w['strike_spy']})"
             elif w_type == "MidWall":
@@ -192,12 +200,14 @@ def export_unified_tradingview(output_path):
                 print(f"[TV Exporter] Erro ao ler cache de {key}: {e}")
                 
     # Data padrão recomendada
-    ref_year, ref_month, ref_day = datetime.date.today().year, datetime.date.today().month, datetime.date.today().day
-    if dates_found:
-        latest_date_str = max(dates_found)
+    today_d = datetime.date.today()
+    ref_year, ref_month, ref_day = today_d.year, today_d.month, today_d.day
+    win_ref = loaded_caches.get("win", {}).get("ref_date")
+    if win_ref:
         try:
-            dt = datetime.datetime.strptime(latest_date_str, "%Y-%m-%d")
-            ref_year, ref_month, ref_day = dt.year, dt.month, dt.day
+            dt = datetime.datetime.strptime(str(win_ref)[:10], "%Y-%m-%d").date()
+            if dt <= today_d:
+                ref_year, ref_month, ref_day = dt.year, dt.month, dt.day
         except Exception:
             pass
             

@@ -350,7 +350,7 @@ def run_dow_gex_pipeline():
     print(f"      Relatório escrito em: {report_path}")
     
     # 5. Salvar cache para unificação
-    save_walls_to_cache(walls, ticker="dow_us30", ref_date=expiry_str)
+    save_walls_to_cache(walls, ticker="dow_us30", ref_date=today.isoformat())
     
     # 6. Re-compilar o indicador TradingView unificado
     tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")

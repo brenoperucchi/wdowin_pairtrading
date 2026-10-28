@@ -1,6 +1,15 @@
 {
   "rules": {
-    ".read": true,
-    ".write": false
+    ".read": false,
+    ".write": false,
+    "dashboard": {
+      ".read": true
+    },
+    "history_30d": {
+      ".read": true
+    },
+    "daily_levels": {
+      ".read": true
+    }
   }
 }
