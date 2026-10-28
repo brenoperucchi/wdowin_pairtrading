@@ -1,15 +1,15 @@
 =================================================================
-  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - RUSSELL 2000 / US2000
-  Vencimento de Referencia: 2026-10-27 | Data Ref: 27/10/2026
+  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - RUSSELL 2000 / US2000 (CBOE)
+  Vencimento de Referencia: 2026-10-28 (Multi-Exp: 15 vencs, Top OI: 2026-11-20) | Data Ref: 28/10/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Russell 2000 Spot/CFD Atual: 2789.95  (IWM Spot: $276.99)
-    Gamma Flip Point:           2788.63
-    Regime de Gamma:            POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:                ALTA / LATERALIZACAO
+    Russell 2000 Spot/CFD Atual: 2815.75  (RUT: 2818.87 | IWM: $279.83)
+    Gamma Flip Point:           2822.12
+    Regime de Gamma:            NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:                QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US2000 2780.14
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US2000 2788.63
-    [+] MAX GAMMA (Teto de Exaustao)      : US2000 2799.76
+    [-] MIN GAMMA (Piso de Queda Livre)   : US2000 2679.90
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US2000 2822.12
+    [+] MAX GAMMA (Teto de Exaustao)      : US2000 2913.53

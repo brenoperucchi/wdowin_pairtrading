@@ -1,33 +1,41 @@
 =================================================================
-  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GOLD / XAUUSD
-  Vencimento de Referencia: 2026-10-30 | Data Ref: 27/10/2026
+  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GOLD / XAUUSD (CBOE)
+  Vencimento de Referencia: 2026-10-28 (Multi-Exp: 15 vencs, Top OI: 2026-11-20) | Data Ref: 28/10/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    XAUUSD Spot Atual: $4002.91
-    Gamma Flip Point:  $3674.41
-    Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:       ALTA / LATERALIZACAO
-    Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
+    XAUUSD Spot Atual: $4047.12  (GLD: $371.60)
+    Gamma Flip Point:  $4100.64
+    Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
+    Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : XAUUSD $4027.54
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : XAUUSD $3674.41
-    [+] MAX GAMMA (Teto Gravitacional)    : XAUUSD $3746.59
+    [-] MIN GAMMA (Piso de Queda Livre)   : XAUUSD $3866.85
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : XAUUSD $4100.64
+    [+] MAX GAMMA (Teto Gravitacional)    : XAUUSD $4245.22
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE GLD   | EQUIVALENTE XAUUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $385.0        | 4189.88            | $              0.07M | Width 1
-  Wall       | $380.0        | 4135.46            | $              0.01M | Width 1
-  Wall       | $375.0        | 4081.05            | $              0.09M | Width 1
-  Wall       | $370.0        | 4026.63            | $             46.89M | Width 3
-  Wall       | $365.0        | 3972.22            | $             -0.37M | Width 2
-  Wall       | $360.0        | 3917.81            | $             -0.16M | Width 2
-  Wall       | $355.0        | 3863.39            | $             -0.00M | Width 1
-  Wall       | $350.0        | 3808.98            | $             -0.01M | Width 1
+  Wall       | $386.0        | 4218.30            | $              4.35M | Width 1
+  Wall       | $384.0        | 4196.44            | $             32.79M | Width 1
+  Wall       | $382.0        | 4174.58            | $              9.63M | Width 1
+  Wall       | $380.0        | 4152.73            | $             53.19M | Width 2
+  Wall       | $378.0        | 4130.87            | $              8.70M | Width 1
+  Wall       | $376.0        | 4109.01            | $             41.35M | Width 1
+  Wall       | $374.0        | 4087.16            | $              4.17M | Width 1
+  Wall       | $372.0        | 4065.30            | $             20.84M | Width 1
+  Wall       | $370.0        | 4043.44            | $            -24.84M | Width 1
+  Wall       | $368.0        | 4021.59            | $            -49.90M | Width 2
+  Wall       | $366.0        | 3999.73            | $            -11.14M | Width 1
+  Wall       | $364.0        | 3977.88            | $            -68.73M | Width 3
+  Wall       | $362.0        | 3956.02            | $             -3.87M | Width 1
+  Wall       | $360.0        | 3934.16            | $            -45.52M | Width 1
+  Wall       | $358.0        | 3912.31            | $             -2.47M | Width 1
+  Wall       | $356.0        | 3890.45            | $            -34.20M | Width 1
 -----------------------------------------------------------------
-Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest no ETF proxy GLD.
+Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE no ETF GLD.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
 =================================================================
