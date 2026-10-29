@@ -47,7 +47,6 @@ function FluxoRealAsgChart({
     const [panOffsetRight, setPanOffsetRight] = useState(0); // quantas barras deslocado do fim
     const [yZoomFactor, setYZoomFactor] = useState(1.0); // >1 abre mais o eixo Y para ver mais Walls do Pine
     const [showMidleWalls, setShowMidleWalls] = useState(true);
-    const [showPineLabels, setShowPineLabels] = useState(true);
     const [wallColorMode, setWallColorMode] = useState("PINE"); // "PINE" (#00e676 original) | "POLARIDADE"
     const [dragState, setDragState] = useState(null); // { type: 'PAN' | 'YSCALE', startX, startY, startPan, startYZoom }
 
@@ -287,23 +286,6 @@ function FluxoRealAsgChart({
                             }}
                         >
                             MidWalls
-                        </button>
-                        <button
-                            onClick={() => setShowPineLabels(v => !v)}
-                            title="Exibir/Ocultar rótulos MAGICWALL *** (IBOV/DOL) à direita dos candles"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: showPineLabels ? "rgba(41, 98, 255, 0.22)" : "transparent",
-                                color: showPineLabels ? "#82b1ff" : "#6b7c8c",
-                                border: showPineLabels ? "1px solid #2962ff88" : "1px solid transparent",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            Labels Pine
                         </button>
                         <span style={{ color: "#363c4e", margin: "0 2px" }}>|</span>
                         <button
@@ -634,10 +616,6 @@ function FluxoRealAsgChart({
                     const isDashed = w.style === "dashed" || isMid;
                     const hideRightAxisTag = Math.abs(yW - lastY) < 12;
 
-                    // Label idêntico ao `jumba_tradingview.pine`: `MAGICWALL ** (IBOV 178000) [180517]` posicionado à direita do último candle
-                    const pineLabelText = `${w.label || wType} [${fmtNum(w.price, dec)}]`;
-                    const labelX = Math.min(padL + plotW - 155, lastX + 18);
-
                     return (
                         <g key={`pine-wall-${i}`}>
                             <line
@@ -650,19 +628,6 @@ function FluxoRealAsgChart({
                                 strokeDasharray={isDashed ? "5,4" : "none"}
                                 opacity={isMid ? "0.55" : "0.90"}
                             />
-                            {/* Rótulo flutuante à direita dos candles (exatamente como `label.new(x=bar_index+12)` no jumba_tradingview.pine) */}
-                            {showPineLabels && !isMid && yW > p1Top + 12 && yW < p1Bot - 6 && (
-                                <text
-                                    x={labelX}
-                                    y={yW - 3.5}
-                                    fill={col}
-                                    fontSize="8.2"
-                                    fontWeight="bold"
-                                    fontFamily="monospace"
-                                >
-                                    {pineLabelText}
-                                </text>
-                            )}
                             {/* Etiqueta de Preço no Eixo Y Direito estilo TradingView */}
                             {!hideRightAxisTag && !isMid && (
                                 <g>
@@ -1349,8 +1314,13 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
     const dec = symKey === "WDO" ? 1 : 0;
     // WIN = R$ 0,20 por ponto por contrato | WDO = R$ 10,00 por ponto por contrato
     const brlPerPt = symKey === "WDO" ? 10.0 : 0.20;
-    const targetRef = Number(scorecard.target_ref_pts || (symKey === "WDO" ? 5.0 : 150));
-    const stopRef = Number(scorecard.stop_ref_pts || (symKey === "WDO" ? 4.5 : 130));
+    const targetRef = Number(scorecard.target_ref_pts || (symKey === "WDO" ? 12.0 : 250));
+    const stopRef = Number(scorecard.stop_ref_pts || (symKey === "WDO" ? 7.0 : 250));
+    const useBe = scorecard.use_be_protection !== undefined ? Boolean(scorecard.use_be_protection) : (symKey === "WDO");
+    const beTrigger = Number(scorecard.be_trigger_pts || (symKey === "WDO" ? 3.5 : 150));
+    const beLock = Number(scorecard.be_lock_pts || (symKey === "WDO" ? 1.0 : 50));
+    const timeStopMin = Number(scorecard.time_stop_min || (symKey === "WDO" ? 60 : 40));
+    const methodLabel = scorecard.methodology_label || (symKey === "WDO" ? "M2 · Alinhada ASG" : "M1 · Pura (Wall + Fluxo)");
 
     // Ordenar sinais em ordem cronológica (09:00 -> atual)
     const chronoSignals = [...signalsLog].reverse();
@@ -1379,22 +1349,25 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
     chronoSignals.forEach((sig, i) => {
         let tradePts = 0;
         const st = String(sig.validation_status || "");
-        if (st === "VALIDO_ALVO") {
+        if (st === "EM_ANDAMENTO") {
+            // Operação aberta (barra fechada confirmada, aguardando Alvo/Stop/30m): não altera capital realizado até encerrar
+            tradePts = 0;
+        } else if (sig.realized_pts !== undefined && sig.realized_pts !== null) {
+            tradePts = Number(sig.realized_pts);
+        } else if (st === "VALIDO_ALVO") {
             tradePts = targetRef;
-        } else if (st === "VALIDO_FAVORAVEL") {
-            tradePts = Math.max(Number(sig.pnl_15m || 0), Math.round(Number(sig.mfe_30m || 0) * 0.6));
-            if (tradePts <= 0) tradePts = Math.round(targetRef * 0.45);
         } else if (st === "INVALIDO_STOP") {
             tradePts = -stopRef;
+        } else if (st === "VALIDO_FAVORAVEL") {
+            tradePts = Number(sig.pnl_30m ?? sig.pnl_15m ?? Math.round(targetRef * 0.45));
         } else if (st === "INVALIDO_CONTRA") {
-            tradePts = Math.min(Number(sig.pnl_15m || 0), -Math.round(stopRef * 0.5));
-            if (tradePts >= 0) tradePts = -Math.round(stopRef * 0.5);
-        } else {
-            tradePts = Number(sig.pnl_15m ?? sig.pnl_5m ?? 0);
+            tradePts = Number(sig.pnl_30m ?? sig.pnl_15m ?? -Math.round(stopRef * 0.5));
         }
 
-        if (tradePts >= 0) grossGainPts += tradePts;
-        else grossLossPts += Math.abs(tradePts);
+        if (st !== "EM_ANDAMENTO") {
+            if (tradePts >= 0) grossGainPts += tradePts;
+            else grossLossPts += Math.abs(tradePts);
+        }
 
         cumPts += tradePts;
         if (cumPts > peakPts) peakPts = cumPts;
@@ -1415,6 +1388,7 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
             cumPts,
             cumBrl,
             isGain: tradePts >= 0,
+            isOpen: st === "EM_ANDAMENTO",
             statusLabel: sig.validation_label || "Em andamento",
         });
     });
@@ -1475,6 +1449,18 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                     <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#ffffff", letterSpacing: 0.8 }}>
                         💰 CAPITAL DAS OPERAÇÕES DO DIA
                     </span>
+                    <span style={{
+                        fontSize: 7.5,
+                        fontFamily: "monospace",
+                        color: "#00e676",
+                        background: "rgba(0, 230, 118, 0.10)",
+                        border: "1px solid rgba(0, 230, 118, 0.30)",
+                        padding: "1px 5px",
+                        borderRadius: 4,
+                        fontWeight: "bold",
+                    }}>
+                        🔒 BARRA FECHADA
+                    </span>
                 </div>
                 <div style={{ display: "flex", gap: 4 }}>
                     {(symKey === "WDO" ? [1, 2, 5] : [1, 5, 10]).map(c => (
@@ -1496,6 +1482,45 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                             {c} {c === 1 ? "Contr." : "Contr."}
                         </button>
                     ))}
+                </div>
+            </div>
+
+            {/* Faixa de Parâmetros Operacionais Otimizados (TP / SL / BE / Metodologia) */}
+            <div style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1.3fr 1.2fr",
+                gap: 5,
+                background: "#050910",
+                border: "1px solid #162636",
+                borderRadius: 7,
+                padding: "5px 8px",
+                fontFamily: "monospace",
+            }}>
+                <div>
+                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>ALVO (TP)</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 900, color: "#00e87a" }}>
+                        +{fmtNum(targetRef, dec)}p <span style={{ fontSize: 8, color: "#7f96a8", fontWeight: "normal" }}>(+R$ {fmtNum(targetRef * brlPerPt * contracts, 0)})</span>
+                    </div>
+                </div>
+                <div>
+                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>STOP (SL)</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 900, color: "#ff3860" }}>
+                        -{fmtNum(stopRef, dec)}p <span style={{ fontSize: 8, color: "#7f96a8", fontWeight: "normal" }}>(-R$ {fmtNum(stopRef * brlPerPt * contracts, 0)})</span>
+                    </div>
+                </div>
+                <div>
+                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>BREAK-EVEN (BE)</div>
+                    <div style={{ fontSize: 9.5, fontWeight: "bold", color: useBe ? "#ffd600" : "#8ca5b5" }}>
+                        {useBe
+                            ? `+${fmtNum(beLock, dec)}p (após +${fmtNum(beTrigger, dec)}p)`
+                            : `OFF · OCO 1:1 (${timeStopMin}m)`}
+                    </div>
+                </div>
+                <div>
+                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>METODOLOGIA</div>
+                    <div style={{ fontSize: 9, fontWeight: "bold", color: "#00d4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {methodLabel}
+                    </div>
                 </div>
             </div>
 
@@ -1555,7 +1580,7 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                     const cx = toX(i);
                     const cy = toY(pt.cumBrl);
                     const isSel = pt.id && selectedSigId === pt.id;
-                    const dotCol = i === 0 ? "#00d4ff" : pt.isGain ? "#00e87a" : "#ff3860";
+                    const dotCol = i === 0 ? "#00d4ff" : pt.isOpen ? "#ffd600" : pt.isGain ? "#00e87a" : "#ff3860";
                     return (
                         <g
                             key={`eq-pt-${i}`}
@@ -1616,10 +1641,12 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                 border: "1px solid #142230",
             }}>
                 <span style={{ color: "#8ca5b5" }}>
-                    🕒 {inspected.time} · <strong style={{ color: inspected.isGain ? "#00e87a" : "#ff3860" }}>{inspected.dirLabel}</strong>
+                    🕒 {inspected.time} · <strong style={{ color: inspected.isOpen ? "#ffd600" : (inspected.isGain ? "#00e87a" : "#ff3860") }}>{inspected.dirLabel}</strong>
                 </span>
-                <span style={{ color: inspected.tradeBrl >= 0 ? "#00e87a" : "#ff6b8b", fontWeight: "bold" }}>
-                    Trade: {inspected.tradeBrl >= 0 ? "+" : ""}R$ {fmtNum(inspected.tradeBrl, 0)} ({fmtNum(inspected.tradePts, dec, true)}p)
+                <span style={{ color: inspected.isOpen ? "#ffd600" : (inspected.tradeBrl >= 0 ? "#00e87a" : "#ff6b8b"), fontWeight: "bold" }}>
+                    {inspected.isOpen
+                        ? "⏳ EM ABERTO (Aguardando Alvo/Stop)"
+                        : `Trade: ${inspected.tradeBrl >= 0 ? "+" : ""}R$ ${fmtNum(inspected.tradeBrl, 0)} (${fmtNum(inspected.tradePts, dec, true)}p)`}
                 </span>
             </div>
         </div>
