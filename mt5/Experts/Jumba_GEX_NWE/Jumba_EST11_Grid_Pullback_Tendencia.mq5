@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST11_Grid_Pullback_Tendencia.mq5
-//| EST-11 [Grid Pullback Tendencia] 1+2 Lotes NWE
+//| EST-11 [NOVO-4 Stop Barra[1](2b) Hibrido + BE_Wall(25) + TP_MidWall 2C] (Ret/DD 3.00)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-11 [Grid Pullback Tendencia] 1+2 Lotes NWE"
-#property version   "1.00"
+#property description "EST-11 [NOVO-4 Stop Barra[1](2b) Hibrido + BE_Wall(25) + TP_MidWall 2C] (Ret/DD 3.00)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

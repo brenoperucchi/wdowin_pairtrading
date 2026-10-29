@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST01_Scalper_Hibrido_NY.mq5
-//| EST-01 [Scalper Limit+Mkt] Hibrido NY (10h-16h30)
+//| EST-01 [3-Pilares BE_Wall(25) + TP_MainWall] Scalper Hibrido NY (Ret/DD 6.90)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-01 [Scalper Limit+Mkt] Hibrido NY (10h-16h30)"
-#property version   "1.00"
+#property description "EST-01 [3-Pilares BE_Wall(25) + TP_MainWall] Scalper Hibrido NY (Ret/DD 6.90)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

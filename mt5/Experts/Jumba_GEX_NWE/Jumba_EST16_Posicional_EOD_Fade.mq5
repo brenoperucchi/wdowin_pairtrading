@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST16_Posicional_EOD_Fade.mq5
-//| EST-16 [Posicional EOD] Extreme Fade Matinal -> 17h15
+//| EST-16 [NOVO-3 Rolling Stop Barra[1] Slope + BE_2Stage(25) + Parcial Mid/Main 2C] (Ret/DD 3.63)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-16 [Posicional EOD] Extreme Fade Matinal -> 17h15"
-#property version   "1.00"
+#property description "EST-16 [NOVO-3 Rolling Stop Barra[1] Slope + BE_2Stage(25) + Parcial Mid/Main 2C] (Ret/DD 3.63)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

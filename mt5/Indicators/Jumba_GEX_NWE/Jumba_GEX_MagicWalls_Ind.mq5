@@ -1,23 +1,73 @@
 ﻿//+------------------------------------------------------------------+
 //|                                     Jumba_GEX_MagicWalls_Ind.mq5 |
-//|   Indicador Visual Standalone das MagicWalls Diárias (Common)    |
+//|   Indicador Visual das MagicWalls Diarias (WIN e WDO Automatico) |
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property version   "1.00"
+#property version   "3.30"
 #property indicator_chart_window
 #property indicator_buffers 1
 #property indicator_plots   1
 #property indicator_type1   DRAW_NONE
 
-input bool InpShowWallLabels = true; // Mostrar Rótulos das Walls no Gráfico
+input int  InpHistoryDays    = 0;    // Dias de Historico (0 = Todos + HLINE no Dia Atual)
+input bool InpShowWallLabels = true; // Mostrar Rótulos e Preço no Eixo Direito
 
 double DummyBuf[];
 string g_last_date = "";
 
+struct SIndGexItem
+  {
+   string            date;
+   string            type;
+   double            price;
+   int               width;
+  };
+
+bool IsWdoChart()
+  {
+   string s = _Symbol;
+   StringToUpper(s);
+   return (StringFind(s, "WDO") >= 0 || StringFind(s, "DOL") >= 0);
+  }
+
+string GetDateStr(datetime t)
+  {
+   MqlDateTime dt;
+   TimeToStruct(t, dt);
+   return StringFormat("%04d-%02d-%02d", dt.year, dt.mon, dt.day);
+  }
+
+datetime DateToSessionTime(string d_iso, string hhmm)
+  {
+   string d_dot = d_iso;
+   StringReplace(d_dot, "-", ".");
+   return StringToTime(d_dot + " " + hhmm);
+  }
+
+void AddUniqueDate(string &dates[], string d)
+  {
+   int n = ArraySize(dates);
+   for(int i=0; i<n; i++)
+      if(dates[i] == d)
+         return;
+   ArrayResize(dates, n + 1);
+   dates[n] = d;
+  }
+
 int OnInit()
   {
    SetIndexBuffer(0, DummyBuf, INDICATOR_CALCULATIONS);
-   IndicatorSetString(INDICATOR_SHORTNAME, "Jumba GEX MagicWalls");
+   IndicatorSetString(INDICATOR_SHORTNAME, "Jumba GEX MagicWalls (WIN/WDO)");
+   ChartSetInteger(0, CHART_SCALEFIX, false);
+   datetime t_ref = TimeCurrent();
+   if(t_ref <= 0)
+      t_ref = TimeTradeServer();
+   if(t_ref <= 0)
+      t_ref = TimeLocal();
+   string d_str = GetDateStr(t_ref);
+   DrawDailyWalls(d_str);
+   g_last_date = d_str;
+   ChartRedraw(0);
    return(INIT_SUCCEEDED);
   }
 
@@ -26,102 +76,29 @@ void OnDeinit(const int reason)
    ObjectsDeleteAll(0, "JUMBA_IND_GEX_");
   }
 
-void DrawDailyWalls(string target_date)
+void StyleWallObject(string name, string wtype, double price, int width, bool is_wdo, string d_iso)
   {
-   ObjectsDeleteAll(0, "JUMBA_IND_GEX_");
-   int idx = 0;
-
-   // 1. Tenta ler jumba_gex_win_daily.csv em Common\Files
-   int h = FileOpen("jumba_gex_win_daily.csv", FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
-   bool found = false;
-   if(h != INVALID_HANDLE)
+   ObjectSetInteger(0, name, OBJPROP_BACK, true);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   if(InpShowWallLabels)
      {
-      while(!FileIsEnding(h))
-        {
-         string line = FileReadString(h);
-         if(StringLen(line) < 5 || StringFind(line, "session_date") >= 0)
-            continue;
-         string parts[];
-         if(StringSplit(line, ';', parts) >= 5)
-           {
-            if(parts[0] == target_date || parts[1] == target_date)
-              {
-               CreateWallLine(idx++, parts[2], StringToDouble(parts[3]), (int)StringToInteger(parts[4]));
-               found = true;
-              }
-           }
-        }
-      FileClose(h);
+      string tip = is_wdo ? StringFormat("[%s] %s @ %.1f (W=%d)", d_iso, wtype, price, width)
+                          : StringFormat("[%s] %s @ %.0f (W=%d)", d_iso, wtype, price, width);
+      ObjectSetString(0, name, OBJPROP_TOOLTIP, tip);
      }
-
-   // 2. Fallback: jumba_gex_win_history.csv (última data <= target_date)
-   if(!found)
-     {
-      int hh = FileOpen("jumba_gex_win_history.csv", FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
-      if(hh != INVALID_HANDLE)
-        {
-         string best_d = "";
-         string types[];
-         double prices[];
-         int widths[];
-         while(!FileIsEnding(hh))
-           {
-            string line = FileReadString(hh);
-            if(StringLen(line) < 5 || StringFind(line, "session_date") >= 0)
-               continue;
-            string parts[];
-            if(StringSplit(line, ';', parts) >= 4)
-              {
-               string d = parts[0];
-               if(d <= target_date)
-                 {
-                  if(d > best_d)
-                    {
-                     best_d = d;
-                     ArrayResize(types, 0);
-                     ArrayResize(prices, 0);
-                     ArrayResize(widths, 0);
-                    }
-                  if(d == best_d)
-                    {
-                     int n = ArraySize(types);
-                     ArrayResize(types, n + 1);
-                     ArrayResize(prices, n + 1);
-                     ArrayResize(widths, n + 1);
-                     types[n] = parts[1];
-                     prices[n] = StringToDouble(parts[2]);
-                     widths[n] = (int)StringToInteger(parts[3]);
-                    }
-                 }
-              }
-           }
-         FileClose(hh);
-         for(int k=0; k<ArraySize(types); k++)
-            CreateWallLine(idx++, types[k], prices[k], widths[k]);
-        }
-     }
-  }
-
-void CreateWallLine(int idx, string wtype, double price, int width)
-  {
-   if(price <= 0.0)
-      return;
-   string name = StringFormat("JUMBA_IND_GEX_%s_%d", wtype, idx);
-   ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
-   ObjectSetString(0, name, OBJPROP_TOOLTIP, StringFormat("%s @ %.0f (W=%d)", wtype, price, width));
-   if(wtype == "Wall")
+   if(wtype == "Wall" || wtype == "wall")
      {
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrDarkOrange);
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
      }
-   else if(wtype == "MidWall")
+   else if(wtype == "MidWall" || wtype == "mid_wall")
      {
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrDodgerBlue);
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
      }
-   else if(wtype == "GammaFlip")
+   else if(wtype == "GammaFlip" || wtype == "gamma_flip")
      {
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrMagenta);
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
@@ -133,6 +110,126 @@ void CreateWallLine(int idx, string wtype, double price, int width)
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
      }
+  }
+
+void DrawDailyWalls(string target_date)
+  {
+   ObjectsDeleteAll(0, "JUMBA_IND_GEX_");
+
+   bool is_wdo = IsWdoChart();
+   string daily_csv = is_wdo ? "jumba_gex_wdo_daily.csv" : "jumba_gex_win_daily.csv";
+   string hist_csv  = is_wdo ? "jumba_gex_wdo_history.csv" : "jumba_gex_win_history.csv";
+
+   SIndGexItem items[];
+   string all_dates[];
+
+   // 1. Le historico
+   int hh = FileOpen(hist_csv, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(hh == INVALID_HANDLE)
+      hh = FileOpen(hist_csv, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_TXT|FILE_ANSI);
+   if(hh != INVALID_HANDLE)
+     {
+      while(!FileIsEnding(hh))
+        {
+         string line = FileReadString(hh);
+         if(StringLen(line) < 5 || StringFind(line, "session_date") >= 0)
+            continue;
+         string parts[];
+         int cnt = StringSplit(line, ';', parts);
+         if(cnt >= 4)
+           {
+            string d = parts[0];
+            if(d <= target_date)
+              {
+               int n = ArraySize(items);
+               ArrayResize(items, n + 1);
+               items[n].date  = d;
+               items[n].type  = parts[1];
+               items[n].price = StringToDouble(parts[2]);
+               items[n].width = (int)StringToInteger(parts[3]);
+               AddUniqueDate(all_dates, d);
+              }
+           }
+        }
+      FileClose(hh);
+     }
+
+   // 2. Complementa com daily_csv
+   int hd = FileOpen(daily_csv, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(hd == INVALID_HANDLE)
+      hd = FileOpen(daily_csv, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_TXT|FILE_ANSI);
+   if(hd != INVALID_HANDLE)
+     {
+      string daily_added_date = "";
+      bool already_in_hist = false;
+      while(!FileIsEnding(hd))
+        {
+         string line = FileReadString(hd);
+         if(StringLen(line) < 5 || StringFind(line, "session_date") >= 0)
+            continue;
+         string parts[];
+         int cnt = StringSplit(line, ';', parts);
+         string d = "";
+         string tp = "";
+         double pr = 0.0;
+         int wd = 1;
+         if(cnt >= 5)
+           {
+            d  = parts[0];
+            tp = parts[2];
+            pr = StringToDouble(parts[3]);
+            wd = (int)StringToInteger(parts[4]);
+           }
+         else if(cnt == 4)
+           {
+            d  = parts[0];
+            tp = parts[1];
+            pr = StringToDouble(parts[2]);
+            wd = (int)StringToInteger(parts[3]);
+           }
+         if(d != "" && d <= target_date)
+           {
+            if(daily_added_date == "")
+              {
+               daily_added_date = d;
+               for(int i=0; i<ArraySize(all_dates); i++)
+                  if(all_dates[i] == d)
+                     already_in_hist = true;
+              }
+            if(!already_in_hist && d == daily_added_date)
+              {
+               int n = ArraySize(items);
+               ArrayResize(items, n + 1);
+               items[n].date  = d;
+               items[n].type  = tp;
+               items[n].price = pr;
+               items[n].width = wd;
+               AddUniqueDate(all_dates, d);
+              }
+           }
+        }
+      FileClose(hd);
+     }
+
+   int total_dates = ArraySize(all_dates);
+   if(total_dates == 0)
+      return;
+
+   string last_date = all_dates[total_dates - 1];
+   int idx = 0;
+
+   // Para o dia atual (last_date), desenha OBJ_HLINE (exibe etiqueta de preco na direita e NUNCA achata a escala vertical do grafico!)
+   for(int i=0; i<ArraySize(items); i++)
+     {
+      if(items[i].date != last_date)
+         continue;
+      if(items[i].price <= 0.0)
+         continue;
+      string name = StringFormat("JUMBA_IND_GEX_HLINE_%s_%d", items[i].type, idx++);
+      ObjectCreate(0, name, OBJ_HLINE, 0, 0, items[i].price);
+      StyleWallObject(name, items[i].type, items[i].price, items[i].width, is_wdo, items[i].date);
+     }
+   ChartRedraw(0);
   }
 
 int OnCalculate(const int rates_total,
@@ -148,9 +245,13 @@ int OnCalculate(const int rates_total,
   {
    if(rates_total < 1)
       return(0);
-   MqlDateTime dt;
-   TimeToStruct(time[rates_total - 1], dt);
-   string d_str = StringFormat("%04d-%02d-%02d", dt.year, dt.mon, dt.day);
+   string d_str = GetDateStr(time[rates_total - 1]);
+   if(!MQLInfoInteger(MQL_TESTER))
+     {
+      string d_loc = GetDateStr(TimeLocal());
+      if(d_loc > d_str)
+         d_str = d_loc;
+     }
    if(d_str != g_last_date)
      {
       DrawDailyWalls(d_str);

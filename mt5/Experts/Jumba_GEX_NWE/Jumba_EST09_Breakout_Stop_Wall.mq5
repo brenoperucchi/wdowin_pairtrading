@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST09_Breakout_Stop_Wall.mq5
-//| EST-09 [Breakout Stop] Aceleracao Buy/Sell Stop Wall
+//| EST-09 [Mantido Original] Breakout Stop & Limit Wall NY (Ret/DD 4.53)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-09 [Breakout Stop] Aceleracao Buy/Sell Stop Wall"
-#property version   "1.00"
+#property description "EST-09 [Mantido Original] Breakout Stop & Limit Wall NY (Ret/DD 4.53)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

@@ -19,6 +19,8 @@ MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
 def _detect_active_wdo():
     """
     Detecta automaticamente o contrato WDO futuro ativo com maior volume.
+    Antes das 09h00 (quando session_deals == 0), usa o volume da última barra diária (D1)
+    para nunca escolher um contrato longo sem liquidez (ex: WDOF27).
     """
     syms = mt5.symbols_get("WDO*")
     if not syms:
@@ -26,18 +28,27 @@ def _detect_active_wdo():
         
     best = None
     best_score = -1
+    now_ts = datetime.datetime.now().timestamp()
     
     for s in syms:
         # Apenas contratos normais tipo WDOM26, WDOQ26, etc.
         if not re.match(r'^WDO[A-Z]\d{2}$', s.name):
+            continue
+        if getattr(s, "expiration_time", 0) > 0 and s.expiration_time < now_ts - 86400:
             continue
             
         mt5.symbol_select(s.name, True)
         tick = mt5.symbol_info_tick(s.name)
         if tick is None or tick.last == 0:
             continue
+        if tick.time > 0 and (now_ts - tick.time) > 10 * 86400:
+            continue
             
-        score = s.session_deals
+        score = int(getattr(s, "session_deals", 0) or 0) * 1_000_000
+        if score == 0:
+            rates = mt5.copy_rates_from_pos(s.name, mt5.TIMEFRAME_D1, 0, 2)
+            if rates is not None and len(rates) > 0:
+                score = int(rates[-1]["tick_volume"])
         if score > best_score:
             best_score = score
             best = s.name

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 
 function fmtNum(v, decimals = 0, showSign = false) {
     if (v === undefined || v === null || Number.isNaN(Number(v))) return "—";
@@ -14,135 +14,196 @@ function scoreColor(score) {
     return "#f5a623";
 }
 
-function stateBadgeStyle(state) {
-    const st = String(state || "");
-    if (st.includes("SUPORTE") || st.includes("ALTISTA")) {
-        return { bg: "rgba(0, 232, 122, 0.14)", border: "#00e87a", color: "#00e87a" };
-    }
-    if (st.includes("RESISTENCIA") || st.includes("BAIXISTA")) {
-        return { bg: "rgba(255, 56, 96, 0.14)", border: "#ff3860", color: "#ff3860" };
-    }
-    if (st.includes("CONFLITO")) {
-        return { bg: "rgba(245, 166, 35, 0.15)", border: "#f5a623", color: "#f5a623" };
-    }
-    return { bg: "rgba(0, 212, 255, 0.12)", border: "#00d4ff", color: "#00d4ff" };
-}
-
-/* ── BARRA BIPOLAR HORIZONTAL (VENDEDORES ◄ 0 ► COMPRADORES) ─────────────────── */
-function BipolarForceBar({ score, leftLabel = "Vendedora", rightLabel = "Compradora" }) {
-    const s = Math.max(-100, Math.min(100, Number(score || 0)));
-    const col = scoreColor(s);
-    const pct = Math.abs(s) / 2;
-    const leftPct = s >= 0 ? 50 : 50 - pct;
-
-    return (
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            <div style={{ position: "relative", height: 8, background: "#070c11", borderRadius: 4, border: "1px solid #1c2d3d", overflow: "hidden" }}>
-                <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1.5, background: "#4a6478", zIndex: 2 }} />
-                <div
-                    style={{
-                        position: "absolute",
-                        left: `${leftPct}%`,
-                        width: `${pct}%`,
-                        top: 0,
-                        bottom: 0,
-                        background: col,
-                        boxShadow: `0 0 8px ${col}88`,
-                        transition: "all 0.25s ease",
-                    }}
-                />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "#5c768a" }}>
-                <span>◄ {leftLabel}</span>
-                <span>Neutro (0)</span>
-                <span>{rightLabel} ►</span>
-            </div>
-        </div>
-    );
-}
-
-/* ── GRÁFICO PRINCIPAL DE PREÇO M5 + MAGICWALLS + SINAIS NO TEMPO ───────────── */
-function IntradayPriceSignalsChart({
+/* ══════════════════════════════════════════════════════════════════════════════
+   1. GRÁFICO TRIPLO SINCRONIZADO ESTILO TRADINGVIEW ("FLUXO REAL + PINE GEX")
+      - Visual Oficial TradingView Dark (#131722, grade #1e222d, Crosshair com tags de Preço/Hora)
+      - Zoom no Scroll do Mouse + Pan Horizontal no Arraste + Zoom Vertical na Escala Y
+      - Walls carregadas diretamente de `gex/docs/jumba_tradingview.pine`:
+        * MAGICWALL * / ** / *** (#00e676 sólida, espessura 1/2/3)
+        * MIDLEWALL (#90a4ae tracejada, espessura 1)
+        * GAMMA FLIP (Pivot) (#ffd600 sólida)
+        * MAX GAMMA (Teto) (#00b0ff) / MIN GAMMA (Piso) (#ff1744)
+      - Painel 1 (Topo): Preço M5 pintado pelo Fluxo A.S.G + Pine Walls + Regiões de Defesa + Setas ▲/▼
+      - Painel 2 (Meio): Fluxo Institucional CVD em bolinhas graduadas por peso do lote
+      - Painel 3 (Base): Histograma Linha Zero + Linhas Douradas de Virada de Janela
+   ══════════════════════════════════════════════════════════════════════════════ */
+function FluxoRealAsgChart({
     symKey,
-    series,
-    wallsRadar,
+    series: rawSeries,
+    flowWindows = [],
+    asgHud = {},
+    wallsRadar = {},
+    allWalls = [],
     vwap,
     selectedSigId,
     onSelectSignal,
-    height = 280,
+    showSignalsMarkers = true,
 }) {
+    const svgRef = useRef(null);
+    const [hoverPos, setHoverPos] = useState(null); // { idx, relX, relY }
+    const [rightGapPx, setRightGapPx] = useState(145);
+    const [viewMode, setViewMode] = useState("RECENTE"); // "RECENTE" | "HOJE" | "TUDO" | "CUSTOM"
+    const [visibleCount, setVisibleCount] = useState(48);
+    const [panOffsetRight, setPanOffsetRight] = useState(0); // quantas barras deslocado do fim
+    const [yZoomFactor, setYZoomFactor] = useState(1.0); // >1 abre mais o eixo Y para ver mais Walls do Pine
+    const [showMidleWalls, setShowMidleWalls] = useState(true);
+    const [showPineLabels, setShowPineLabels] = useState(true);
+    const [wallColorMode, setWallColorMode] = useState("PINE"); // "PINE" (#00e676 original) | "POLARIDADE"
+    const [dragState, setDragState] = useState(null); // { type: 'PAN' | 'YSCALE', startX, startY, startPan, startYZoom }
+
     const dec = symKey === "WDO" ? 1 : 0;
 
-    if (!series || series.length < 2) {
+    if (!rawSeries || rawSeries.length < 1) {
         return (
             <div style={{
-                height,
+                height: 540,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "#5c768a",
-                fontSize: 12,
-                background: "#070c12",
-                borderRadius: 8,
-                border: "1px solid #162432",
+                color: "#787b86",
+                fontSize: 13,
+                background: "#131722",
+                borderRadius: 10,
+                border: "1px solid #2a2e39",
             }}>
-                Aguardando histórico M5 da sessão para plotar o mapa de preço e sinais...
+                Aguardando histórico M5 da sessão para plotar o Gráfico TradingView Fluxo Real + Pine GEX...
             </div>
         );
     }
 
-    const width = 760;
-    const padL = 14;
-    const padR = 68;
-    const padT = 24;
-    const padB = 26;
-    const plotW = width - padL - padR;
-    const plotH = height - padT - padB;
+    const indexedSeries = rawSeries.map((pt, i) => ({ ...pt, _origIdx: i }));
+    const hasPrevDayWarmup = indexedSeries.some(pt => pt.is_prev_day) && indexedSeries.some(pt => !pt.is_prev_day);
 
+    let baseSeries = indexedSeries;
+    if (viewMode === "HOJE" && hasPrevDayWarmup) {
+        baseSeries = indexedSeries.filter(pt => !pt.is_prev_day);
+    }
+    if (baseSeries.length < 1) baseSeries = indexedSeries;
+
+    const totalBase = baseSeries.length;
+    const effCount = viewMode === "TUDO"
+        ? totalBase
+        : Math.max(14, Math.min(totalBase, visibleCount));
+    const maxPan = Math.max(0, totalBase - effCount);
+    const clampedPan = Math.max(0, Math.min(maxPan, panOffsetRight));
+    const endSlice = totalBase - clampedPan;
+    const startSlice = Math.max(0, endSlice - effCount);
+    const series = baseSeries.slice(startSlice, endSlice);
+
+    const width = 900;
+    const height = 500;
+    const padL = 10;
+    const padR = 118; // Eixo Y estilo TradingView à direita
+
+    // 3 Painéis Verticais Sincronizados estilo TradingView:
+    // Painel 1 (Preço + Pine GEX Walls): Y de 14 até 322 (altura 308)
+    // Painel 2 (Fluxo CVD Institucional): Y de 330 até 396 (altura 66)
+    // Painel 3 (Janelas de Fluxo A.S.G): Y de 404 até 474 (altura 70)
+    const p1Top = 14, p1H = 308, p1Bot = p1Top + p1H;
+    const p2Top = 330, p2H = 66, p2Bot = p2Top + p2H;
+    const p3Top = 404, p3H = 70, p3Bot = p3Top + p3H;
+    const plotW = width - padL - padR;
+
+    const innerPadL = 16;
+    const usableW = Math.max(180, plotW - innerPadL - rightGapPx);
+    const n = series.length;
+    const totalSlots = Math.max(n - 1, 20);
+    const stepX = usableW / Math.max(1, totalSlots);
+    const candleW = Math.max(3.2, Math.min(10.5, stepX * 0.70));
+    const toX = (idx) => padL + innerPadL + (idx / Math.max(1, totalSlots)) * usableW;
+    const firstTodayLocalIdx = series.findIndex((pt, i) => i > 0 && !pt.is_prev_day && series[i - 1]?.is_prev_day);
+
+    // ── Escala Y do Painel 1 (Preço + Walls do jumba_tradingview.pine) ──
     let minP = Infinity;
     let maxP = -Infinity;
     series.forEach(pt => {
-        const l = Number(pt.low || pt.close || 0);
-        const h = Number(pt.high || pt.close || 0);
+        const l = Number(pt.low || pt.close);
+        const h = Number(pt.high || pt.close);
         if (l > 0 && l < minP) minP = l;
         if (h > 0 && h > maxP) maxP = h;
     });
 
-    // Inclui a 1ª parede de suporte e 1ª de resistência no cálculo do zoom para o corredor ficar sempre visível
+    // Inclui automaticamente a MagicWall/MidWall imediata de suporte e resistência na janela inicial
     const sup0 = wallsRadar?.support_walls?.[0]?.price;
     const res0 = wallsRadar?.resistance_walls?.[0]?.price;
-    if (sup0 && sup0 > 0 && (minP - sup0) <= (maxP - minP) * 0.45) {
-        minP = Math.min(minP, sup0);
+    const rngRaw = Math.max(1, maxP - minP);
+    if (sup0 && sup0 > 0 && (minP - sup0) <= rngRaw * 0.45) minP = Math.min(minP, sup0);
+    if (res0 && res0 > 0 && (res0 - maxP) <= rngRaw * 0.45) maxP = Math.max(maxP, res0);
+
+    const midP = (maxP + minP) / 2;
+    const halfSpan = Math.max(symKey === "WDO" ? 6 : 180, ((maxP - minP) / 2) * 1.15 * yZoomFactor);
+    minP = midP - halfSpan;
+    maxP = midP + halfSpan;
+    const rangeP = Math.max(1e-6, maxP - minP);
+    const toY1 = (p) => p1Top + p1H - ((Number(p) - minP) / rangeP) * p1H;
+    const fromY1 = (y) => minP + ((p1Bot - y) / p1H) * rangeP;
+
+    // Grade horizontal estilo TradingView (6 níveis de preço no Painel 1)
+    const priceGridLevels = [0.12, 0.28, 0.44, 0.60, 0.76, 0.90].map(f => minP + rangeP * f);
+
+    // ── Escala Y do Painel 2 (Fluxo Institucional CVD) ──
+    let minF = Infinity;
+    let maxF = -Infinity;
+    series.forEach(pt => {
+        const fo = Number(pt.flow_open ?? pt.cvd_inst ?? 0);
+        const fc = Number(pt.flow_close ?? pt.cvd_inst ?? 0);
+        minF = Math.min(minF, fo, fc);
+        maxF = Math.max(maxF, fo, fc);
+    });
+    if (!Number.isFinite(minF) || !Number.isFinite(maxF) || maxF <= minF) {
+        minF = -1000;
+        maxF = 1000;
     }
-    if (res0 && res0 > 0 && (res0 - maxP) <= (maxP - minP) * 0.45) {
-        maxP = Math.max(maxP, res0);
-    }
+    const padF = (maxF - minF) * 0.12 || 100;
+    minF -= padF;
+    maxF += padF;
+    const rangeF = Math.max(1e-6, maxF - minF);
+    const toY2 = (v) => p2Top + p2H - ((Number(v) - minF) / rangeF) * p2H;
 
-    if (!Number.isFinite(minP) || !Number.isFinite(maxP) || maxP <= minP) {
-        minP = 0;
-        maxP = 100;
-    }
-    const padRange = (maxP - minP) * 0.10 || 10;
-    minP -= padRange;
-    maxP += padRange;
-    const rangeP = maxP - minP;
+    // ── Escala Y do Painel 3 (Histograma Linha Zero -100 a +100) ──
+    let maxAbsH = 25;
+    series.forEach(pt => {
+        const hv = Math.abs(Number(pt.flow_hist || 0));
+        if (hv > maxAbsH) maxAbsH = hv;
+    });
+    maxAbsH = Math.min(100, maxAbsH * 1.12);
+    const yZero3 = p3Top + p3H / 2;
+    const toY3 = (hv) => yZero3 - (Number(hv || 0) / maxAbsH) * (p3H * 0.44);
 
-    const toX = (idx) => padL + (idx / Math.max(1, series.length - 1)) * plotW;
-    const toY = (p) => padT + plotH - ((Number(p) - minP) / rangeP) * plotH;
+    const lastPt = series[n - 1];
+    const lastX = toX(n - 1);
+    const lastY = toY1(lastPt.close);
+    const hoverIdx = hoverPos ? hoverPos.idx : null;
+    const inspectedPt = hoverIdx !== null && series[hoverIdx] ? series[hoverIdx] : lastPt;
 
-    const closePoints = series
-        .map((pt, idx) => `${toX(idx).toFixed(1)},${toY(pt.close).toFixed(1)}`)
-        .join(" ");
+    // ── Paredes GEX vindas do `gex/docs/jumba_tradingview.pine` dentro da janela [minP, maxP] ──
+    const rawWallsList = (Array.isArray(allWalls) && allWalls.length > 0)
+        ? allWalls
+        : [
+            ...((wallsRadar?.resistance_walls || []).map((w) => ({ ...w, role: "RES" }))),
+            ...((wallsRadar?.support_walls || []).map((w) => ({ ...w, role: "SUP" }))),
+        ];
 
-    const areaPoints = `${toX(0).toFixed(1)},${(padT + plotH).toFixed(1)} ${closePoints} ${toX(series.length - 1).toFixed(1)},${(padT + plotH).toFixed(1)}`;
+    const nearbyWalls = rawWallsList
+        .filter(w => {
+            const p = Number(w.price);
+            if (!(p >= minP && p <= maxP)) return false;
+            const isMid = String(w.type || "").toLowerCase().includes("mid") || String(w.label || "").toUpperCase() === "MIDLEWALL";
+            if (isMid && !showMidleWalls) return false;
+            return true;
+        })
+        .map(w => ({
+            ...w,
+            price: Number(w.price),
+            role: w.role || (Number(w.price) > Number(lastPt.close || 0) ? "RES" : "SUP"),
+        }));
 
-    // Paredes dentro da janela de preço do gráfico
-    const nearbyWalls = [
-        ...((wallsRadar?.resistance_walls || []).map(w => ({ ...w, role: "RES" }))),
-        ...((wallsRadar?.support_walls || []).map(w => ({ ...w, role: "SUP" }))),
-    ].filter(w => w.price >= minP && w.price <= maxP);
+    const buyZone = asgHud?.buy_zone;
+    const sellZone = asgHud?.sell_zone;
+    const buyersPct = asgHud?.buyers_pct ?? 50;
+    const sellersPct = asgHud?.sellers_pct ?? 50;
 
-    // Sinais presentes na série M5
+    // Sinais de entrada (▲ / ▼)
     const plottedSignals = [];
     series.forEach((pt, idx) => {
         if (pt.signal) {
@@ -150,501 +211,1539 @@ function IntradayPriceSignalsChart({
                 ...pt.signal,
                 idx,
                 x: toX(idx),
-                y: toY(pt.signal.entry_price),
+                y: toY1(pt.signal.entry_price),
             });
         }
     });
 
-    const activeSig =
-        plottedSignals.find(s => s.id === selectedSigId) ||
-        (plottedSignals.length > 0 ? plottedSignals[plottedSignals.length - 1] : null);
-
-    const lastPt = series[series.length - 1];
-    const lastX = toX(series.length - 1);
-    const lastY = toY(lastPt.close);
-
-    const firstTime = series[0]?.time || "";
-    const q1Time = series[Math.floor(series.length * 0.25)]?.time || "";
-    const midTime = series[Math.floor(series.length * 0.5)]?.time || "";
-    const q3Time = series[Math.floor(series.length * 0.75)]?.time || "";
-    const lastTime = series[series.length - 1]?.time || "";
+    const timeTicks = [0, Math.floor(n * 0.2), Math.floor(n * 0.4), Math.floor(n * 0.6), Math.floor(n * 0.8), n - 1]
+        .filter((v, i, a) => v >= 0 && v < n && a.indexOf(v) === i);
 
     return (
         <div style={{
-            background: "#070c12",
-            borderRadius: 8,
+            minWidth: 0,
+            background: "#000000",
+            borderRadius: 10,
             border: "1px solid #18293a",
             padding: "10px 12px",
             display: "flex",
             flexDirection: "column",
             gap: 8,
+            boxShadow: "0 8px 28px rgba(0,0,0,0.65)",
         }}>
-            {/* Topo do Gráfico: Legenda Limpa */}
+            {/* ── Barra Superior Estilo TradingView ── */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 11, fontWeight: "bold", color: "#e6edf3", letterSpacing: 0.4 }}>
-                        📈 MAPA DO PREÇO M5 ({firstTime} → {lastTime}) + PAREDES + SINAIS
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{
+                        fontSize: 11.5,
+                        fontWeight: "bold",
+                        color: "#ffffff",
+                        letterSpacing: 0.8,
+                        background: "linear-gradient(90deg, #00d4ff22, transparent)",
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        borderLeft: "3px solid #00d4ff",
+                    }}>
+                        FLUXO REAL + PINE GEX ({symKey} · M5)
                     </span>
-                    <span style={{ fontSize: 9.5, color: "#00e87a", fontWeight: "bold" }}>▲ Sinal Compra</span>
-                    <span style={{ fontSize: 9.5, color: "#ff3860", fontWeight: "bold" }}>▼ Sinal Venda</span>
-                    <span style={{ fontSize: 9, color: "#8ca5b5" }}>
-                        ⭕ Borda Verde = <strong style={{ color: "#00e87a" }}>✅ Válido</strong> · Borda Vermelha = <strong style={{ color: "#ff3860" }}>❌ Stop</strong>
-                    </span>
+                    <span style={{ fontSize: 10, color: "#00e87a", fontWeight: "bold" }}>🟩 Comprado</span>
+                    <span style={{ fontSize: 10, color: "#ff3860", fontWeight: "bold" }}>🟥 Vendido</span>
+                    <span style={{ fontSize: 10, color: "#9598a1" }}>⬜ Pullback</span>
                 </div>
-                <span style={{ fontSize: 9, color: "#00d4ff" }}>
-                    💡 Clique em qualquer seta ▲/▼ para ver o detalhe
-                </span>
+
+                {/* Controles TradingView: Cores Pine, MidWalls, Legendas, Recuo e Zoom */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 3, background: "#080d14", padding: "2px 6px", borderRadius: 5, border: "1px solid #18293a" }}>
+                        <button
+                            onClick={() => setWallColorMode(m => (m === "PINE" ? "POLARIDADE" : "PINE"))}
+                            title="Alternar entre cores originais do jumba_tradingview.pine (#00e676) ou Polaridade Suporte/Resistência"
+                            style={{
+                                padding: "2px 6px",
+                                fontSize: 9,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                background: wallColorMode === "PINE" ? "rgba(0, 230, 118, 0.18)" : "rgba(242, 54, 69, 0.18)",
+                                color: wallColorMode === "PINE" ? "#00e676" : "#ff6b8b",
+                                border: `1px solid ${wallColorMode === "PINE" ? "#00e67666" : "#ff6b8b66"}`,
+                                borderRadius: 4,
+                                cursor: "pointer",
+                            }}
+                        >
+                            {wallColorMode === "PINE" ? "🌲 Pine Original" : "⚡ Polaridade"}
+                        </button>
+                        <button
+                            onClick={() => setShowMidleWalls(v => !v)}
+                            title="Exibir/Ocultar MIDLEWALL tracejada do jumba_tradingview.pine"
+                            style={{
+                                padding: "2px 6px",
+                                fontSize: 9,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                background: showMidleWalls ? "rgba(144, 164, 174, 0.2)" : "transparent",
+                                color: showMidleWalls ? "#cfd8dc" : "#6b7c8c",
+                                border: showMidleWalls ? "1px solid #90a4ae66" : "1px solid transparent",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                            }}
+                        >
+                            MidWalls
+                        </button>
+                        <button
+                            onClick={() => setShowPineLabels(v => !v)}
+                            title="Exibir/Ocultar rótulos MAGICWALL *** (IBOV/DOL) à direita dos candles"
+                            style={{
+                                padding: "2px 6px",
+                                fontSize: 9,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                background: showPineLabels ? "rgba(41, 98, 255, 0.22)" : "transparent",
+                                color: showPineLabels ? "#82b1ff" : "#6b7c8c",
+                                border: showPineLabels ? "1px solid #2962ff88" : "1px solid transparent",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                            }}
+                        >
+                            Labels Pine
+                        </button>
+                        <span style={{ color: "#363c4e", margin: "0 2px" }}>|</span>
+                        <button
+                            onClick={() => setRightGapPx(g => Math.min(280, g + 35))}
+                            title="Chegar gráfico mais para a esquerda"
+                            style={{
+                                padding: "2px 6px",
+                                fontSize: 9,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                background: "#2a2e39",
+                                color: "#00d4ff",
+                                border: "1px solid #00d4ff55",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                            }}
+                        >
+                            ◀ Esq
+                        </button>
+                        <button
+                            onClick={() => setRightGapPx(g => Math.max(30, g - 35))}
+                            title="Chegar gráfico mais para a direita"
+                            style={{
+                                padding: "2px 6px",
+                                fontSize: 9,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                background: "#2a2e39",
+                                color: "#b2b5be",
+                                border: "1px solid #363c4e",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                            }}
+                        >
+                            Dir ▶
+                        </button>
+                        <button
+                            onClick={() => setYZoomFactor(z => Math.min(4.0, +(z * 1.35).toFixed(2)))}
+                            title="Abrir escala vertical Y para enxergar mais MagicWalls acima e abaixo"
+                            style={{
+                                padding: "2px 6px",
+                                fontSize: 9,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                background: "#2a2e39",
+                                color: "#00e676",
+                                border: "1px solid #00e67655",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                            }}
+                        >
+                            ↕ −Zoom Y
+                        </button>
+                        {yZoomFactor !== 1.0 && (
+                            <button
+                                onClick={() => setYZoomFactor(1.0)}
+                                title="Resetar escala vertical Y"
+                                style={{
+                                    padding: "2px 6px",
+                                    fontSize: 9,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    background: "#2962ff33",
+                                    color: "#82b1ff",
+                                    border: "1px solid #2962ff",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                }}
+                            >
+                                Auto Y
+                            </button>
+                        )}
+                        <span style={{ color: "#363c4e", margin: "0 2px" }}>|</span>
+                        {[
+                            { id: "RECENTE", label: "Foco (48b)" },
+                            ...(hasPrevDayWarmup ? [{ id: "HOJE", label: "Só Hoje" }] : []),
+                            { id: "TUDO", label: "Dia Todo" },
+                        ].map(opt => (
+                            <button
+                                key={opt.id}
+                                onClick={() => {
+                                    setViewMode(opt.id);
+                                    setPanOffsetRight(0);
+                                    if (opt.id === "RECENTE") setVisibleCount(48);
+                                }}
+                                style={{
+                                    padding: "2px 6px",
+                                    fontSize: 9,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    background: viewMode === opt.id ? "rgba(41, 98, 255, 0.28)" : "transparent",
+                                    color: viewMode === opt.id ? "#82b1ff" : "#787b86",
+                                    border: viewMode === opt.id ? "1px solid #2962ff" : "1px solid transparent",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                }}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Inspetor OHLC + CVD + Histograma estilo TradingView */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, fontFamily: "monospace", background: "#080d14", padding: "3px 9px", borderRadius: 5, border: "1px solid #18293a" }}>
+                        <span style={{ color: "#9598a1" }}>
+                            🕒 {inspectedPt.is_prev_day ? `Ontem ${inspectedPt.time}` : inspectedPt.time}
+                        </span>
+                        <span style={{ color: "#787b86" }}>
+                            A:{fmtNum(inspectedPt.open, dec)} M:{fmtNum(inspectedPt.high, dec)} m:{fmtNum(inspectedPt.low, dec)}
+                        </span>
+                        <span style={{ color: "#ffffff", fontWeight: "bold" }}>
+                            F:{fmtNum(inspectedPt.close, dec)}
+                        </span>
+                        <span style={{ color: (inspectedPt.window_dir || 0) > 0 ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
+                            {(inspectedPt.window_dir || 0) > 0 ? "🟢 COMPRA" : "🔴 VENDA"}
+                        </span>
+                        <span style={{ color: "#00d4ff" }}>
+                            Hist: {fmtNum(inspectedPt.flow_hist, 1, true)}
+                        </span>
+                    </div>
+                </div>
             </div>
 
-            <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height, display: "block", userSelect: "none" }}>
-                <defs>
-                    <linearGradient id={`priceGrad-${symKey}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#00d4ff" stopOpacity="0.16" />
-                        <stop offset="100%" stopColor="#00d4ff" stopOpacity="0.0" />
-                    </linearGradient>
-                </defs>
+            {/* ── GRÁFICO PRINCIPAL COM FUNDO PRETO PURO E SEM GRIDS (ZOOM NO SCROLL E PAN NO ARRASTE) ── */}
+            <svg
+                ref={svgRef}
+                viewBox={`0 0 ${width} ${height}`}
+                style={{
+                    width: "100%",
+                    height: "auto",
+                    minHeight: 440,
+                    display: "block",
+                    userSelect: "none",
+                    cursor: dragState ? (dragState.type === "YSCALE" ? "ns-resize" : "grabbing") : "crosshair",
+                    background: "#000000",
+                    borderRadius: 6,
+                    border: "1px solid #14202e",
+                }}
+                onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? 6 : -6;
+                    setViewMode("CUSTOM");
+                    setVisibleCount(c => Math.max(16, Math.min(totalBase, c + delta)));
+                }}
+                onMouseDown={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const relX = ((e.clientX - rect.left) / rect.width) * width;
+                    if (relX > padL + plotW) {
+                        setDragState({
+                            type: "YSCALE",
+                            startY: e.clientY,
+                            startYZoom: yZoomFactor,
+                        });
+                    } else {
+                        setDragState({
+                            type: "PAN",
+                            startX: e.clientX,
+                            startPan: clampedPan,
+                        });
+                    }
+                }}
+                onMouseMove={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const relX = ((e.clientX - rect.left) / rect.width) * width;
+                    const relY = ((e.clientY - rect.top) / rect.height) * height;
 
-                {/* Grade horizontal de referência */}
-                {[0.2, 0.5, 0.8].map((r, i) => {
-                    const yG = padT + plotH * r;
-                    const pG = maxP - r * rangeP;
+                    if (dragState) {
+                        if (dragState.type === "PAN") {
+                            const dxPx = e.clientX - dragState.startX;
+                            const barsDelta = Math.round((dxPx / Math.max(1, rect.width * 0.7)) * effCount);
+                            setPanOffsetRight(Math.max(0, Math.min(maxPan, dragState.startPan + barsDelta)));
+                        } else if (dragState.type === "YSCALE") {
+                            const dyPx = e.clientY - dragState.startY;
+                            const factor = Math.max(0.4, Math.min(4.5, dragState.startYZoom * (1 + dyPx * 0.005)));
+                            setYZoomFactor(+factor.toFixed(2));
+                        }
+                    }
+
+                    const rawIdx = Math.round(((relX - (padL + innerPadL)) / usableW) * Math.max(1, totalSlots));
+                    if (relX >= padL && relX <= padL + plotW) {
+                        setHoverPos({
+                            idx: Math.max(0, Math.min(n - 1, rawIdx)),
+                            relX,
+                            relY,
+                        });
+                    } else {
+                        setHoverPos(null);
+                    }
+                }}
+                onMouseUp={() => setDragState(null)}
+                onMouseLeave={() => {
+                    setDragState(null);
+                    setHoverPos(null);
+                }}
+                onDoubleClick={() => {
+                    setYZoomFactor(1.0);
+                    setPanOffsetRight(0);
+                    setVisibleCount(48);
+                    setViewMode("RECENTE");
+                }}
+            >
+                {/* Fundos dos 3 Painéis em Preto Puro (#000000) sem linhas de grade */}
+                <rect x={padL} y={p1Top} width={plotW} height={p1H} fill="#000000" />
+                <rect x={padL} y={p2Top} width={plotW} height={p2H} fill="#000000" />
+                <rect x={padL} y={p3Top} width={plotW} height={p3H} fill="#000000" />
+
+                {/* Divisórias Horizontais Discretas dos 3 Painéis e Eixo Y Direito */}
+                <line x1={padL} y1={p1Bot} x2={width} y2={p1Bot} stroke="#14202e" strokeWidth="1" />
+                <line x1={padL} y1={p2Bot} x2={width} y2={p2Bot} stroke="#14202e" strokeWidth="1" />
+                <line x1={padL} y1={p3Bot} x2={width} y2={p3Bot} stroke="#14202e" strokeWidth="1" />
+                <line x1={padL + plotW} y1={p1Top} x2={padL + plotW} y2={p3Bot} stroke="#14202e" strokeWidth="1" />
+
+                {/* Títulos Internos Discretos Estilo Marca d'Água TradingView */}
+                <text x={padL + 8} y={p1Top + 13} fill="#787b86" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
+                    1. {symKey} · M5 · MAGIC GEX LEVELS (jumba_tradingview.pine)
+                </text>
+                <text x={padL + 8} y={p2Top + 11} fill="#787b86" fontSize="7.2" fontWeight="bold" fontFamily="monospace">
+                    2. FLUXO INSTITUCIONAL CVD (Cor mais escura = Maior Lote)
+                </text>
+                <text x={padL + 8} y={p3Top + 11} fill="#787b86" fontSize="7.2" fontWeight="bold" fontFamily="monospace">
+                    3. JANELAS DE FLUXO A.S.G (Histograma Linha Zero)
+                </text>
+
+                {/* Regiões Sombreadas de Compra e Venda Diferenciadas por Defesa Institucional + Hedge Makers */}
+                {(() => {
+                    const zonesToRender = [];
+                    const baseBandPts = rangeP * 0.032;
+
+                    const nearestResP = Number(sellZone?.ref_price || 0);
+                    const nearestSupP = Number(buyZone?.ref_price || 0);
+
+                    nearbyWalls.forEach((w, idx) => {
+                        const isMainWall = String(w.type || "") === "Wall";
+                        if (!isMainWall) return;
+
+                        const isRes = w.price > lastPt.close;
+                        const isNearestActive = (isRes && nearestResP > 0 && Math.abs(w.price - nearestResP) < 5)
+                            || (!isRes && nearestSupP > 0 && Math.abs(w.price - nearestSupP) < 5);
+
+                        const defLots = Number(w.defense_lots || 0);
+                        const instTot = Number(w.inst_total_vol || 0);
+                        const makerLots = Number(w.maker_hedge_lots || 0);
+                        const powerPct = Number(w.wall_power_pct || (w.width || 1) * 28);
+                        const tier = w.wall_tier || (powerPct >= 52 ? "FORTE" : (powerPct >= 26 || instTot > 0) ? "MODERADA" : "FRACA");
+
+                        if (tier === "FRACA" && !isNearestActive) return;
+
+                        const isStrong = tier === "FORTE" || (isNearestActive && (instTot > 0 || powerPct >= 40));
+                        const scaleFactor = isStrong ? 0.58 : 0.34;
+                        const halfW = baseBandPts * scaleFactor;
+
+                        const roleTitle = isRes
+                            ? (isStrong ? "🔥 REGIÃO DE VENDA FORTE" : "Região de Venda")
+                            : (isStrong ? "🛡️ REGIÃO DE COMPRA FORTE" : "Região de Compra");
+
+                        const detailsParts = [];
+                        if (defLots > 0) {
+                            detailsParts.push(`Defesa Inst: ${fmtNum(defLots, 0)}L`);
+                        } else if (instTot > 0) {
+                            detailsParts.push(`Fluxo Inst: ${fmtNum(instTot, 0)}L`);
+                        }
+                        if (makerLots > 0) {
+                            detailsParts.push(`Hedge Makers: ${fmtNum(makerLots, 0)}L`);
+                        }
+                        const fullLabel = detailsParts.length > 0
+                            ? `${roleTitle} · ${detailsParts.join(" | ")}`
+                            : `${roleTitle} (${w.label || "MagicWall"})`;
+
+                        zonesToRender.push({
+                            key: `wall-zone-${idx}`,
+                            topP: w.price + halfW,
+                            botP: w.price - halfW,
+                            isSell: isRes,
+                            isStrong,
+                            label: fullLabel,
+                        });
+                    });
+
+                    return zonesToRender.map((z) => {
+                        if (z.topP < minP || z.botP > maxP) return null;
+                        const yTop = Math.max(p1Top, toY1(Math.min(maxP, z.topP)));
+                        const yBot = Math.min(p1Bot, toY1(Math.max(minP, z.botP)));
+                        const hBand = Math.max(5, yBot - yTop);
+                        const col = z.isSell ? "#f23645" : "#089981";
+                        const fillRgba = z.isSell
+                            ? (z.isStrong ? "rgba(242, 54, 69, 0.18)" : "rgba(242, 54, 69, 0.08)")
+                            : (z.isStrong ? "rgba(8, 153, 129, 0.18)" : "rgba(8, 153, 129, 0.08)");
+                        return (
+                            <g key={z.key}>
+                                <rect x={padL} y={yTop} width={plotW} height={hBand} fill={fillRgba} />
+                                {z.isStrong && (
+                                    <rect x={padL} y={yTop} width={4} height={hBand} fill={col} />
+                                )}
+                                <text
+                                    x={padL + 9}
+                                    y={yTop + Math.min(11, hBand - 2)}
+                                    fill={z.isSell ? "#ff8da3" : "#66ffcc"}
+                                    fontSize="7.8"
+                                    fontWeight="bold"
+                                    fontFamily="monospace"
+                                    opacity="0.88"
+                                >
+                                    {z.label}
+                                </text>
+                            </g>
+                        );
+                    });
+                })()}
+
+                {/* ── LINHAS E LABELS OFICIAIS DO `jumba_tradingview.pine` (bar_index + 12) ── */}
+                {nearbyWalls.map((w, i) => {
+                    const yW = toY1(w.price);
+                    const wType = String(w.type || "Wall");
+                    const isMid = wType.toLowerCase().includes("mid") || String(w.label || "").toUpperCase() === "MIDLEWALL";
+                    const isRes = w.role === "RES";
+
+                    // Cor exata do `jumba_tradingview.pine` (#00e676, #90a4ae, #ffd600, #00b0ff, #ff1744)
+                    const pineCol = w.color || (
+                        wType === "GammaFlip" ? "#ffd600"
+                            : wType === "MaxGamma" ? "#00b0ff"
+                                : wType === "MinGamma" ? "#ff1744"
+                                    : isMid ? "#90a4ae" : "#00e676"
+                    );
+                    const polCol = isMid ? "#90a4ae" : (wType === "GammaFlip" ? "#ffd600" : (isRes ? "#f23645" : "#089981"));
+                    const col = wallColorMode === "PINE" ? pineCol : polCol;
+
+                    const strokeW = isMid ? 1.0 : Math.max(1.2, Math.min(3.0, Number(w.width || 1) * 0.85));
+                    const isDashed = w.style === "dashed" || isMid;
+                    const hideRightAxisTag = Math.abs(yW - lastY) < 12;
+
+                    // Label idêntico ao `jumba_tradingview.pine`: `MAGICWALL ** (IBOV 178000) [180517]` posicionado à direita do último candle
+                    const pineLabelText = `${w.label || wType} [${fmtNum(w.price, dec)}]`;
+                    const labelX = Math.min(padL + plotW - 155, lastX + 18);
+
                     return (
-                        <g key={`grid-${i}`}>
-                            <line x1={padL} y1={yG} x2={width - padR} y2={yG} stroke="#111d28" strokeWidth="1" />
-                            <text x={width - padR + 5} y={yG + 3} fill="#3d5466" fontSize="8" fontFamily="monospace">
-                                {fmtNum(pG, dec)}
-                            </text>
+                        <g key={`pine-wall-${i}`}>
+                            <line
+                                x1={padL}
+                                y1={yW}
+                                x2={padL + plotW}
+                                y2={yW}
+                                stroke={col}
+                                strokeWidth={strokeW}
+                                strokeDasharray={isDashed ? "5,4" : "none"}
+                                opacity={isMid ? "0.55" : "0.90"}
+                            />
+                            {/* Rótulo flutuante à direita dos candles (exatamente como `label.new(x=bar_index+12)` no jumba_tradingview.pine) */}
+                            {showPineLabels && !isMid && yW > p1Top + 12 && yW < p1Bot - 6 && (
+                                <text
+                                    x={labelX}
+                                    y={yW - 3.5}
+                                    fill={col}
+                                    fontSize="8.2"
+                                    fontWeight="bold"
+                                    fontFamily="monospace"
+                                >
+                                    {pineLabelText}
+                                </text>
+                            )}
+                            {/* Etiqueta de Preço no Eixo Y Direito estilo TradingView */}
+                            {!hideRightAxisTag && !isMid && (
+                                <g>
+                                    <rect
+                                        x={padL + plotW + 2}
+                                        y={yW - 7}
+                                        width={padR - 8}
+                                        height={14}
+                                        rx="2"
+                                        fill="#1e222d"
+                                        stroke={col}
+                                        strokeWidth="0.9"
+                                    />
+                                    <text
+                                        x={padL + plotW + 6}
+                                        y={yW + 3}
+                                        fill={col}
+                                        fontSize="8.5"
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                    >
+                                        {fmtNum(w.price, dec)}
+                                    </text>
+                                </g>
+                            )}
                         </g>
                     );
                 })}
 
-                {/* Linha de VWAP da Sessão */}
-                {vwap >= minP && vwap <= maxP && (
+                {/* Divisória Vertical indicando o início do Pregão de Hoje (quando há barras de warm-up do dia anterior) */}
+                {firstTodayLocalIdx > 0 && (
                     <g>
                         <line
-                            x1={padL}
-                            y1={toY(vwap)}
-                            x2={width - padR}
-                            y2={toY(vwap)}
-                            stroke="#c8a444"
-                            strokeWidth="1"
-                            strokeDasharray="2,3"
-                            opacity="0.65"
+                            x1={toX(firstTodayLocalIdx) - stepX * 0.45}
+                            y1={p1Top}
+                            x2={toX(firstTodayLocalIdx) - stepX * 0.45}
+                            y2={p3Bot}
+                            stroke="#2962ff"
+                            strokeWidth="1.3"
+                            strokeDasharray="4,3"
+                            strokeOpacity="0.85"
                         />
-                        <text x={padL + 4} y={toY(vwap) - 4} fill="#c8a444" fontSize="8" fontFamily="monospace" opacity="0.85">
-                            VWAP {fmtNum(vwap, dec)}
+                        <rect
+                            x={toX(firstTodayLocalIdx) - stepX * 0.45 + 3}
+                            y={p1Top + 4}
+                            width={68}
+                            height={13}
+                            rx="3"
+                            fill="#1e222d"
+                            stroke="#2962ff"
+                            strokeWidth="1"
+                        />
+                        <text
+                            x={toX(firstTodayLocalIdx) - stepX * 0.45 + 7}
+                            y={p1Top + 13}
+                            fill="#82b1ff"
+                            fontSize="7.5"
+                            fontWeight="bold"
+                            fontFamily="monospace"
+                        >
+                            HOJE {series[firstTodayLocalIdx]?.time}
                         </text>
                     </g>
                 )}
 
-                {/* Linhas Horizontais das MagicWalls (Teto / Piso) */}
-                {nearbyWalls.map((w, i) => {
-                    const yW = toY(w.price);
-                    const isRes = w.role === "RES";
-                    const col = isRes ? "#ff6b8b" : "#00e87a";
+                {/* Linhas Verticais Douradas marcando a virada de cada Janela de Fluxo */}
+                {flowWindows.map((fw, idx) => {
+                    if (!fw || fw.start_idx <= 0) return null;
+                    const localStartIdx = series.findIndex(pt => pt._origIdx === fw.start_idx);
+                    if (localStartIdx <= 0) return null;
+                    const xStart = toX(localStartIdx);
                     return (
-                        <g key={`wall-${i}`}>
+                        <g key={fw.id || `fw-v-${idx}`}>
                             <line
-                                x1={padL}
-                                y1={yW}
-                                x2={width - padR}
-                                y2={yW}
-                                stroke={col}
-                                strokeWidth="1.2"
-                                strokeDasharray="5,4"
-                                opacity="0.65"
+                                x1={xStart}
+                                y1={p1Top}
+                                x2={xStart}
+                                y2={p3Bot}
+                                stroke="#d4af37"
+                                strokeWidth="1.1"
+                                strokeOpacity="0.72"
                             />
-                            <rect
-                                x={width - padR + 2}
-                                y={yW - 7}
-                                width={padR - 4}
-                                height={14}
-                                rx="3"
-                                fill={isRes ? "rgba(255,56,96,0.18)" : "rgba(0,232,122,0.18)"}
-                                stroke={col}
-                                strokeWidth="0.7"
-                            />
-                            <text
-                                x={width - padR + 6}
-                                y={yW + 3}
-                                fill={col}
-                                fontSize="8.5"
-                                fontWeight="bold"
-                                fontFamily="monospace"
-                            >
-                                {fmtNum(w.price, dec)}
-                            </text>
+                            <circle cx={xStart} cy={yZero3} r="2.8" fill="#ffd700" />
                         </g>
                     );
                 })}
 
-                {/* Área sombreada sob a curva de preço */}
-                <polygon points={areaPoints} fill={`url(#priceGrad-${symKey})`} />
-
-                {/* Velas M5 (High-Low + Corpo Open-Close) */}
+                {/* ── CANDLES DO PREÇO PINTADOS PELO FLUXO (VERDE / VERMELHO / CINZA) ── */}
                 {series.map((pt, idx) => {
                     const x = toX(idx);
-                    const yH = toY(pt.high || pt.close);
-                    const yL = toY(pt.low || pt.close);
-                    const yO = toY(pt.open || pt.close);
-                    const yC = toY(pt.close);
-                    const isUp = Number(pt.close) >= Number(pt.open);
-                    const wickCol = isUp ? "#00e87a55" : "#ff386055";
+                    const yH = toY1(pt.high || pt.close);
+                    const yL = toY1(pt.low || pt.close);
+                    const yO = toY1(pt.open || pt.close);
+                    const yC = toY1(pt.close);
+
+                    const cState = pt.candle_state ?? (pt.window_dir || 0);
+                    const fillCol = cState > 0 ? "#00e87a" : cState < 0 ? "#ff3860" : "#9fb0c2";
                     const bodyTop = Math.min(yO, yC);
-                    const bodyH = Math.max(1.5, Math.abs(yC - yO));
+                    const bodyH = Math.max(2.0, Math.abs(yC - yO));
+
                     return (
-                        <g key={`bar-${idx}`}>
-                            <line x1={x} y1={yH} x2={x} y2={yL} stroke={wickCol} strokeWidth="1.4" />
+                        <g key={`p-candle-${idx}`}>
+                            <line x1={x} y1={yH} x2={x} y2={yL} stroke={fillCol} strokeWidth="1.2" strokeOpacity="0.9" />
                             <rect
-                                x={x - 2}
+                                x={x - candleW / 2}
                                 y={bodyTop}
-                                width={4}
+                                width={candleW}
                                 height={bodyH}
-                                fill={isUp ? "#00e87a88" : "#ff386088"}
-                                rx="0.5"
+                                fill={fillCol}
+                                rx="0.8"
                             />
                         </g>
                     );
                 })}
 
-                {/* Linha contínua de Fechamento M5 */}
-                <polyline
-                    fill="none"
-                    stroke="#00d4ff"
-                    strokeWidth="2.0"
-                    points={closePoints}
-                />
+                {/* Linha de Preço Spot Atual + Badge Oficial Estilo TradingView na Escala Direita */}
+                <g>
+                    <line x1={padL} y1={lastY} x2={padL + plotW} y2={lastY} stroke="#2962ff" strokeWidth="1" strokeDasharray="3,3" opacity="0.85" />
+                    <rect x={padL + plotW + 1} y={lastY - 10} width={padR - 5} height={20} rx="3" fill="#2962ff" />
+                    <text x={padL + plotW + 7} y={lastY + 4} fill="#ffffff" fontSize="10.5" fontWeight="bold" fontFamily="monospace">
+                        {fmtNum(lastPt.close, dec)} {(lastPt.window_dir || 0) > 0 ? "▲" : "▼"}
+                    </text>
+                </g>
 
-                {/* Ponto Pulsante do Preço Atual */}
-                <circle cx={lastX} cy={lastY} r="4" fill="#00d4ff" stroke="#ffffff" strokeWidth="1.5" />
-
-                {/* Marcadores dos Sinais no Tempo (▲ COMPRA / ▼ VENDA) */}
-                {plottedSignals.map((sig) => {
+                {/* Marcadores dos Sinais Emitidos (▲ COMPRA / ▼ VENDA) */}
+                {showSignalsMarkers && plottedSignals.map((sig) => {
                     const isBuy = sig.dir_num > 0;
                     const col = isBuy ? "#00e87a" : "#ff3860";
-                    const ringCol = sig.is_valid === true ? "#00e87a" : sig.is_valid === false ? "#ff3860" : "#f5a623";
-                    const isSelected = activeSig && activeSig.id === sig.id;
+                    const isSelected = selectedSigId === sig.id;
                     const x = sig.x;
                     const y = sig.y;
                     const triPoints = isBuy
-                        ? `${x},${y - 8} ${x - 7},${y + 5} ${x + 7},${y + 5}`
-                        : `${x},${y + 8} ${x - 7},${y - 5} ${x + 7},${y - 5}`;
-
-                    const mfeStr = sig.is_valid === true
-                        ? `+${fmtNum(sig.mfe_30m, dec)}p ✅`
-                        : sig.is_valid === false
-                            ? `STOP ❌`
-                            : `⏳`;
+                        ? `${x},${y + 9} ${x - 5.5},${y + 18} ${x + 5.5},${y + 18}`
+                        : `${x},${y - 9} ${x - 5.5},${y - 18} ${x + 5.5},${y - 18}`;
 
                     return (
                         <g
                             key={sig.id}
-                            onClick={() => onSelectSignal && onSelectSignal(sig.id)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (onSelectSignal) onSelectSignal(sig.id);
+                            }}
                             style={{ cursor: "pointer" }}
                         >
-                            {isSelected && (
-                                <line
-                                    x1={x}
-                                    y1={padT}
-                                    x2={x}
-                                    y2={height - padB}
-                                    stroke="#c8a444"
-                                    strokeWidth="1.3"
-                                    strokeDasharray="3,3"
-                                />
-                            )}
-                            <circle
-                                cx={x}
-                                cy={y}
-                                r={isSelected ? 12 : 9.5}
-                                fill="#070c12"
-                                stroke={ringCol}
-                                strokeWidth={isSelected ? "2.6" : "1.8"}
-                                strokeDasharray={sig.is_valid === false ? "2,2" : "none"}
-                            />
-                            <polygon points={triPoints} fill={col} />
-                            <text
-                                x={x}
-                                y={isBuy ? y + 20 : y - 13}
-                                textAnchor="middle"
-                                fill={isSelected ? "#ffffff" : ringCol}
-                                fontSize="8.5"
-                                fontWeight="bold"
-                                fontFamily="monospace"
-                            >
-                                {sig.time} ({mfeStr})
-                            </text>
+                            <polygon points={triPoints} fill={col} stroke={isSelected ? "#ffffff" : "#131722"} strokeWidth="1.2" />
                         </g>
                     );
                 })}
 
-                {/* Eixo de Tempo Inferior */}
-                <text x={padL} y={height - 5} fill="#6b8599" fontSize="9.5" fontFamily="monospace">{firstTime}</text>
-                <text x={padL + plotW * 0.25 - 14} y={height - 5} fill="#6b8599" fontSize="9.5" fontFamily="monospace">{q1Time}</text>
-                <text x={padL + plotW * 0.50 - 14} y={height - 5} fill="#6b8599" fontSize="9.5" fontFamily="monospace">{midTime}</text>
-                <text x={padL + plotW * 0.75 - 14} y={height - 5} fill="#6b8599" fontSize="9.5" fontFamily="monospace">{q3Time}</text>
-                <text x={width - padR - 30} y={height - 5} fill="#6b8599" fontSize="9.5" fontFamily="monospace">{lastTime}</text>
+                {/* ══════════════════════════════════════════════════════════════════════
+                   PAINEL 2 (MEIO): FLUXO INSTITUCIONAL EM PONTINHOS (COR MAIS ESCURA = MAIOR PESO)
+                   ══════════════════════════════════════════════════════════════════════ */}
+                <polyline
+                    fill="none"
+                    stroke="#2a3a4d"
+                    strokeWidth="1.2"
+                    points={series.map((pt, idx) => `${toX(idx).toFixed(1)},${toY2(pt.flow_close ?? pt.cvd_inst ?? 0).toFixed(1)}`).join(" ")}
+                />
+                {series.map((pt, idx) => {
+                    const x = toX(idx);
+                    const fo = Number(pt.flow_open ?? pt.cvd_inst ?? 0);
+                    const fc = Number(pt.flow_close ?? pt.cvd_inst ?? 0);
+                    const yC = toY2(fc);
+                    const isFlowUp = fc >= fo;
+                    const absDelta = Math.abs(Number(pt.inst_delta_bar || (fc - fo)));
+                    const refHeavy = symKey === "WDO" ? 700 : 3500;
+                    const refMid = symKey === "WDO" ? 280 : 1400;
+
+                    const isHeavy = absDelta >= refHeavy;
+                    const isMidWeight = absDelta >= refMid;
+
+                    let fCol;
+                    if ((pt.window_dir || 0) < 0) {
+                        if (isFlowUp) {
+                            fCol = isHeavy ? "#4a5c6b" : isMidWeight ? "#7d91a3" : "#b4c3d0";
+                        } else {
+                            fCol = isHeavy ? "#9e0b28" : isMidWeight ? "#e01e45" : "#ff758f";
+                        }
+                    } else {
+                        if (isFlowUp) {
+                            fCol = isHeavy ? "#007a3d" : isMidWeight ? "#00c466" : "#7bf1a8";
+                        } else {
+                            fCol = isHeavy ? "#4a5c6b" : isMidWeight ? "#7d91a3" : "#b4c3d0";
+                        }
+                    }
+
+                    return (
+                        <circle
+                            key={`f-dot-${idx}`}
+                            cx={x}
+                            cy={yC}
+                            r="2.4"
+                            fill={fCol}
+                        />
+                    );
+                })}
+
+                <text x={padL + plotW + 6} y={toY2(lastPt.cvd_inst) + 3} fill={(lastPt.cvd_inst || 0) >= 0 ? "#00e87a" : "#ff3860"} fontSize="9" fontWeight="bold" fontFamily="monospace">
+                    {fmtNum(lastPt.cvd_inst, 0, true)}L
+                </text>
+
+                {/* ══════════════════════════════════════════════════════════════════════
+                   PAINEL 3 (BASE): HISTOGRAMA LINHA ZERO (VERDE = COMPRA / VERMELHO = VENDA)
+                   ══════════════════════════════════════════════════════════════════════ */}
+                <line x1={padL} y1={yZero3} x2={padL + plotW} y2={yZero3} stroke="#363c4e" strokeWidth="1.0" />
+                <text x={padL + plotW + 6} y={yZero3 + 3} fill="#787b86" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
+                    ZERO (0)
+                </text>
+
+                {series.map((pt, idx) => {
+                    const x = toX(idx);
+                    const hv = Number(pt.flow_hist || 0);
+                    const yH = toY3(hv);
+                    const isPos = hv >= 0;
+                    const col = isPos ? "#00e87a" : "#ff3860";
+                    const barTop = isPos ? yH : yZero3;
+                    const barH = Math.max(1.5, Math.abs(yZero3 - yH));
+
+                    return (
+                        <rect
+                            key={`h-bar-${idx}`}
+                            x={x - candleW / 2}
+                            y={barTop}
+                            width={candleW}
+                            height={barH}
+                            fill={col}
+                            opacity="0.88"
+                            rx="0.5"
+                        />
+                    );
+                })}
+
+                {/* Eixo de Tempo no Rodapé estilo TradingView */}
+                {timeTicks.map((tIdx) => (
+                    <text
+                        key={`t-${tIdx}`}
+                        x={toX(tIdx)}
+                        y={height - 7}
+                        textAnchor="middle"
+                        fill="#787b86"
+                        fontSize="9.5"
+                        fontFamily="monospace"
+                    >
+                        {series[tIdx]?.is_prev_day ? `Ont ${series[tIdx]?.time}` : series[tIdx]?.time}
+                    </text>
+                ))}
+
+                {/* ── CROSSHAIR INTERATIVO DUPLO ESTILO TRADINGVIEW (VERTICAL + HORIZONTAL COM TAG DE PREÇO E HORA) ── */}
+                {hoverPos && series[hoverPos.idx] && (
+                    <g>
+                        {/* Linha Vertical do Crosshair */}
+                        <line
+                            x1={toX(hoverPos.idx)}
+                            y1={p1Top}
+                            x2={toX(hoverPos.idx)}
+                            y2={p3Bot}
+                            stroke="#9598a1"
+                            strokeWidth="1"
+                            strokeDasharray="4,4"
+                        />
+                        {/* Badge de Hora no Eixo X Inferior */}
+                        <rect
+                            x={toX(hoverPos.idx) - 28}
+                            y={p3Bot + 2}
+                            width={56}
+                            height={18}
+                            rx="3"
+                            fill="#2962ff"
+                        />
+                        <text
+                            x={toX(hoverPos.idx)}
+                            y={p3Bot + 14}
+                            textAnchor="middle"
+                            fill="#ffffff"
+                            fontSize="9"
+                            fontWeight="bold"
+                            fontFamily="monospace"
+                        >
+                            {series[hoverPos.idx]?.time}
+                        </text>
+
+                        {/* Linha Horizontal do Crosshair + Badge de Preço no Eixo Y Direito */}
+                        {hoverPos.relY >= p1Top && hoverPos.relY <= p1Bot && (
+                            <>
+                                <line
+                                    x1={padL}
+                                    y1={hoverPos.relY}
+                                    x2={padL + plotW}
+                                    y2={hoverPos.relY}
+                                    stroke="#9598a1"
+                                    strokeWidth="1"
+                                    strokeDasharray="4,4"
+                                />
+                                <rect
+                                    x={padL + plotW + 2}
+                                    y={hoverPos.relY - 9}
+                                    width={padR - 6}
+                                    height={18}
+                                    rx="3"
+                                    fill="#363c4e"
+                                    stroke="#9598a1"
+                                    strokeWidth="0.8"
+                                />
+                                <text
+                                    x={padL + plotW + 7}
+                                    y={hoverPos.relY + 3.5}
+                                    fill="#ffffff"
+                                    fontSize="9.5"
+                                    fontWeight="bold"
+                                    fontFamily="monospace"
+                                >
+                                    {fmtNum(fromY1(hoverPos.relY), dec)}
+                                </text>
+                            </>
+                        )}
+                    </g>
+                )}
             </svg>
 
-            {/* Cartão em Destaque do Sinal Selecionado no Gráfico */}
-            {activeSig && (
-                <div style={{
-                    background: "#0c1622",
-                    border: `1px solid ${activeSig.is_valid === true ? "#00e87a66" : activeSig.is_valid === false ? "#ff386066" : "#f5a62366"}`,
-                    borderRadius: 7,
-                    padding: "9px 12px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: 10,
-                }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                            <span style={{
-                                fontSize: 11,
-                                fontWeight: "bold",
-                                padding: "3px 8px",
-                                borderRadius: 4,
-                                background: activeSig.dir_num > 0 ? "rgba(0,232,122,0.18)" : "rgba(255,56,96,0.18)",
-                                color: activeSig.dir_num > 0 ? "#00e87a" : "#ff3860",
-                                border: `1px solid ${activeSig.dir_num > 0 ? "#00e87a" : "#ff3860"}`,
-                            }}>
-                                {activeSig.dir_num > 0 ? "▲ SINAL DE COMPRA" : "▼ SINAL DE VENDA"} · {activeSig.time} @ {fmtNum(activeSig.entry_price, dec)}
-                            </span>
-                            <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#c8a444" }}>
-                                {activeSig.type}
-                            </span>
-                        </div>
-                        <div style={{ fontSize: 10, color: "#b1c4d4" }}>
-                            <strong>Por que disparou:</strong> {activeSig.reason}
-                        </div>
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                        <div style={{ display: "flex", gap: 10, fontSize: 10, background: "#081018", padding: "5px 10px", borderRadius: 5, border: "1px solid #162636" }}>
-                            <span>
-                                Após 5m: <strong style={{ color: (activeSig.pnl_5m || 0) >= 0 ? "#00e87a" : "#ff6b8b" }}>{fmtNum(activeSig.pnl_5m, dec, true)}p</strong>
-                            </span>
-                            <span>
-                                Após 15m: <strong style={{ color: (activeSig.pnl_15m || 0) >= 0 ? "#00e87a" : "#ff6b8b" }}>{fmtNum(activeSig.pnl_15m, dec, true)}p</strong>
-                            </span>
-                            <span>
-                                Máx a Favor (30m): <strong style={{ color: "#00e87a" }}>+{fmtNum(activeSig.mfe_30m, dec)}p</strong>
-                            </span>
-                            <span>
-                                Máx Contra: <strong style={{ color: "#ff6b8b" }}>{fmtNum(activeSig.mae_30m, dec)}p</strong>
-                            </span>
-                        </div>
-                        <span style={{
-                            fontSize: 11,
-                            fontWeight: "bold",
-                            padding: "4px 10px",
-                            borderRadius: 5,
-                            background: activeSig.is_valid === true ? "rgba(0,232,122,0.18)" : activeSig.is_valid === false ? "rgba(255,56,96,0.18)" : "rgba(245,166,35,0.18)",
-                            color: activeSig.is_valid === true ? "#00e87a" : activeSig.is_valid === false ? "#ff3860" : "#f5a623",
-                            border: `1px solid ${activeSig.is_valid === true ? "#00e87a66" : activeSig.is_valid === false ? "#ff386066" : "#f5a62366"}`,
-                        }}>
-                            {activeSig.validation_label}
-                        </span>
-                    </div>
+            {/* ── Barra Inferior de Dominância Compradores % vs Vendedores % ── */}
+            <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                background: "#1e222d",
+                padding: "6px 12px",
+                borderRadius: 7,
+                border: "1px solid #2a2e39",
+            }}>
+                <span style={{ fontSize: 13, fontWeight: "bold", color: "#00e87a", minWidth: 110 }}>
+                    {buyersPct}% <span style={{ fontSize: 9.5, fontWeight: "normal", color: "#9598a1" }}>COMPRADORES</span>
+                </span>
+                <div style={{ flex: 1, height: 8, background: "#ff3860", borderRadius: 4, overflow: "hidden", display: "flex" }}>
+                    <div style={{ width: `${buyersPct}%`, height: "100%", background: "#00e87a", boxShadow: "0 0 10px #00e87a", transition: "width 0.3s ease" }} />
                 </div>
-            )}
+                <span style={{ fontSize: 13, fontWeight: "bold", color: "#ff3860", minWidth: 110, textAlign: "right" }}>
+                    <span style={{ fontSize: 9.5, fontWeight: "normal", color: "#9598a1" }}>VENDEDORES</span> {sellersPct}%
+                </span>
+            </div>
         </div>
     );
 }
 
-/* ── COMPONENTE DO COCKPIT DE 1 ATIVO (ESQUERDA: GRÁFICO+SINAIS | DIREITA: BÚSSOLA) ── */
-function SingleAssetCockpitView({ symKey, payload, cbData, onOpenRaioX }) {
+/* ══════════════════════════════════════════════════════════════════════════════
+   2. HUD FUTURISTA ESTILO "A.S.G (ALGORITHMIC SYSTEM GENERATION)" (VÍDEO 3)
+      - Semáforo Gigante: ▲ COMPRA | ▼ VENDA | ❖ NEUTRALIZADO
+      - Vela 3D Neon + Anel Circular MICRO (92%) + MACRO (50) + MAKERS (+0.2%)
+      - Trilha de Alvos 1 -> 2 -> 3 + Botão para abrir Histórico de Sinais
+   ══════════════════════════════════════════════════════════════════════════════ */
+function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleHistory, showHistory }) {
+    const dec = symKey === "WDO" ? 1 : 0;
+    const cmd = asgHud.command || "NEUTRALIZADO";
+    const isBuy = cmd === "COMPRA";
+    const isSell = cmd === "VENDA";
+    const mainColor = isBuy ? "#00e87a" : isSell ? "#ff3860" : "#00d4ff";
+
+    const microPct = Number(asgHud.micro_pct || 50);
+    const macroPct = Number(asgHud.macro_pct || 50);
+    const makersPct = Number(asgHud.makers_pct || 0);
+    const targets = asgHud.targets || [];
+
+    // Arco circular SVG para o medidor MICRO (estilo o arco 92 MICRO do Vídeo 3)
+    const radius = 30;
+    const circum = 2 * Math.PI * radius;
+    const arcOffset = circum - (Math.min(100, Math.max(10, microPct)) / 100) * (circum * 0.75);
+
+    return (
+        <div style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            background: "radial-gradient(circle at 50% 25%, #0c1b2a 0%, #05080d 85%)",
+            border: `1.5px solid ${mainColor}55`,
+            borderRadius: 12,
+            padding: "14px 16px",
+            boxShadow: `0 0 28px ${mainColor}18`,
+        }}>
+            {/* ── 1. DISPLAY SUPERIOR: TRIÂNGULO GIGANTE OU ORBE NEUTRALIZADO (VÍDEO 3) ── */}
+            <div style={{
+                position: "relative",
+                background: "#04070b",
+                border: `1.5px solid ${mainColor}66`,
+                borderRadius: 10,
+                padding: "14px 12px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 6,
+                boxShadow: `inset 0 0 24px ${mainColor}1f`,
+            }}>
+                <div style={{ fontSize: 9.5, color: "#7f96a8", letterSpacing: 1.5, fontFamily: "monospace" }}>
+                    STATUS OPERACIONAL · {symKey} ({payload?.active_contract})
+                </div>
+
+                {/* Ícone Central Gigante (Triângulo Verde / Triângulo Vermelho / Hexágono Neutralizado) */}
+                <svg width="110" height="76" viewBox="0 0 110 76">
+                    <defs>
+                        <filter id={`glow-${symKey}`} x="-30%" y="-30%" width="160%" height="160%">
+                            <feGaussianBlur stdDeviation="5" result="blur" />
+                            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                        </filter>
+                    </defs>
+                    {/* Moldura HUD estilo A.S.G */}
+                    <polygon
+                        points="18,6 92,6 106,38 92,70 18,70 4,38"
+                        fill="none"
+                        stroke={mainColor}
+                        strokeWidth="1.2"
+                        strokeOpacity="0.45"
+                    />
+                    {isBuy && (
+                        <polygon
+                            points="55,14 82,60 28,60"
+                            fill="#00e87a"
+                            filter={`url(#glow-${symKey})`}
+                        />
+                    )}
+                    {isSell && (
+                        <polygon
+                            points="55,62 82,16 28,16"
+                            fill="#ff3860"
+                            filter={`url(#glow-${symKey})`}
+                        />
+                    )}
+                    {!isBuy && !isSell && (
+                        <g>
+                            <polygon
+                                points="55,12 80,25 80,51 55,64 30,51 30,25"
+                                fill="rgba(0, 212, 255, 0.12)"
+                                stroke="#00d4ff"
+                                strokeWidth="2"
+                            />
+                            <path d="M 38 38 Q 46 26, 55 38 T 72 38" fill="none" stroke="#ffffff" strokeWidth="2.5" />
+                            <ellipse cx="55" cy="58" rx="16" ry="4" fill="#f5a623" opacity="0.75" />
+                        </g>
+                    )}
+                </svg>
+
+                <div style={{
+                    fontSize: 22,
+                    fontWeight: 900,
+                    color: mainColor,
+                    letterSpacing: 3,
+                    textShadow: `0 0 14px ${mainColor}88`,
+                }}>
+                    {isBuy ? "COMPRAR" : isSell ? "VENDER" : "NEUTRALIZADO"}
+                </div>
+
+                <div style={{
+                    fontSize: 10,
+                    fontWeight: "bold",
+                    color: "#d0dde8",
+                    textAlign: "center",
+                    letterSpacing: 0.6,
+                }}>
+                    {asgHud.command_sub || "SIGA O FLUXO NO CONTEXTO"}
+                </div>
+            </div>
+
+            {/* ── 2. VELA 3D NEON DE CONTEXTO: MICRO + MACRO + MAKERS (IGUAL VÍDEO 3) ── */}
+            <div style={{
+                background: "#050910",
+                border: "1px solid #162636",
+                borderRadius: 10,
+                padding: "12px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+            }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: "bold", color: "#8ca5b5", letterSpacing: 1.5 }}>
+                        CONTEXTO:
+                    </span>
+                    <span style={{
+                        fontSize: 9.5,
+                        fontWeight: "bold",
+                        color: (asgHud.window_dir || 0) > 0 ? "#00e87a" : "#ff3860",
+                        background: (asgHud.window_dir || 0) > 0 ? "rgba(0,232,122,0.12)" : "rgba(255,56,96,0.12)",
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        border: `1px solid ${(asgHud.window_dir || 0) > 0 ? "#00e87a44" : "#ff386044"}`,
+                    }}>
+                        {asgHud.window_label} (desde {asgHud.window_start_time || "09:00"})
+                    </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.1fr 1fr", alignItems: "center", gap: 6, padding: "4px 0" }}>
+                    {/* Esquerda: Anel Circular Neon MICRO */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div style={{ position: "relative", width: 76, height: 76, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <svg width="76" height="76" viewBox="0 0 76 76" style={{ transform: "rotate(135deg)" }}>
+                                <circle
+                                    cx="38"
+                                    cy="38"
+                                    r={radius}
+                                    fill="none"
+                                    stroke="#122230"
+                                    strokeWidth="5"
+                                    strokeDasharray={circum}
+                                    strokeDashoffset={circum * 0.25}
+                                    strokeLinecap="round"
+                                />
+                                <circle
+                                    cx="38"
+                                    cy="38"
+                                    r={radius}
+                                    fill="none"
+                                    stroke={mainColor}
+                                    strokeWidth="5.5"
+                                    strokeDasharray={circum}
+                                    strokeDashoffset={arcOffset}
+                                    strokeLinecap="round"
+                                />
+                            </svg>
+                            <div style={{ position: "absolute", textAlign: "center" }}>
+                                <div style={{ fontSize: 19, fontWeight: "bold", color: "#ffffff", lineHeight: 1 }}>{microPct}</div>
+                                <div style={{ fontSize: 7.5, color: mainColor, fontWeight: "bold", letterSpacing: 1 }}>MICRO</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Centro: MACRO + Vela 3D Isométrica Neon */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                        <div style={{ textAlign: "center", marginBottom: 2 }}>
+                            <div style={{ fontSize: 16, fontWeight: "bold", color: "#ffffff", lineHeight: 1 }}>{macroPct}</div>
+                            <div style={{ fontSize: 7.5, color: "#8ca5b5", letterSpacing: 1 }}>MACRO</div>
+                        </div>
+                        {/* Cubo/Vela 3D Neon SVG */}
+                        <svg width="84" height="110" viewBox="0 0 84 110">
+                            {/* Pavio Superior 3D */}
+                            <line x1="42" y1="4" x2="42" y2="26" stroke={mainColor} strokeWidth="3" strokeLinecap="round" />
+                            {/* Face Topo do Prisma 3D */}
+                            <polygon
+                                points="42,18 66,28 42,38 18,28"
+                                fill={`${mainColor}33`}
+                                stroke={mainColor}
+                                strokeWidth="1.6"
+                            />
+                            {/* Face Esquerda */}
+                            <polygon
+                                points="18,28 42,38 42,84 18,74"
+                                fill={`${mainColor}18`}
+                                stroke={mainColor}
+                                strokeWidth="1.5"
+                            />
+                            {/* Face Direita */}
+                            <polygon
+                                points="42,38 66,28 66,74 42,84"
+                                fill={`${mainColor}28`}
+                                stroke={mainColor}
+                                strokeWidth="1.5"
+                            />
+                            {/* Pavio Inferior Pontilhado */}
+                            <line x1="42" y1="84" x2="42" y2="106" stroke="#f5a623" strokeWidth="2.2" strokeDasharray="3,3" />
+                            <circle cx="42" cy="96" r="2.5" fill="#ffffff" />
+                        </svg>
+                    </div>
+
+                    {/* Direita: MAKERS (Pressão dos Market Makers GEX) */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <div style={{
+                            background: "#09131e",
+                            border: "1px solid #1b2f42",
+                            borderRadius: 8,
+                            padding: "8px 10px",
+                            textAlign: "center",
+                            width: "100%",
+                        }}>
+                            <div style={{
+                                fontSize: 16,
+                                fontWeight: "bold",
+                                color: makersPct >= 0 ? "#00e87a" : "#ff3860",
+                            }}>
+                                {makersPct > 0 ? "+" : ""}{fmtNum(makersPct, 1)}%
+                            </div>
+                            <div style={{ fontSize: 8, color: "#9fb4c4", fontWeight: "bold", letterSpacing: 1 }}>
+                                MAKERS (GEX)
+                            </div>
+                        </div>
+
+                        <div style={{
+                            fontSize: 8.5,
+                            color: "#8ca5b5",
+                            textAlign: "center",
+                        }}>
+                            Médio Janela:<br />
+                            <strong style={{ color: "#ffd700", fontSize: 11 }}>{fmtNum(asgHud.window_entry_price, dec)}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* ── 3. TRILHA DE ALVOS DA JANELA (1 -> 2 -> 3) ── */}
+            <div style={{
+                background: "#050910",
+                border: "1px solid #162636",
+                borderRadius: 10,
+                padding: "10px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+            }}>
+                {/* Escada de Alvos (1 -> 2 -> 3) igual aos degraus dourados do Vídeo 3 */}
+                <div>
+                    <div style={{ fontSize: 9, color: "#8ca5b5", fontWeight: "bold", letterSpacing: 1, marginBottom: 6, textAlign: "center" }}>
+                        SIGA O FLUXO NO CONTEXTO · ALVOS DA JANELA
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                        {[0, 1, 2].map((idx) => {
+                            const tPrice = targets[idx];
+                            const isFirst = idx === 0;
+                            return (
+                                <div
+                                    key={`t-step-${idx}`}
+                                    style={{
+                                        background: isFirst ? "linear-gradient(180deg, #d4af37, #9a7b1c)" : "#0b141e",
+                                        color: isFirst ? "#05080d" : "#9fb4c4",
+                                        border: isFirst ? "1px solid #ffd700" : "1px solid #1e3144",
+                                        borderRadius: 6,
+                                        padding: "6px 6px",
+                                        textAlign: "center",
+                                        boxShadow: isFirst ? "0 0 12px rgba(212,175,55,0.4)" : "none",
+                                    }}
+                                >
+                                    <div style={{ fontSize: 8, fontWeight: "bold", opacity: 0.85 }}>
+                                        ALVO {idx + 1}
+                                    </div>
+                                    <div style={{ fontSize: 13, fontWeight: 900, color: isFirst ? "#05080d" : "#ffffff", marginTop: 1 }}>
+                                        {tPrice ? fmtNum(tPrice, dec) : "—"}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            {/* ── 4. PLACAR RESUMIDO + BOTÃO PARA ABRIR HISTÓRICO DE SINAIS ── */}
+            <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                background: "#070e17",
+                border: "1px solid #162636",
+                borderRadius: 8,
+                padding: "8px 12px",
+            }}>
+                <div style={{ fontSize: 9.5, color: "#9fb4c4" }}>
+                    🎯 Assertividade Hoje:{" "}
+                    <strong style={{ color: "#00e87a" }}>
+                        {fmtNum(scorecard.win_rate_pct, 0)}% ({scorecard.valid_signals || 0}✅ / {scorecard.invalid_signals || 0}❌)
+                    </strong>
+                </div>
+                <button
+                    onClick={onToggleHistory}
+                    style={{
+                        padding: "5px 10px",
+                        fontSize: 9,
+                        fontFamily: "monospace",
+                        fontWeight: "bold",
+                        background: showHistory ? "rgba(0,212,255,0.18)" : "#0d1824",
+                        border: "1px solid #00d4ff55",
+                        color: "#00d4ff",
+                        borderRadius: 5,
+                        cursor: "pointer",
+                    }}
+                >
+                    {showHistory ? "▲ Ocultar Sinais" : "📋 Ver Sinais do Dia"}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   3. GRÁFICO DE CAPITAL DAS OPERAÇÕES DO DIA (CANTO INFERIOR DIREITO)
+      - Evolução acumulada em R$ e Pontos dos sinais/operações emitidos na sessão
+      - Seletor de lote (1, 5, 10 contratos) + inspeção interativa de cada trade
+   ══════════════════════════════════════════════════════════════════════════════ */
+function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, selectedSigId, onSelectSignal }) {
+    const [contracts, setContracts] = useState(symKey === "WDO" ? 2 : 5);
+    const [hoverTradeIdx, setHoverTradeIdx] = useState(null);
+
+    const dec = symKey === "WDO" ? 1 : 0;
+    // WIN = R$ 0,20 por ponto por contrato | WDO = R$ 10,00 por ponto por contrato
+    const brlPerPt = symKey === "WDO" ? 10.0 : 0.20;
+    const targetRef = Number(scorecard.target_ref_pts || (symKey === "WDO" ? 5.0 : 150));
+    const stopRef = Number(scorecard.stop_ref_pts || (symKey === "WDO" ? 4.5 : 130));
+
+    // Ordenar sinais em ordem cronológica (09:00 -> atual)
+    const chronoSignals = [...signalsLog].reverse();
+
+    let cumPts = 0;
+    let peakPts = 0;
+    let maxDrawdownPts = 0;
+    let grossGainPts = 0;
+    let grossLossPts = 0;
+
+    const equityPoints = [
+        {
+            idx: 0,
+            id: null,
+            time: "09:00",
+            label: "Início",
+            tradePts: 0,
+            tradeBrl: 0,
+            cumPts: 0,
+            cumBrl: 0,
+            isGain: true,
+            dirLabel: "—",
+        },
+    ];
+
+    chronoSignals.forEach((sig, i) => {
+        let tradePts = 0;
+        const st = String(sig.validation_status || "");
+        if (st === "VALIDO_ALVO") {
+            tradePts = targetRef;
+        } else if (st === "VALIDO_FAVORAVEL") {
+            tradePts = Math.max(Number(sig.pnl_15m || 0), Math.round(Number(sig.mfe_30m || 0) * 0.6));
+            if (tradePts <= 0) tradePts = Math.round(targetRef * 0.45);
+        } else if (st === "INVALIDO_STOP") {
+            tradePts = -stopRef;
+        } else if (st === "INVALIDO_CONTRA") {
+            tradePts = Math.min(Number(sig.pnl_15m || 0), -Math.round(stopRef * 0.5));
+            if (tradePts >= 0) tradePts = -Math.round(stopRef * 0.5);
+        } else {
+            tradePts = Number(sig.pnl_15m ?? sig.pnl_5m ?? 0);
+        }
+
+        if (tradePts >= 0) grossGainPts += tradePts;
+        else grossLossPts += Math.abs(tradePts);
+
+        cumPts += tradePts;
+        if (cumPts > peakPts) peakPts = cumPts;
+        const dd = peakPts - cumPts;
+        if (dd > maxDrawdownPts) maxDrawdownPts = dd;
+
+        const tradeBrl = tradePts * brlPerPt * contracts;
+        const cumBrl = cumPts * brlPerPt * contracts;
+
+        equityPoints.push({
+            idx: i + 1,
+            id: sig.id,
+            time: sig.time,
+            entryPrice: sig.entry_price,
+            dirLabel: (sig.dir_num || 0) > 0 ? "▲ COMPRA" : "▼ VENDA",
+            tradePts,
+            tradeBrl,
+            cumPts,
+            cumBrl,
+            isGain: tradePts >= 0,
+            statusLabel: sig.validation_label || "Em andamento",
+        });
+    });
+
+    const totalBrl = cumPts * brlPerPt * contracts;
+    const isNetPos = totalBrl >= 0;
+    const curveColor = isNetPos ? "#00e87a" : "#ff3860";
+    const profitFactor = grossLossPts > 0 ? (grossGainPts / grossLossPts) : (grossGainPts > 0 ? 9.9 : 1.0);
+
+    const w = 400;
+    const h = 112;
+    const padL = 10;
+    const padR = 54;
+    const padT = 12;
+    const padB = 18;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
+
+    let minBrl = 0;
+    let maxBrl = 0;
+    equityPoints.forEach(p => {
+        if (p.cumBrl < minBrl) minBrl = p.cumBrl;
+        if (p.cumBrl > maxBrl) maxBrl = p.cumBrl;
+    });
+    const spanBrl = Math.max(50, maxBrl - minBrl);
+    minBrl -= spanBrl * 0.12;
+    maxBrl += spanBrl * 0.12;
+    const rangeBrl = Math.max(1e-6, maxBrl - minBrl);
+
+    const eqInnerPadL = 8;
+    const eqRightGap = 34;
+    const eqUsableW = Math.max(120, plotW - eqInnerPadL - eqRightGap);
+    const toX = (i) => padL + eqInnerPadL + (i / Math.max(1, equityPoints.length - 1)) * eqUsableW;
+    const toY = (v) => padT + plotH - ((v - minBrl) / rangeBrl) * plotH;
+    const yZero = toY(0);
+
+    const polyPts = equityPoints.map((p, i) => `${toX(i).toFixed(1)},${toY(p.cumBrl).toFixed(1)}`).join(" ");
+    const areaPts = `${toX(0).toFixed(1)},${yZero.toFixed(1)} ${polyPts} ${toX(equityPoints.length - 1).toFixed(1)},${yZero.toFixed(1)}`;
+
+    const inspected = hoverTradeIdx !== null && equityPoints[hoverTradeIdx]
+        ? equityPoints[hoverTradeIdx]
+        : equityPoints[equityPoints.length - 1];
+
+    return (
+        <div style={{
+            background: "radial-gradient(circle at 50% 0%, #0b1928 0%, #05080d 90%)",
+            border: `1.5px solid ${curveColor}44`,
+            borderRadius: 12,
+            padding: "10px 14px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            boxShadow: "0 6px 22px rgba(0,0,0,0.4)",
+        }}>
+            {/* Cabeçalho + Seletor de Contratos */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#ffffff", letterSpacing: 0.8 }}>
+                        💰 CAPITAL DAS OPERAÇÕES DO DIA
+                    </span>
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                    {(symKey === "WDO" ? [1, 2, 5] : [1, 5, 10]).map(c => (
+                        <button
+                            key={c}
+                            onClick={() => setContracts(c)}
+                            style={{
+                                padding: "2px 7px",
+                                fontSize: 8.5,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                                background: contracts === c ? "#00d4ff" : "#0b141e",
+                                color: contracts === c ? "#04080e" : "#8ca5b5",
+                                border: contracts === c ? "1px solid #00d4ff" : "1px solid #1b2d3e",
+                            }}
+                        >
+                            {c} {c === 1 ? "Contr." : "Contr."}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* Faixa de KPIs Financeiros do Dia */}
+            <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 0.9fr", gap: 6 }}>
+                <div style={{ background: "#060b12", border: `1px solid ${curveColor}44`, borderRadius: 7, padding: "5px 8px" }}>
+                    <div style={{ fontSize: 7.5, color: "#7f96a8", fontWeight: "bold" }}>SALDO ACUMULADO ({contracts}c)</div>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: curveColor, fontFamily: "monospace" }}>
+                        {totalBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(totalBrl), 0)}
+                        <span style={{ fontSize: 9.5, color: "#9fb4c4", fontWeight: "normal", marginLeft: 5 }}>
+                            ({fmtNum(cumPts, dec, true)}p)
+                        </span>
+                    </div>
+                </div>
+                <div style={{ background: "#060b12", border: "1px solid #152535", borderRadius: 7, padding: "5px 8px" }}>
+                    <div style={{ fontSize: 7.5, color: "#7f96a8", fontWeight: "bold" }}>FATOR DE LUCRO</div>
+                    <div style={{ fontSize: 13, fontWeight: "bold", color: profitFactor >= 1.5 ? "#00e87a" : "#f5a623", fontFamily: "monospace" }}>
+                        {fmtNum(profitFactor, 2)}x
+                        <span style={{ fontSize: 8.5, color: "#7f96a8", marginLeft: 4 }}>
+                            ({chronoSignals.length} ops)
+                        </span>
+                    </div>
+                </div>
+                <div style={{ background: "#060b12", border: "1px solid #152535", borderRadius: 7, padding: "5px 8px" }}>
+                    <div style={{ fontSize: 7.5, color: "#7f96a8", fontWeight: "bold" }}>DRAWDOWN MÁX</div>
+                    <div style={{ fontSize: 12.5, fontWeight: "bold", color: "#ff6b8b", fontFamily: "monospace" }}>
+                        -R$ {fmtNum(maxDrawdownPts * brlPerPt * contracts, 0)}
+                    </div>
+                </div>
+            </div>
+
+            {/* Gráfico SVG da Curva de Capital Intraday */}
+            <svg
+                viewBox={`0 0 ${w} ${h}`}
+                style={{ width: "100%", height: "auto", display: "block", background: "#04070c", borderRadius: 7, border: "1px solid #132230", cursor: "crosshair" }}
+                onMouseLeave={() => setHoverTradeIdx(null)}
+            >
+                <defs>
+                    <linearGradient id={`eq-grad-${symKey}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={curveColor} stopOpacity="0.32" />
+                        <stop offset="100%" stopColor={curveColor} stopOpacity="0.02" />
+                    </linearGradient>
+                </defs>
+
+                {/* Linha Zero (Break-even R$ 0) */}
+                <line x1={padL} y1={yZero} x2={padL + plotW} y2={yZero} stroke="#2a3f54" strokeWidth="1" strokeDasharray="3,3" />
+                <text x={padL + plotW + 4} y={yZero + 3} fill="#6c8496" fontSize="8" fontFamily="monospace">
+                    R$ 0
+                </text>
+
+                {/* Área Preenchida e Linha da Curva de Capital */}
+                <polygon points={areaPts} fill={`url(#eq-grad-${symKey})`} />
+                <polyline fill="none" stroke={curveColor} strokeWidth="2.2" points={polyPts} />
+
+                {/* Pontos de Cada Operação do Dia */}
+                {equityPoints.map((pt, i) => {
+                    const cx = toX(i);
+                    const cy = toY(pt.cumBrl);
+                    const isSel = pt.id && selectedSigId === pt.id;
+                    const dotCol = i === 0 ? "#00d4ff" : pt.isGain ? "#00e87a" : "#ff3860";
+                    return (
+                        <g
+                            key={`eq-pt-${i}`}
+                            onMouseEnter={() => setHoverTradeIdx(i)}
+                            onClick={() => pt.id && onSelectSignal && onSelectSignal(pt.id)}
+                            style={{ cursor: pt.id ? "pointer" : "default" }}
+                        >
+                            <circle
+                                cx={cx}
+                                cy={cy}
+                                r={isSel ? "5" : i === equityPoints.length - 1 ? "4" : "3"}
+                                fill={dotCol}
+                                stroke="#05080d"
+                                strokeWidth="1.2"
+                            />
+                        </g>
+                    );
+                })}
+
+                {/* Etiqueta do Saldo Atual na Direita */}
+                {(() => {
+                    const lastEq = equityPoints[equityPoints.length - 1];
+                    const xLast = toX(equityPoints.length - 1);
+                    const yLast = toY(lastEq.cumBrl);
+                    return (
+                        <g>
+                            <line x1={xLast + 4} y1={yLast} x2={padL + plotW} y2={yLast} stroke={curveColor} strokeWidth="1" strokeDasharray="2,2" opacity="0.75" />
+                            <rect x={padL + plotW + 2} y={yLast - 8} width={padR - 4} height={15} rx="3" fill="#071914" stroke={curveColor} strokeWidth="1" />
+                            <text x={padL + plotW + 5} y={yLast + 3} fill={curveColor} fontSize="8.5" fontWeight="bold" fontFamily="monospace">
+                                {lastEq.cumBrl >= 0 ? "+" : ""}{fmtNum(lastEq.cumBrl, 0)}
+                            </text>
+                        </g>
+                    );
+                })()}
+
+                {/* Eixo de Tempo no Rodapé */}
+                <text x={padL + 2} y={h - 4} fill="#6b8599" fontSize="8" fontFamily="monospace">09:00</text>
+                {equityPoints.length > 2 && (
+                    <text x={padL + plotW / 2 - 14} y={h - 4} fill="#6b8599" fontSize="8" fontFamily="monospace">
+                        {equityPoints[Math.floor(equityPoints.length / 2)]?.time}
+                    </text>
+                )}
+                <text x={padL + plotW - 26} y={h - 4} fill="#6b8599" fontSize="8" fontFamily="monospace">
+                    {equityPoints[equityPoints.length - 1]?.time}
+                </text>
+            </svg>
+
+            {/* Barra de Inspeção da Operação Selecionada / Última Operação */}
+            <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: 9,
+                fontFamily: "monospace",
+                background: "#060b12",
+                padding: "4px 8px",
+                borderRadius: 5,
+                border: "1px solid #142230",
+            }}>
+                <span style={{ color: "#8ca5b5" }}>
+                    🕒 {inspected.time} · <strong style={{ color: inspected.isGain ? "#00e87a" : "#ff3860" }}>{inspected.dirLabel}</strong>
+                </span>
+                <span style={{ color: inspected.tradeBrl >= 0 ? "#00e87a" : "#ff6b8b", fontWeight: "bold" }}>
+                    Trade: {inspected.tradeBrl >= 0 ? "+" : ""}R$ {fmtNum(inspected.tradeBrl, 0)} ({fmtNum(inspected.tradePts, dec, true)}p)
+                </span>
+            </div>
+        </div>
+    );
+}
+
+/* ── COMPONENTE DO COCKPIT DE 1 ATIVO (ESQUERDA: FLUXO REAL | DIREITA: A.S.G HUD + CURVA DE CAPITAL) ── */
+function SingleAssetCockpitView({ symKey, payload }) {
     const [selectedSigId, setSelectedSigId] = useState(null);
+    const [showHistory, setShowHistory] = useState(false);
+
     if (!payload) return null;
 
     const dec = symKey === "WDO" ? 1 : 0;
     const ca = payload.caminho_a || {};
-    const loc = ca.local_gex || {};
-    const hh = ca.hedge_horizons || {};
-    const cm = ca.confluence_matrix || {};
     const sc = ca.signals_scorecard || {};
     const signalsLog = ca.signals_log || [];
     const series = ca.m5_dealer_vs_flow_series || [];
-
-    const comp = payload.flow_compass || {};
-    const w5m = comp.windows?.["5m"] || {};
-    const tot = payload.session_totals || {};
-    const book = payload.top_of_book || {};
+    const flowWindows = ca.flow_windows || [];
+    const asgHud = ca.asg_hud || {};
     const radar = payload.walls_radar || {};
-    const supWalls = radar.support_walls || [];
-    const resWalls = radar.resistance_walls || [];
-    const nearestSup = supWalls[0];
-    const nearestRes = resWalls[0];
-    const sup2 = supWalls[1];
-    const res2 = resWalls[1];
-    const activeWall = radar.active_wall_alert;
-
-    const isPosGamma = loc.local_regime === "POSITIVE_GAMMA";
-    const badge = stateBadgeStyle(cm.operational_state);
-
-    // Posição percentual do preço entre o Suporte 1 e a Resistência 1
-    let corridorPct = 50;
-    if (nearestSup && nearestRes && nearestRes.price > nearestSup.price) {
-        corridorPct = Math.max(
-            2,
-            Math.min(98, ((payload.last_price - nearestSup.price) / (nearestRes.price - nearestSup.price)) * 100)
-        );
-    }
-
-    const wr = Number(sc.win_rate_pct || 0);
-    const wrColor = wr >= 60 ? "#00e87a" : wr >= 50 ? "#f5a623" : "#ff3860";
-
-    // Dados dos 3 Semáforos da Direita
-    const instNet = Number(tot.inst_broker_net || 0);
-    const instAggr = Number(tot.inst_broker_aggr_delta || 0);
-    const instPass = Number(tot.inst_broker_passive_delta || 0);
-    const delta5m = Number(w5m.inst_delta || 0);
-    const flowScore = Number(comp.score || 0);
-
-    const dealer5m = Number(hh["5m"]?.dealer_hedge_contracts || 0);
-    const dealer15m = Number(hh["15m"]?.dealer_hedge_contracts || 0);
-    const dealerScore = Number(ca.dealer_pressure_score || 0);
-
-    const optScore = Number(cbData?.options_compass?.score || 0);
-    const opt15m = cbData?.windows?.["15m"] || {};
-    const optSkew = Number(cbData?.volatility_surface?.skew_25d_pct || 0);
+    const allWalls = payload.all_walls || [];
 
     return (
-        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14, alignItems: "start" }}>
-            {/* ══════════════════════════════════════════════════════════════════════════
-                COLUNA ESQUERDA (62%): PLACAR DO DIA + GRÁFICO NO TEMPO + DIÁRIO DE SINAIS
-               ══════════════════════════════════════════════════════════════════════════ */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* 1. Faixa de KPIs do Placar de Assertividade do Dia */}
-                <div style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(4, 1fr)",
-                    gap: 10,
-                    background: "#0b121a",
-                    border: "1px solid #18293a",
-                    borderRadius: 8,
-                    padding: "9px 12px",
-                }}>
-                    <div style={{ borderRight: "1px solid #162534", paddingRight: 8 }}>
-                        <div style={{ fontSize: 8.5, color: "#7f96a8", fontWeight: "bold" }}>🎯 ASSERTIVIDADE HOJE ({symKey})</div>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 2 }}>
-                            <span style={{ fontSize: 18, fontWeight: "bold", color: wrColor }}>{fmtNum(wr, 1)}%</span>
-                            <span style={{ fontSize: 10, color: "#b1c4d4" }}>
-                                ({sc.valid_signals || 0} ✅ / {sc.invalid_signals || 0} ❌)
-                            </span>
-                        </div>
-                    </div>
-
-                    <div style={{ borderRight: "1px solid #162534", paddingRight: 8 }}>
-                        <div style={{ fontSize: 8.5, color: "#7f96a8", fontWeight: "bold" }}>🚀 MÉDIA MÁX. A FAVOR (30m)</div>
-                        <div style={{ fontSize: 17, fontWeight: "bold", color: "#00e87a", marginTop: 2 }}>
-                            +{fmtNum(sc.avg_max_favor_pts, dec)} pts
-                        </div>
-                    </div>
-
-                    <div style={{ borderRight: "1px solid #162534", paddingRight: 8 }}>
-                        <div style={{ fontSize: 8.5, color: "#7f96a8", fontWeight: "bold" }}>⏱️ RESULTADO MÉDIO EM 15m</div>
-                        <div style={{
-                            fontSize: 17,
-                            fontWeight: "bold",
-                            color: (sc.avg_15m_pts || 0) >= 0 ? "#00d4ff" : "#f5a623",
-                            marginTop: 2,
-                        }}>
-                            {fmtNum(sc.avg_15m_pts, dec, true)} pts
-                        </div>
-                    </div>
-
-                    <div>
-                        <div style={{ fontSize: 8.5, color: "#7f96a8", fontWeight: "bold" }}>📏 CRITÉRIO DE VALIDAÇÃO</div>
-                        <div style={{ fontSize: 12, fontWeight: "bold", color: "#e6edf3", marginTop: 4 }}>
-                            Alvo +{fmtNum(sc.target_ref_pts, dec)}p / Stop -{fmtNum(sc.stop_ref_pts, dec)}p
-                        </div>
-                    </div>
-                </div>
-
-                {/* 2. Gráfico Grande de Preço M5 + Paredes + Sinais Marcados no Tempo */}
-                <IntradayPriceSignalsChart
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2.1fr 1fr", gap: 14, alignItems: "stretch" }}>
+                {/* Esquerda (68%): Gráfico Triplo Sincronizado Fluxo Real + A.S.G */}
+                <FluxoRealAsgChart
                     symKey={symKey}
                     series={series}
+                    flowWindows={flowWindows}
+                    asgHud={asgHud}
                     wallsRadar={radar}
+                    allWalls={allWalls}
                     vwap={payload.vwap}
                     selectedSigId={selectedSigId}
-                    onSelectSignal={setSelectedSigId}
-                    height={275}
+                    onSelectSignal={(id) => {
+                        setSelectedSigId(id);
+                        setShowHistory(true);
+                    }}
                 />
 
-                {/* 3. Tabela Limpa e Clicável: Linha do Tempo dos Sinais de Hoje */}
+                {/* Direita (32%): HUD Visual Instantâneo A.S.G + Gráfico de Capital das Operações do Dia */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, justifyContent: "space-between" }}>
+                    <AsgCockpitHud
+                        symKey={symKey}
+                        payload={payload}
+                        asgHud={asgHud}
+                        scorecard={sc}
+                        showHistory={showHistory}
+                        onToggleHistory={() => setShowHistory(s => !s)}
+                    />
+                    <DailyOperationsEquityChart
+                        symKey={symKey}
+                        signalsLog={signalsLog}
+                        scorecard={sc}
+                        selectedSigId={selectedSigId}
+                        onSelectSignal={(id) => {
+                            setSelectedSigId(id);
+                            setShowHistory(true);
+                        }}
+                    />
+                </div>
+            </div>
+
+            {/* Tabela Retrátil de Janelas e Sinais (só aparece se o usuário clicar em "Ver Sinais do Dia") */}
+            {showHistory && (
                 <div style={{
-                    background: "#0b121a",
+                    background: "#080f17",
                     border: "1px solid #18293a",
                     borderRadius: 8,
-                    padding: "10px 12px",
+                    padding: "10px 14px",
                     display: "flex",
                     flexDirection: "column",
                     gap: 8,
                 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#c8a444", letterSpacing: 0.5 }}>
-                            📋 LINHA DO TEMPO DOS SINAIS DE HOJE ({signalsLog.length} sinais emitidos — clique numa linha para destacar no gráfico)
+                        <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#c8a444" }}>
+                            📋 HISTÓRICO DE SINAIS E JANELAS DE HOJE ({signalsLog.length} sinais emitidos)
                         </span>
+                        <button
+                            onClick={() => setShowHistory(false)}
+                            style={{ background: "transparent", border: "none", color: "#8ca5b5", cursor: "pointer", fontSize: 11 }}
+                        >
+                            ✕ Fechar
+                        </button>
                     </div>
-
-                    <div style={{ maxHeight: 235, overflowY: "auto" }}>
+                    <div style={{ maxHeight: 210, overflowY: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9.5 }}>
                             <thead>
-                                <tr style={{ color: "#6b8599", borderBottom: "1px solid #18293a", textAlign: "right", position: "sticky", top: 0, background: "#0b121a" }}>
+                                <tr style={{ color: "#6b8599", borderBottom: "1px solid #18293a", textAlign: "right" }}>
                                     <th style={{ textAlign: "left", padding: "5px 6px" }}>HORA</th>
-                                    <th style={{ textAlign: "left", padding: "5px 6px" }}>SINAL</th>
-                                    <th style={{ padding: "5px 6px" }}>ENTRADA</th>
-                                    <th style={{ textAlign: "left", padding: "5px 6px" }}>MOTIVO / GATILHO</th>
-                                    <th style={{ padding: "5px 6px" }}>+5m</th>
-                                    <th style={{ padding: "5px 6px" }}>+15m</th>
+                                    <th style={{ textAlign: "left", padding: "5px 6px" }}>DIREÇÃO</th>
+                                    <th style={{ padding: "5px 6px" }}>PREÇO</th>
+                                    <th style={{ textAlign: "left", padding: "5px 6px" }}>GATILHO</th>
                                     <th style={{ padding: "5px 6px", color: "#00e87a" }}>MÁX A FAVOR</th>
                                     <th style={{ padding: "5px 6px", color: "#ff6b8b" }}>MÁX CONTRA</th>
-                                    <th style={{ textAlign: "right", padding: "5px 6px" }}>VALIDAÇÃO</th>
+                                    <th style={{ textAlign: "right", padding: "5px 6px" }}>RESULTADO</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {signalsLog.map((sig) => {
                                     const isBuy = sig.dir_num > 0;
-                                    const isSel = selectedSigId === sig.id;
                                     const vColor = sig.is_valid === true ? "#00e87a" : sig.is_valid === false ? "#ff3860" : "#f5a623";
                                     return (
                                         <tr
                                             key={sig.id}
                                             onClick={() => setSelectedSigId(sig.id)}
                                             style={{
-                                                borderBottom: "1px solid #121e2b",
+                                                borderBottom: "1px solid #111c27",
                                                 textAlign: "right",
                                                 cursor: "pointer",
-                                                background: isSel ? "rgba(0, 212, 255, 0.12)" : "transparent",
+                                                background: selectedSigId === sig.id ? "rgba(0, 212, 255, 0.12)" : "transparent",
                                             }}
                                         >
-                                            <td style={{ textAlign: "left", padding: "6px", fontWeight: "bold", color: "#ffffff" }}>{sig.time}</td>
-                                            <td style={{ textAlign: "left", padding: "6px", fontWeight: "bold", color: isBuy ? "#00e87a" : "#ff3860" }}>
+                                            <td style={{ textAlign: "left", padding: "5px 6px", fontWeight: "bold", color: "#ffffff" }}>{sig.time}</td>
+                                            <td style={{ textAlign: "left", padding: "5px 6px", fontWeight: "bold", color: isBuy ? "#00e87a" : "#ff3860" }}>
                                                 {isBuy ? "▲ COMPRA" : "▼ VENDA"}
                                             </td>
-                                            <td style={{ padding: "6px", fontWeight: "bold", color: "#e6edf3" }}>{fmtNum(sig.entry_price, dec)}</td>
-                                            <td style={{ textAlign: "left", padding: "6px", color: "#9fb4c4", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sig.reason}>
-                                                <strong style={{ color: "#c8a444" }}>{sig.type}</strong>
-                                            </td>
-                                            <td style={{ padding: "6px", color: (sig.pnl_5m || 0) >= 0 ? "#00e87a" : "#ff6b8b", fontWeight: "bold" }}>
-                                                {sig.pnl_5m !== null && sig.pnl_5m !== undefined ? fmtNum(sig.pnl_5m, dec, true) : "—"}
-                                            </td>
-                                            <td style={{ padding: "6px", color: (sig.pnl_15m || 0) >= 0 ? "#00e87a" : "#ff6b8b", fontWeight: "bold" }}>
-                                                {sig.pnl_15m !== null && sig.pnl_15m !== undefined ? fmtNum(sig.pnl_15m, dec, true) : "—"}
-                                            </td>
-                                            <td style={{ padding: "6px", color: "#00e87a", fontWeight: "bold" }}>
-                                                +{fmtNum(sig.mfe_30m, dec)}p
-                                            </td>
-                                            <td style={{ padding: "6px", color: "#ff6b8b" }}>
-                                                {fmtNum(sig.mae_30m, dec)}p
-                                            </td>
-                                            <td style={{ padding: "6px", fontWeight: "bold", color: vColor }}>
-                                                {sig.validation_label}
-                                            </td>
+                                            <td style={{ padding: "5px 6px", color: "#e6edf3", fontWeight: "bold" }}>{fmtNum(sig.entry_price, dec)}</td>
+                                            <td style={{ textAlign: "left", padding: "5px 6px", color: "#c8a444" }}>{sig.type}</td>
+                                            <td style={{ padding: "5px 6px", color: "#00e87a", fontWeight: "bold" }}>+{fmtNum(sig.mfe_30m, dec)}p</td>
+                                            <td style={{ padding: "5px 6px", color: "#ff6b8b" }}>{fmtNum(sig.mae_30m, dec)}p</td>
+                                            <td style={{ padding: "5px 6px", fontWeight: "bold", color: vColor }}>{sig.validation_label}</td>
                                         </tr>
                                     );
                                 })}
@@ -652,273 +1751,7 @@ function SingleAssetCockpitView({ symKey, payload, cbData, onOpenRaioX }) {
                         </table>
                     </div>
                 </div>
-            </div>
-
-            {/* ══════════════════════════════════════════════════════════════════════════
-                COLUNA DIREITA (38%): OS 3 BLOCOS VISUAIS DE DECISÃO IMEDIATA
-               ══════════════════════════════════════════════════════════════════════════ */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* BLOCO 1: TERMÔMETRO DE FORÇA AGORA (OS 3 PILARES COM BARRAS VISUAIS) */}
-                <div style={{
-                    background: "#0b121a",
-                    border: "1px solid #18293a",
-                    borderRadius: 8,
-                    padding: "11px 14px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#00d4ff", letterSpacing: 0.7 }}>
-                            1️⃣ QUEM ESTÁ COMPRANDO OU VENDENDO AGORA?
-                        </span>
-                        <span style={{ fontSize: 9, color: "#7f96a8" }}>Score Fluxo: <strong style={{ color: scoreColor(flowScore) }}>{fmtNum(flowScore, 0, true)}</strong></span>
-                    </div>
-
-                    {/* Medidor 1: Bancos Profit */}
-                    <div style={{ background: "#070c12", border: "1px solid #152331", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 9.5, fontWeight: "bold", color: "#e6edf3" }}>🏦 BANCOS NO PROFIT (Dia / 5m)</span>
-                            <span style={{ fontSize: 11, fontWeight: "bold", color: scoreColor(instNet) }}>
-                                {instNet >= 0 ? "🟢 COMPRADOS" : "🔴 VENDIDOS"} ({fmtNum(instNet, 0, true)} L)
-                            </span>
-                        </div>
-                        <BipolarForceBar score={flowScore} leftLabel="Bancos Vendendo" rightLabel="Bancos Comprando" />
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#9fb4c4", paddingTop: 2 }}>
-                            <span>Agressão Tela: <strong style={{ color: instAggr >= 0 ? "#00e87a" : "#ff3860" }}>{fmtNum(instAggr, 0, true)}</strong></span>
-                            <span>Defesa Fila: <strong style={{ color: instPass >= 0 ? "#00d4ff" : "#f5a623" }}>{fmtNum(instPass, 0, true)}</strong></span>
-                            <span>Últimos 5m: <strong style={{ color: delta5m >= 0 ? "#00e87a" : "#ff3860" }}>{fmtNum(delta5m, 0, true)}L</strong></span>
-                        </div>
-                    </div>
-
-                    {/* Medidor 2: Market Makers / Dealers GEX */}
-                    <div style={{ background: "#070c12", border: "1px solid #152331", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 9.5, fontWeight: "bold", color: "#e6edf3" }}>⚙️ MARKET MAKERS (HEDGE GEX)</span>
-                            <span style={{
-                                fontSize: 9.5,
-                                fontWeight: "bold",
-                                padding: "2px 6px",
-                                borderRadius: 4,
-                                background: isPosGamma ? "rgba(0,212,255,0.15)" : "rgba(255,56,96,0.15)",
-                                color: isPosGamma ? "#00d4ff" : "#ff3860",
-                            }}>
-                                {isPosGamma ? "🛡️ AMORTECEDOR (GAMMA +)" : "⚡ ACELERADOR (GAMMA −)"}
-                            </span>
-                        </div>
-                        <BipolarForceBar score={dealerScore} leftLabel="Dealers Vendendo" rightLabel="Dealers Comprando" />
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#9fb4c4", paddingTop: 2 }}>
-                            <span>Hedge 5m: <strong style={{ color: dealer5m >= 0 ? "#00e87a" : "#ff3860" }}>{fmtNum(dealer5m, 0, true)} c.</strong></span>
-                            <span>Hedge 15m: <strong style={{ color: dealer15m >= 0 ? "#00e87a" : "#ff3860" }}>{fmtNum(dealer15m, 0, true)} c.</strong></span>
-                            <span>Força: <strong>{fmtNum(loc.dealer_contracts_per_step, 0)}c/{fmtNum(loc.step_pts, 0)}p</strong></span>
-                        </div>
-                    </div>
-
-                    {/* Medidor 3: Opções BOVA11 (para WIN) ou Fila do Book (para WDO) */}
-                    {symKey === "WIN" && cbData?.ok ? (
-                        <div style={{ background: "#070c12", border: "1px solid #152331", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span style={{ fontSize: 9.5, fontWeight: "bold", color: "#e6edf3" }}>🎯 OPÇÕES AO VIVO (BOVA11)</span>
-                                <span style={{ fontSize: 11, fontWeight: "bold", color: scoreColor(optScore) }}>
-                                    {optScore >= 18 ? "🟢 FLUXO ALTISTA" : optScore <= -18 ? "🔴 FLUXO BAIXISTA" : "🟡 EQUILÍBRIO"} ({fmtNum(optScore, 0, true)})
-                                </span>
-                            </div>
-                            <BipolarForceBar score={optScore} leftLabel="Compra Put / Venda Call" rightLabel="Compra Call / Venda Put" />
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#9fb4c4", paddingTop: 2 }}>
-                                <span>Saldo 15m: <strong style={{ color: (opt15m.bull_bear_imbalance_pct || 0) >= 0 ? "#00e87a" : "#ff3860" }}>{fmtNum(opt15m.bull_bear_imbalance_pct, 1, true)}%</strong></span>
-                                <span>Delta Equiv: <strong>{fmtNum(opt15m.net_delta_equivalent, 0, true)}</strong></span>
-                                <span>Skew Put−Call: <strong>{fmtNum(optSkew, 2, true)}%</strong></span>
-                            </div>
-                        </div>
-                    ) : (
-                        <div style={{ background: "#070c12", border: "1px solid #152331", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span style={{ fontSize: 9.5, fontWeight: "bold", color: "#e6edf3" }}>📚 FILA DO TOPO DO BOOK</span>
-                                <span style={{ fontSize: 10, fontWeight: "bold", color: (book.book_imbalance_pct || 0) >= 0 ? "#00e87a" : "#ff3860" }}>
-                                    Imbalance: {fmtNum(book.book_imbalance_pct, 1, true)}%
-                                </span>
-                            </div>
-                            <BipolarForceBar score={book.book_imbalance_pct} leftLabel="Oferta Ask" rightLabel="Demanda Bid" />
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#9fb4c4" }}>
-                                <span>BID: <strong style={{ color: "#00e87a" }}>{fmtNum(book.best_bid_price, dec)} ({fmtNum(book.best_bid_qty, 0)}L)</strong></span>
-                                <span>ASK: <strong style={{ color: "#ff3860" }}>{fmtNum(book.best_ask_price, dec)} ({fmtNum(book.best_ask_qty, 0)}L)</strong></span>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* BLOCO 2: ELEVADOR DE PAREDES (MAPA VERTICAL DO CORREDOR ATUAL) */}
-                <div style={{
-                    background: "#0b121a",
-                    border: "1px solid #18293a",
-                    borderRadius: 8,
-                    padding: "11px 14px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#00e87a", letterSpacing: 0.7 }}>
-                            2️⃣ ELEVADOR DE PAREDES (ONDE ESTOU NO CORREDOR?)
-                        </span>
-                        {activeWall && (
-                            <span style={{ fontSize: 8.5, background: "rgba(200,164,68,0.25)", color: "#c8a444", border: "1px solid #c8a444", padding: "2px 6px", borderRadius: 4, fontWeight: "bold" }}>
-                                ⚡ NA PAREDE AGORA!
-                            </span>
-                        )}
-                    </div>
-
-                    {/* Escada Vertical Visual: Teto 2 -> Teto 1 -> PREÇO ATUAL -> Piso 1 -> Piso 2 */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        {/* Teto 2 */}
-                        {res2 && (
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#070c12", padding: "5px 10px", borderRadius: 5, borderLeft: "3px solid #ff386066", fontSize: 9.5 }}>
-                                <span style={{ color: "#ff6b8b" }}>▲ Teto 2 · {res2.type}</span>
-                                <span style={{ color: "#e6edf3", fontWeight: "bold" }}>
-                                    {fmtNum(res2.price, dec)} <span style={{ color: "#ff6b8b", fontSize: 8.5 }}>({fmtNum(res2.dist_pts, dec, true)} pts)</span>
-                                </span>
-                            </div>
-                        )}
-
-                        {/* Teto 1 (Resistência Imediata) */}
-                        {nearestRes && (
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,56,96,0.09)", padding: "7px 10px", borderRadius: 6, border: "1px solid #ff386055", borderLeft: "4px solid #ff3860" }}>
-                                <div>
-                                    <div style={{ fontSize: 9.5, fontWeight: "bold", color: "#ff6b8b" }}>🔴 TETO IMEDIATO · {nearestRes.type}</div>
-                                    <div style={{ fontSize: 8.5, color: "#9fb4c4" }}>{nearestRes.status} · GEX {nearestRes.gex_formatted || "Mid"}</div>
-                                </div>
-                                <div style={{ textAlign: "right" }}>
-                                    <div style={{ fontSize: 14, fontWeight: "bold", color: "#ffffff" }}>{fmtNum(nearestRes.price, dec)}</div>
-                                    <div style={{ fontSize: 9.5, fontWeight: "bold", color: "#ff6b8b" }}>Faltam {fmtNum(nearestRes.dist_pts, dec, true)} pts</div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* PREÇO ATUAL NO MEIO + RÉGUA DE POSIÇÃO ENTRE PISO E TETO */}
-                        <div style={{ background: "rgba(0, 212, 255, 0.12)", border: "1px solid #00d4ff66", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span style={{ fontSize: 9.5, fontWeight: "bold", color: "#00d4ff" }}>🔵 PREÇO SPOT ATUAL</span>
-                                <span style={{ fontSize: 16, fontWeight: "bold", color: "#ffffff" }}>{fmtNum(payload.last_price, dec)}</span>
-                            </div>
-                            {/* Barra Piso 0% <---> Teto 100% */}
-                            <div style={{ position: "relative", height: 9, background: "linear-gradient(90deg, rgba(0,232,122,0.35), rgba(0,212,255,0.15), rgba(255,56,96,0.35))", borderRadius: 5, border: "1px solid #1e3448" }}>
-                                <div
-                                    style={{
-                                        position: "absolute",
-                                        left: `calc(${corridorPct}% - 5px)`,
-                                        top: -2,
-                                        width: 10,
-                                        height: 11,
-                                        borderRadius: "50%",
-                                        background: "#ffffff",
-                                        border: "2px solid #00d4ff",
-                                        boxShadow: "0 0 8px #00d4ff",
-                                    }}
-                                />
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8.5, color: "#9fb4c4" }}>
-                                <span>🟢 Piso ({fmtNum(corridorPct, 0)}% do corredor)</span>
-                                <span>VWAP: {fmtNum(payload.vwap, dec)}</span>
-                                <span>Teto 🔴</span>
-                            </div>
-                        </div>
-
-                        {/* Piso 1 (Suporte Imediato) */}
-                        {nearestSup && (
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(0,232,122,0.09)", padding: "7px 10px", borderRadius: 6, border: "1px solid #00e87a55", borderLeft: "4px solid #00e87a" }}>
-                                <div>
-                                    <div style={{ fontSize: 9.5, fontWeight: "bold", color: "#00e87a" }}>🟢 PISO IMEDIATO · {nearestSup.type}</div>
-                                    <div style={{ fontSize: 8.5, color: "#9fb4c4" }}>{nearestSup.status} · GEX {nearestSup.gex_formatted || "Mid"}</div>
-                                </div>
-                                <div style={{ textAlign: "right" }}>
-                                    <div style={{ fontSize: 14, fontWeight: "bold", color: "#ffffff" }}>{fmtNum(nearestSup.price, dec)}</div>
-                                    <div style={{ fontSize: 9.5, fontWeight: "bold", color: "#00e87a" }}>Distância {fmtNum(nearestSup.dist_pts, dec, true)} pts</div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Piso 2 */}
-                        {sup2 && (
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#070c12", padding: "5px 10px", borderRadius: 5, borderLeft: "3px solid #00e87a66", fontSize: 9.5 }}>
-                                <span style={{ color: "#00e87a" }}>▼ Piso 2 · {sup2.type}</span>
-                                <span style={{ color: "#e6edf3", fontWeight: "bold" }}>
-                                    {fmtNum(sup2.price, dec)} <span style={{ color: "#00e87a", fontSize: 8.5 }}>({fmtNum(sup2.dist_pts, dec, true)} pts)</span>
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* BLOCO 3: PLANO DE AÇÃO DIRETO (SEM PARÁGRAFOS LONGOS) */}
-                <div style={{
-                    background: "#0b121a",
-                    border: `1px solid ${badge.border}66`,
-                    borderRadius: 8,
-                    padding: "11px 14px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#c8a444", letterSpacing: 0.7 }}>
-                            3️⃣ PLANO DE AÇÃO DIRETO ({symKey})
-                        </span>
-                        <span style={{
-                            fontSize: 9.5,
-                            fontWeight: "bold",
-                            background: badge.bg,
-                            color: badge.color,
-                            border: `1px solid ${badge.border}`,
-                            padding: "2px 8px",
-                            borderRadius: 4,
-                        }}>
-                            {cm.operational_bias || "AGUARDANDO"}
-                        </span>
-                    </div>
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 10 }}>
-                        <div style={{ background: "rgba(0,232,122,0.08)", borderLeft: "3px solid #00e87a", padding: "6px 9px", borderRadius: "0 5px 5px 0", color: "#e6edf3" }}>
-                            <strong style={{ color: "#00e87a" }}>🟢 Onde Comprar:</strong>{" "}
-                            {nearestSup
-                                ? `Defesa / Absorção no Piso ${fmtNum(nearestSup.price, dec)} (${fmtNum(nearestSup.dist_pts, dec, true)}p) ou retomada institucional na base.`
-                                : "Aguardar formação de suporte com fluxo institucional comprador."}
-                        </div>
-                        <div style={{ background: "rgba(255,56,96,0.08)", borderLeft: "3px solid #ff3860", padding: "6px 9px", borderRadius: "0 5px 5px 0", color: "#e6edf3" }}>
-                            <strong style={{ color: "#ff6b8b" }}>🔴 Onde Vender:</strong>{" "}
-                            {nearestRes
-                                ? `Rejeição / Absorção no Teto ${fmtNum(nearestRes.price, dec)} (${fmtNum(nearestRes.dist_pts, dec, true)}p) ou perda de parede com fluxo vendedor.`
-                                : "Aguardar teste de resistência com rejeição institucional."}
-                        </div>
-                        <div style={{ background: "#070c12", borderLeft: "3px solid #c8a444", padding: "6px 9px", borderRadius: "0 5px 5px 0", color: "#b1c4d4", fontSize: 9.5 }}>
-                            <strong style={{ color: "#c8a444" }}>⚠️ Regra do Regime Atual:</strong>{" "}
-                            {isPosGamma
-                                ? "Mercado em Gamma Positivo (Amortecedor): evite comprar topo esticado ou vender fundo esticado. Opere nas paredes."
-                                : "Mercado em Gamma Negativo (Acelerador): os Dealers operam a favor do rompimento. Acompanhe o fluxo institucional."}
-                        </div>
-                    </div>
-
-                    {onOpenRaioX && (
-                        <button
-                            onClick={onOpenRaioX}
-                            style={{
-                                marginTop: 2,
-                                width: "100%",
-                                padding: "6px 10px",
-                                fontSize: 9.5,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0d1824",
-                                border: "1px solid #233b52",
-                                color: "#00d4ff",
-                                borderRadius: 5,
-                                cursor: "pointer",
-                            }}
-                        >
-                            🔬 Abrir Raio-X Completo (Ranking Corretoras Profit + Grade Opções BOVA11) →
-                        </button>
-                    )}
-                </div>
-            </div>
+            )}
         </div>
     );
 }
@@ -1163,7 +1996,7 @@ function RaioXAssetCard({ symKey, payload }) {
 }
 
 /* ── COMPONENTE PRINCIPAL EXPORTADO ────────────────────────────────────────── */
-export default function IntradayCompassPanel({ compassData, mode = "COCKPIT", onChangeMode }) {
+export default function IntradayCompassPanel({ compassData, mode = "COCKPIT", onChangeMode, selectedDate = "", onSelectDate }) {
     const [selectedAsset, setSelectedAsset] = useState("WIN"); // "WIN" | "WDO" | "DUAL"
 
     if (!compassData || !compassData.WIN) {
@@ -1177,7 +2010,7 @@ export default function IntradayCompassPanel({ compassData, mode = "COCKPIT", on
                 fontSize: 12,
                 textAlign: "center",
             }}>
-                Inicializando Cockpit Operacional Intradiário (ProfitChart CSV + MT5 Live Ticks + GEX Dealers + Opções Ao Vivo)...
+                Inicializando Cockpit Operacional (Fluxo Real + A.S.G HUD + Radar Pro)...
             </div>
         );
     }
@@ -1187,18 +2020,40 @@ export default function IntradayCompassPanel({ compassData, mode = "COCKPIT", on
     const cb = compassData.caminho_b || winP?.caminho_b || {};
     const optComp = cb.options_compass || {};
     const volSurf = cb.volatility_surface || {};
-    const optWins = cb.windows || {};
     const bova = cb.bova11 || {};
 
-    // Cartão Seletor de Ativo no Topo (WINZ26 vs WDOX26)
+    const availableDates = compassData.available_dates || [];
+    const todayDateStr = availableDates[0] || "";
+    const yesterdayDateStr = availableDates.length > 1 ? availableDates[1] : "2026-10-27";
+    const activeDate = selectedDate || "";
+    const isHistView = Boolean(activeDate && activeDate !== todayDateStr) || Boolean(compassData.is_historical);
+
+    const fmtDateShort = (dStr) => {
+        if (!dStr || !dStr.includes("-")) return dStr;
+        const [, m, d] = dStr.split("-");
+        return `${d}/${m}`;
+    };
+    const fmtDateFull = (dStr) => {
+        if (!dStr || !dStr.includes("-")) return dStr;
+        const [y, m, d] = dStr.split("-");
+        return `${d}/${m}/${y}`;
+    };
+
+    const handleDatePick = (dStr) => {
+        if (onSelectDate) {
+            onSelectDate(dStr === todayDateStr ? "" : dStr);
+        }
+    };
+
+    // Cartão Seletor de Ativo no Topo com Semáforo Instantâneo (COMPRA / VENDA / NEUTRALIZADO)
     const renderAssetSelectorButton = (symKey, p) => {
         if (!p) return null;
         const isSel = selectedAsset === symKey;
         const dec = symKey === "WDO" ? 1 : 0;
         const ca = p.caminho_a || {};
-        const cm = ca.confluence_matrix || {};
-        const sc = ca.signals_scorecard || {};
-        const badge = stateBadgeStyle(cm.operational_state);
+        const hud = ca.asg_hud || {};
+        const cmd = hud.command || "NEUTRALIZADO";
+        const cmdColor = cmd === "COMPRA" ? "#00e87a" : cmd === "VENDA" ? "#ff3860" : "#00d4ff";
         const accent = symKey === "WIN" ? "#00d4ff" : "#c8a444";
 
         return (
@@ -1207,120 +2062,203 @@ export default function IntradayCompassPanel({ compassData, mode = "COCKPIT", on
                 onClick={() => setSelectedAsset(symKey)}
                 style={{
                     flex: 1,
-                    minWidth: 300,
-                    background: isSel ? "rgba(0, 212, 255, 0.09)" : "#0b121a",
+                    minWidth: 280,
+                    background: isSel ? "rgba(0, 212, 255, 0.08)" : "#080d14",
                     border: isSel ? `2px solid ${accent}` : "1px solid #18293a",
-                    borderRadius: 9,
-                    padding: "10px 14px",
+                    borderRadius: 10,
+                    padding: "9px 14px",
                     cursor: "pointer",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    flexWrap: "wrap",
                     gap: 10,
                     transition: "all 0.2s ease",
-                    boxShadow: isSel ? `0 0 16px ${accent}22` : "none",
                 }}
             >
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <span style={{
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: "bold",
-                        color: isSel ? "#081018" : accent,
+                        color: isSel ? "#05080d" : accent,
                         background: isSel ? accent : `${accent}1a`,
                         border: `1px solid ${accent}`,
                         padding: "4px 10px",
                         borderRadius: 5,
                     }}>
-                        {symKey === "WIN" ? "🇧🇷 MINI ÍNDICE" : "💵 MINI DÓLAR"} · {p.active_contract}
+                        {symKey === "WIN" ? "🇧🇷 ÍNDICE" : "💵 DÓLAR"} · {p.active_contract}
                     </span>
                     <div>
-                        <div style={{ fontSize: 20, fontWeight: "bold", color: "#ffffff", lineHeight: 1.1 }}>
+                        <div style={{ fontSize: 19, fontWeight: "bold", color: "#ffffff", lineHeight: 1.1 }}>
                             {fmtNum(p.last_price, dec)}
                         </div>
-                        <div style={{ fontSize: 9, color: "#7f96a8" }}>
+                        <div style={{ fontSize: 8.5, color: "#7f96a8" }}>
                             VWAP: {fmtNum(p.vwap, dec)}
                         </div>
                     </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <div style={{ textAlign: "right" }}>
-                        <div style={{
-                            fontSize: 10,
-                            fontWeight: "bold",
-                            color: badge.color,
-                            background: badge.bg,
-                            border: `1px solid ${badge.border}66`,
-                            padding: "3px 8px",
-                            borderRadius: 4,
-                            display: "inline-block",
-                        }}>
-                            {cm.operational_bias || "AGUARDANDO"}
-                        </div>
-                        <div style={{ fontSize: 9, color: "#9fb4c4", marginTop: 3 }}>
-                            Placar Hoje: <strong style={{ color: "#00e87a" }}>{sc.valid_signals || 0}✅</strong> / <strong style={{ color: "#ff6b8b" }}>{sc.invalid_signals || 0}❌</strong> ({fmtNum(sc.win_rate_pct, 1)}%)
-                        </div>
-                    </div>
+                {/* Semáforo Gigante Direto na Aba do Ativo */}
+                <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: `${cmdColor}18`,
+                    border: `1.5px solid ${cmdColor}`,
+                    padding: "5px 12px",
+                    borderRadius: 7,
+                }}>
+                    <span style={{ fontSize: 14, fontWeight: 900, color: cmdColor }}>
+                        {cmd === "COMPRA" ? "▲ COMPRAR" : cmd === "VENDA" ? "▼ VENDER" : "❖ NEUTRO"}
+                    </span>
                 </div>
             </div>
         );
     };
 
     return (
-        <div style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-        }}>
-            {/* ── SELETOR RÁPIDO DE ATIVO NO TOPO (WINZ26 vs WDOX26) ──────────────── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* ── SELETOR RÁPIDO DE ATIVO E DE PREGÃO NO TOPO (WINZ26 vs WDOX26 | HOJE vs ONTEM) ── */}
             {mode === "COCKPIT" && (
-                <div style={{ display: "flex", gap: 12, alignItems: "stretch", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "stretch", flexWrap: "wrap" }}>
                     {renderAssetSelectorButton("WIN", winP)}
                     {renderAssetSelectorButton("WDO", wdoP)}
                     <button
                         onClick={() => setSelectedAsset(selectedAsset === "DUAL" ? "WIN" : "DUAL")}
                         style={{
-                            padding: "0 16px",
+                            padding: "0 14px",
                             fontSize: 10,
                             fontFamily: "monospace",
                             fontWeight: "bold",
-                            background: selectedAsset === "DUAL" ? "rgba(0, 232, 122, 0.18)" : "#0b121a",
+                            background: selectedAsset === "DUAL" ? "rgba(0, 232, 122, 0.18)" : "#080d14",
                             border: selectedAsset === "DUAL" ? "2px solid #00e87a" : "1px solid #18293a",
                             color: selectedAsset === "DUAL" ? "#00e87a" : "#8ca5b5",
-                            borderRadius: 9,
+                            borderRadius: 10,
                             cursor: "pointer",
                         }}
-                        title="Ver WIN e WDO simultaneamente"
                     >
                         ⚖️ {selectedAsset === "DUAL" ? "Visão Dupla Ativa" : "Ver WIN + WDO Juntos"}
+                    </button>
+
+                    {/* Seletor de Pregão: HOJE (AO VIVO) | ONTEM | Outros Dias */}
+                    <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: "#080d14",
+                        border: isHistView ? "2px solid #d4af37" : "1px solid #18293a",
+                        borderRadius: 10,
+                        padding: "6px 10px",
+                    }}>
+                        <span style={{ fontSize: 9, color: "#7f96a8", fontWeight: "bold", letterSpacing: 0.5 }}>
+                            📅 PREGÃO:
+                        </span>
+                        <button
+                            onClick={() => handleDatePick("")}
+                            style={{
+                                padding: "5px 10px",
+                                fontSize: 9.5,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                border: !isHistView ? "1.5px solid #00e87a" : "1px solid #1c2e3e",
+                                background: !isHistView ? "rgba(0, 232, 122, 0.18)" : "#0d151e",
+                                color: !isHistView ? "#00e87a" : "#8ca5b5",
+                            }}
+                        >
+                            🟢 HOJE {todayDateStr ? `(${fmtDateShort(todayDateStr)})` : ""}
+                        </button>
+                        {yesterdayDateStr && (
+                            <button
+                                onClick={() => handleDatePick(yesterdayDateStr)}
+                                style={{
+                                    padding: "5px 10px",
+                                    fontSize: 9.5,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    borderRadius: 6,
+                                    cursor: "pointer",
+                                    border: activeDate === yesterdayDateStr ? "1.5px solid #d4af37" : "1px solid #1c2e3e",
+                                    background: activeDate === yesterdayDateStr ? "rgba(212, 175, 55, 0.22)" : "#0d151e",
+                                    color: activeDate === yesterdayDateStr ? "#ffd700" : "#c8a444",
+                                }}
+                            >
+                                ⏪ ONTEM ({fmtDateShort(yesterdayDateStr)})
+                            </button>
+                        )}
+                        {availableDates.length > 2 && (
+                            <select
+                                value={activeDate || todayDateStr}
+                                onChange={(e) => handleDatePick(e.target.value)}
+                                style={{
+                                    padding: "4px 8px",
+                                    fontSize: 9.5,
+                                    fontFamily: "monospace",
+                                    background: "#0d151e",
+                                    border: "1px solid #1c2e3e",
+                                    borderRadius: 6,
+                                    color: "#9fb4c4",
+                                    cursor: "pointer",
+                                    outline: "none",
+                                }}
+                            >
+                                {availableDates.map((d, idx) => (
+                                    <option key={d} value={d}>
+                                        {idx === 0 ? `Hoje (${fmtDateShort(d)})` : idx === 1 ? `Ontem (${fmtDateShort(d)})` : fmtDateFull(d)}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Banner quando estiver visualizando o dia anterior ou histórico */}
+            {isHistView && (
+                <div style={{
+                    background: "rgba(212, 175, 55, 0.12)",
+                    border: "1px solid rgba(212, 175, 55, 0.45)",
+                    borderRadius: 8,
+                    padding: "6px 14px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: 8,
+                }}>
+                    <span style={{ fontSize: 10, color: "#ffd700", fontWeight: "bold" }}>
+                        ⏪ MODO REPLAY HISTÓRICO · Pregão Completo de {fmtDateFull(compassData.selected_date || activeDate)} (09:00 às 18:30 · Walls GEX + Fluxo M5 + Operações)
+                    </span>
+                    <button
+                        onClick={() => handleDatePick("")}
+                        style={{
+                            padding: "4px 12px",
+                            fontSize: 9.5,
+                            fontFamily: "monospace",
+                            fontWeight: "bold",
+                            background: "rgba(0, 232, 122, 0.18)",
+                            border: "1px solid #00e87a",
+                            borderRadius: 6,
+                            color: "#00e87a",
+                            cursor: "pointer",
+                        }}
+                    >
+                        🟢 VOLTAR PARA HOJE (AO VIVO)
                     </button>
                 </div>
             )}
 
-            {/* ── MODO 1: COCKPIT OPERACIONAL (1 TELA LIMPA E INTUITIVA) ──────────── */}
+            {/* ── MODO 1: COCKPIT OPERACIONAL (FLUXO REAL + A.S.G HUD) ──────────── */}
             {mode === "COCKPIT" && (
                 selectedAsset === "DUAL" ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                        <SingleAssetCockpitView
-                            symKey="WIN"
-                            payload={winP}
-                            cbData={cb}
-                            onOpenRaioX={() => onChangeMode && onChangeMode("RAIO_X")}
-                        />
-                        <SingleAssetCockpitView
-                            symKey="WDO"
-                            payload={wdoP}
-                            cbData={null}
-                            onOpenRaioX={() => onChangeMode && onChangeMode("RAIO_X")}
-                        />
+                        <SingleAssetCockpitView symKey="WIN" payload={winP} />
+                        <SingleAssetCockpitView symKey="WDO" payload={wdoP} />
                     </div>
                 ) : (
                     <SingleAssetCockpitView
                         symKey={selectedAsset}
                         payload={selectedAsset === "WIN" ? winP : wdoP}
-                        cbData={selectedAsset === "WIN" ? cb : null}
-                        onOpenRaioX={() => onChangeMode && onChangeMode("RAIO_X")}
                     />
                 )
             )}
@@ -1377,7 +2315,6 @@ export default function IntradayCompassPanel({ compassData, mode = "COCKPIT", on
                                 </span>
                             </div>
 
-                            {/* Superfície de Volatilidade Implícita (Black-Scholes) + PCR */}
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
                                 <div style={{ background: "#070c12", padding: "6px 8px", borderRadius: 5, border: "1px solid #15222e" }}>
                                     <div style={{ fontSize: 8, color: "#657d8f" }}>IV ATM (NO DINHEIRO)</div>
@@ -1407,7 +2344,6 @@ export default function IntradayCompassPanel({ compassData, mode = "COCKPIT", on
                                 </div>
                             </div>
 
-                            {/* Top 12 Séries de Opções Mais Ativas */}
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 8.5 }}>
                                 <thead>
                                     <tr style={{ color: "#5c7487", borderBottom: "1px solid #16232f", textAlign: "right" }}>

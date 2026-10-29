@@ -52,11 +52,57 @@ beta_state = {
 
 # ─── MT5 connection ─────────────────────────────────────────────────────────
 
+def _is_mt5_visible_running(target_path: str) -> bool:
+    """Verifica se o terminal64.exe em target_path já está aberto com janela visível no Desktop."""
+    if not target_path:
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+        norm_target = os.path.normcase(os.path.normpath(target_path))
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        found = False
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _enum_cb(hwnd, lparam):
+            nonlocal found
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if not pid.value:
+                return True
+            hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+            if hproc:
+                try:
+                    buf = ctypes.create_unicode_buffer(1024)
+                    size = wintypes.DWORD(1024)
+                    if kernel32.QueryFullProcessImageNameW(hproc, 0, buf, ctypes.byref(size)):
+                        proc_path = os.path.normcase(os.path.normpath(buf.value))
+                        if proc_path == norm_target:
+                            found = True
+                            return False
+                finally:
+                    kernel32.CloseHandle(hproc)
+            return True
+
+        user32.EnumWindows(_enum_cb, 0)
+        return found
+    except Exception:
+        return True
+
+
 def connect_mt5() -> bool:
-    """Inicializa conexão com o MT5 especificado em MT5_PATH."""
+    """Inicializa conexão com o MT5 especificado em MT5_PATH (apenas se já estiver aberto com janela visível)."""
     with mt5_lock:
         if mt5.terminal_info() is not None:
             return True
+        if MT5_PATH and not _is_mt5_visible_running(MT5_PATH):
+            # Evita que o Python em background lance um terminal64.exe invisível (MainWindowHandle=0)
+            # que trava a abertura do ícone do MetaTrader 5 pelo usuário.
+            return False
         kwargs = {"timeout": 10000}
         if MT5_PATH:
             kwargs["path"] = MT5_PATH

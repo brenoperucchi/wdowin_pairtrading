@@ -326,21 +326,29 @@ export default function App() {
     }, [isViewingHistory, workspaceTab]);
 
     useEffect(() => {
-        if (import.meta.env.PROD || isViewingHistory) return;
+        if (import.meta.env.PROD) return;
         let active = true;
         async function pollCompass() {
             try {
-                const res = await fetch(API_COMPASS_URL);
+                const url = selectedDate
+                    ? `${API_COMPASS_URL}?date_str=${encodeURIComponent(selectedDate)}`
+                    : API_COMPASS_URL;
+                const res = await fetch(url);
                 if (res.ok) {
                     const json = await res.json();
-                    if (active && json && json.ok) setCompassData(json);
+                    if (active && json && json.ok) {
+                        setCompassData(json);
+                    }
                 }
             } catch (e) {}
         }
         pollCompass();
-        const t = setInterval(pollCompass, 1800);
-        return () => { active = false; clearInterval(t); };
-    }, [isViewingHistory]);
+        if (!selectedDate) {
+            const t = setInterval(pollCompass, 1800);
+            return () => { active = false; clearInterval(t); };
+        }
+        return () => { active = false; };
+    }, [selectedDate]);
 
     // Polling do indicador sintético de fluxo em tempo real (apenas local e live)
     useEffect(() => {
@@ -1173,16 +1181,15 @@ export default function App() {
             }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {[
-                        { id: "COCKPIT", label: "🧭 1. COCKPIT OPERACIONAL (SINAIS NO TEMPO & PAREDES)", accent: "#00e87a" },
+                        { id: "COCKPIT", label: "⚡ 1. COCKPIT FLUXO REAL & A.S.G (BATEU O OLHO: COMPRA OU VENDA)", accent: "#00e87a" },
                         { id: "RAIO_X", label: "🔬 2. RAIO-X DE DADOS (CORRETORAS PROFIT & GRADE OPÇÕES)", accent: "#00d4ff" },
                         { id: "STAT_ARB", label: "📐 3. STAT-ARB & Z-SCORE (GRÁFICOS WIN × WDO × DI)", accent: "#c8a444" },
                     ].map(tab => {
-                        const active = !isViewingHistory && workspaceTab === tab.id;
+                        const active = workspaceTab === tab.id;
                         return (
                             <button
                                 key={tab.id}
                                 onClick={() => {
-                                    if (isViewingHistory) setSelectedDate("");
                                     setWorkspaceTab(tab.id);
                                 }}
                                 style={{
@@ -1216,16 +1223,18 @@ export default function App() {
 
                 {showSetup && <SetupMatadorPanel tradeEngine={data?.trade_engine} />}
 
-                {!isViewingHistory && (workspaceTab === "COCKPIT" || workspaceTab === "RAIO_X") && (
+                {(workspaceTab === "COCKPIT" || workspaceTab === "RAIO_X") && (
                     <IntradayCompassPanel
                         compassData={compassData}
                         mode={workspaceTab}
                         onChangeMode={setWorkspaceTab}
+                        selectedDate={selectedDate}
+                        onSelectDate={setSelectedDate}
                     />
                 )}
 
-                {/* History mode banner */}
-                {isViewingHistory && (
+                {/* History mode banner (Stat-Arb) */}
+                {isViewingHistory && workspaceTab === "STAT_ARB" && (
                     <div style={{
                         background: "rgba(200,164,68,0.08)", border: "1px solid rgba(200,164,68,0.3)",
                         borderRadius: 8, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -1242,7 +1251,7 @@ export default function App() {
                     </div>
                 )}
 
-                {(isViewingHistory || workspaceTab === "STAT_ARB") && (
+                {workspaceTab === "STAT_ARB" && (
                 <>
                 {/* Compact Regime Health Strip — above charts */}
                 {(() => {

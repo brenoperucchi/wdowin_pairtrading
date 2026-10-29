@@ -1,0 +1,106 @@
+// ============================================================================
+// INDICADOR NTSL DE JANELA INFERIOR: MagicWall_Janelas_ASG.nts
+// Plota o Histograma Linha Zero (Andar 3 do Cockpit A.S.G) usando o Fluxo de
+// Agressão Ponderado por Tamanho de Boletada (AgressionVolBalance * LoteMédio)
+// ============================================================================
+Input
+  PeriodoRapidoCVD(4);          // Média Exponencial Rápida do CVD Ponderado
+  PeriodoLentoCVD(11);          // Média Exponencial Lenta do CVD Ponderado
+  SuavizacaoHist(3);            // Suavização do Histograma A.S.G
+  GatilhoHisterese(6.5);        // Filtro de Histerese para virada limpa de Janela
+  ColorirVelasNoGrafico(false); // Se true, também pinta os candles do gráfico principal
+
+var
+  volCompra : float;
+  volVenda : float;
+  volTotal : float;
+  saldoAgr : float;
+  negocios : float;
+  loteMedio : float;
+  mediaLote : float;
+  pesoInst : float;
+  deltaInstProxy : float;
+  cvdInst : float;
+  emaFast : float;
+  emaSlow : float;
+  passoCvd : float;
+  oscCvd : float;
+  histFluxo : float;
+  janelaDir : integer;
+  corHist : integer;
+
+BEGIN
+  volCompra := AgressionVolBuy;
+  volVenda := AgressionVolSell;
+  volTotal := volCompra + volVenda;
+  saldoAgr := AgressionVolBalance;
+
+  negocios := Max(1, Trades);
+  loteMedio := volTotal / negocios;
+  mediaLote := Max(1, Media(20, loteMedio));
+  pesoInst := loteMedio / mediaLote;
+  if pesoInst > 3.0 then pesoInst := 3.0;
+  if pesoInst < 0.5 then pesoInst := 0.5;
+
+  deltaInstProxy := saldoAgr * pesoInst;
+  if (Date <> Date[1]) then
+    cvdInst := deltaInstProxy
+  else
+    cvdInst := cvdInst[1] + deltaInstProxy;
+
+  emaFast := MediaExp(PeriodoRapidoCVD, cvdInst);
+  emaSlow := MediaExp(PeriodoLentoCVD, cvdInst);
+  passoCvd := Max(1, MediaExp(7, Abs(deltaInstProxy)));
+  oscCvd := ((emaFast - emaSlow) / (passoCvd * 1.4)) * 55.0;
+  if oscCvd > 100.0 then oscCvd := 100.0;
+  if oscCvd < -100.0 then oscCvd := -100.0;
+
+  histFluxo := MediaExp(SuavizacaoHist, oscCvd);
+
+  // Histerese da Janela A.S.G
+  if (Date <> Date[1]) then
+  begin
+    if histFluxo >= 0 then janelaDir := 1 else janelaDir := -1;
+  end
+  else
+  begin
+    janelaDir := janelaDir[1];
+    if (janelaDir = 1) and (histFluxo <= -GatilhoHisterese) then janelaDir := -1;
+    if (janelaDir = -1) and (histFluxo >= GatilhoHisterese) then janelaDir := 1;
+  end;
+
+  // Graduação de cor por peso institucional (Mais escura/intensa quando pesoInst >= 1.35)
+  if janelaDir = 1 then
+  begin
+    if histFluxo >= 0 then
+    begin
+      if pesoInst >= 1.35 then corHist := clGreen else corHist := clLime;
+    end
+    else
+      corHist := clSilver; // Pullback dentro da Janela Verde
+  end
+  else
+  begin
+    if histFluxo <= 0 then
+    begin
+      if pesoInst >= 1.35 then corHist := clMaroon else corHist := clRed;
+    end
+    else
+      corHist := clSilver; // Pullback dentro da Janela Vermelha
+  end;
+
+  // Plot 1: Histograma A.S.G (Configure Tipo = Histograma nas propriedades do Profit)
+  SetPlotColor(1, corHist);
+  SetPlotWidth(1, 3);
+  Plot(histFluxo);
+
+  // Plot 2: Linha Zero de Referência
+  SetPlotColor(2, clYellow);
+  SetPlotWidth(2, 1);
+  SetPlotStyle(2, 1);
+  Plot2(0);
+
+  if ColorirVelasNoGrafico then
+    PaintBar(corHist);
+END;
+

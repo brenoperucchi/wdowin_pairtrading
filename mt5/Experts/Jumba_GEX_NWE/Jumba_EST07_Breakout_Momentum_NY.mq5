@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST07_Breakout_Momentum_NY.mq5
-//| EST-07 [Breakout Mkt] Momentum Wall NY
+//| EST-07 [3-Pilares BE_Wall(15) + TP_Original] Breakout Momentum NY (Ret/DD 6.91)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-07 [Breakout Mkt] Momentum Wall NY"
-#property version   "1.00"
+#property description "EST-07 [3-Pilares BE_Wall(15) + TP_Original] Breakout Momentum NY (Ret/DD 6.91)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

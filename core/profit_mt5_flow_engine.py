@@ -95,17 +95,189 @@ def _clean_float(val_str: str) -> float:
         return 0.0
 
 
-def load_daily_magic_walls(asset: str):
-    """
-    Carrega as 34 MagicWalls do dia para 'WIN' ou 'WDO' a partir de Common\\Files ou mt5\\Files.
-    Retorna lista ordenada por preço: [{"type": str, "price": float, "width": int}, ...]
-    """
-    fname = "jumba_gex_win_daily.csv" if asset.upper() == "WIN" else "jumba_gex_wdo_daily.csv"
-    candidates = [
-        os.path.join(COMMON_FILES_DIR, fname),
-        os.path.join(PROJECT_ROOT, "mt5", "Files", fname),
+def list_available_gex_dates(limit: int = 8) -> list:
+    """Retorna as últimas datas de pregão disponíveis no histórico de MagicWalls (ex: Hoje, Ontem, etc.)."""
+    today_iso = datetime.now().strftime("%Y-%m-%d")
+    dates_set = {today_iso}
+    hist_candidates = [
+        os.path.join(PROJECT_ROOT, "mt5", "Files", "jumba_gex_win_history.csv"),
+        os.path.join(COMMON_FILES_DIR, "jumba_gex_win_history.csv"),
     ]
+    for path in hist_candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        if ";" in line and "session_date" not in line:
+                            d_str = line.split(";")[0].strip()
+                            if len(d_str) == 10 and d_str[4] == "-" and d_str[7] == "-":
+                                dates_set.add(d_str)
+                break
+            except Exception:
+                pass
+    return sorted(dates_set, reverse=True)[:limit]
+
+
+PINE_SCRIPT_PATH = os.path.join(PROJECT_ROOT, "gex", "docs", "jumba_tradingview.pine")
+
+
+def _default_pine_meta(w_type: str, w_width: int, strike_extra: str = "") -> dict:
+    wt = (w_type or "Wall").strip()
+    if wt == "GammaFlip":
+        return {"label": "GAMMA FLIP (Pivot)", "color": "#ffd600", "style": "solid"}
+    if wt == "MaxGamma":
+        return {"label": "MAX GAMMA (Teto)", "color": "#00b0ff", "style": "solid"}
+    if wt == "MinGamma":
+        return {"label": "MIN GAMMA (Piso)", "color": "#ff1744", "style": "solid"}
+    if "mid" in wt.lower():
+        return {"label": "MIDLEWALL", "color": "#90a4ae", "style": "dashed"}
+    stars = "*" * max(1, min(3, int(w_width or 1)))
+    suffix = f" ({strike_extra})" if strike_extra and strike_extra != "0" else ""
+    return {"label": f"MAGICWALL {stars}{suffix}", "color": "#00e676", "style": "solid"}
+
+
+def parse_jumba_tradingview_pine(asset: str) -> list:
+    """
+    Lê diretamente as Walls já calculadas no arquivo `gex/docs/jumba_tradingview.pine`
+    (`populate_win_0` para WIN e `populate_dol_0` para WDO/DOL), preservando preço,
+    label oficial (ex: MAGICWALL ** (IBOV 178000)), cor hex, espessura e estilo (solid/dashed).
+    """
+    if not os.path.exists(PINE_SCRIPT_PATH):
+        return []
+
+    is_win = asset.upper() == "WIN"
+    func_prefix = "populate_win_" if is_win else "populate_dol_"
+
+    try:
+        with open(PINE_SCRIPT_PATH, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+    except Exception:
+        return []
+
+    block_re = re.compile(
+        rf"{func_prefix}\d+\([^\)]*\)\s*=>([\s\S]*?)(?=\nif\s+barstate\.isfirst|\npopulate_[a-z]+_\d+\()",
+        re.MULTILINE,
+    )
+    tuple_re = re.compile(
+        r'array\.push\(pr,\s*([0-9.]+)\)\s*'
+        r'array\.push\(lb,\s*"([^"]+)"\)\s*'
+        r'array\.push\(cl,\s*color\.new\((#[0-9a-fA-F]+),\s*\d+\)\)\s*'
+        r'array\.push\(wd,\s*(\d+)\)\s*'
+        r'array\.push\(st,\s*"([^"]+)"\)'
+    )
+
     walls = []
+    for block_match in block_re.finditer(content):
+        block_text = block_match.group(1)
+        for m in tuple_re.finditer(block_text):
+            w_price = float(m.group(1))
+            w_label = m.group(2).strip()
+            w_color = m.group(3).strip()
+            w_width = int(m.group(4))
+            w_style = m.group(5).strip().lower()
+
+            lbl_up = w_label.upper()
+            if "GAMMA FLIP" in lbl_up:
+                w_type = "GammaFlip"
+            elif "MAX GAMMA" in lbl_up:
+                w_type = "MaxGamma"
+            elif "MIN GAMMA" in lbl_up:
+                w_type = "MinGamma"
+            elif "MIDLEWALL" in lbl_up or "MIDWALL" in lbl_up:
+                w_type = "MidWall"
+            else:
+                w_type = "Wall"
+
+            walls.append({
+                "type": w_type,
+                "price": w_price,
+                "width": w_width,
+                "label": w_label,
+                "color": w_color,
+                "style": w_style,
+                "source": "jumba_tradingview.pine",
+            })
+
+    return sorted(walls, key=lambda x: x["price"])
+
+
+def load_daily_magic_walls(asset: str, target_date: str = None):
+    """
+    Carrega as MagicWalls para 'WIN' ou 'WDO':
+    - Para o pregão atual (`target_date is None` ou `target_date == hoje`), lê diretamente
+      de `gex/docs/jumba_tradingview.pine` (já calculado com labels, cores, espessuras e estilos).
+    - Para datas históricas passadas, busca em `jumba_gex_*_history.csv` e aplica metadados compatíveis.
+    """
+    is_win = asset.upper() == "WIN"
+    today_iso = datetime.now().strftime("%Y-%m-%d")
+
+    # 1. Para o pregão atual (ou sem data fixa), prioriza `gex/docs/jumba_tradingview.pine`
+    if not target_date or target_date == today_iso:
+        pine_walls = parse_jumba_tradingview_pine(asset)
+        if pine_walls:
+            return pine_walls
+
+    daily_fname = "jumba_gex_win_daily.csv" if is_win else "jumba_gex_wdo_daily.csv"
+    hist_fname = "jumba_gex_win_history.csv" if is_win else "jumba_gex_wdo_history.csv"
+
+    walls = []
+
+    # 2. Se target_date histórico foi informado, busca no arquivo histórico (ou daily se coincidir a data)
+    if target_date:
+        search_paths = [
+            os.path.join(PROJECT_ROOT, "mt5", "Files", hist_fname),
+            os.path.join(COMMON_FILES_DIR, hist_fname),
+            os.path.join(COMMON_FILES_DIR, daily_fname),
+            os.path.join(PROJECT_ROOT, "mt5", "Files", daily_fname),
+        ]
+        for path in search_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or "session_date" in line:
+                                continue
+                            parts = line.split(";")
+                            if parts[0].strip() != target_date:
+                                continue
+                            strike_extra = ""
+                            if len(parts) >= 5:
+                                w_type = parts[2]
+                                w_price = float(parts[3])
+                                w_width = int(parts[4])
+                                if len(parts) >= 6 and parts[5].strip() != "0":
+                                    strike_extra = f"IBOV {parts[5].strip()}" if is_win else f"DOL {parts[5].strip()}"
+                            elif len(parts) >= 4:
+                                w_type = parts[1]
+                                w_price = float(parts[2])
+                                w_width = int(parts[3])
+                                if not is_win and w_type == "Wall":
+                                    strike_extra = f"DOL {int(round(w_price))}"
+                            else:
+                                continue
+                            meta = _default_pine_meta(w_type, w_width, strike_extra)
+                            walls.append({
+                                "type": w_type,
+                                "price": w_price,
+                                "width": w_width,
+                                **meta,
+                                "source": "csv_history",
+                            })
+                    if walls:
+                        return sorted(walls, key=lambda x: x["price"])
+                except Exception:
+                    pass
+
+    # 3. Fallback: tenta o Pine Script ou o CSV diário
+    pine_fallback = parse_jumba_tradingview_pine(asset)
+    if pine_fallback:
+        return pine_fallback
+
+    candidates = [
+        os.path.join(COMMON_FILES_DIR, daily_fname),
+        os.path.join(PROJECT_ROOT, "mt5", "Files", daily_fname),
+    ]
     for path in candidates:
         if os.path.exists(path):
             try:
@@ -115,17 +287,29 @@ def load_daily_magic_walls(asset: str):
                         if not line or "session_date" in line:
                             continue
                         parts = line.split(";")
+                        strike_extra = ""
                         if len(parts) >= 5:
                             w_type = parts[2]
                             w_price = float(parts[3])
                             w_width = int(parts[4])
+                            if len(parts) >= 6 and parts[5].strip() != "0":
+                                strike_extra = f"IBOV {parts[5].strip()}" if is_win else f"DOL {parts[5].strip()}"
                         elif len(parts) >= 4:
                             w_type = parts[1]
                             w_price = float(parts[2])
                             w_width = int(parts[3])
+                            if not is_win and w_type == "Wall":
+                                strike_extra = f"DOL {int(round(w_price))}"
                         else:
                             continue
-                        walls.append({"type": w_type, "price": w_price, "width": w_width})
+                        meta = _default_pine_meta(w_type, w_width, strike_extra)
+                        walls.append({
+                            "type": w_type,
+                            "price": w_price,
+                            "width": w_width,
+                            **meta,
+                            "source": "csv_daily",
+                        })
                 if walls:
                     break
             except Exception:
@@ -198,7 +382,7 @@ class SymbolMicrostructureState:
             for b in BROKERS_LIST
         }
 
-        self.walls = load_daily_magic_walls(self.asset)
+        self.walls = load_daily_magic_walls(self.asset, self.session_date)
         self.wall_stats = {}
         self._init_wall_stats()
 
@@ -210,6 +394,10 @@ class SymbolMicrostructureState:
                 "type": w["type"],
                 "price": w["price"],
                 "width": w["width"],
+                "label": w.get("label", w["type"]),
+                "color": w.get("color", "#00e676"),
+                "style": w.get("style", "solid"),
+                "source": w.get("source", "jumba_tradingview.pine"),
                 "buy_vol": 0.0,
                 "sell_vol": 0.0,
                 "inst_buy_vol": 0.0,
@@ -219,10 +407,10 @@ class SymbolMicrostructureState:
             }
 
     def reload_walls_if_needed(self):
-        new_walls = load_daily_magic_walls(self.asset)
-        if len(new_walls) != len(self.walls) or (
-            new_walls and self.walls and new_walls[0]["price"] != self.walls[0]["price"]
-        ):
+        new_walls = load_daily_magic_walls(self.asset, self.session_date)
+        sig_new = [(w["type"], round(float(w["price"]), 2), int(w["width"]), w.get("label", "")) for w in new_walls]
+        sig_old = [(w["type"], round(float(w["price"]), 2), int(w["width"]), w.get("label", "")) for w in self.walls]
+        if sig_new != sig_old:
             self.walls = new_walls
             self._init_wall_stats()
 
@@ -661,6 +849,10 @@ class SymbolMicrostructureState:
                 "type": w["type"],
                 "price": w["price"],
                 "width": w["width"],
+                "label": w.get("label", w["type"]),
+                "color": w.get("color", "#00e676"),
+                "style": w.get("style", "solid"),
+                "source": w.get("source", "jumba_tradingview.pine"),
                 "dist_pts": dist_pts,
                 "in_zone": in_zone,
                 "session_buy_vol": round(ws.get("buy_vol", 0.0), 0),
@@ -774,6 +966,32 @@ class SymbolMicrostructureState:
         inst_broker_aggr_delta = sum(b["aggr_buy"] - b["aggr_sell"] for b in active_brokers if b.get("is_institutional"))
         inst_broker_passive_delta = sum(b["passive_buy"] - b["passive_sell"] for b in active_brokers if b.get("is_institutional"))
 
+        enriched_all_walls = []
+        for w in self.walls:
+            key = f"{w['type']}_{w['price']:.2f}"
+            ws = self.wall_stats.get(key, {})
+            ib = float(ws.get("inst_buy_vol", 0.0))
+            isell = float(ws.get("inst_sell_vol", 0.0))
+            tb = float(ws.get("buy_vol", 0.0))
+            ts = float(ws.get("sell_vol", 0.0))
+            enriched_all_walls.append({
+                "type": w["type"],
+                "price": w["price"],
+                "width": int(w.get("width", 1)),
+                "label": w.get("label", w["type"]),
+                "color": w.get("color", "#00e676"),
+                "style": w.get("style", "solid"),
+                "source": w.get("source", "jumba_tradingview.pine"),
+                "buy_vol": round(tb, 0),
+                "sell_vol": round(ts, 0),
+                "total_vol": round(tb + ts, 0),
+                "inst_buy_vol": round(ib, 0),
+                "inst_sell_vol": round(isell, 0),
+                "inst_total_vol": round(ib + isell, 0),
+                "inst_delta": round(ib - isell, 0),
+                "deals": int(ws.get("deals", 0)),
+            })
+
         return {
             "asset": self.asset,
             "active_contract": self.active_contract,
@@ -817,7 +1035,7 @@ class SymbolMicrostructureState:
             "flow_compass": comp,
             "composite": comp,
             "walls_radar": walls_analysis,
-            "all_walls": self.walls,
+            "all_walls": enriched_all_walls,
             "brokers": self.brokers,
             "top_buyers": top_buyers,
             "top_sellers": top_sellers,
@@ -846,23 +1064,37 @@ class ProfitMt5FlowEngine:
     def _detect_mt5_contracts(self):
         if not self.win_state.active_contract:
             syms_w = mt5.symbols_get("WIN*") or []
-            best_w, best_deals = "WIN$N", -1
+            best_w, best_score = "WINZ26", (-1, -1)
             for s in syms_w:
                 if re.match(r"^WIN[A-Z]\d{2}$", s.name):
                     mt5.symbol_select(s.name, True)
-                    if s.session_deals > best_deals:
-                        best_deals = s.session_deals
+                    deals = int(getattr(s, "session_deals", 0))
+                    d1_vol = 0
+                    if deals == 0:
+                        r = mt5.copy_rates_from_pos(s.name, mt5.TIMEFRAME_D1, 0, 1)
+                        if r is not None and len(r) > 0:
+                            d1_vol = int(r[0]["tick_volume"])
+                    score = (deals, d1_vol)
+                    if score > best_score and score != (0, 0):
+                        best_score = score
                         best_w = s.name
             self.win_state.active_contract = best_w
 
         if not self.wdo_state.active_contract:
             syms_d = mt5.symbols_get("WDO*") or []
-            best_d, best_deals = "WDO$N", -1
+            best_d, best_score = "WDOX26", (-1, -1)
             for s in syms_d:
                 if re.match(r"^WDO[A-Z]\d{2}$", s.name):
                     mt5.symbol_select(s.name, True)
-                    if s.session_deals > best_deals:
-                        best_deals = s.session_deals
+                    deals = int(getattr(s, "session_deals", 0))
+                    d1_vol = 0
+                    if deals == 0:
+                        r = mt5.copy_rates_from_pos(s.name, mt5.TIMEFRAME_D1, 0, 1)
+                        if r is not None and len(r) > 0:
+                            d1_vol = int(r[0]["tick_volume"])
+                    score = (deals, d1_vol)
+                    if score > best_score and score != (0, 0):
+                        best_score = score
                         best_d = s.name
             self.wdo_state.active_contract = best_d
 
@@ -1200,15 +1432,26 @@ class ProfitMt5FlowEngine:
             if tk is None or tk.time == 0:
                 continue
 
+            try:
+                base_today_dt = datetime.strptime(today_iso, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                base_today_dt = datetime.now(timezone.utc)
+            start_of_day = base_today_dt.replace(hour=8, minute=55, second=0, microsecond=0)
+            start_of_day_epoch = int(start_of_day.timestamp())
+
+            # Se houver barras antigas de pregão anterior na memória da sessão de hoje, limpa imediatamente
+            if state.m5_bars and min(state.m5_bars.keys()) < start_of_day_epoch:
+                state.reset_session(today_iso)
+                self._last_tick_msc[asset_key] = 0
+
+            if tk.time < start_of_day_epoch:
+                continue
+
             last_msc = self._last_tick_msc[asset_key]
             first_profit_ts = self._get_first_profit_trade_ts(asset_key, today_iso) if last_msc == 0 else 0
 
             if last_msc == 0:
-                srv_dt = datetime.fromtimestamp(tk.time, tz=timezone.utc)
-                start_of_day = srv_dt.replace(hour=9, minute=0, second=0, microsecond=0)
-                if srv_dt < start_of_day:
-                    start_of_day = srv_dt
-                # Pagina copy_ticks_from para garantir cobertura 100% desde as 09h00 até first_profit_ts (mesmo >1M ticks)
+                # Pagina copy_ticks_from para garantir cobertura 100% desde as 09h00 de hoje até first_profit_ts (mesmo >1M ticks)
                 cur_dt = start_of_day
                 chunks = []
                 for _ in range(4):
@@ -1230,7 +1473,7 @@ class ProfitMt5FlowEngine:
                 continue
 
             msc_arr = ticks["time_msc"]
-            mask_new = msc_arr > last_msc
+            mask_new = (msc_arr > last_msc) & (ticks["time"] >= start_of_day_epoch)
             if first_profit_ts > 0:
                 mask_new = mask_new & (ticks["time"] < first_profit_ts)
             if not np.any(mask_new):
@@ -1258,12 +1501,150 @@ class ProfitMt5FlowEngine:
             if not self._profit_active_today.get(asset_key, False):
                 state.source = f"MT5_TICKS_LIVE ({sym})"
 
-    def update(self, force: bool = False) -> dict:
+    def get_historical_session(self, target_date: str) -> dict:
+        """
+        Reconstrói a sessão completa (09h00 às 18h30) para uma data passada (ex: Ontem `2026-10-27`),
+        carregando as MagicWalls daquela data + ticks MT5 / CSV Profit e mantendo cache em memória.
+        """
+        if not hasattr(self, "_historical_cache"):
+            self._historical_cache = {}
+        if target_date in self._historical_cache:
+            return self._historical_cache[target_date]
+
+        from core.mt5_client import mt5_lock
+        with mt5_lock:
+            if mt5.terminal_info() is None:
+                mt5.initialize(MT5_PATH, timeout=5000)
+            self._detect_mt5_contracts()
+
+        win_st = SymbolMicrostructureState("WIN", 50, 10, 5.0, 60.0)
+        wdo_st = SymbolMicrostructureState("WDO", 20, 5, 0.5, 2.5)
+        win_st.reset_session(target_date)
+        wdo_st.reset_session(target_date)
+        win_st.active_contract = self.win_state.active_contract or "WINZ26"
+        wdo_st.active_contract = self.wdo_state.active_contract or "WDOX26"
+
+        try:
+            dt_base = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            dt_base = datetime.now(timezone.utc)
+
+        dt_start = dt_base.replace(hour=9, minute=0, second=0, microsecond=0)
+        dt_end = dt_base.replace(hour=18, minute=35, second=0, microsecond=0)
+        end_epoch = int(dt_end.timestamp())
+
+        for asset_key, st in [("WIN", win_st), ("WDO", wdo_st)]:
+            sym = st.active_contract
+            ticks_ingested = 0
+            with mt5_lock:
+                if mt5.terminal_info() is not None and sym:
+                    mt5.symbol_select(sym, True)
+                    cur_dt = dt_start
+                    chunks = []
+                    for _ in range(4):
+                        batch = mt5.copy_ticks_from(sym, cur_dt, 1000000, mt5.COPY_TICKS_ALL)
+                        if batch is None or len(batch) == 0:
+                            break
+                        in_day = batch[batch["time"] <= end_epoch]
+                        if len(in_day) > 0:
+                            chunks.append(in_day)
+                        last_ts = int(batch["time"][-1])
+                        last_msc = int(batch["time_msc"][-1])
+                        if len(batch) < 1000000 or last_ts >= end_epoch:
+                            break
+                        cur_dt = datetime.fromtimestamp((last_msc + 1) / 1000.0, tz=timezone.utc)
+                    ticks = np.concatenate(chunks) if chunks else None
+                else:
+                    ticks = None
+
+            if ticks is not None and len(ticks) > 0:
+                flags = ticks["flags"]
+                is_buy = (flags & mt5.TICK_FLAG_BUY) != 0
+                is_sell = (flags & mt5.TICK_FLAG_SELL) != 0
+                valid_dir = (is_buy ^ is_sell) & (ticks["volume"] > 0) & (ticks["last"] > 0)
+                if np.any(valid_dir):
+                    t_valid = ticks[valid_dir]
+                    side_arr = np.where((t_valid["flags"] & mt5.TICK_FLAG_BUY) != 0, 1, -1).astype(np.int8)
+                    st.ingest_batch_vectorized(
+                        t_valid["time"].astype(np.int64),
+                        t_valid["last"].astype(np.float64),
+                        t_valid["volume"].astype(np.float64),
+                        side_arr,
+                    )
+                    ticks_ingested = len(t_valid)
+                    st.source = f"HISTÓRICO MT5 ({target_date} · {sym})"
+
+            # Se MT5 não retornou ticks para a data, tenta carregar do CSV do Profit na pasta RTD/
+            if ticks_ingested == 0 and os.path.exists(RTD_DIR):
+                d_parts = target_date.split("-")
+                if len(d_parts) == 3:
+                    d_suffix = f"{d_parts[2]}_{d_parts[1]}_{d_parts[0]}"
+                    for filepath in sorted(glob.glob(os.path.join(RTD_DIR, f"*{d_suffix}*.csv"))):
+                        fname = os.path.basename(filepath)
+                        fname_up = fname.upper()
+                        if asset_key == "WIN" and not any(k in fname_up for k in ["WIN", "IND"]):
+                            continue
+                        if asset_key == "WDO" and not any(k in fname_up for k in ["WDO", "DOL"]):
+                            continue
+                        try:
+                            with open(filepath, "rb") as fb:
+                                raw_b = fb.read()
+                            if b";Trade;" in raw_b[:65536]:
+                                trade_lines = [l.decode("latin1", errors="replace") for l in raw_b.splitlines() if b";Trade;" in l]
+                            else:
+                                trade_lines = raw_b.decode("latin1", errors="replace").splitlines()
+                            n_tr = self._parse_profit_trades_lines(trade_lines, st, target_date)
+                            if n_tr > 0:
+                                st.source = f"HISTÓRICO PROFIT CSV ({fname})"
+                        except Exception:
+                            pass
+
+        win_payload = win_st.get_summary_payload()
+        wdo_payload = wdo_st.get_summary_payload()
+
+        try:
+            from core.gex_live_dealer_engine import gex_dealer_engine_singleton
+            win_dealer = gex_dealer_engine_singleton.analyze_asset(win_payload)
+            wdo_dealer = gex_dealer_engine_singleton.analyze_asset(wdo_payload)
+            win_payload["caminho_a"] = win_dealer
+            win_payload["dealer_gex"] = win_dealer
+            wdo_payload["caminho_a"] = wdo_dealer
+            wdo_payload["dealer_gex"] = wdo_dealer
+        except Exception as e:
+            win_payload["caminho_a"] = {"ok": False, "error": str(e)}
+            wdo_payload["caminho_a"] = {"ok": False, "error": str(e)}
+
+        snap = {
+            "ok": True,
+            "is_historical": True,
+            "selected_date": target_date,
+            "available_dates": list_available_gex_dates(8),
+            "timestamp": int(time.time()),
+            "updated_at": f"Histórico {target_date}",
+            "profit_rtd_warnings": [],
+            "WIN": win_payload,
+            "WDO": wdo_payload,
+            "win": win_payload,
+            "wdo": wdo_payload,
+            "caminho_a": {
+                "WIN": win_payload.get("caminho_a", {}),
+                "WDO": wdo_payload.get("caminho_a", {}),
+            },
+            "caminho_b": {"ok": False, "is_historical": True},
+        }
+        if len(win_payload.get("m5_cvd_series", [])) > 0 or len(wdo_payload.get("m5_cvd_series", [])) > 0:
+            self._historical_cache[target_date] = snap
+        return snap
+
+    def update(self, force: bool = False, date_str: str = None) -> dict:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if isinstance(date_str, str) and date_str.strip() and date_str.strip() != today_str:
+            return self.get_historical_session(date_str.strip())
+
         now_ts = time.time()
         if not force and hasattr(self, "_cached_payload") and self._cached_payload and (now_ts - self._last_update_ts < 1.5):
             return self._cached_payload
 
-        today_str = datetime.now().strftime("%Y-%m-%d")
         if self.win_state.session_date != today_str:
             self.win_state.reset_session(today_str)
             self.wdo_state.reset_session(today_str)
@@ -1283,6 +1664,37 @@ class ProfitMt5FlowEngine:
         self._last_update_ts = time.time()
         win_payload = self.win_state.get_summary_payload()
         wdo_payload = self.wdo_state.get_summary_payload()
+
+        # Antes da abertura das 09h00 (sem barras M5 no dia atual), exibe automaticamente o último pregão fechado
+        avail = list_available_gex_dates(8)
+        prev_dates = [d for d in avail if d < today_str]
+        if not win_payload.get("m5_cvd_series") and not wdo_payload.get("m5_cvd_series"):
+            if prev_dates:
+                return self.get_historical_session(prev_dates[0])
+
+        # No início da manhã (< 28 barras M5), anexa as últimas 18 barras da tarde anterior como warm-up visual/EMA
+        # (com cvd_inst alinhado em zero no fechamento de ontem para transição contínua às 09h00)
+        if prev_dates and (len(win_payload.get("m5_cvd_series", [])) < 28 or len(wdo_payload.get("m5_cvd_series", [])) < 28):
+            try:
+                prev_snap = self.get_historical_session(prev_dates[0])
+                for sym_k, cur_p in [("WIN", win_payload), ("WDO", wdo_payload)]:
+                    cur_s = cur_p.get("m5_cvd_series", [])
+                    if 0 < len(cur_s) < 28:
+                        prev_s = prev_snap.get(sym_k, {}).get("m5_cvd_series", [])
+                        if prev_s:
+                            tail = prev_s[-18:]
+                            last_prev_inst = float(tail[-1].get("cvd_inst", 0.0))
+                            last_prev_cvd = float(tail[-1].get("cvd", 0.0))
+                            warmup_bars = []
+                            for b in tail:
+                                bc = dict(b)
+                                bc["is_prev_day"] = True
+                                bc["cvd_inst"] = round(float(b.get("cvd_inst", 0.0)) - last_prev_inst, 0)
+                                bc["cvd"] = round(float(b.get("cvd", 0.0)) - last_prev_cvd, 0)
+                                warmup_bars.append(bc)
+                            cur_p["m5_cvd_series"] = warmup_bars + cur_s
+            except Exception:
+                pass
 
         # 3. Etapa 2 (Caminho A): Pressão de Hedge Dinâmico dos Dealers GEX cruzada com Fluxo Profit/MT5
         try:
@@ -1309,6 +1721,9 @@ class ProfitMt5FlowEngine:
 
         self._cached_payload = {
             "ok": True,
+            "is_historical": False,
+            "selected_date": today_str,
+            "available_dates": list_available_gex_dates(8),
             "timestamp": int(self._last_update_ts),
             "updated_at": datetime.now().strftime("%H:%M:%S"),
             "profit_rtd_warnings": list(self._profit_warnings),

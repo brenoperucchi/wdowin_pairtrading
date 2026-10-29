@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST14_Grid_Institucional_123L.mq5
-//| EST-14 [Grid Institucional] Wall->MidWall->Wall 1+2+3L
+//| EST-14 [NOVO-2 Rolling Stop Barra[1] Slope + BE_2Stage(25) + TP_MidWall 2C] (Ret/DD 3.85)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-14 [Grid Institucional] Wall->MidWall->Wall 1+2+3L"
-#property version   "1.00"
+#property description "EST-14 [NOVO-2 Rolling Stop Barra[1] Slope + BE_2Stage(25) + TP_MidWall 2C] (Ret/DD 3.85)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

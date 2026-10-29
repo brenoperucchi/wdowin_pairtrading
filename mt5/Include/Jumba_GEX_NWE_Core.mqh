@@ -47,20 +47,38 @@ struct SVirtualSlot
    double            curr_sl;         // Current Stop Loss price
    double            curr_tp;         // Current Take Profit price
    double            max_fav_pts;     // Maximum favorable excursion in points
-   bool              be_active;       // Breakeven activated flag
+   bool              be_active;       // Breakeven Stage 1 activated flag
+   bool              be_stage2_active;// Breakeven Stage 2 activated flag
    bool              opened_intrabar; // True if opened via Limit/Stop during current M5 bar
    bool              real_synced;     // True once real position is open on MT5 server
    int               bars_held;       // M5 bars held since entry
    datetime          entry_bar_time;  // Timestamp of M5 bar when position opened
    datetime          last_entry_bar_time; // Prevents double entry on same M5 bar
    string            last_trade_date; // For EOD strategies (1 trade/day limit)
-   // Pending Order State (for Limit/Stop strategies armed for the current M5 bar)
+   // Structural Wall-Shield BE & Partial Exit fields
+   double            def_wall;        // Defending Wall coordinate
+   int               be_mode;         // 0=BE_ZERO, 1=BE_WALL_SHIELD, 2=BE_TWO_STAGE_WALLS
+   double            wall_buf;        // Buffer behind Wall (15 or 25 pts)
+   double            raw_mid_lvl;     // MidWall coordinate for Stage 2 & Partial
+   double            tp1_px;          // Partial exit TP1 coordinate
+   bool              partial_mode;    // True if 50% partial exit at MidWall is enabled
+   bool              partial_done;    // True once 50% partial exit was executed
+   // Pending Order State (for Limit/Stop strategies armed for M5 bar(s))
    int               pend_dir;        // 0=None, 1=Buy, -1=Sell
    int               pend_type;       // 0=None, 1=Limit, 2=Stop
    double            pend_price;      // Trigger price (rounded to 5 pts)
    double            pend_tp_pts;     // TP distance in pts for pending order
    double            pend_sl_pts;     // SL distance in pts for pending order
-   datetime          pend_bar_time;   // Valid only during this M5 bar open time
+   datetime          pend_bar_time;   // M5 bar open time when armed/updated
+   int               pend_bars_left;  // Remaining M5 bars for pending order validity (1 or 2)
+   bool              pend_rolling_stop;// True if Rolling Stop updates on next M5 bar
+   int               pend_init_lots;  // Initial base lots when pending order triggers (1 or 2)
+   double            pend_def_wall;
+   int               pend_be_mode;
+   double            pend_wall_buf;
+   double            pend_raw_mid_lvl;
+   double            pend_tp1_px;
+   bool              pend_partial_mode;
    double            be_trig;
    double            be_lock;
    double            tr_trig;
@@ -85,6 +103,7 @@ private:
    CTrade            m_trade;
    CPositionInfo     m_pos;
    ulong             m_base_magic;
+   int               m_single_id;
    ENUM_EXECUTION_MODE m_exec_mode;
    double            m_lot_mult;
    double            m_max_daily_loss_brl;
@@ -102,6 +121,7 @@ private:
 
    // Causal Indicator Values at closed bar [1] and prior closed bar [2]
    datetime          m_last_m5_bar_time;
+   bool              m_state_reconciled;
    double            m_n50_c_1, m_n50_u_1, m_n50_l_1, m_n50_s_1;
    double            m_n50_c_2, m_n50_u_2, m_n50_l_2, m_n50_s_2;
    double            m_n30_c_1, m_n30_u_1, m_n30_l_1, m_n30_s_1;
@@ -117,6 +137,7 @@ public:
                      CJumbaGexNweEngine()
      {
       m_base_magic = 88000;
+      m_single_id = 0;
       m_exec_mode = EXEC_HEDGING_DIRECT_MAGIC;
       m_lot_mult = 1.0;
       m_max_daily_loss_brl = 2500.0;
@@ -125,6 +146,7 @@ public:
       m_loaded_date = "";
       m_gex_source = "NONE";
       m_last_m5_bar_time = 0;
+      m_state_reconciled = false;
       m_gamma_flip = 0.0;
       m_max_gamma = 0.0;
       m_min_gamma = 0.0;
@@ -136,6 +158,7 @@ public:
    void              Init(ulong base_magic, ENUM_EXECUTION_MODE exec_mode, double lot_mult, double max_daily_loss_brl, bool draw_levels, string wdo_sym="WDO$N")
      {
       m_base_magic = base_magic;
+      m_single_id = 0;
       m_exec_mode = exec_mode;
       m_lot_mult = MathMax(1.0, MathRound(lot_mult));
       m_max_daily_loss_brl = max_daily_loss_brl;
@@ -148,22 +171,22 @@ public:
       string names[17] =
         {
          "",
-         "EST-01 [Scalper Limit+Mkt] Hibrido NY",
-         "EST-02 [Scalper Limit+Mkt] Dia Todo",
-         "EST-03 [Scalper Cambial] WIN+WDO Wall",
-         "EST-04 [Pullback Limit] Reteste Wall",
-         "EST-05 [Pullback Cluster] NWE+Wall",
-         "EST-06 [Pullback Limit] Limit Slope",
-         "EST-07 [Breakout Mkt] Momentum NY",
-         "EST-08 [Breakout Mkt] Rapido Core",
-         "EST-09 [Breakout Stop+Lim] Acel Wall",
-         "EST-10 [Walls Only] Stop+Limit Wall",
-         "EST-11 [Grid Pullback Tendencia] 1+2L",
-         "EST-12 [Piramidacao no Lucro] 1+1L",
-         "EST-13 [Walls Only] Smart Grid 1+2L",
-         "EST-14 [Walls Only] Grid Inst 1+2+3L",
-         "EST-15 [Posicional EOD] Breakout",
-         "EST-16 [Posicional EOD] Stop Wall"
+         "EST-01 [3Pil BE_Wall25+MainW] Scalper NY",
+         "EST-02 [3Pil Lim50%B1+MainW] Scalper Full",
+         "EST-03 [Original] Arbitragem WIN+WDO Wall",
+         "EST-04 [WDO Reteste220+BE2Stg+MidW] Limit",
+         "EST-05 [3Pil LimExtB1+MainW] Cluster NWE",
+         "EST-06 [3Pil StopB1+BE_W15+MainW] Slope",
+         "EST-07 [3Pil BE_Wall15] Breakout Mom NY",
+         "EST-08 [3Pil TP_MainW] Breakout Core",
+         "EST-09 [Original] Breakout Stop+Lim NY",
+         "EST-10 [WDO MainW pos50+BE177k] WallsOnly",
+         "EST-11 [NOVO-4 StopB1(2b)+BE_W25+MidW 2C]",
+         "EST-12 [3Pil TP_MainW] Piramidacao 1+1L",
+         "EST-13 [NOVO-1 StopB1+BE2Stg25+MidW 2C]",
+         "EST-14 [NOVO-2 RollStopB1+BE2Stg+MidW 2C]",
+         "EST-15 [3Pil StopB1+BE_W15+MainW] EOD BO",
+         "EST-16 [NOVO-3 RollStopB1+ParcialMidMain 2C]"
         };
 
       for(int k=1; k<=16; k++)
@@ -185,12 +208,12 @@ public:
                                      bool e09, bool e10, bool e11, bool e12,
                                      bool e13, bool e14, bool e15, bool e16)
      {
+      m_single_id = (preset == PRESET_SINGLE_ROBOT) ? single_id : 0;
       for(int k=1; k<=16; k++)
          m_slots[k].enabled = false;
 
       if(preset == PRESET_PORT_01_COMPLETO)
         {
-         // EST-04 + EST-07 + EST-09 + EST-10 + EST-11 + EST-13 + EST-14 + EST-15
          m_slots[4].enabled = true;  m_slots[7].enabled = true;
          m_slots[9].enabled = true;  m_slots[10].enabled = true;
          m_slots[11].enabled = true; m_slots[13].enabled = true;
@@ -198,7 +221,6 @@ public:
         }
       else if(preset == PRESET_PORT_03_SHARPE)
         {
-         // EST-01 + EST-04 + EST-08 + EST-11 + EST-13 + EST-14 + EST-15 + EST-16
          m_slots[1].enabled = true;  m_slots[4].enabled = true;
          m_slots[8].enabled = true;  m_slots[11].enabled = true;
          m_slots[13].enabled = true; m_slots[14].enabled = true;
@@ -206,7 +228,6 @@ public:
         }
       else if(preset == PRESET_LEVE_01_R2_986)
         {
-         // EST-04 + EST-06 + EST-08 + EST-09 + EST-11 + EST-12 + EST-15 + EST-16
          m_slots[4].enabled = true;  m_slots[6].enabled = true;
          m_slots[8].enabled = true;  m_slots[9].enabled = true;
          m_slots[11].enabled = true; m_slots[12].enabled = true;
@@ -214,7 +235,6 @@ public:
         }
       else if(preset == PRESET_LEVE_03_PROFIT)
         {
-         // EST-03 + EST-04 + EST-08 + EST-09 + EST-11 + EST-13 + EST-15 + EST-16
          m_slots[3].enabled = true;  m_slots[4].enabled = true;
          m_slots[8].enabled = true;  m_slots[9].enabled = true;
          m_slots[11].enabled = true; m_slots[13].enabled = true;
@@ -242,6 +262,7 @@ public:
          m_slots[15].enabled = e15; m_slots[16].enabled = e16;
         }
 
+      m_state_reconciled = MQLInfoInteger(MQL_TESTER) ? true : false;
       if(!MQLInfoInteger(MQL_TESTER))
         {
          SymbolSelect("WINZ26", true);
@@ -256,30 +277,58 @@ public:
          MqlRates r_init[];
          if(CopyRates(_Symbol, PERIOD_M5, 0, 2, r_init) >= 2)
             m_last_m5_bar_time = r_init[1].time;
-         LoadDailyGexWalls(DateStr(TimeCurrent()));
-         LoadVirtualStateFromDisk();
+         ChartSetInteger(0, CHART_SCALEFIX, false);
+         LoadDailyGexWalls(DateStr(SafeTime()));
+         if(AccountInfoInteger(ACCOUNT_LOGIN) > 0)
+           {
+            LoadVirtualStateFromDisk();
+            if(TerminalInfoInteger(TERMINAL_CONNECTED))
+              {
+               ReconcileWithBrokerOnStartup();
+               m_state_reconciled = true;
+              }
+           }
          RenderHudComment();
+         ChartRedraw(0);
         }
+     }
+
+   void              Deinit()
+     {
+      if(!MQLInfoInteger(MQL_TESTER))
+         SaveVirtualStateToDisk();
+      Comment("");
+     }
+
+   datetime          SafeTime()
+     {
+      datetime t = TimeCurrent();
+      if(t < D'2025.01.01')
+         t = TimeTradeServer();
+      if(t < D'2025.01.01')
+         t = TimeLocal();
+      return t;
      }
 
    string            StateFileName()
      {
-      return StringFormat("jumba_state_%I64d_%s.csv", AccountInfoInteger(ACCOUNT_LOGIN), _Symbol);
+      ulong file_magic = m_base_magic + (ulong)m_single_id;
+      return StringFormat("jumba_state_%I64d_%s_%I64u.csv", AccountInfoInteger(ACCOUNT_LOGIN), _Symbol, file_magic);
      }
 
    void              SaveVirtualStateToDisk()
      {
-      if(MQLInfoInteger(MQL_TESTER))
+      if(MQLInfoInteger(MQL_TESTER) || AccountInfoInteger(ACCOUNT_LOGIN) <= 0)
          return;
       int h = FileOpen(StateFileName(), FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
       if(h == INVALID_HANDLE)
          return;
-      string today = DateStr(TimeCurrent());
+      string today = DateStr(SafeTime());
       FileWriteString(h, today + "\n");
       for(int k=1; k<=16; k++)
         {
          string line = StringFormat(
-            "%d;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%d;%I64d;%s;%.2f;%d;%.2f;%.2f;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%d\n",
+            "%d;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%d;%I64d;%s;%.2f;%d;%.2f;%.2f;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%.2f;%d;%.2f;%.2f;%.2f;%d;%d;%d;%I64d;%d;%d;%.2f;%.2f;%.2f;%I64d;%d;%d;%d;%.2f;%d;%.2f;%.2f;%.2f;%d\n",
             k, m_slots[k].dir, m_slots[k].lots, m_slots[k].leg_stage,
             m_slots[k].p1_entry, m_slots[k].avg_price, m_slots[k].curr_sl, m_slots[k].curr_tp,
             m_slots[k].max_fav_pts, (m_slots[k].be_active ? 1 : 0), m_slots[k].bars_held,
@@ -289,7 +338,18 @@ public:
             m_slots[k].lot1, m_slots[k].lot2, m_slots[k].lot3,
             m_slots[k].tp_avg_pts, m_slots[k].max_sl_pts,
             m_slots[k].be_trig, m_slots[k].be_lock, m_slots[k].tr_trig, m_slots[k].tr_dist,
-            m_slots[k].max_hold_bars
+            m_slots[k].max_hold_bars,
+            m_slots[k].def_wall, m_slots[k].be_mode, m_slots[k].wall_buf,
+            m_slots[k].raw_mid_lvl, m_slots[k].tp1_px,
+            (m_slots[k].partial_mode ? 1 : 0), (m_slots[k].partial_done ? 1 : 0),
+            (m_slots[k].be_stage2_active ? 1 : 0),
+            (long)m_slots[k].last_entry_bar_time,
+            m_slots[k].pend_dir, m_slots[k].pend_type, m_slots[k].pend_price,
+            m_slots[k].pend_tp_pts, m_slots[k].pend_sl_pts, (long)m_slots[k].pend_bar_time,
+            m_slots[k].pend_bars_left, (m_slots[k].pend_rolling_stop ? 1 : 0),
+            m_slots[k].pend_init_lots, m_slots[k].pend_def_wall, m_slots[k].pend_be_mode,
+            m_slots[k].pend_wall_buf, m_slots[k].pend_raw_mid_lvl, m_slots[k].pend_tp1_px,
+            (m_slots[k].pend_partial_mode ? 1 : 0)
          );
          FileWriteString(h, line);
         }
@@ -298,15 +358,20 @@ public:
 
    void              LoadVirtualStateFromDisk()
      {
-      if(MQLInfoInteger(MQL_TESTER))
+      if(MQLInfoInteger(MQL_TESTER) || AccountInfoInteger(ACCOUNT_LOGIN) <= 0)
          return;
       int h = FileOpen(StateFileName(), FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+      if(h == INVALID_HANDLE)
+        {
+         string legacy_name = StringFormat("jumba_state_%I64d_%s.csv", AccountInfoInteger(ACCOUNT_LOGIN), _Symbol);
+         h = FileOpen(legacy_name, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+        }
       if(h == INVALID_HANDLE)
          return;
       string saved_date = FileReadString(h);
       StringReplace(saved_date, "\r", "");
       StringReplace(saved_date, "\n", "");
-      string today = DateStr(TimeCurrent());
+      string today = DateStr(SafeTime());
       if(saved_date != today)
         {
          FileClose(h);
@@ -350,10 +415,188 @@ public:
                m_slots[k].tr_trig              = StringToDouble(p[24]);
                m_slots[k].tr_dist              = StringToDouble(p[25]);
                m_slots[k].max_hold_bars        = (int)StringToInteger(p[26]);
+               if(cnt >= 35)
+                 {
+                  m_slots[k].def_wall         = StringToDouble(p[27]);
+                  m_slots[k].be_mode          = (int)StringToInteger(p[28]);
+                  m_slots[k].wall_buf         = StringToDouble(p[29]);
+                  m_slots[k].raw_mid_lvl      = StringToDouble(p[30]);
+                  m_slots[k].tp1_px           = StringToDouble(p[31]);
+                  m_slots[k].partial_mode     = (StringToInteger(p[32]) != 0);
+                  m_slots[k].partial_done     = (StringToInteger(p[33]) != 0);
+                  m_slots[k].be_stage2_active = (StringToInteger(p[34]) != 0);
+                 }
+               if(cnt >= 51)
+                 {
+                  m_slots[k].last_entry_bar_time = (datetime)StringToInteger(p[35]);
+                  m_slots[k].pend_dir            = (int)StringToInteger(p[36]);
+                  m_slots[k].pend_type           = (int)StringToInteger(p[37]);
+                  m_slots[k].pend_price          = StringToDouble(p[38]);
+                  m_slots[k].pend_tp_pts         = StringToDouble(p[39]);
+                  m_slots[k].pend_sl_pts         = StringToDouble(p[40]);
+                  m_slots[k].pend_bar_time       = (datetime)StringToInteger(p[41]);
+                  m_slots[k].pend_bars_left      = (int)StringToInteger(p[42]);
+                  m_slots[k].pend_rolling_stop   = (StringToInteger(p[43]) != 0);
+                  m_slots[k].pend_init_lots      = (int)StringToInteger(p[44]);
+                  m_slots[k].pend_def_wall       = StringToDouble(p[45]);
+                  m_slots[k].pend_be_mode        = (int)StringToInteger(p[46]);
+                  m_slots[k].pend_wall_buf       = StringToDouble(p[47]);
+                  m_slots[k].pend_raw_mid_lvl    = StringToDouble(p[48]);
+                  m_slots[k].pend_tp1_px         = StringToDouble(p[49]);
+                  m_slots[k].pend_partial_mode   = (StringToInteger(p[50]) != 0);
+                 }
               }
            }
         }
       FileClose(h);
+     }
+
+   void              ReconcileWithBrokerOnStartup()
+     {
+      if(MQLInfoInteger(MQL_TESTER))
+         return;
+      string today_str = DateStr(SafeTime());
+      string d_dot = today_str;
+      StringReplace(d_dot, "-", ".");
+      datetime day_start = StringToTime(d_dot + " 00:00");
+      bool hist_ok = HistorySelect(day_start, SafeTime() + 3600);
+
+      for(int k=1; k<=16; k++)
+        {
+         if(!m_slots[k].enabled)
+            continue;
+         ulong slot_magic = m_base_magic + (ulong)k;
+
+         // 1. Reconcilia PnL Fechado e Trades do Dia pelo Histórico Oficial da Corretora
+         if(hist_ok)
+           {
+            double h_pnl = 0.0;
+            int h_tr = 0;
+            int total_deals = HistoryDealsTotal();
+            for(int i=0; i<total_deals; i++)
+              {
+               ulong dticket = HistoryDealGetTicket(i);
+               if(HistoryDealGetString(dticket, DEAL_SYMBOL) == _Symbol &&
+                  (ulong)HistoryDealGetInteger(dticket, DEAL_MAGIC) == slot_magic)
+                 {
+                  long dentry = HistoryDealGetInteger(dticket, DEAL_ENTRY);
+                  if(dentry == DEAL_ENTRY_OUT || dentry == DEAL_ENTRY_INOUT)
+                    {
+                     h_pnl += HistoryDealGetDouble(dticket, DEAL_PROFIT);
+                     h_tr += 1;
+                    }
+                 }
+              }
+            if(h_tr > m_slots[k].trades_today || (h_tr > 0 && MathAbs(m_slots[k].closed_pnl_today_brl) < 0.01))
+              {
+               m_slots[k].closed_pnl_today_brl = h_pnl;
+               m_slots[k].trades_today = h_tr;
+              }
+            if(h_tr > 0 && k == 15)
+               m_slots[k].last_trade_date = today_str;
+           }
+
+         // 2. Reconcilia Posições Abertas e Ordens Pendentes em Modo HEDGING
+         if(m_exec_mode == EXEC_HEDGING_DIRECT_MAGIC)
+           {
+            double actual_lots = 0.0;
+            double open_px = 0.0, pos_sl = 0.0, pos_tp = 0.0;
+            datetime pos_time = 0;
+            for(int i=PositionsTotal()-1; i>=0; i--)
+              {
+               if(m_pos.SelectByIndex(i) && m_pos.Symbol() == _Symbol && m_pos.Magic() == slot_magic)
+                 {
+                  open_px  = m_pos.PriceOpen();
+                  pos_sl   = m_pos.StopLoss();
+                  pos_tp   = m_pos.TakeProfit();
+                  pos_time = m_pos.Time();
+                  if(m_pos.PositionType() == POSITION_TYPE_BUY)
+                     actual_lots += m_pos.Volume();
+                  else if(m_pos.PositionType() == POSITION_TYPE_SELL)
+                     actual_lots -= m_pos.Volume();
+                 }
+              }
+
+            if(MathAbs(actual_lots) >= 0.99)
+              {
+               int pos_dir = (actual_lots > 0.0) ? 1 : -1;
+               int pos_lots = MathMax(1, (int)MathRound(MathAbs(actual_lots) / m_lot_mult));
+               double bid_ref = (pos_dir == 1 && open_px > 0.0) ? Round5(open_px - 5.0) : Round5(open_px);
+               if(m_slots[k].dir == pos_dir)
+                 {
+                  m_slots[k].lots = pos_lots;
+                  m_slots[k].real_synced = true;
+                  if(m_slots[k].avg_price <= 0.0) m_slots[k].avg_price = bid_ref;
+                  if(m_slots[k].p1_entry <= 0.0)  m_slots[k].p1_entry  = bid_ref;
+                  if(m_slots[k].curr_sl <= 0.0 && pos_sl > 0.0) m_slots[k].curr_sl = Round5(pos_sl);
+                  if(m_slots[k].curr_tp <= 0.0 && pos_tp > 0.0) m_slots[k].curr_tp = Round5(pos_tp);
+                 }
+               else
+                 {
+                  // Adota a posição aberta da corretora sem jamais fechá-la no reinício!
+                  m_slots[k].dir            = pos_dir;
+                  m_slots[k].lots           = pos_lots;
+                  m_slots[k].leg_stage      = 1;
+                  m_slots[k].p1_entry       = bid_ref;
+                  m_slots[k].avg_price      = bid_ref;
+                  m_slots[k].curr_sl        = (pos_sl > 0.0) ? Round5(pos_sl) : ((pos_dir == 1) ? Round5(bid_ref - 230.0) : Round5(bid_ref + 230.0));
+                  m_slots[k].curr_tp        = (pos_tp > 0.0) ? Round5(pos_tp) : ((pos_dir == 1) ? Round5(bid_ref + 450.0) : Round5(bid_ref - 450.0));
+                  m_slots[k].init_sl_pts    = MathAbs(bid_ref - m_slots[k].curr_sl);
+                  m_slots[k].init_tp_pts    = MathAbs(m_slots[k].curr_tp - bid_ref);
+                  m_slots[k].entry_bar_time = pos_time;
+                  m_slots[k].real_synced    = true;
+                  if(m_slots[k].be_trig <= 0.0)  { m_slots[k].be_trig = 150.0; m_slots[k].be_lock = 25.0; }
+                  if(m_slots[k].tr_trig <= 0.0)  { m_slots[k].tr_trig = 280.0; m_slots[k].tr_dist = 110.0; }
+                  if(m_slots[k].max_hold_bars <= 0) m_slots[k].max_hold_bars = (k == 15) ? 120 : 18;
+                  if(k == 15) m_slots[k].last_trade_date = today_str;
+                  PrintFormat("[JUMBA %s] POSICAO ABERTA ADOTADA NO REINICIO | Dir=%d | Lotes=%d | PM=%.0f | SL=%.0f | TP=%.0f",
+                              m_slots[k].name, m_slots[k].dir, m_slots[k].lots, m_slots[k].avg_price, m_slots[k].curr_sl, m_slots[k].curr_tp);
+                 }
+              }
+            else if(m_slots[k].dir != 0)
+              {
+               // Posição que estava no disco já fechou no servidor enquanto o MT5 estava reiniciando
+               ResetSlotPosition(k);
+              }
+
+            // 3. Reconcilia Ordens Pendentes Nativas na Corretora
+            bool found_ord = false;
+            for(int i=OrdersTotal()-1; i>=0; i--)
+              {
+               ulong ord_ticket = OrderGetTicket(i);
+               if(ord_ticket > 0 && OrderGetString(ORDER_SYMBOL) == _Symbol && (ulong)OrderGetInteger(ORDER_MAGIC) == slot_magic)
+                 {
+                  found_ord = true;
+                  if(m_slots[k].pend_dir == 0)
+                    {
+                     ENUM_ORDER_TYPE otype = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+                     double op = OrderGetDouble(ORDER_PRICE_OPEN);
+                     double osl = OrderGetDouble(ORDER_SL);
+                     double otp = OrderGetDouble(ORDER_TP);
+                     double ovol = OrderGetDouble(ORDER_VOLUME_INITIAL);
+                     m_slots[k].pend_dir       = (otype == ORDER_TYPE_BUY_LIMIT || otype == ORDER_TYPE_BUY_STOP) ? 1 : -1;
+                     m_slots[k].pend_type      = (otype == ORDER_TYPE_BUY_LIMIT || otype == ORDER_TYPE_SELL_LIMIT) ? 1 : 2;
+                     m_slots[k].pend_price     = Round5(op);
+                     m_slots[k].pend_sl_pts    = (osl > 0.0) ? MathAbs(op - osl) : 230.0;
+                     m_slots[k].pend_tp_pts    = (otp > 0.0) ? MathAbs(otp - op) : 450.0;
+                     m_slots[k].pend_bar_time  = iTime(_Symbol, PERIOD_M5, 0);
+                     m_slots[k].pend_bars_left = 1;
+                     m_slots[k].pend_init_lots = MathMax(1, (int)MathRound(ovol / m_lot_mult));
+                     if(m_slots[k].be_trig <= 0.0) { m_slots[k].be_trig = 150.0; m_slots[k].be_lock = 25.0; m_slots[k].max_hold_bars = 18; }
+                     PrintFormat("[JUMBA %s] ORDEM PENDENTE ADOTADA NO REINICIO | Dir=%d @ %.0f",
+                                 m_slots[k].name, m_slots[k].pend_dir, m_slots[k].pend_price);
+                    }
+                  break;
+                 }
+              }
+            if(!found_ord && m_slots[k].pend_dir != 0)
+              {
+               m_slots[k].pend_dir = 0;
+               m_slots[k].pend_bars_left = 0;
+              }
+           }
+        }
+      SaveVirtualStateToDisk();
      }
 
    void              ResetSlotPosition(int k)
@@ -367,16 +610,33 @@ public:
       m_slots[k].curr_tp = 0.0;
       m_slots[k].max_fav_pts = 0.0;
       m_slots[k].be_active = false;
+      m_slots[k].be_stage2_active = false;
       m_slots[k].opened_intrabar = false;
       m_slots[k].real_synced = false;
       m_slots[k].bars_held = 0;
       m_slots[k].entry_bar_time = 0;
+      m_slots[k].def_wall = 0.0;
+      m_slots[k].be_mode = 0;
+      m_slots[k].wall_buf = 0.0;
+      m_slots[k].raw_mid_lvl = 0.0;
+      m_slots[k].tp1_px = 0.0;
+      m_slots[k].partial_mode = false;
+      m_slots[k].partial_done = false;
       m_slots[k].pend_dir = 0;
       m_slots[k].pend_type = 0;
       m_slots[k].pend_price = 0.0;
       m_slots[k].pend_tp_pts = 0.0;
       m_slots[k].pend_sl_pts = 0.0;
       m_slots[k].pend_bar_time = 0;
+      m_slots[k].pend_bars_left = 0;
+      m_slots[k].pend_rolling_stop = false;
+      m_slots[k].pend_init_lots = 1;
+      m_slots[k].pend_def_wall = 0.0;
+      m_slots[k].pend_be_mode = 0;
+      m_slots[k].pend_wall_buf = 0.0;
+      m_slots[k].pend_raw_mid_lvl = 0.0;
+      m_slots[k].pend_tp1_px = 0.0;
+      m_slots[k].pend_partial_mode = false;
       m_slots[k].init_sl_pts = 0.0;
       m_slots[k].init_tp_pts = 0.0;
      }
@@ -858,13 +1118,181 @@ public:
       return fallback_px;
      }
 
+   //+------------------------------------------------------------------+
+   //| Localiza Coordenadas Reais das Próximas MidWall e Main Wall      |
+   //+------------------------------------------------------------------+
+   void              FindStructuralTargets(double entry_px, int side, double front_run,
+                                           double &tp_mid_px, double &tp_main_px,
+                                           double &raw_mid_lvl, double &raw_main_lvl)
+     {
+      int n_all = ArraySize(m_levels_all);
+      int n_walls = ArraySize(m_levels_walls);
+
+      if(side == 1)
+        {
+         raw_mid_lvl = 0.0;
+         int mid_idx_all = -1;
+         for(int i=0; i<n_all; i++)
+           {
+            if(m_levels_all[i] >= entry_px + 135.0)
+              {
+               raw_mid_lvl = m_levels_all[i];
+               mid_idx_all = i;
+               break;
+              }
+           }
+         if(raw_mid_lvl <= 0.0)
+            raw_mid_lvl = entry_px + 460.0;
+
+         raw_main_lvl = 0.0;
+         for(int i=0; i<n_walls; i++)
+           {
+            if(m_levels_walls[i] >= entry_px + 300.0 && m_levels_walls[i] > raw_mid_lvl + 80.0)
+              {
+               raw_main_lvl = m_levels_walls[i];
+               break;
+              }
+           }
+         if(raw_main_lvl <= 0.0)
+           {
+            if(mid_idx_all >= 0 && (mid_idx_all + 1) < n_all && m_levels_all[mid_idx_all + 1] > raw_mid_lvl + 80.0)
+               raw_main_lvl = m_levels_all[mid_idx_all + 1];
+            else
+               raw_main_lvl = raw_mid_lvl + 480.0;
+           }
+
+         tp_mid_px  = Round5(raw_mid_lvl  - front_run);
+         tp_main_px = Round5(raw_main_lvl - front_run);
+        }
+      else
+        {
+         raw_mid_lvl = 0.0;
+         int mid_idx_all = -1;
+         for(int i=n_all-1; i>=0; i--)
+           {
+            if(m_levels_all[i] <= entry_px - 135.0)
+              {
+               raw_mid_lvl = m_levels_all[i];
+               mid_idx_all = i;
+               break;
+              }
+           }
+         if(raw_mid_lvl <= 0.0)
+            raw_mid_lvl = entry_px - 460.0;
+
+         raw_main_lvl = 0.0;
+         for(int i=n_walls-1; i>=0; i--)
+           {
+            if(m_levels_walls[i] <= entry_px - 300.0 && m_levels_walls[i] < raw_mid_lvl - 80.0)
+              {
+               raw_main_lvl = m_levels_walls[i];
+               break;
+              }
+           }
+         if(raw_main_lvl <= 0.0)
+           {
+            if(mid_idx_all > 0 && m_levels_all[mid_idx_all - 1] < raw_mid_lvl - 80.0)
+               raw_main_lvl = m_levels_all[mid_idx_all - 1];
+            else
+               raw_main_lvl = raw_mid_lvl - 480.0;
+           }
+
+         tp_mid_px  = Round5(raw_mid_lvl  + front_run);
+         tp_main_px = Round5(raw_main_lvl + front_run);
+        }
+     }
+
+   double            CalcTargetPts(double entry_px, int dir, int tp_type, double tp_orig_pts,
+                                   double &out_raw_mid, double &out_tp1_px)
+     {
+      double tp_mid, tp_main, raw_mid, raw_main;
+      FindStructuralTargets(entry_px, dir, 20.0, tp_mid, tp_main, raw_mid, raw_main);
+      out_raw_mid = raw_mid;
+      out_tp1_px  = tp_mid;
+      if(tp_type == 1) // TP_MIDWALL
+         return MathMax(140.0, MathAbs(tp_mid - entry_px));
+      if(tp_type == 2 || tp_type == 3) // TP_MAIN_WALL or TP_PARTIAL_MID_MAIN
+         return MathMax(240.0, MathAbs(tp_main - entry_px));
+      return tp_orig_pts;
+     }
+
+   double            CalcStage1StopPrice(int k)
+     {
+      int d = m_slots[k].dir;
+      double avg_p = m_slots[k].avg_price;
+      double cur_sl = m_slots[k].curr_sl;
+      if(m_slots[k].be_mode == 0 || m_slots[k].def_wall <= 0.0)
+         return (d == 1) ? Round5(avg_p + m_slots[k].be_lock) : Round5(avg_p - m_slots[k].be_lock);
+
+      // BE_WALL_SHIELD / BE_TWO_STAGE_WALLS (Estágio 1): protege logo atrás da Wall (def_wall ∓ wall_buf)
+      if(d == 1)
+        {
+         double sh1 = Round5(m_slots[k].def_wall - m_slots[k].wall_buf);
+         sh1 = MathMax(cur_sl, MathMin(sh1, avg_p + 10.0));
+         sh1 = MathMax(sh1, Round5(avg_p - 90.0));
+         return sh1;
+        }
+      else
+        {
+         double sh1 = Round5(m_slots[k].def_wall + m_slots[k].wall_buf);
+         sh1 = MathMin(cur_sl, MathMax(sh1, avg_p - 10.0));
+         sh1 = MathMin(sh1, Round5(avg_p + 90.0));
+         return sh1;
+        }
+     }
+
+   double            CalcStage2StopPrice(int k, double ref_close)
+     {
+      int d = m_slots[k].dir;
+      double avg_p = m_slots[k].avg_price;
+      double raw_mid = m_slots[k].raw_mid_lvl;
+      double buf = m_slots[k].wall_buf;
+      if(d == 1)
+        {
+         if(raw_mid > 0.0 && ref_close > raw_mid + 10.0)
+            return MathMax(Round5(avg_p + m_slots[k].be_lock), Round5(raw_mid - buf));
+         return Round5(avg_p + m_slots[k].be_lock);
+        }
+      else
+        {
+         if(raw_mid > 0.0 && ref_close < raw_mid - 10.0)
+            return MathMin(Round5(avg_p - m_slots[k].be_lock), Round5(raw_mid + buf));
+         return Round5(avg_p - m_slots[k].be_lock);
+        }
+     }
+
+   void              ExecutePartialExitVirtual(int k, double partial_px, double ref_open_or_px)
+     {
+      if(m_slots[k].dir == 0 || m_slots[k].partial_done || m_slots[k].lots < 2)
+         return;
+      int closed_lots = m_slots[k].lots / 2;
+      double pts_leg1 = (partial_px - m_slots[k].avg_price) * (double)m_slots[k].dir - 10.0;
+      double pnl_brl = pts_leg1 * (double)closed_lots * m_lot_mult * 0.20;
+      m_slots[k].closed_pnl_today_brl += pnl_brl;
+      m_slots[k].lots -= closed_lots;
+      m_slots[k].partial_done = true;
+
+      // Protege o lote remanescente no Estágio 1 (atrás da Wall de entrada)
+      double cand_sl = CalcStage1StopPrice(k);
+      if((m_slots[k].dir == 1 && ref_open_or_px > cand_sl + 5.0) || (m_slots[k].dir == -1 && ref_open_or_px < cand_sl - 5.0))
+        {
+         m_slots[k].curr_sl = (m_slots[k].dir == 1) ? MathMax(m_slots[k].curr_sl, cand_sl) : MathMin(m_slots[k].curr_sl, cand_sl);
+         m_slots[k].be_active = true;
+        }
+      PrintFormat("[JUMBA %s] SAIDA PARCIAL 50%% NA MIDWALL @ %.0f | Lotes Restantes=%d | Novo SL=%.0f | PnL Parcial=R$ %.2f",
+                  m_slots[k].name, partial_px, m_slots[k].lots, m_slots[k].curr_sl, pnl_brl);
+      SaveVirtualStateToDisk();
+     }
+
    void              OpenVirtualSingle(int k, int dir, double entry_p, datetime bar_t,
                                        double tp_pts, double sl_pts, double be_trig, double be_lock,
-                                       double tr_trig, double tr_dist, int max_hold=15, bool is_intrabar=false)
+                                       double tr_trig, double tr_dist, int max_hold=15, bool is_intrabar=false,
+                                       int init_lots=1, double def_wall=0.0, int be_mode=0, double wall_buf=0.0,
+                                       double raw_mid_lvl=0.0, double tp1_px=0.0, bool partial_mode=false)
      {
       double p5 = Round5(entry_p);
       m_slots[k].dir = dir;
-      m_slots[k].lots = 1;
+      m_slots[k].lots = MathMax(1, init_lots);
       m_slots[k].leg_stage = 1;
       m_slots[k].p1_entry = p5;
       m_slots[k].avg_price = p5;
@@ -872,6 +1300,7 @@ public:
       m_slots[k].curr_tp = (dir == 1) ? Round5(p5 + tp_pts) : Round5(p5 - tp_pts);
       m_slots[k].max_fav_pts = 0.0;
       m_slots[k].be_active = false;
+      m_slots[k].be_stage2_active = false;
       m_slots[k].opened_intrabar = is_intrabar;
       m_slots[k].real_synced = false;
       m_slots[k].bars_held = 0;
@@ -883,7 +1312,15 @@ public:
       m_slots[k].max_hold_bars = max_hold;
       m_slots[k].init_sl_pts = sl_pts;
       m_slots[k].init_tp_pts = tp_pts;
+      m_slots[k].def_wall = def_wall;
+      m_slots[k].be_mode = be_mode;
+      m_slots[k].wall_buf = wall_buf;
+      m_slots[k].raw_mid_lvl = raw_mid_lvl;
+      m_slots[k].tp1_px = tp1_px;
+      m_slots[k].partial_mode = partial_mode;
+      m_slots[k].partial_done = false;
       m_slots[k].pend_dir = 0;
+      m_slots[k].pend_bars_left = 0;
       SaveVirtualStateToDisk();
      }
 
@@ -907,6 +1344,7 @@ public:
       m_slots[k].curr_tp = (dir == 1) ? Round5(p5 + tp_avg) : Round5(p5 - tp_avg);
       m_slots[k].max_fav_pts = 0.0;
       m_slots[k].be_active = false;
+      m_slots[k].be_stage2_active = false;
       m_slots[k].opened_intrabar = false;
       m_slots[k].real_synced = false;
       m_slots[k].bars_held = 0;
@@ -926,6 +1364,7 @@ public:
       m_slots[k].init_sl_pts = init_sl_dist;
       m_slots[k].init_tp_pts = tp_avg;
       m_slots[k].pend_dir = 0;
+      m_slots[k].pend_bars_left = 0;
       SaveVirtualStateToDisk();
      }
 
@@ -1047,7 +1486,7 @@ public:
               {
                double pad = (open_cnt == 1) ? 0.0 : 25.0;
                double srv_sl = (net_dir == 1) ? Round5(worst_sl - pad) : Round5(worst_sl + pad);
-               double srv_tp = (open_cnt == 1 && best_tp > 0.0) ? Round5(best_tp) : 0.0;
+               double srv_tp = (open_cnt == 1 && best_tp > 0.0 && !m_slots[m_single_id > 0 ? m_single_id : 1].partial_mode) ? Round5(best_tp) : 0.0;
                double cur_srv_sl = PositionGetDouble(POSITION_SL);
                double cur_srv_tp = PositionGetDouble(POSITION_TP);
                if(MathAbs(cur_srv_sl - srv_sl) >= 5.0 || MathAbs(cur_srv_tp - srv_tp) >= 5.0)
@@ -1126,7 +1565,7 @@ public:
                      m_slots[k].p1_entry = Round5(live_bid);
                      m_slots[k].avg_price = Round5(live_bid);
                      double sl_d = MathMax(200.0, m_slots[k].init_sl_pts);
-                     double tp_d = MathMax(250.0, m_slots[k].init_tp_pts);
+                     double tp_d = MathMax(160.0, m_slots[k].init_tp_pts);
                      m_slots[k].curr_sl = (m_slots[k].dir == 1) ? Round5(fill_ref - sl_d) : Round5(fill_ref + sl_d);
                      m_slots[k].curr_tp = (m_slots[k].dir == 1) ? Round5(fill_ref + tp_d) : Round5(fill_ref - tp_d);
                      sl_srv = m_slots[k].curr_sl;
@@ -1198,17 +1637,29 @@ public:
      }
 
    //+------------------------------------------------------------------+
-   //| Processamento Tick a Tick (Ordens Nativas + Saídas SL/TP/Grid)   |
+   //| Processamento Tick a Tick (Ordens Nativas + Saídas SL/TP/Parcial)|
    //+------------------------------------------------------------------+
    void              OnTickProcess()
      {
+      if(!m_state_reconciled && !MQLInfoInteger(MQL_TESTER))
+        {
+         if(AccountInfoInteger(ACCOUNT_LOGIN) <= 0 || !TerminalInfoInteger(TERMINAL_CONNECTED))
+            return;
+         LoadVirtualStateFromDisk();
+         ReconcileWithBrokerOnStartup();
+         m_state_reconciled = true;
+         RenderHudComment();
+        }
+
       MqlRates r_curr[];
       if(CopyRates(_Symbol, PERIOD_M5, 0, 2, r_curr) < 2)
          return;
 
       datetime curr_bar_time = r_curr[1].time;
+      if(m_last_m5_bar_time == 0)
+         m_last_m5_bar_time = curr_bar_time;
       string today_str = DateStr(curr_bar_time);
-      int t_min = TimeMinutes(TimeCurrent());
+      int t_min = TimeMinutes(SafeTime());
 
       LoadDailyGexWalls(today_str);
 
@@ -1250,16 +1701,20 @@ public:
                                     m_slots[k].pend_tp_pts, m_slots[k].pend_sl_pts,
                                     m_slots[k].be_trig, m_slots[k].be_lock,
                                     m_slots[k].tr_trig, m_slots[k].tr_dist,
-                                    m_slots[k].max_hold_bars, true);
+                                    m_slots[k].max_hold_bars, true,
+                                    m_slots[k].pend_init_lots, m_slots[k].pend_def_wall,
+                                    m_slots[k].pend_be_mode, m_slots[k].pend_wall_buf,
+                                    m_slots[k].pend_raw_mid_lvl, m_slots[k].pend_tp1_px,
+                                    m_slots[k].pend_partial_mode);
                   m_slots[k].real_synced = true;
                   m_slots[k].last_entry_bar_time = m_slots[k].pend_bar_time;
-                  if(k == 15 || k == 16)
+                  if(k == 15)
                      m_slots[k].last_trade_date = today_str;
-                  PrintFormat("[JUMBA %s] ORDEM PENDENTE NATIVA EXECUTADA | Dir=%d @ %.0f", m_slots[k].name, m_slots[k].dir, m_slots[k].avg_price);
+                  PrintFormat("[JUMBA %s] ORDEM PENDENTE NATIVA EXECUTADA | Dir=%d | Lotes=%d @ %.0f",
+                              m_slots[k].name, m_slots[k].dir, m_slots[k].lots, m_slots[k].avg_price);
                  }
                else if(!HasPendingOrderForSlot(k))
                  {
-                  // Em modo OHLC 1 min, se a ordem pendente executou e já bateu SL/TP dentro do mesmo salto de tick
                   string rsn = "SL_TP_INTRABAR";
                   double deal_px = GetLastExitDealPrice(slot_magic, m_slots[k].pend_price, rsn);
                   if(rsn == "SL" || rsn == "TP")
@@ -1268,9 +1723,13 @@ public:
                                        m_slots[k].pend_tp_pts, m_slots[k].pend_sl_pts,
                                        m_slots[k].be_trig, m_slots[k].be_lock,
                                        m_slots[k].tr_trig, m_slots[k].tr_dist,
-                                       m_slots[k].max_hold_bars, true);
+                                       m_slots[k].max_hold_bars, true,
+                                       m_slots[k].pend_init_lots, m_slots[k].pend_def_wall,
+                                       m_slots[k].pend_be_mode, m_slots[k].pend_wall_buf,
+                                       m_slots[k].pend_raw_mid_lvl, m_slots[k].pend_tp1_px,
+                                       m_slots[k].pend_partial_mode);
                      m_slots[k].last_entry_bar_time = m_slots[k].pend_bar_time;
-                     if(k == 15 || k == 16)
+                     if(k == 15)
                         m_slots[k].last_trade_date = today_str;
                      CloseVirtualSlot(k, deal_px, rsn);
                     }
@@ -1298,6 +1757,7 @@ public:
               {
                DeletePendingOrdersForSlot(k);
                m_slots[k].pend_dir = 0;
+               m_slots[k].pend_bars_left = 0;
               }
             if(m_slots[k].dir != 0)
                CloseVirtualSlot(k, px, rsn);
@@ -1314,13 +1774,13 @@ public:
          SyncRealPositionsWithVirtualSlots();
         }
 
-      // 2. Monitoramento Intrabar (Fallback p/ Netting e Adição de Lotes de Grid EST-11, EST-13, EST-14)
+      // 2. Monitoramento Intrabar (Disparo pendente em Netting, Saída Parcial 50% na MidWall e Saídas SL/TP em Netting)
       for(int k=1; k<=16; k++)
         {
          if(!m_slots[k].enabled)
             continue;
 
-         // A. Disparo de Ordens Pendentes em Netting (ou fallback se ordem pendente nativa não pôde ser apregoada por distância mínima)
+         // A. Disparo de Ordens Pendentes em Netting (ou fallback se ordem pendente nativa não pôde ser apregoada)
          if(m_slots[k].dir == 0 && m_slots[k].pend_dir != 0 && m_slots[k].pend_bar_time == curr_bar_time)
            {
             if(m_exec_mode == EXEC_NETTING_VIRTUAL_SYNC || !HasPendingOrderForSlot(k))
@@ -1347,57 +1807,30 @@ public:
                                     m_slots[k].pend_tp_pts, m_slots[k].pend_sl_pts,
                                     m_slots[k].be_trig, m_slots[k].be_lock,
                                     m_slots[k].tr_trig, m_slots[k].tr_dist,
-                                    m_slots[k].max_hold_bars, true);
+                                    m_slots[k].max_hold_bars, true,
+                                    m_slots[k].pend_init_lots, m_slots[k].pend_def_wall,
+                                    m_slots[k].pend_be_mode, m_slots[k].pend_wall_buf,
+                                    m_slots[k].pend_raw_mid_lvl, m_slots[k].pend_tp1_px,
+                                    m_slots[k].pend_partial_mode);
                   m_slots[k].last_entry_bar_time = curr_bar_time;
-                  if(k == 15 || k == 16)
+                  if(k == 15)
                      m_slots[k].last_trade_date = today_str;
-                  PrintFormat("[JUMBA %s] ORDEM PENDENTE EXECUTADA | Dir=%d @ %.0f", m_slots[k].name, m_slots[k].dir, m_slots[k].avg_price);
+                  PrintFormat("[JUMBA %s] ORDEM PENDENTE EXECUTADA | Dir=%d | Lotes=%d @ %.0f",
+                              m_slots[k].name, m_slots[k].dir, m_slots[k].lots, m_slots[k].avg_price);
                  }
               }
            }
 
-         // B. Gerenciamento de Posição Aberta
+         // B. Gerenciamento de Posição Aberta (Saída Parcial na MidWall + Saídas Virtuais em Netting)
          if(m_slots[k].dir != 0)
            {
             int d = m_slots[k].dir;
 
-            // Verifica Adição de Lotes de Grid (EST-11, EST-13, EST-14) ANTES do Hard SL
-            if(k == 11 || k == 13 || k == 14)
+            // Verifica Saída Parcial de 50% na MidWall (ex: EST-16 NOVO-3 com 2 lotes)
+            if(m_slots[k].partial_mode && !m_slots[k].partial_done && m_slots[k].lots >= 2 && m_slots[k].tp1_px > 0.0)
               {
-               if(m_slots[k].leg_stage == 1 && m_slots[k].lot2 > 0)
-                 {
-                  double p2_lvl = (d == 1) ? (m_slots[k].p1_entry - m_slots[k].step2_dist) : (m_slots[k].p1_entry + m_slots[k].step2_dist);
-                  if((d == 1 && last_px <= p2_lvl) || (d == -1 && last_px >= p2_lvl))
-                    {
-                     int new_lots = m_slots[k].lot1 + m_slots[k].lot2;
-                     m_slots[k].avg_price = Round5((m_slots[k].p1_entry * m_slots[k].lot1 + p2_lvl * m_slots[k].lot2) / (double)new_lots);
-                     m_slots[k].lots = new_lots;
-                     m_slots[k].leg_stage = 2;
-                     m_slots[k].be_active = false;
-                     m_slots[k].max_fav_pts = 0.0;
-                     m_slots[k].curr_tp = (d == 1) ? Round5(m_slots[k].avg_price + m_slots[k].tp_avg_pts) : Round5(m_slots[k].avg_price - m_slots[k].tp_avg_pts);
-                     m_slots[k].curr_sl = (d == 1) ? Round5(m_slots[k].avg_price - m_slots[k].max_sl_pts) : Round5(m_slots[k].avg_price + m_slots[k].max_sl_pts);
-                     PrintFormat("[JUMBA %s] GRID PERNA 2 ATIVADA | Total Lotes=%d | Novo PM=%.0f | Novo TP=%.0f | Novo SL=%.0f",
-                                 m_slots[k].name, m_slots[k].lots, m_slots[k].avg_price, m_slots[k].curr_tp, m_slots[k].curr_sl);
-                    }
-                 }
-               if(m_slots[k].leg_stage == 2 && m_slots[k].lot3 > 0)
-                 {
-                  double p3_lvl = (d == 1) ? (m_slots[k].p1_entry - m_slots[k].step3_dist) : (m_slots[k].p1_entry + m_slots[k].step3_dist);
-                  if((d == 1 && last_px <= p3_lvl) || (d == -1 && last_px >= p3_lvl))
-                    {
-                     int new_lots = m_slots[k].lots + m_slots[k].lot3;
-                     m_slots[k].avg_price = Round5((m_slots[k].avg_price * m_slots[k].lots + p3_lvl * m_slots[k].lot3) / (double)new_lots);
-                     m_slots[k].lots = new_lots;
-                     m_slots[k].leg_stage = 3;
-                     m_slots[k].be_active = false;
-                     m_slots[k].max_fav_pts = 0.0;
-                     m_slots[k].curr_tp = (d == 1) ? Round5(m_slots[k].avg_price + m_slots[k].tp_avg_pts) : Round5(m_slots[k].avg_price - m_slots[k].tp_avg_pts);
-                     m_slots[k].curr_sl = (d == 1) ? Round5(m_slots[k].avg_price - m_slots[k].max_sl_pts) : Round5(m_slots[k].avg_price + m_slots[k].max_sl_pts);
-                     PrintFormat("[JUMBA %s] GRID PERNA 3 ATIVADA | Total Lotes=%d | Novo PM=%.0f | Novo TP=%.0f | Novo SL=%.0f",
-                                 m_slots[k].name, m_slots[k].lots, m_slots[k].avg_price, m_slots[k].curr_tp, m_slots[k].curr_sl);
-                    }
-                 }
+               if((d == 1 && last_px >= m_slots[k].tp1_px) || (d == -1 && last_px <= m_slots[k].tp1_px))
+                  ExecutePartialExitVirtual(k, m_slots[k].tp1_px, last_px);
               }
 
             // Em modo NETTING (onde não há SL/TP individual por ticket no servidor), fecha virtualmente por last_px
@@ -1421,7 +1854,7 @@ public:
      }
 
    //+------------------------------------------------------------------+
-   //| Avaliação de Fechamento de Barra M5 (BE/Trail + Sinais Mkt/Lim)  |
+   //| Avaliação de Fechamento de Barra M5 (MIX CAMPEÃO EST-01 A EST-16)|
    //+------------------------------------------------------------------+
    void              OnNewM5Bar(datetime new_bar_time, string today_str)
      {
@@ -1440,19 +1873,6 @@ public:
       int b1_tmin = TimeMinutes(b1.time);
       int new_tmin = TimeMinutes(new_bar_time);
 
-      // Atualiza máxima e mínima da manhã (09h00 - 11h00) para a EST-16 Extreme Fade
-      if(m_morning_date != b1_date)
-        {
-         m_morning_date = b1_date;
-         m_day_high_morning = b1.high;
-         m_day_low_morning = b1.low;
-        }
-      else if(b1_tmin <= 660)
-        {
-         if(b1.high > m_day_high_morning) m_day_high_morning = b1.high;
-         if(b1.low  < m_day_low_morning)  m_day_low_morning  = b1.low;
-        }
-
       // Calcula NWE(50, 5.0, 2.0), NWE(30, 3.0, 1.6), RSI(7) e WDO
       ComputeCausalNWE(rates, copied, 50, 5.0, 2.0,
                        m_n50_c_1, m_n50_u_1, m_n50_l_1, m_n50_s_1,
@@ -1463,21 +1883,67 @@ public:
       ComputeRsi7(rates, copied, m_rsi7_1, m_rsi7_2);
       ComputeWdoMetrics();
 
-      double cur_bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double cur_ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double d_l, lvl_s, d_h, lvl_r;
+      FindNearestLevel(m_levels_all, b1.low,  d_l, lvl_s);
+      FindNearestLevel(m_levels_all, b1.high, d_h, lvl_r);
+      double dw_l_main, w_s_main, dw_h_main, w_r_main;
+      FindNearestLevel(m_levels_walls, b1.low,  dw_l_main, w_s_main);
+      FindNearestLevel(m_levels_walls, b1.high, dw_h_main, w_r_main);
 
-      // 1. Limpa ordens pendentes da barra anterior e atualiza BE / Trailing Stop / Time Stop no fechamento da barra M5 b1!
+      // 1. Gerencia ordens pendentes multi-barra (valid_bars=2 e Rolling Stop) e atualiza BE / Trailing / Time Stop!
       for(int k=1; k<=16; k++)
         {
          if(m_slots[k].pend_dir != 0)
            {
-            DeletePendingOrdersForSlot(k);
-            m_slots[k].pend_dir = 0;
+            m_slots[k].pend_bars_left -= 1;
+            if(m_slots[k].pend_bars_left <= 0 || b1_date != today_str || new_tmin > 1000)
+              {
+               DeletePendingOrdersForSlot(k);
+               m_slots[k].pend_dir = 0;
+               m_slots[k].pend_bars_left = 0;
+              }
+            else
+              {
+               // Mantém por mais 1 barra (valid_bars=2); se for Rolling Stop, atualiza gatilho para a nova High[1]/Low[1]!
+               DeletePendingOrdersForSlot(k);
+               double next_trig = m_slots[k].pend_price;
+               if(m_slots[k].pend_rolling_stop)
+                 {
+                  if(m_slots[k].pend_dir == 1 && b1.low >= m_slots[k].pend_def_wall - 60.0)
+                    {
+                     double cand_stop = Round5(b1.high + 15.0);
+                     if(cand_stop < next_trig && (cand_stop - m_slots[k].pend_def_wall) <= 135.0)
+                        next_trig = cand_stop;
+                    }
+                  else if(m_slots[k].pend_dir == -1 && b1.high <= m_slots[k].pend_def_wall + 60.0)
+                    {
+                     double cand_stop = Round5(b1.low - 15.0);
+                     if(cand_stop > next_trig && (m_slots[k].pend_def_wall - cand_stop) <= 135.0)
+                        next_trig = cand_stop;
+                    }
+                 }
+               double raw_m, tp1_p;
+               int tp_t = m_slots[k].pend_partial_mode ? 3 : 1;
+               double new_tp_pts = CalcTargetPts(next_trig, m_slots[k].pend_dir, tp_t, m_slots[k].pend_tp_pts, raw_m, tp1_p);
+               ArmPendingOrder(k, m_slots[k].pend_dir, m_slots[k].pend_type, next_trig, new_bar_time, new_bar_open,
+                               new_tp_pts, m_slots[k].pend_sl_pts, m_slots[k].be_trig, m_slots[k].be_lock,
+                               m_slots[k].tr_trig, m_slots[k].tr_dist, m_slots[k].max_hold_bars,
+                               m_slots[k].pend_init_lots, m_slots[k].pend_def_wall, m_slots[k].pend_be_mode,
+                               m_slots[k].pend_wall_buf, raw_m, tp1_p, m_slots[k].pend_partial_mode,
+                               m_slots[k].pend_bars_left, m_slots[k].pend_rolling_stop);
+              }
            }
 
          if(m_slots[k].dir != 0)
            {
             int d = m_slots[k].dir;
+
+            // Verifica se a barra b1 atingiu o TP1 parcial na MidWall (caso ainda não tenha executado intrabar)
+            if(m_slots[k].partial_mode && !m_slots[k].partial_done && m_slots[k].lots >= 2 && m_slots[k].tp1_px > 0.0)
+              {
+               if((d == 1 && b1.high >= m_slots[k].tp1_px) || (d == -1 && b1.low <= m_slots[k].tp1_px))
+                  ExecutePartialExitVirtual(k, m_slots[k].tp1_px, new_bar_open);
+              }
 
             if(m_slots[k].opened_intrabar)
               {
@@ -1486,11 +1952,25 @@ public:
                   m_slots[k].max_fav_pts = fav_c;
                if(m_slots[k].be_trig > 0.0 && !m_slots[k].be_active && m_slots[k].max_fav_pts >= m_slots[k].be_trig)
                  {
-                  double cand_sl = (d == 1) ? Round5(m_slots[k].avg_price + m_slots[k].be_lock) : Round5(m_slots[k].avg_price - m_slots[k].be_lock);
+                  double cand_sl = CalcStage1StopPrice(k);
                   if((d == 1 && new_bar_open > cand_sl + 5.0) || (d == -1 && new_bar_open < cand_sl - 5.0))
                     {
                      m_slots[k].curr_sl = (d == 1) ? MathMax(m_slots[k].curr_sl, cand_sl) : MathMin(m_slots[k].curr_sl, cand_sl);
                      m_slots[k].be_active = true;
+                    }
+                 }
+               if(m_slots[k].be_mode == 2 && !m_slots[k].be_stage2_active)
+                 {
+                  bool crossed_mid = (m_slots[k].raw_mid_lvl > 0.0) && ((d == 1 && b1.close > m_slots[k].raw_mid_lvl + 10.0) || (d == -1 && b1.close < m_slots[k].raw_mid_lvl - 10.0));
+                  if(m_slots[k].max_fav_pts >= 240.0 || crossed_mid)
+                    {
+                     double cand_sl2 = CalcStage2StopPrice(k, b1.close);
+                     if((d == 1 && new_bar_open > cand_sl2 + 5.0) || (d == -1 && new_bar_open < cand_sl2 - 5.0))
+                       {
+                        m_slots[k].curr_sl = (d == 1) ? MathMax(m_slots[k].curr_sl, cand_sl2) : MathMin(m_slots[k].curr_sl, cand_sl2);
+                        m_slots[k].be_stage2_active = true;
+                        m_slots[k].be_active = true;
+                       }
                     }
                  }
                m_slots[k].opened_intrabar = false;
@@ -1503,9 +1983,10 @@ public:
                if(fav > m_slots[k].max_fav_pts)
                   m_slots[k].max_fav_pts = fav;
 
+               // Estágio 1 do Break-Even (BE_ZERO ou BE_WALL_SHIELD / BE_TWO_STAGE_WALLS)
                if(m_slots[k].be_trig > 0.0 && !m_slots[k].be_active && m_slots[k].max_fav_pts >= m_slots[k].be_trig)
                  {
-                  double cand_sl = (d == 1) ? Round5(m_slots[k].avg_price + m_slots[k].be_lock) : Round5(m_slots[k].avg_price - m_slots[k].be_lock);
+                  double cand_sl = CalcStage1StopPrice(k);
                   if((d == 1 && new_bar_open > cand_sl + 5.0) || (d == -1 && new_bar_open < cand_sl - 5.0))
                     {
                      m_slots[k].curr_sl = (d == 1) ? MathMax(m_slots[k].curr_sl, cand_sl) : MathMin(m_slots[k].curr_sl, cand_sl);
@@ -1513,6 +1994,23 @@ public:
                     }
                  }
 
+               // Estágio 2 do Break-Even (BE_TWO_STAGE_WALLS: trava atrás da MidWall ou no BE+lock)
+               if(m_slots[k].be_mode == 2 && !m_slots[k].be_stage2_active)
+                 {
+                  bool crossed_mid = (m_slots[k].raw_mid_lvl > 0.0) && ((d == 1 && b1.close > m_slots[k].raw_mid_lvl + 10.0) || (d == -1 && b1.close < m_slots[k].raw_mid_lvl - 10.0));
+                  if(m_slots[k].max_fav_pts >= 240.0 || crossed_mid)
+                    {
+                     double cand_sl2 = CalcStage2StopPrice(k, b1.close);
+                     if((d == 1 && new_bar_open > cand_sl2 + 5.0) || (d == -1 && new_bar_open < cand_sl2 - 5.0))
+                       {
+                        m_slots[k].curr_sl = (d == 1) ? MathMax(m_slots[k].curr_sl, cand_sl2) : MathMin(m_slots[k].curr_sl, cand_sl2);
+                        m_slots[k].be_stage2_active = true;
+                        m_slots[k].be_active = true;
+                       }
+                    }
+                 }
+
+               // Trailing Stop
                if(m_slots[k].tr_trig > 0.0 && m_slots[k].max_fav_pts >= m_slots[k].tr_trig)
                  {
                   double cand_sl = (d == 1) ? Round5(m_slots[k].avg_price + m_slots[k].max_fav_pts - m_slots[k].tr_dist)
@@ -1540,8 +2038,8 @@ public:
                     }
                  }
 
-               // Time Stop (exceto EOD 15 e 16 que seguram até 17h15)
-               if(k <= 14 && m_slots[k].bars_held >= m_slots[k].max_hold_bars)
+               // Time Stop (EST-15 segura até 17h15; demais encerram após max_hold_bars)
+               if(k != 15 && m_slots[k].bars_held >= m_slots[k].max_hold_bars)
                  {
                   CloseVirtualSlot(k, new_bar_open, "TIME_STOP");
                   continue;
@@ -1554,78 +2052,110 @@ public:
       if(b1_date != today_str)
          return;
 
-      double d_l, lvl_s, d_h, lvl_r;
-      FindNearestLevel(m_levels_all, b1.low,  d_l, lvl_s);
-      FindNearestLevel(m_levels_all, b1.high, d_h, lvl_r);
-      double dw_l_main, w_s_main, dw_h_main, w_r_main;
-      FindNearestLevel(m_levels_walls, b1.low,  dw_l_main, w_s_main);
-      FindNearestLevel(m_levels_walls, b1.high, dw_h_main, w_r_main);
-      double bw50 = m_n50_u_1 - m_n50_l_1;
-      double bw30 = m_n30_u_1 - m_n30_l_1;
+      double bw50 = MathMax(1.0, m_n50_u_1 - m_n50_l_1);
+      double bw30 = MathMax(1.0, m_n30_u_1 - m_n30_l_1);
+      double pos50 = (b1.close - m_n50_l_1) / bw50;
+      double pos30 = (b1.close - m_n30_l_1) / bw30;
       double body1 = b1.close - b1.open;
       double rng1 = MathMax(1.0, b1.high - b1.low);
+      double mid_b1 = Round5(0.5 * (b1.high + b1.low));
+      bool c_buy  = (b1.close > b1.open && (b1.close - b1.low) >= 0.5 * rng1);
+      bool c_sell = (b1.close < b1.open && (b1.high - b1.close) >= 0.5 * rng1);
+      double raw_mid, tp1_px, tp_calc;
 
-      // --- EST-01 & EST-02: Scalper Híbrido Limit + Market ---
-      for(int sc_id=1; sc_id<=2; sc_id++)
+      // =====================================================================
+      // EST-01: 3-Pilares (Sinal Original NY + BE_Wall_Shield(25) + TP_MainWall) | Ret/DD = 6.90
+      // =====================================================================
+      if(m_slots[1].enabled && m_slots[1].dir == 0 && m_slots[1].pend_dir == 0)
         {
-         if(!m_slots[sc_id].enabled || m_slots[sc_id].dir != 0)
-            continue;
-         string wm_rej = (sc_id == 1) ? "NY_1000_1630" : "FULL_09_17";
-         string wm_lim = (sc_id == 1) ? "NY_1000_1630" : "CORE_09_1615";
-         double l_off  = (sc_id == 1) ? 0.0 : 10.0;
-         bool c_buy  = (b1.close > b1.open && (b1.close - b1.low) >= 0.5 * rng1);
-         bool c_sell = (b1.close < b1.open && (b1.high - b1.close) >= 0.5 * rng1);
-
-         if(m_slots[sc_id].last_entry_bar_time != b1.time && WindowOk(b1_tmin, wm_rej))
+         bool ent1 = false;
+         if(m_slots[1].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "NY_1000_1630"))
            {
             if(d_l <= 60.0 && (b1.close - lvl_s >= -25.0) && (b1.close - lvl_s <= 75.0) && b1.close <= (m_n50_l_1 + bw50 * 0.22) && m_rsi7_1 <= 35.0 && c_buy && m_n50_s_1 >= -12.0)
               {
-               OpenVirtualSingle(sc_id, 1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
-               m_slots[sc_id].last_entry_bar_time = b1.time;
-               continue;
+               tp_calc = CalcTargetPts(new_bar_open, 1, 2, 550.0, raw_mid, tp1_px);
+               OpenVirtualSingle(1, 1, new_bar_open, new_bar_time, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false, 1, lvl_s, 1, 25.0, raw_mid, tp1_px, false);
+               m_slots[1].last_entry_bar_time = b1.time;
+               ent1 = true;
               }
             else if(d_h <= 60.0 && (lvl_r - b1.close >= -25.0) && (lvl_r - b1.close <= 75.0) && b1.close >= (m_n50_u_1 - bw50 * 0.22) && m_rsi7_1 >= 65.0 && c_sell && m_n50_s_1 <= 12.0)
               {
-               OpenVirtualSingle(sc_id, -1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
-               m_slots[sc_id].last_entry_bar_time = b1.time;
-               continue;
+               tp_calc = CalcTargetPts(new_bar_open, -1, 2, 550.0, raw_mid, tp1_px);
+               OpenVirtualSingle(1, -1, new_bar_open, new_bar_time, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false, 1, lvl_r, 1, 25.0, raw_mid, tp1_px, false);
+               m_slots[1].last_entry_bar_time = b1.time;
+               ent1 = true;
               }
-            if(sc_id == 1)
+            if(!ent1)
               {
-               bool ent_imp = false;
                for(int i=0; i<ArraySize(m_levels_all); i++)
                  {
                   double lvl = m_levels_all[i];
                   if(b1.open <= lvl + 12.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 85.0 && body1 >= 55.0 && m_n50_s_1 >= 4.5 && b1.close < (m_n50_u_1 - bw50 * 0.15))
                     {
-                     OpenVirtualSingle(1, 1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
+                     tp_calc = CalcTargetPts(new_bar_open, 1, 2, 550.0, raw_mid, tp1_px);
+                     OpenVirtualSingle(1, 1, new_bar_open, new_bar_time, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false, 1, lvl, 1, 25.0, raw_mid, tp1_px, false);
                      m_slots[1].last_entry_bar_time = b1.time;
-                     ent_imp = true;
+                     ent1 = true;
                      break;
                     }
                   if(b1.open >= lvl - 12.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 85.0 && (-body1) >= 55.0 && m_n50_s_1 <= -4.5 && b1.close > (m_n50_l_1 + bw50 * 0.15))
                     {
-                     OpenVirtualSingle(1, -1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
+                     tp_calc = CalcTargetPts(new_bar_open, -1, 2, 550.0, raw_mid, tp1_px);
+                     OpenVirtualSingle(1, -1, new_bar_open, new_bar_time, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false, 1, lvl, 1, 25.0, raw_mid, tp1_px, false);
                      m_slots[1].last_entry_bar_time = b1.time;
-                     ent_imp = true;
+                     ent1 = true;
                      break;
                     }
                  }
-               if(ent_imp)
-                  continue;
               }
            }
-         if(WindowOk(new_tmin, wm_lim))
+         if(!ent1 && WindowOk(new_tmin, "NY_1000_1630"))
            {
-            if(m_n50_s_1 >= 6.0 && b1.close <= (m_n50_c_1 + bw50 * 0.18) && d_l <= 55.0 && b1.close > (lvl_s + l_off))
-               ArmPendingOrder(sc_id, 1, 1, lvl_s + l_off, new_bar_time, new_bar_open, 500.0, 240.0, 150.0, 20.0, 300.0, 110.0, 15);
-            else if(m_n50_s_1 <= -6.0 && b1.close >= (m_n50_c_1 - bw50 * 0.18) && d_h <= 55.0 && b1.close < (lvl_r - l_off))
-               ArmPendingOrder(sc_id, -1, 1, lvl_r - l_off, new_bar_time, new_bar_open, 500.0, 240.0, 150.0, 20.0, 300.0, 110.0, 15);
+            if(m_n50_s_1 >= 6.0 && b1.close <= (m_n50_c_1 + bw50 * 0.18) && d_l <= 55.0 && b1.close > lvl_s)
+              {
+               tp_calc = CalcTargetPts(lvl_s, 1, 2, 500.0, raw_mid, tp1_px);
+               ArmPendingOrder(1, 1, 1, lvl_s, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 15, 1, lvl_s, 1, 25.0, raw_mid, tp1_px, false, 1, false);
+              }
+            else if(m_n50_s_1 <= -6.0 && b1.close >= (m_n50_c_1 - bw50 * 0.18) && d_h <= 55.0 && b1.close < lvl_r)
+              {
+               tp_calc = CalcTargetPts(lvl_r, -1, 2, 500.0, raw_mid, tp1_px);
+               ArmPendingOrder(1, -1, 1, lvl_r, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 15, 1, lvl_r, 1, 25.0, raw_mid, tp1_px, false, 1, false);
+              }
            }
         }
 
-      // --- EST-03: Arbitragem Cambial Confluência WIN+WDO na Wall ---
-      if(m_slots[3].enabled && m_slots[3].dir == 0)
+      // =====================================================================
+      // EST-02: 3-Pilares (Sinal Original DiaTodo + Limit 50% Barra[1] + TP_MainWall) | Ret/DD = 3.80
+      // =====================================================================
+      if(m_slots[2].enabled && m_slots[2].dir == 0 && m_slots[2].pend_dir == 0)
+        {
+         int sig2 = 0;
+         double wall2 = 0.0;
+         if(WindowOk(b1_tmin, "FULL_09_17"))
+           {
+            if(d_l <= 60.0 && (b1.close - lvl_s >= -25.0) && (b1.close - lvl_s <= 75.0) && b1.close <= (m_n50_l_1 + bw50 * 0.22) && m_rsi7_1 <= 35.0 && c_buy && m_n50_s_1 >= -12.0)
+              { sig2 = 1; wall2 = lvl_s; }
+            else if(d_h <= 60.0 && (lvl_r - b1.close >= -25.0) && (lvl_r - b1.close <= 75.0) && b1.close >= (m_n50_u_1 - bw50 * 0.22) && m_rsi7_1 >= 65.0 && c_sell && m_n50_s_1 <= 12.0)
+              { sig2 = -1; wall2 = lvl_r; }
+           }
+         if(sig2 == 0 && WindowOk(new_tmin, "CORE_09_1615"))
+           {
+            if(m_n50_s_1 >= 6.0 && b1.close <= (m_n50_c_1 + bw50 * 0.18) && d_l <= 55.0 && b1.close > (lvl_s + 10.0))
+              { sig2 = 1; wall2 = lvl_s; }
+            else if(m_n50_s_1 <= -6.0 && b1.close >= (m_n50_c_1 - bw50 * 0.18) && d_h <= 55.0 && b1.close < (lvl_r - 10.0))
+              { sig2 = -1; wall2 = lvl_r; }
+           }
+         if(sig2 != 0)
+           {
+            tp_calc = CalcTargetPts(mid_b1, sig2, 2, 500.0, raw_mid, tp1_px);
+            ArmPendingOrder(2, sig2, 1, mid_b1, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 15, 1, wall2, 0, 0.0, raw_mid, tp1_px, false, 1, false);
+           }
+        }
+
+      // =====================================================================
+      // EST-03: MANTIDO ORIGINAL (Arbitragem Cambial Confluência WIN+WDO na Wall) | Ret/DD = 6.68
+      // =====================================================================
+      if(m_slots[3].enabled && m_slots[3].dir == 0 && m_slots[3].pend_dir == 0)
         {
          bool ent3 = false;
          if(m_slots[3].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "CORE_09_1615"))
@@ -1658,95 +2188,104 @@ public:
            }
         }
 
-      // --- EST-04: Pullback Limit Reteste de Wall Rompida c/ GammaFlip ---
-      if(m_slots[4].enabled && m_slots[4].dir == 0 && WindowOk(new_tmin, "FULL_09_17"))
+      // =====================================================================
+      // EST-04: Matriz WDO (Reteste 220p(off-5) + BE_2Stage_177k(15) + TP_MidWall) | Ret/DD = 4.88
+      // =====================================================================
+      if(m_slots[4].enabled && m_slots[4].dir == 0 && m_slots[4].pend_dir == 0 && WindowOk(new_tmin, "FULL_09_17"))
         {
          for(int i=0; i<ArraySize(m_levels_all); i++)
            {
             double lvl = m_levels_all[i];
-            if(b1.open <= lvl + 10.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 95.0 && body1 >= 45.0 && m_n50_s_1 >= 6.0)
+            if(b1.open <= lvl + 12.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 220.0 && body1 >= 45.0 && m_n50_s_1 >= 5.5)
               {
-               if((m_gamma_flip <= 0.0 || b1.close >= m_gamma_flip) && b1.close < (m_n50_u_1 - bw50 * 0.15))
+               if((m_gamma_flip <= 0.0 || b1.close >= m_gamma_flip) && pos50 < 0.85)
                  {
-                  ArmPendingOrder(4, 1, 1, lvl, new_bar_time, new_bar_open, 500.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
+                  double p4 = Round5(lvl - 5.0);
+                  tp_calc = CalcTargetPts(p4, 1, 1, 520.0, raw_mid, tp1_px);
+                  ArmPendingOrder(4, 1, 1, p4, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 45.0, 330.0, 120.0, 16, 1, lvl, 2, 15.0, raw_mid, tp1_px, false, 1, false);
                   break;
                  }
               }
-            if(b1.open >= lvl - 10.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 95.0 && (-body1) >= 45.0 && m_n50_s_1 <= -6.0)
+            if(b1.open >= lvl - 12.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 220.0 && (-body1) >= 45.0 && m_n50_s_1 <= -5.5)
               {
-               if((m_gamma_flip <= 0.0 || b1.close <= m_gamma_flip) && b1.close > (m_n50_l_1 + bw50 * 0.15))
+               if((m_gamma_flip <= 0.0 || b1.close <= m_gamma_flip) && pos50 > 0.15)
                  {
-                  ArmPendingOrder(4, -1, 1, lvl, new_bar_time, new_bar_open, 500.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
+                  double p4 = Round5(lvl + 5.0);
+                  tp_calc = CalcTargetPts(p4, -1, 1, 520.0, raw_mid, tp1_px);
+                  ArmPendingOrder(4, -1, 1, p4, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 45.0, 330.0, 120.0, 16, 1, lvl, 2, 15.0, raw_mid, tp1_px, false, 1, false);
                   break;
                  }
               }
            }
         }
 
-      // --- EST-05: Pullback Cluster NWE30 + NWE50 + Wall ---
-      if(m_slots[5].enabled && m_slots[5].dir == 0)
+      // =====================================================================
+      // EST-05: 3-Pilares (Cluster NWE30+50 + Limit Extremo Barra[1] + TP_MainWall) | Ret/DD = 6.57
+      // =====================================================================
+      if(m_slots[5].enabled && m_slots[5].dir == 0 && m_slots[5].pend_dir == 0)
         {
-         bool entered5 = false;
-         if(m_slots[5].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "CORE_09_1615"))
+         int sig5 = 0;
+         double wall5 = 0.0;
+         if(WindowOk(b1_tmin, "CORE_09_1615"))
            {
             for(int i=0; i<ArraySize(m_levels_all); i++)
               {
                double lvl = m_levels_all[i];
                if(b1.open <= lvl + 12.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 90.0 && body1 >= 45.0 && m_n30_s_1 >= 5.0 && m_n50_s_1 >= 4.0 && b1.close < (m_n30_u_1 - bw30 * 0.15))
-                 {
-                  OpenVirtualSingle(5, 1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
-                  m_slots[5].last_entry_bar_time = b1.time;
-                  entered5 = true;
-                  break;
-                 }
+                 { sig5 = 1; wall5 = lvl; break; }
                if(b1.open >= lvl - 12.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 90.0 && (-body1) >= 45.0 && m_n30_s_1 <= -5.0 && m_n50_s_1 <= -4.0 && b1.close > (m_n30_l_1 + bw30 * 0.15))
-                 {
-                  OpenVirtualSingle(5, -1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
-                  m_slots[5].last_entry_bar_time = b1.time;
-                  entered5 = true;
-                  break;
-                 }
+                 { sig5 = -1; wall5 = lvl; break; }
               }
            }
-         if(!entered5 && WindowOk(new_tmin, "CORE_09_1615"))
+         if(sig5 == 0 && WindowOk(new_tmin, "CORE_09_1615"))
            {
             if(m_n30_s_1 >= 6.0 && m_n50_s_1 >= 6.0 && b1.close <= (m_n30_c_1 + bw30 * 0.20) && d_l <= 50.0 && b1.close > lvl_s)
-               ArmPendingOrder(5, 1, 1, lvl_s, new_bar_time, new_bar_open, 500.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
+              { sig5 = 1; wall5 = lvl_s; }
             else if(m_n30_s_1 <= -6.0 && m_n50_s_1 <= -6.0 && b1.close >= (m_n30_c_1 - bw30 * 0.20) && d_h <= 50.0 && b1.close < lvl_r)
-               ArmPendingOrder(5, -1, 1, lvl_r, new_bar_time, new_bar_open, 500.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
+              { sig5 = -1; wall5 = lvl_r; }
+           }
+         if(sig5 != 0)
+           {
+            double p5_lim = (sig5 == 1) ? Round5(b1.low + 5.0) : Round5(b1.high - 5.0);
+            tp_calc = CalcTargetPts(p5_lim, sig5, 2, 500.0, raw_mid, tp1_px);
+            ArmPendingOrder(5, sig5, 1, p5_lim, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 16, 1, wall5, 0, 0.0, raw_mid, tp1_px, false, 1, false);
            }
         }
 
-      // --- EST-06: Pullback Limit Ordem Limit na Wall c/ Slope NWE + Reteste (09h-16h15) ---
-      if(m_slots[6].enabled && m_slots[6].dir == 0 && WindowOk(new_tmin, "CORE_09_1615"))
+      // =====================================================================
+      // EST-06: 3-Pilares (Stop Barra[1] + BE_Wall_Shield(15) + TP_MainWall) | Ret/DD = 5.99
+      // =====================================================================
+      if(m_slots[6].enabled && m_slots[6].dir == 0 && m_slots[6].pend_dir == 0 && WindowOk(new_tmin, "CORE_09_1615"))
         {
-         bool armed6 = false;
+         int sig6 = 0;
+         double wall6 = 0.0;
          for(int i=0; i<ArraySize(m_levels_all); i++)
            {
             double lvl = m_levels_all[i];
             if(b1.open <= lvl + 10.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 95.0 && body1 >= 42.0 && m_n50_s_1 >= 5.5 && b1.close < (m_n50_u_1 - bw50 * 0.15))
-              {
-               ArmPendingOrder(6, 1, 1, lvl, new_bar_time, new_bar_open, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
-               armed6 = true;
-               break;
-              }
+              { sig6 = 1; wall6 = lvl; break; }
             if(b1.open >= lvl - 10.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 95.0 && (-body1) >= 42.0 && m_n50_s_1 <= -5.5 && b1.close > (m_n50_l_1 + bw50 * 0.15))
-              {
-               ArmPendingOrder(6, -1, 1, lvl, new_bar_time, new_bar_open, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
-               armed6 = true;
-               break;
-              }
+              { sig6 = -1; wall6 = lvl; break; }
            }
-         if(!armed6)
+         if(sig6 == 0)
            {
             if(m_n50_s_1 >= 8.0 && b1.close <= (m_n50_c_1 + bw50 * 0.20) && d_l <= 55.0 && b1.close > lvl_s)
-               ArmPendingOrder(6, 1, 1, lvl_s, new_bar_time, new_bar_open, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 15);
+              { sig6 = 1; wall6 = lvl_s; }
             else if(m_n50_s_1 <= -8.0 && b1.close >= (m_n50_c_1 - bw50 * 0.20) && d_h <= 55.0 && b1.close < lvl_r)
-               ArmPendingOrder(6, -1, 1, lvl_r, new_bar_time, new_bar_open, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 15);
+              { sig6 = -1; wall6 = lvl_r; }
+           }
+         if(sig6 != 0)
+           {
+            double p6_stp = (sig6 == 1) ? Round5(b1.high + 5.0) : Round5(b1.low - 5.0);
+            tp_calc = CalcTargetPts(p6_stp, sig6, 2, 550.0, raw_mid, tp1_px);
+            ArmPendingOrder(6, sig6, 2, p6_stp, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 16, 1, wall6, 1, 15.0, raw_mid, tp1_px, false, 1, false);
            }
         }
 
-      // --- EST-07 & EST-08: Breakout Mkt Momentum Wall c/ Espaço NWE ---
+      // =====================================================================
+      // EST-07 (3-Pilares: BE_Wall(15) + TP_Original | Ret/DD = 6.91) &
+      // EST-08 (3-Pilares: TP_MainWall Real | Ret/DD = 5.40)
+      // =====================================================================
       for(int bo_id=7; bo_id<=8; bo_id++)
         {
          if(!m_slots[bo_id].enabled || m_slots[bo_id].dir != 0 || m_slots[bo_id].last_entry_bar_time == b1.time)
@@ -1758,6 +2297,9 @@ public:
          double be_b   = (bo_id == 7) ? 160.0 : 140.0;
          double tr_t   = (bo_id == 7) ? 350.0 : 250.0;
          double tr_d   = (bo_id == 7) ? 120.0 : 100.0;
+         int    bm_b   = (bo_id == 7) ? 1 : 0;      // EST-07 usa BE_WALL_SHIELD(15); EST-08 usa BE_ZERO
+         double buf_b  = (bo_id == 7) ? 15.0 : 0.0;
+         int    tpt_b  = (bo_id == 7) ? 0 : 2;      // EST-07 usa TP_Original (650); EST-08 usa TP_MAIN_WALL
 
          if(WindowOk(b1_tmin, wm_bo))
            {
@@ -1768,7 +2310,8 @@ public:
                  {
                   if(b1.close < (m_n50_u_1 - bw50 * 0.15))
                     {
-                     OpenVirtualSingle(bo_id, 1, new_bar_open, new_bar_time, tp_b, sl_b, be_b, 20.0, tr_t, tr_d, 16, false);
+                     tp_calc = CalcTargetPts(new_bar_open, 1, tpt_b, tp_b, raw_mid, tp1_px);
+                     OpenVirtualSingle(bo_id, 1, new_bar_open, new_bar_time, tp_calc, sl_b, be_b, 20.0, tr_t, tr_d, 16, false, 1, lvl, bm_b, buf_b, raw_mid, tp1_px, false);
                      m_slots[bo_id].last_entry_bar_time = b1.time;
                      break;
                     }
@@ -1777,7 +2320,8 @@ public:
                  {
                   if(b1.close > (m_n50_l_1 + bw50 * 0.15))
                     {
-                     OpenVirtualSingle(bo_id, -1, new_bar_open, new_bar_time, tp_b, sl_b, be_b, 20.0, tr_t, tr_d, 16, false);
+                     tp_calc = CalcTargetPts(new_bar_open, -1, tpt_b, tp_b, raw_mid, tp1_px);
+                     OpenVirtualSingle(bo_id, -1, new_bar_open, new_bar_time, tp_calc, sl_b, be_b, 20.0, tr_t, tr_d, 16, false, 1, lvl, bm_b, buf_b, raw_mid, tp1_px, false);
                      m_slots[bo_id].last_entry_bar_time = b1.time;
                      break;
                     }
@@ -1786,8 +2330,10 @@ public:
            }
         }
 
-      // --- EST-09: Breakout Stop & Limit Wall (NY Session - All Levels) ---
-      if(m_slots[9].enabled && m_slots[9].dir == 0 && WindowOk(new_tmin, "NY_1000_1630"))
+      // =====================================================================
+      // EST-09: MANTIDO ORIGINAL (Breakout Stop & Limit Wall NY) | Ret/DD = 4.53
+      // =====================================================================
+      if(m_slots[9].enabled && m_slots[9].dir == 0 && m_slots[9].pend_dir == 0 && WindowOk(new_tmin, "NY_1000_1630"))
         {
          bool armed9 = false;
          if(m_n30_s_1 >= 5.0 && b1.close > b1.open && body1 >= 35.0 && b1.close < (m_n30_u_1 - bw30 * 0.20))
@@ -1827,31 +2373,33 @@ public:
            }
         }
 
-      // --- EST-10: Stop & Limit SÓ NAS WALLS PRINCIPAIS (CORE 09h-16h15) ---
-      if(m_slots[10].enabled && m_slots[10].dir == 0 && WindowOk(new_tmin, "CORE_09_1615") && ArraySize(m_levels_walls) > 0)
+      // =====================================================================
+      // EST-10: Matriz WDO (MainWalls Only pos50+GammaFlip + BE_177k(240/45)) | Ret/DD = 5.20
+      // =====================================================================
+      if(m_slots[10].enabled && m_slots[10].dir == 0 && m_slots[10].pend_dir == 0 && WindowOk(new_tmin, "CORE_09_1615") && ArraySize(m_levels_walls) > 0)
         {
          bool armed10 = false;
-         if(m_n30_s_1 >= 4.5 && b1.close > b1.open && body1 >= 35.0 && b1.close < (m_n30_u_1 - bw30 * 0.18))
+         if(m_n30_s_1 >= 4.0 && b1.close > b1.open && body1 >= 35.0 && pos30 < 0.85 && (m_gamma_flip <= 0.0 || b1.close >= m_gamma_flip))
            {
             for(int i=0; i<ArraySize(m_levels_walls); i++)
               {
                double w = m_levels_walls[i];
-               if(w >= b1.close - 5.0 && (w - b1.close) <= 55.0)
+               if(w >= b1.close - 10.0 && (w - b1.close) <= 70.0)
                  {
-                  ArmPendingOrder(10, 1, 2, MathMax(w + 10.0, b1.high + 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16);
+                  ArmPendingOrder(10, 1, 2, MathMax(w + 15.0, b1.high + 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w, 0, 0.0, 0.0, 0.0, false, 1, false);
                   armed10 = true;
                   break;
                  }
               }
            }
-         if(!armed10 && m_n30_s_1 <= -4.5 && b1.close < b1.open && (-body1) >= 35.0 && b1.close > (m_n30_l_1 + bw30 * 0.18))
+         if(!armed10 && m_n30_s_1 <= -4.0 && b1.close < b1.open && (-body1) >= 35.0 && pos30 > 0.15 && (m_gamma_flip <= 0.0 || b1.close <= m_gamma_flip))
            {
             for(int i=ArraySize(m_levels_walls)-1; i>=0; i--)
               {
                double w = m_levels_walls[i];
-               if(w <= b1.close + 5.0 && (b1.close - w) <= 55.0)
+               if(w <= b1.close + 10.0 && (b1.close - w) <= 70.0)
                  {
-                  ArmPendingOrder(10, -1, 2, MathMin(w - 10.0, b1.low - 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16);
+                  ArmPendingOrder(10, -1, 2, MathMin(w - 15.0, b1.low - 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w, 0, 0.0, 0.0, 0.0, false, 1, false);
                   armed10 = true;
                   break;
                  }
@@ -1859,29 +2407,47 @@ public:
            }
          if(!armed10)
            {
-            if(m_n50_s_1 >= 5.5 && dw_l_main <= 60.0 && b1.close > w_s_main && b1.close <= (m_n50_c_1 + bw50 * 0.22))
-               ArmPendingOrder(10, 1, 1, w_s_main, new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16);
-            else if(m_n50_s_1 <= -5.5 && dw_h_main <= 60.0 && b1.close < w_r_main && b1.close >= (m_n50_c_1 - bw50 * 0.22))
-               ArmPendingOrder(10, -1, 1, w_r_main, new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16);
+            if(dw_l_main <= 70.0 && b1.close > (w_s_main + 10.0) && ((m_n50_s_1 >= 4.5 && pos50 <= 0.65) || (pos50 <= 0.35 && m_n50_s_1 >= -2.0)) && (m_gamma_flip <= 0.0 || b1.close >= m_gamma_flip))
+               ArmPendingOrder(10, 1, 1, w_s_main + 10.0, new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w_s_main, 0, 0.0, 0.0, 0.0, false, 1, false);
+            else if(dw_h_main <= 70.0 && b1.close < (w_r_main - 10.0) && ((m_n50_s_1 <= -4.5 && pos50 >= 0.35) || (pos50 >= 0.65 && m_n50_s_1 <= 2.0)) && (m_gamma_flip <= 0.0 || b1.close <= m_gamma_flip))
+               ArmPendingOrder(10, -1, 1, w_r_main - 10.0, new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w_r_main, 0, 0.0, 0.0, 0.0, false, 1, false);
            }
         }
 
-      // --- EST-11: Grid Pullback Tendência 1+2 Lotes a Favor do NWE (Sem Almoço) ---
-      if(m_slots[11].enabled && m_slots[11].dir == 0 && m_slots[11].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "NO_LUNCH"))
+      // =====================================================================
+      // Sinais Base compartilhados pelos 4 Novos Achados (NOVO-1 a NOVO-4)
+      // =====================================================================
+      bool touched_supp = (d_l <= 65.0) && (b1.close >= lvl_s - 35.0) && ((b1.close - lvl_s) <= 95.0);
+      bool touched_res  = (d_h <= 65.0) && (b1.close <= lvl_r + 35.0) && ((lvl_r - b1.close) <= 95.0);
+
+      bool hyb_buy  = touched_supp && ((b1.close <= m_n50_l_1 + bw50 * 0.25 && m_rsi7_1 <= 38.0) || (m_n50_s_1 >= 8.0 && b1.close <= m_n50_c_1 + bw50 * 0.15 && b1.close > lvl_s));
+      bool hyb_sell = touched_res  && ((b1.close >= m_n50_u_1 - bw50 * 0.25 && m_rsi7_1 >= 62.0) || (m_n50_s_1 <= -8.0 && b1.close >= m_n50_c_1 - bw50 * 0.15 && b1.close < lvl_r));
+
+      bool slp_buy  = touched_supp && (m_n50_s_1 >= 7.0) && (b1.close <= m_n50_c_1 + bw50 * 0.15) && (b1.close > lvl_s);
+      bool slp_sell = touched_res  && (m_n50_s_1 <= -7.0) && (b1.close >= m_n50_c_1 - bw50 * 0.15) && (b1.close < lvl_r);
+
+      // =====================================================================
+      // EST-11: NOVO-4 (Stop Barra[1](2b) Híbrido + BE_Wall(25) + TP_MidWall | 2 Lotes) | Ret/DD = 3.00
+      // =====================================================================
+      if(m_slots[11].enabled && m_slots[11].dir == 0 && m_slots[11].pend_dir == 0 && b1_tmin >= 550 && b1_tmin <= 990)
         {
-         if(m_n50_s_1 >= 3.0 && b1.close < (m_n50_u_1 - bw50 * 0.15) && d_l <= 55.0 && (b1.close - lvl_s >= -10.0) && (b1.close - lvl_s <= 85.0) && b1.close > b1.open)
+         if(hyb_buy && (b1.high + 15.0 - lvl_s) <= 135.0)
            {
-            OpenVirtualGrid(11, 1, new_bar_open, new_bar_time, 450.0, 900.0, 1, 2, 0, 280.0, 650.0, 150.0, 25.0, 24);
-            m_slots[11].last_entry_bar_time = b1.time;
+            double trig11 = Round5(b1.high + 15.0);
+            tp_calc = CalcTargetPts(trig11, 1, 1, 450.0, raw_mid, tp1_px);
+            ArmPendingOrder(11, 1, 2, trig11, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_s, 1, 25.0, raw_mid, tp1_px, false, 2, false);
            }
-         else if(m_n50_s_1 <= -3.0 && b1.close > (m_n50_l_1 + bw50 * 0.15) && d_h <= 55.0 && (lvl_r - b1.close >= -10.0) && (lvl_r - b1.close <= 85.0) && b1.close < b1.open)
+         else if(hyb_sell && (lvl_r - (b1.low - 15.0)) <= 135.0)
            {
-            OpenVirtualGrid(11, -1, new_bar_open, new_bar_time, 450.0, 900.0, 1, 2, 0, 280.0, 650.0, 150.0, 25.0, 24);
-            m_slots[11].last_entry_bar_time = b1.time;
+            double trig11 = Round5(b1.low - 15.0);
+            tp_calc = CalcTargetPts(trig11, -1, 1, 450.0, raw_mid, tp1_px);
+            ArmPendingOrder(11, -1, 2, trig11, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_r, 1, 25.0, raw_mid, tp1_px, false, 2, false);
            }
         }
 
-      // --- EST-12: Piramidação no Lucro 1+1 Lote Anti-Martingale (NY 10h-16h30) ---
+      // =====================================================================
+      // EST-12: 3-Pilares (Piramidação no Lucro 1+1L NY + TP_MainWall Real) | Ret/DD = 4.47
+      // =====================================================================
       if(m_slots[12].enabled && m_slots[12].dir == 0 && m_slots[12].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "NY_1000_1630"))
         {
          for(int i=0; i<ArraySize(m_levels_all); i++)
@@ -1889,114 +2455,120 @@ public:
             double lvl = m_levels_all[i];
             if(b1.open <= lvl + 15.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 90.0 && body1 >= 55.0 && m_n50_s_1 >= 4.0 && b1.close < (m_n50_u_1 - bw50 * 0.15))
               {
-               OpenVirtualSingle(12, 1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 18, false);
+               tp_calc = CalcTargetPts(new_bar_open, 1, 2, 550.0, raw_mid, tp1_px);
+               OpenVirtualSingle(12, 1, new_bar_open, new_bar_time, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 18, false, 1, lvl, 0, 0.0, raw_mid, tp1_px, false);
                m_slots[12].last_entry_bar_time = b1.time;
                break;
               }
             if(b1.open >= lvl - 15.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 90.0 && (-body1) >= 55.0 && m_n50_s_1 <= -4.0 && b1.close > (m_n50_l_1 + bw50 * 0.15))
               {
-               OpenVirtualSingle(12, -1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 18, false);
+               tp_calc = CalcTargetPts(new_bar_open, -1, 2, 550.0, raw_mid, tp1_px);
+               OpenVirtualSingle(12, -1, new_bar_open, new_bar_time, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 18, false, 1, lvl, 0, 0.0, raw_mid, tp1_px, false);
                m_slots[12].last_entry_bar_time = b1.time;
                break;
               }
            }
         }
 
-      // --- EST-13: Smart Grid 1+2 Lotes SÓ NAS WALLS PRINCIPAIS (FULL 09h-17h) ---
-      if(m_slots[13].enabled && m_slots[13].dir == 0 && m_slots[13].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "FULL_09_17") && ArraySize(m_levels_walls) > 0)
+      // =====================================================================
+      // EST-13: NOVO-1 (Stop Barra[1](off15, 1b) Híbrido + BE_2Stage(25) + TP_MidWall | 2 Lotes) | Ret/DD = 4.55
+      // =====================================================================
+      if(m_slots[13].enabled && m_slots[13].dir == 0 && m_slots[13].pend_dir == 0 && b1_tmin >= 550 && b1_tmin <= 990)
         {
-         if(m_n50_s_1 >= 2.0 && b1.close < (m_n50_u_1 - bw50 * 0.12) && dw_l_main <= 65.0 && (b1.close - w_s_main >= -15.0) && (b1.close - w_s_main <= 90.0) && b1.close > b1.open)
+         if(hyb_buy && (b1.high + 15.0 - lvl_s) <= 135.0)
            {
-            OpenVirtualGrid(13, 1, new_bar_open, new_bar_time, 507.0, 1014.0, 1, 2, 0, 280.0, 700.0, 150.0, 25.0, 26);
-            m_slots[13].last_entry_bar_time = b1.time;
+            double trig13 = Round5(b1.high + 15.0);
+            tp_calc = CalcTargetPts(trig13, 1, 1, 450.0, raw_mid, tp1_px);
+            ArmPendingOrder(13, 1, 2, trig13, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_s, 2, 25.0, raw_mid, tp1_px, false, 1, false);
            }
-         else if(m_n50_s_1 <= -2.0 && b1.close > (m_n50_l_1 + bw50 * 0.12) && dw_h_main <= 65.0 && (w_r_main - b1.close >= -15.0) && (w_r_main - b1.close <= 90.0) && b1.close < b1.open)
+         else if(hyb_sell && (lvl_r - (b1.low - 15.0)) <= 135.0)
            {
-            OpenVirtualGrid(13, -1, new_bar_open, new_bar_time, 507.0, 1014.0, 1, 2, 0, 280.0, 700.0, 150.0, 25.0, 26);
-            m_slots[13].last_entry_bar_time = b1.time;
+            double trig13 = Round5(b1.low - 15.0);
+            tp_calc = CalcTargetPts(trig13, -1, 1, 450.0, raw_mid, tp1_px);
+            ArmPendingOrder(13, -1, 2, trig13, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_r, 2, 25.0, raw_mid, tp1_px, false, 1, false);
            }
         }
 
-      // --- EST-14: Grid Institucional Wall->MidWall->Wall (1+2+3 Lotes SÓ NAS WALLS PRINCIPAIS) ---
-      if(m_slots[14].enabled && m_slots[14].dir == 0 && m_slots[14].last_entry_bar_time != b1.time && b1_tmin >= 545 && b1_tmin <= 930 && ArraySize(m_levels_walls) > 0)
+      // =====================================================================
+      // EST-14: NOVO-2 (Rolling Stop Barra[1](2b) Slope + BE_2Stage(25) + TP_MidWall | 2 Lotes) | Ret/DD = 3.85
+      // =====================================================================
+      if(m_slots[14].enabled && m_slots[14].dir == 0 && m_slots[14].pend_dir == 0 && b1_tmin >= 550 && b1_tmin <= 990)
         {
-         if(m_n50_s_1 >= 1.5 && b1.close < (m_n50_u_1 - bw50 * 0.15) && dw_l_main <= 65.0 && (b1.close - w_s_main >= -20.0) && (b1.close - w_s_main <= 85.0) && b1.close > b1.open)
+         if(slp_buy && (b1.high + 15.0 - lvl_s) <= 135.0)
            {
-            OpenVirtualGrid(14, 1, new_bar_open, new_bar_time, 507.0, 1014.0, 1, 2, 3, 280.0, 650.0, 150.0, 25.0, 28);
-            m_slots[14].last_entry_bar_time = b1.time;
+            double trig14 = Round5(b1.high + 15.0);
+            tp_calc = CalcTargetPts(trig14, 1, 1, 450.0, raw_mid, tp1_px);
+            ArmPendingOrder(14, 1, 2, trig14, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_s, 2, 25.0, raw_mid, tp1_px, false, 2, true);
            }
-         else if(m_n50_s_1 <= -1.5 && b1.close > (m_n50_l_1 + bw50 * 0.15) && dw_h_main <= 65.0 && (w_r_main - b1.close >= -20.0) && (w_r_main - b1.close <= 85.0) && b1.close < b1.open)
+         else if(slp_sell && (lvl_r - (b1.low - 15.0)) <= 135.0)
            {
-            OpenVirtualGrid(14, -1, new_bar_open, new_bar_time, 507.0, 1014.0, 1, 2, 3, 280.0, 650.0, 150.0, 25.0, 28);
-            m_slots[14].last_entry_bar_time = b1.time;
+            double trig14 = Round5(b1.low - 15.0);
+            tp_calc = CalcTargetPts(trig14, -1, 1, 450.0, raw_mid, tp1_px);
+            ArmPendingOrder(14, -1, 2, trig14, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_r, 2, 25.0, raw_mid, tp1_px, false, 2, true);
            }
         }
 
-      // --- EST-15: Posicional EOD Breakout Matinal (09h05-13h00 -> 17h15) ---
-      if(m_slots[15].enabled && m_slots[15].dir == 0 && m_slots[15].last_trade_date != b1_date && b1_tmin >= 545 && b1_tmin <= 780)
+      // =====================================================================
+      // EST-15: 3-Pilares (EOD Breakout Matinal + Stop Barra[1] + BE_Wall(15) + TP_MainWall) | Ret/DD = 6.05
+      // =====================================================================
+      if(m_slots[15].enabled && m_slots[15].dir == 0 && m_slots[15].pend_dir == 0 && m_slots[15].last_trade_date != b1_date && b1_tmin >= 545 && b1_tmin <= 780)
         {
          for(int i=0; i<ArraySize(m_levels_all); i++)
            {
             double lvl = m_levels_all[i];
             if(b1.open <= lvl + 12.0 && b1.close > lvl + 15.0 && (b1.close - lvl) <= 95.0 && body1 >= 50.0 && m_n50_s_1 >= 5.0 && b1.close < (m_n50_u_1 - bw50 * 0.15))
               {
-               OpenVirtualSingle(15, 1, new_bar_open, new_bar_time, 1500.0, 450.0, 300.0, 25.0, 600.0, 250.0, 120, false);
-               m_slots[15].last_trade_date = b1_date;
-               m_slots[15].last_entry_bar_time = b1.time;
+               double trig15 = Round5(b1.high + 5.0);
+               tp_calc = CalcTargetPts(trig15, 1, 2, 1500.0, raw_mid, tp1_px);
+               ArmPendingOrder(15, 1, 2, trig15, new_bar_time, new_bar_open, tp_calc, 450.0, 300.0, 25.0, 600.0, 250.0, 120, 1, lvl, 1, 15.0, raw_mid, tp1_px, false, 1, false);
                break;
               }
             if(b1.open >= lvl - 12.0 && b1.close < lvl - 15.0 && (lvl - b1.close) <= 95.0 && (-body1) >= 50.0 && m_n50_s_1 <= -5.0 && b1.close > (m_n50_l_1 + bw50 * 0.15))
               {
-               OpenVirtualSingle(15, -1, new_bar_open, new_bar_time, 1500.0, 450.0, 300.0, 25.0, 600.0, 250.0, 120, false);
-               m_slots[15].last_trade_date = b1_date;
-               m_slots[15].last_entry_bar_time = b1.time;
+               double trig15 = Round5(b1.low - 5.0);
+               tp_calc = CalcTargetPts(trig15, -1, 2, 1500.0, raw_mid, tp1_px);
+               ArmPendingOrder(15, -1, 2, trig15, new_bar_time, new_bar_open, tp_calc, 450.0, 300.0, 25.0, 600.0, 250.0, 120, 1, lvl, 1, 15.0, raw_mid, tp1_px, false, 1, false);
                break;
               }
            }
         }
 
-      // --- EST-16: Posicional EOD Stop Wall (09h10-14h00 -> 17h15) ---
-      if(m_slots[16].enabled && m_slots[16].dir == 0 && m_slots[16].last_trade_date != b1_date && new_tmin >= 550 && new_tmin <= 840)
+      // =====================================================================
+      // EST-16: NOVO-3 (Rolling Stop Barra[1](2b) Slope + BE_2Stage(25) + Parcial 50% Mid/Main | 2 Lotes) | Ret/DD = 3.63
+      // =====================================================================
+      if(m_slots[16].enabled && m_slots[16].dir == 0 && m_slots[16].pend_dir == 0 && b1_tmin >= 550 && b1_tmin <= 990)
         {
-         bool armed16 = false;
-         if(m_n30_s_1 >= 5.0 && b1.close > b1.open && body1 >= 40.0 && b1.close < (m_n30_u_1 - bw30 * 0.20))
+         if(slp_buy && (b1.high + 15.0 - lvl_s) <= 135.0)
            {
-            for(int i=0; i<ArraySize(m_levels_all); i++)
-              {
-               double lvl = m_levels_all[i];
-               if(lvl >= b1.close - 5.0 && (lvl - b1.close) <= 55.0)
-                 {
-                  ArmPendingOrder(16, 1, 2, MathMax(lvl + 10.0, b1.high + 5.0), new_bar_time, new_bar_open, 1500.0, 400.0, 260.0, 25.0, 500.0, 200.0, 120);
-                  armed16 = true;
-                  break;
-                 }
-              }
+            double trig16 = Round5(b1.high + 15.0);
+            tp_calc = CalcTargetPts(trig16, 1, 3, 550.0, raw_mid, tp1_px);
+            ArmPendingOrder(16, 1, 2, trig16, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_s, 2, 25.0, raw_mid, tp1_px, true, 2, true);
            }
-         if(!armed16 && m_n30_s_1 <= -5.0 && b1.close < b1.open && (-body1) >= 40.0 && b1.close > (m_n30_l_1 + bw30 * 0.20))
+         else if(slp_sell && (lvl_r - (b1.low - 15.0)) <= 135.0)
            {
-            for(int i=ArraySize(m_levels_all)-1; i>=0; i--)
-              {
-               double lvl = m_levels_all[i];
-               if(lvl <= b1.close + 5.0 && (b1.close - lvl) <= 55.0)
-                 {
-                  ArmPendingOrder(16, -1, 2, MathMin(lvl - 10.0, b1.low - 5.0), new_bar_time, new_bar_open, 1500.0, 400.0, 260.0, 25.0, 500.0, 200.0, 120);
-                  break;
-                 }
-              }
+            double trig16 = Round5(b1.low - 15.0);
+            tp_calc = CalcTargetPts(trig16, -1, 3, 550.0, raw_mid, tp1_px);
+            ArmPendingOrder(16, -1, 2, trig16, new_bar_time, new_bar_open, tp_calc, 230.0, 130.0, 20.0, 0.0, 0.0, 18, 2, lvl_r, 2, 25.0, raw_mid, tp1_px, true, 2, true);
            }
         }
 
       if(!MQLInfoInteger(MQL_OPTIMIZATION))
+        {
+         SaveVirtualStateToDisk();
          RenderHudComment();
+        }
      }
 
    void              ArmPendingOrder(int k, int dir, int ptype, double price, datetime bar_t, double new_bar_open,
                                      double tp_pts, double sl_pts, double be_trig, double be_lock,
-                                     double tr_trig, double tr_dist, int max_hold=15)
+                                     double tr_trig, double tr_dist, int max_hold=15,
+                                     int init_lots=1, double def_wall=0.0, int be_mode=0, double wall_buf=0.0,
+                                     double raw_mid_lvl=0.0, double tp1_px=0.0, bool partial_mode=false,
+                                     int valid_bars=1, bool rolling_stop=false)
      {
       double p5 = Round5(price);
 
-      // Filtro de Abertura da Nova Barra (idêntico ao Python: não arma Limit se abriu com gap além do preço, nem Stop se abriu além do Stop)
+      // Filtro de Abertura da Nova Barra (não arma Limit se abriu com gap além do preço, nem Stop se abriu além do Stop)
       if(ptype == 1 && dir == 1 && new_bar_open < p5)
          return;
       if(ptype == 1 && dir == -1 && new_bar_open > p5)
@@ -2006,17 +2578,26 @@ public:
       if(ptype == 2 && dir == -1 && new_bar_open < p5)
          return;
 
-      m_slots[k].pend_dir = dir;
-      m_slots[k].pend_type = ptype; // 1=Limit, 2=Stop
-      m_slots[k].pend_price = p5;
-      m_slots[k].pend_bar_time = bar_t;
-      m_slots[k].pend_tp_pts = tp_pts;
-      m_slots[k].pend_sl_pts = sl_pts;
-      m_slots[k].be_trig = be_trig;
-      m_slots[k].be_lock = be_lock;
-      m_slots[k].tr_trig = tr_trig;
-      m_slots[k].tr_dist = tr_dist;
-      m_slots[k].max_hold_bars = max_hold;
+      m_slots[k].pend_dir          = dir;
+      m_slots[k].pend_type         = ptype; // 1=Limit, 2=Stop
+      m_slots[k].pend_price        = p5;
+      m_slots[k].pend_bar_time     = bar_t;
+      m_slots[k].pend_tp_pts       = tp_pts;
+      m_slots[k].pend_sl_pts       = sl_pts;
+      m_slots[k].pend_bars_left    = MathMax(1, valid_bars);
+      m_slots[k].pend_rolling_stop = rolling_stop;
+      m_slots[k].pend_init_lots    = MathMax(1, init_lots);
+      m_slots[k].pend_def_wall     = def_wall;
+      m_slots[k].pend_be_mode      = be_mode;
+      m_slots[k].pend_wall_buf     = wall_buf;
+      m_slots[k].pend_raw_mid_lvl  = raw_mid_lvl;
+      m_slots[k].pend_tp1_px       = tp1_px;
+      m_slots[k].pend_partial_mode = partial_mode;
+      m_slots[k].be_trig           = be_trig;
+      m_slots[k].be_lock           = be_lock;
+      m_slots[k].tr_trig           = tr_trig;
+      m_slots[k].tr_dist           = tr_dist;
+      m_slots[k].max_hold_bars     = max_hold;
 
       // Em Modo Hedging, envia Ordem Pendente Nativa (BuyLimit/SellLimit/BuyStop/SellStop) com SL/TP já anexados no servidor!
       if(m_exec_mode == EXEC_HEDGING_DIRECT_MAGIC)
@@ -2031,16 +2612,17 @@ public:
             (ptype == 2 && dir == 1 && ask > 0.0 && ask >= ord_p) ||
             (ptype == 2 && dir == -1 && bid > 0.0 && bid <= ord_p))
            {
-            OpenVirtualSingle(k, dir, p5, bar_t, tp_pts, sl_pts, be_trig, be_lock, tr_trig, tr_dist, max_hold, true);
+            OpenVirtualSingle(k, dir, p5, bar_t, tp_pts, sl_pts, be_trig, be_lock, tr_trig, tr_dist, max_hold, true,
+                              init_lots, def_wall, be_mode, wall_buf, raw_mid_lvl, tp1_px, partial_mode);
             m_slots[k].last_entry_bar_time = bar_t;
-            if(k == 15 || k == 16)
+            if(k == 15)
                m_slots[k].last_trade_date = DateStr(bar_t);
             return;
            }
 
          ulong slot_magic = m_base_magic + (ulong)k;
          m_trade.SetExpertMagicNumber(slot_magic);
-         double vol = MathRound(1.0 * m_lot_mult);
+         double vol = MathRound((double)MathMax(1, init_lots) * m_lot_mult);
          double sl_srv = (dir == 1) ? Round5(p5 - sl_pts) : Round5(p5 + sl_pts);
          double tp_srv = (dir == 1) ? Round5(p5 + tp_pts) : Round5(p5 - tp_pts);
          ENUM_ORDER_TYPE_TIME ttype = GetValidOrderTimeType();
@@ -2054,12 +2636,13 @@ public:
          else if(ptype == 2 && dir == -1)
             m_trade.SellStop(vol, ord_p, _Symbol, sl_srv, tp_srv, ttype, 0, m_slots[k].name);
         }
+      SaveVirtualStateToDisk();
      }
 
    void              RenderHudComment()
      {
       string hud = "==========================================================\n";
-      hud += StringFormat(" JUMBA QUANT GEX + NWE | Data: %s | Fonte: %s\n", m_loaded_date, m_gex_source);
+      hud += StringFormat(" JUMBA QUANT GEX + NWE [MIX CAMPEAO] | Data: %s | Fonte: %s\n", m_loaded_date, m_gex_source);
       hud += StringFormat(" Levels: %d (Walls: %d) | GammaFlip: %.0f | NWE50 Slope: %.1f | RSI7: %.1f\n",
                           ArraySize(m_levels_all), ArraySize(m_levels_walls), m_gamma_flip, m_n50_s_1, m_rsi7_1);
       hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx\n", GetTotalDailyPnLBRL(), m_lot_mult);
@@ -2074,9 +2657,9 @@ public:
          else if(m_slots[k].dir == -1)
             st = StringFormat("VENDA  %dL @ %.0f (SL %.0f | TP %.0f)", m_slots[k].lots, m_slots[k].avg_price, m_slots[k].curr_sl, m_slots[k].curr_tp);
          else if(m_slots[k].pend_dir != 0)
-            st = StringFormat("ORDEM PENDENTE %s @ %.0f", (m_slots[k].pend_type==1?"LIMIT":"STOP"), m_slots[k].pend_price);
+            st = StringFormat("ORDEM PENDENTE %s %dL @ %.0f", (m_slots[k].pend_type==1?"LIMIT":"STOP"), m_slots[k].pend_init_lots, m_slots[k].pend_price);
 
-         hud += StringFormat(" %-38s | %-34s | Hoje: %d tr (R$ %.0f)\n",
+         hud += StringFormat(" %-44s | %-36s | Hoje: %d tr (R$ %.0f)\n",
                              m_slots[k].name, st, m_slots[k].trades_today, m_slots[k].closed_pnl_today_brl);
         }
       hud += "==========================================================";

@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST13_SmartGrid_RSI_BE.mq5
-//| EST-13 [Smart Grid RSI+BE] 1+2 Lotes Curto
+//| EST-13 [NOVO-1 Stop Barra[1](off15) Hibrido + BE_2Stage(25) + TP_MidWall 2C] (Ret/DD 4.55)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-13 [Smart Grid RSI+BE] 1+2 Lotes Curto"
-#property version   "1.00"
+#property description "EST-13 [NOVO-1 Stop Barra[1](off15) Hibrido + BE_2Stage(25) + TP_MidWall 2C] (Ret/DD 4.55)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

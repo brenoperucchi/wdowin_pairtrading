@@ -10,9 +10,51 @@ Logica de sincronizacao:
 
 import os
 import re
+import json
 import time
 import MetaTrader5 as mt5
 from datetime import datetime, timezone, timedelta
+
+# Último ratio ETF→CFD válido por símbolo (usado se o MT5 estiver offline no run).
+RATIO_CACHE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "etf_ratio_cache.json")
+RATIO_CACHE_MAX_AGE_DAYS = 5
+
+
+def _load_ratio_cache():
+    try:
+        with open(RATIO_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_ratio(symbol_mt5, etf_spot_price, ratio):
+    try:
+        cache = _load_ratio_cache()
+        cache[symbol_mt5] = {"ratio": ratio, "etf_spot": etf_spot_price,
+                             "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        os.makedirs(os.path.dirname(RATIO_CACHE_PATH), exist_ok=True)
+        with open(RATIO_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except Exception as e:
+        print(f"      [Ratio Cache] Aviso: não consegui salvar ratio de {symbol_mt5}: {e}")
+
+
+def _cached_ratio(symbol_mt5, etf_spot_price):
+    """Ratio em cache se recente (<= 5 dias) e se a base do ETF for compatível (±25%)."""
+    entry = _load_ratio_cache().get(symbol_mt5)
+    if not entry:
+        return None, None
+    try:
+        age = datetime.now() - datetime.strptime(entry["saved_at"], "%Y-%m-%d %H:%M:%S")
+        base = float(entry.get("etf_spot") or 0)
+        if age.days > RATIO_CACHE_MAX_AGE_DAYS:
+            return None, None
+        if base > 0 and not (0.75 <= etf_spot_price / base <= 1.25):
+            return None, None
+        return float(entry["ratio"]), entry["saved_at"]
+    except Exception:
+        return None, None
 
 MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
 TICKMILL_MT5_PATH = "C:/Program Files/Tickmill MT5 Terminal/terminal64.exe"
@@ -50,29 +92,82 @@ def get_global_mt5_price(symbol_mt5, terminal_path=TICKMILL_MT5_PATH):
     return None, None
 
 
-def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio):
+def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio, terminal_path=TICKMILL_MT5_PATH):
     """
     Calcula a razão de conversão perfeitamente sincronizada entre o CFD do MT5
-    e o preço Spot do ETF correspondente.
-    
-    :param etf_spot_price: Preço spot atual do ETF (ex: SPY $748.28)
+    e o preço Spot de fechamento de NY do ETF/Índice correspondente.
+
+    Durante o pré-mercado / madrugada (antes da abertura de NY às 09:30 EST / 16:30 broker time),
+    o preço Spot do ETF/Índice (CBOE/Yahoo) refere-se ao fechamento de ontem às 16:00 EST (22:55 broker time).
+    Por isso, sincronizamos o ratio usando a barra do MT5 do fechamento de NY (22:55 broker time),
+    evitando que o movimento overnight desloque os strikes!
+
+    :param etf_spot_price: Preço spot de fechamento do ETF/Índice (ex: SPY $770.16 ou SPX 7722.60)
     :param symbol_mt5: Símbolo correspondente no MT5 (ex: 'US500')
     :param fallback_ratio: Razão padrão caso o MT5 esteja offline
-    :return: (float ratio, float mt5_price, str status_msg)
+    :return: (float ratio, float mt5_current_price, str status_msg)
     """
     if not etf_spot_price or etf_spot_price <= 0:
         return fallback_ratio, None, "Erro: Preço Spot ETF inválido"
-        
-    price_mt5, bar_time = get_global_mt5_price(symbol_mt5)
-    
-    if price_mt5 and price_mt5 > 0:
-        ratio = price_mt5 / etf_spot_price
-        time_str = bar_time.strftime('%H:%M:%S UTC') if bar_time else 'Agora'
-        msg = f"MT5 ({symbol_mt5}: {price_mt5:.2f} @ {time_str}) / ETF Spot (${etf_spot_price:.2f}) -> Ratio: {ratio:.6f}"
-        return ratio, price_mt5, msg
-    else:
-        msg = f"[Fallback Teórico] MT5 offline para {symbol_mt5}. Usando ratio padrão: {fallback_ratio:.6f}"
-        return fallback_ratio, None, msg
+
+    paths_to_try = [p for p in [terminal_path, MT5_PATH] if os.path.exists(p)]
+    current_mt5_price = None
+    sync_mt5_price = None
+    sync_time_str = "Agora"
+
+    for p in paths_to_try:
+        if not mt5.initialize(p):
+            continue
+
+        mt5.symbol_select(symbol_mt5, True)
+        rates = mt5.copy_rates_from_pos(symbol_mt5, mt5.TIMEFRAME_M5, 0, 350)
+        if rates is not None and len(rates) > 0:
+            last_bar = rates[-1]
+            current_mt5_price = float(last_bar[4])
+            last_dt = datetime.fromtimestamp(last_bar[0], timezone.utc)
+
+            # O relógio do broker (Tickmill) é sempre Nova York + 7h (GMT+3 no verão, GMT+2 no inverno),
+            # então o fechamento de NY (16:00 ET) é SEMPRE 23:00 broker e a última vela M5 do pregão
+            # começa às 22:55 broker — o ano inteiro. (Antes aceitava 23:55, que é after-hours.)
+            ny_close_bar = None
+            for b in reversed(rates):
+                dt = datetime.fromtimestamp(b[0], timezone.utc)
+                if dt.date() < last_dt.date() and dt.hour == 22 and dt.minute == 55:
+                    ny_close_bar = b
+                    break
+
+            # Se ainda não abriu o pregão regular de NY hoje (< 16:35 broker time) e achamos o fechamento de ontem:
+            if ny_close_bar is not None and (last_dt.hour < 16 or (last_dt.hour == 16 and last_dt.minute < 35)):
+                sync_mt5_price = float(ny_close_bar[4])
+                ny_dt = datetime.fromtimestamp(ny_close_bar[0], timezone.utc)
+                sync_time_str = f"NY Close {ny_dt.strftime('%Y-%m-%d %H:%M')} Broker"
+            else:
+                sync_mt5_price = current_mt5_price
+                sync_time_str = f"Live {last_dt.strftime('%H:%M:%S')} Broker"
+
+            mt5.shutdown()
+            break
+
+        mt5.shutdown()
+
+    if sync_mt5_price and sync_mt5_price > 0:
+        ratio = sync_mt5_price / etf_spot_price
+        _save_ratio(symbol_mt5, etf_spot_price, ratio)
+        msg = (
+            f"MT5 Sync ({symbol_mt5}: {sync_mt5_price:.4f} @ {sync_time_str} | Live: {current_mt5_price:.4f}) "
+            f"/ Base Spot ({etf_spot_price:.4f}) -> Ratio: {ratio:.6f}"
+        )
+        return ratio, current_mt5_price, msg
+
+    cached, saved_at = _cached_ratio(symbol_mt5, etf_spot_price)
+    if cached:
+        msg = f"[Ratio em Cache] MT5 offline para {symbol_mt5}. Usando último ratio válido ({saved_at}): {cached:.6f}"
+        print(f"      {msg}")
+        return cached, None, msg
+    msg = (f"[ATENÇÃO - Fallback Teórico] MT5 offline para {symbol_mt5} e sem ratio recente em cache. "
+           f"Usando ratio fixo {fallback_ratio:.6f} — níveis podem estar deslocados!")
+    print(f"      {msg}")
+    return fallback_ratio, None, msg
 
 
 
@@ -97,10 +192,8 @@ def _detect_active_win():
     """
     Detecta automaticamente o contrato WIN ativo.
     Busca todos os simbolos WIN[A-Z]NN e retorna o que tem maior volume.
-    
-    Calendario de vencimentos WIN (meses pares):
-      F=Jan G=Fev H=Mar J=Abr K=Mai M=Jun
-      N=Jul Q=Ago U=Set V=Out X=Nov Z=Dez
+    Antes das 09h00 (quando session_deals == 0), usa o volume da última barra diária (D1)
+    para nunca escolher um contrato longo sem liquidez (ex: WING27).
     """
     syms = mt5.symbols_get("WIN*")
     if not syms:
@@ -108,10 +201,13 @@ def _detect_active_win():
     
     best = None
     best_score = -1
+    now_ts = time.time()
     
     for s in syms:
         # Filtrar: apenas contratos tipo WINM26, WINQ26, etc.
         if not re.match(r'^WIN[A-Z]\d{2}$', s.name):
+            continue
+        if getattr(s, "expiration_time", 0) > 0 and s.expiration_time < now_ts - 86400:
             continue
         
         mt5.symbol_select(s.name, True)
@@ -119,9 +215,15 @@ def _detect_active_win():
         
         if tick is None or tick.last == 0:
             continue
+        if tick.time > 0 and (now_ts - tick.time) > 10 * 86400:
+            continue
         
-        # Score = session_deals (numero de negocios do dia)
-        score = s.session_deals
+        # Score = session_deals (numero de negocios do dia); antes das 09h00 usa tick_volume D1
+        score = int(getattr(s, "session_deals", 0) or 0) * 1_000_000
+        if score == 0:
+            rates = mt5.copy_rates_from_pos(s.name, mt5.TIMEFRAME_D1, 0, 2)
+            if rates is not None and len(rates) > 0:
+                score = int(rates[-1]["tick_volume"])
         if score > best_score:
             best_score = score
             best = s.name

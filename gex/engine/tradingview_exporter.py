@@ -61,6 +61,7 @@ def _generate_pine_array_pushes(walls, ticker):
         "GOLD_XAU": "gold",
         "DOW_US30": "dow",
         "USD_JPY": "jpy",
+        "DXY_UUP": "dxy",
         "DAX_DE40": "dax",
         "NIKKEI_JP225": "jp",
         "RUSSELL_US2000": "rut",
@@ -181,11 +182,17 @@ def export_unified_tradingview(output_path):
         ("dax_de40", "dax_de40_walls_cache.json"),
         ("nikkei_jp225", "nikkei_jp225_walls_cache.json"),
         ("russell_us2000", "russell_us2000_walls_cache.json"),
-        ("china_fxi", "china_fxi_walls_cache.json")
+        ("china_fxi", "china_fxi_walls_cache.json"),
+        ("dxy_uup", "dxy_uup_walls_cache.json")
     ]
     
     loaded_caches = {}
     dates_found = []
+    stale_assets = []
+    # C7 (auditoria): um ativo cujo pipeline falhou hoje NÃO pode ter os níveis antigos
+    # publicados como se fossem de hoje. Caches com mais de 30h ficam de fora do Pine.
+    max_age_h = float(os.environ.get("GEX_CACHE_MAX_AGE_H", "30"))
+    now_dt = datetime.datetime.now()
     
     for key, filename in cache_configs:
         path = os.path.join(cache_dir, filename)
@@ -193,11 +200,19 @@ def export_unified_tradingview(output_path):
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    loaded_caches[key] = data
-                    if data.get("ref_date"):
-                        dates_found.append(data["ref_date"])
+                upd = data.get("updated_at")
+                if upd:
+                    age_h = (now_dt - datetime.datetime.strptime(upd[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600
+                    if age_h > max_age_h:
+                        stale_assets.append(f"{key} ({upd})")
+                        continue
+                loaded_caches[key] = data
+                if data.get("ref_date"):
+                    dates_found.append(data["ref_date"])
             except Exception as e:
                 print(f"[TV Exporter] Erro ao ler cache de {key}: {e}")
+    if stale_assets:
+        print(f"[TV Exporter] ATENÇÃO: caches desatualizados (> {max_age_h:.0f}h) fora do Pine: {', '.join(stale_assets)}")
                 
     # Data padrão recomendada
     today_d = datetime.date.today()
@@ -226,6 +241,7 @@ def export_unified_tradingview(output_path):
     jp_code = _generate_pine_array_pushes(loaded_caches.get("nikkei_jp225", {}).get("walls", []), "NIKKEI_JP225")
     rut_code = _generate_pine_array_pushes(loaded_caches.get("russell_us2000", {}).get("walls", []), "RUSSELL_US2000")
     china_code = _generate_pine_array_pushes(loaded_caches.get("china_fxi", {}).get("walls", []), "CHINA_FXI")
+    dxy_code = _generate_pine_array_pushes(loaded_caches.get("dxy_uup", {}).get("walls", []), "DXY_UUP")
     
     win_date = loaded_caches.get("win", {}).get("ref_date", "Não disponível")
     us_date = loaded_caches.get("sp500_es", {}).get("ref_date", "Não disponível")
@@ -385,6 +401,13 @@ var color[] china_colors = array.new_color()
 var int[] china_widths = array.new_int()
 var string[] china_styles = array.new_string()
 
+// 15. Arrays para DXY
+var float[] dxy_prices = array.new_float()
+var string[] dxy_labels = array.new_string()
+var color[] dxy_colors = array.new_color()
+var int[] dxy_widths = array.new_int()
+var string[] dxy_styles = array.new_string()
+
 // --- POPULANDO DADOS (blocos separados para evitar limite de bytecode e escopo local) ---
 
 // WIN Futures (B3)
@@ -428,6 +451,9 @@ var string[] china_styles = array.new_string()
 
 // China 50 / CHINA50 (China)
 {china_code}
+
+// DXY / UUP
+{dxy_code}
 
 // --- DETECÇÃO DINÂMICA E FALLBACK DE ATIVO ---
 g_asset         = "Configuração de Ativo"

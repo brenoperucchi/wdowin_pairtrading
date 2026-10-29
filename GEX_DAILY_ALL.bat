@@ -104,19 +104,30 @@ if %errorlevel% neq 0 (
 )
 echo.
 
-echo [14/14] Atualizando China 50 / FXI (China)...
+echo [14/15] Atualizando China 50 / FXI (China)...
 .\.venv\Scripts\python.exe -m gex.engine.main_china
 if %errorlevel% neq 0 (
     echo ERRO na execucao do China 50.
 )
 echo.
 
+echo [15/15] Atualizando DXY / Dollar Index (EUA)...
+.\.venv\Scripts\python.exe -m gex.engine.main_dxy
+if %errorlevel% neq 0 (
+    echo ERRO na execucao do DXY.
+)
+echo.
+
+echo [SYNC] Sincronizando GEX e Pine Script com IRAI + Firebase (rastromacro.web.app)...
+.\.venv\Scripts\python.exe "..\rastro_irado\scripts\sync_gex_to_irai.py"
+echo.
+
 echo Salvando relatorios e indicador consolidado no Git...
 git add -f "gex/data/*.csv" "gex/docs/jumba_neologica" "gex/docs/MagicWallManual.nts" "gex/docs/jumba_tradingview.pine" "gex/docs/DAILY_REPORT*.txt" "gex/docs/DAILY_ECONOMIC_CALENDAR.txt"
-git commit -m "chore(gex): atualizacao consolidada de GEX para 14 ativos e relatorios diarios"
+git commit -m "chore(gex): atualizacao consolidada de GEX para 15 ativos e relatorios diarios"
 
 echo.
 echo ==================================================
-echo Atualizacao consolidada de 14 ativos concluida!
+echo Atualizacao consolidada de 15 ativos concluida!
 echo ==================================================
 pause

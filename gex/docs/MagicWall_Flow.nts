@@ -1,3 +1,13 @@
+Input
+  UsarPolaridadeDinamica(true);   // Pinta Walls abaixo do preço de Verde (Suporte) e acima de Vermelho (Resistência)
+  DestacarDefesaNaWall(true);     // Engrossa a linha da Wall quando há defesa com lote alto
+  ColorirVelasFluxoASG(true);     // Pinta os candles pelas Janelas de Fluxo A.S.G + Absorção na Wall
+  MostrarSetasSinais(true);       // Plota ▲/▼ quando há Defesa na Wall ou Explosão de Fluxo Institucional
+  ApenasAFavorDaJanela(false);    // false = Metodologia 1 (Antecipa viradas na Wall); true = Metodologia 2 (Só opera a favor da Janela)
+  RaioWallWIN(75.0);              // Raio de tolerância em pontos na Wall para o Índice (WIN)
+  RaioWallWDO(2.0);               // Raio de tolerância em pontos na Wall para o Dólar (WDO)
+  FatorLoteDefesa(1.15);          // Múltiplo da média de volume para validar defesa institucional
+
 var
   clMagicWall : integer;
   clMidleWall : integer;
@@ -9,128 +19,184 @@ var
   stlMidleWall : integer;
   isWIN : boolean;
   isDOL : boolean;
-  emZona : boolean;
+  emZonaSuporte : boolean;
+  emZonaResistencia : boolean;
   rangeBarra : float;
+  pavioInf : float;
+  pavioSup : float;
+  volCompra : float;
+  volVenda : float;
+  volTotal : float;
+  saldoAgr : float;
+  mediaVol : float;
+  negocios : float;
+  loteMedio : float;
+  mediaLote : float;
+  pesoInst : float;
+  deltaInstProxy : float;
+  cvdInst : float;
+  emaFast : float;
+  emaSlow : float;
+  passoCvd : float;
+  oscCvd : float;
+  histFluxo : float;
+  janelaDir : integer;
+  desequilibrioPct : float;
+  sinalCompraWall : boolean;
+  sinalVendaWall : boolean;
+  sinalCompraFluxo : boolean;
+  sinalVendaFluxo : boolean;
+  barraUltimoSinal : integer;
   line1 : float;
   line1Color : integer;
   line1Width : integer;
   line1Style : integer;
+  line1IsMid : boolean;
   line2 : float;
   line2Color : integer;
   line2Width : integer;
   line2Style : integer;
+  line2IsMid : boolean;
   line3 : float;
   line3Color : integer;
   line3Width : integer;
   line3Style : integer;
+  line3IsMid : boolean;
   line4 : float;
   line4Color : integer;
   line4Width : integer;
   line4Style : integer;
+  line4IsMid : boolean;
   line5 : float;
   line5Color : integer;
   line5Width : integer;
   line5Style : integer;
+  line5IsMid : boolean;
   line6 : float;
   line6Color : integer;
   line6Width : integer;
   line6Style : integer;
+  line6IsMid : boolean;
   line7 : float;
   line7Color : integer;
   line7Width : integer;
   line7Style : integer;
+  line7IsMid : boolean;
   line8 : float;
   line8Color : integer;
   line8Width : integer;
   line8Style : integer;
+  line8IsMid : boolean;
   line9 : float;
   line9Color : integer;
   line9Width : integer;
   line9Style : integer;
+  line9IsMid : boolean;
   line10 : float;
   line10Color : integer;
   line10Width : integer;
   line10Style : integer;
+  line10IsMid : boolean;
   line11 : float;
   line11Color : integer;
   line11Width : integer;
   line11Style : integer;
+  line11IsMid : boolean;
   line12 : float;
   line12Color : integer;
   line12Width : integer;
   line12Style : integer;
+  line12IsMid : boolean;
   line13 : float;
   line13Color : integer;
   line13Width : integer;
   line13Style : integer;
+  line13IsMid : boolean;
   line14 : float;
   line14Color : integer;
   line14Width : integer;
   line14Style : integer;
+  line14IsMid : boolean;
   line15 : float;
   line15Color : integer;
   line15Width : integer;
   line15Style : integer;
+  line15IsMid : boolean;
   line16 : float;
   line16Color : integer;
   line16Width : integer;
   line16Style : integer;
+  line16IsMid : boolean;
   line17 : float;
   line17Color : integer;
   line17Width : integer;
   line17Style : integer;
+  line17IsMid : boolean;
   line18 : float;
   line18Color : integer;
   line18Width : integer;
   line18Style : integer;
+  line18IsMid : boolean;
   line19 : float;
   line19Color : integer;
   line19Width : integer;
   line19Style : integer;
+  line19IsMid : boolean;
   line20 : float;
   line20Color : integer;
   line20Width : integer;
   line20Style : integer;
+  line20IsMid : boolean;
   line21 : float;
   line21Color : integer;
   line21Width : integer;
   line21Style : integer;
+  line21IsMid : boolean;
   line22 : float;
   line22Color : integer;
   line22Width : integer;
   line22Style : integer;
+  line22IsMid : boolean;
   line23 : float;
   line23Color : integer;
   line23Width : integer;
   line23Style : integer;
+  line23IsMid : boolean;
   line24 : float;
   line24Color : integer;
   line24Width : integer;
   line24Style : integer;
+  line24IsMid : boolean;
   line25 : float;
   line25Color : integer;
   line25Width : integer;
   line25Style : integer;
+  line25IsMid : boolean;
   line26 : float;
   line26Color : integer;
   line26Width : integer;
   line26Style : integer;
+  line26IsMid : boolean;
   line27 : float;
   line27Color : integer;
   line27Width : integer;
   line27Style : integer;
+  line27IsMid : boolean;
   line28 : float;
   line28Color : integer;
   line28Width : integer;
   line28Style : integer;
+  line28IsMid : boolean;
   line29 : float;
   line29Color : integer;
   line29Width : integer;
   line29Style : integer;
+  line29IsMid : boolean;
   line30 : float;
   line30Color : integer;
   line30Width : integer;
   line30Style : integer;
+  line30IsMid : boolean;
 
 BEGIN
   clMagicWall := clLime;
@@ -145,528 +211,878 @@ BEGIN
   isWIN := (GetAsset() = "WINFUT") or (GetAsset() = "INDFUT") or (GetAsset() = "WINV26") or (GetAsset() = "INDV26") or (GetAsset() = "WINZ26") or (GetAsset() = "INDZ26") or (GetAsset() = "WING27") or (GetAsset() = "INDG27");
   isDOL := (GetAsset() = "DOLFUT") or (GetAsset() = "WDOFUT") or (GetAsset() = "WDOU26") or (GetAsset() = "DOLU26") or (GetAsset() = "WDOV26") or (GetAsset() = "DOLV26") or (GetAsset() = "WDOX26") or (GetAsset() = "DOLX26");
 
-  if (((Date >= ELDate(2026, 10, 26)) and (Time >= 900) and (Time <= 1900))) then
+  // ── 1. MOTOR DE FLUXO DE AGRESSÃO PONDERADO POR LOTE (PROXY INSTITUCIONAL) ──
+  volCompra := AgressionVolBuy;
+  volVenda := AgressionVolSell;
+  volTotal := volCompra + volVenda;
+  saldoAgr := AgressionVolBalance;
+  mediaVol := Max(1, Media(20, volTotal));
+
+  negocios := Max(1, Trades);
+  loteMedio := volTotal / negocios;
+  mediaLote := Max(1, Media(20, loteMedio));
+  pesoInst := loteMedio / mediaLote;
+  if pesoInst > 3.0 then pesoInst := 3.0;
+  if pesoInst < 0.5 then pesoInst := 0.5;
+
+  deltaInstProxy := saldoAgr * pesoInst;
+  if (Date <> Date[1]) then
+    cvdInst := deltaInstProxy
+  else
+    cvdInst := cvdInst[1] + deltaInstProxy;
+
+  emaFast := MediaExp(4, cvdInst);
+  emaSlow := MediaExp(11, cvdInst);
+  passoCvd := Max(1, MediaExp(7, Abs(deltaInstProxy)));
+  oscCvd := ((emaFast - emaSlow) / (passoCvd * 1.4)) * 55.0;
+  histFluxo := MediaExp(3, oscCvd);
+
+  // Histerese da Janela A.S.G (+6.5 / -6.5)
+  if (Date <> Date[1]) then
+  begin
+    if histFluxo >= 0 then janelaDir := 1 else janelaDir := -1;
+    barraUltimoSinal := 0;
+  end
+  else
+  begin
+    janelaDir := janelaDir[1];
+    barraUltimoSinal := barraUltimoSinal[1];
+    if (janelaDir = 1) and (histFluxo <= -6.5) then janelaDir := -1;
+    if (janelaDir = -1) and (histFluxo >= 6.5) then janelaDir := 1;
+  end;
+
+  if volTotal > 0 then
+    desequilibrioPct := (saldoAgr / volTotal) * 100.0
+  else
+    desequilibrioPct := 0;
+
+  if (((Date >= ELDate(2026, 10, 28)) and (Time >= 900) and (Time <= 1900))) then
   begin
     if isWIN then
     begin
-      line1 := 170375.142;
-      line1Color := clRed;
-      line1Width := 1;
+      emZonaSuporte := false;
+      emZonaResistencia := false;
+      line1 := 156586.935;
+      line1IsMid := false;
       line1Style := 0;
+      line1Width := 3;
+      if UsarPolaridadeDinamica then begin if Close >= line1 then line1Color := clLime else line1Color := clRed; end else line1Color := clMinGamma;
+      if (Low - RaioWallWIN <= line1) and (High + RaioWallWIN >= line1) then
+      begin
+        if DestacarDefesaNaWall and (not line1IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line1Width := 4;
+        if (Close >= line1) and (Low - RaioWallWIN <= line1) then emZonaSuporte := true;
+        if (Close <= line1) and (High + RaioWallWIN >= line1) then emZonaResistencia := true;
+      end;
       SetPlotColor(1, line1Color);
       SetPlotWidth(1, line1Width);
       SetPlotStyle(1, line1Style);
       Plot(line1);
-      line2 := 171896.348;
-      line2Color := clMidleWall;
-      line2Width := 1;
+      line2 := 168346.866;
+      line2IsMid := false;
       line2Style := 0;
+      line2Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line2 then line2Color := clLime else line2Color := clRed; end else line2Color := clRed;
+      if (Low - RaioWallWIN <= line2) and (High + RaioWallWIN >= line2) then
+      begin
+        if DestacarDefesaNaWall and (not line2IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line2Width := 3;
+        if (Close >= line2) and (Low - RaioWallWIN <= line2) then emZonaSuporte := true;
+        if (Close <= line2) and (High + RaioWallWIN >= line2) then emZonaResistencia := true;
+      end;
       SetPlotColor(2, line2Color);
       SetPlotWidth(2, line2Width);
       SetPlotStyle(2, line2Style);
       Plot2(line2);
-      line3 := 173417.555;
-      line3Color := clRed;
+      line3 := 168853.935;
+      line3IsMid := true;
+      line3Style := stlMidleWall;
       line3Width := 1;
-      line3Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line3 then line3Color := clGreen else line3Color := clMaroon; end else line3Color := clMidleWall;
+      if (Low - RaioWallWIN <= line3) and (High + RaioWallWIN >= line3) then
+      begin
+        if DestacarDefesaNaWall and (not line3IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line3Width := 3;
+        if (Close >= line3) and (Low - RaioWallWIN <= line3) then emZonaSuporte := true;
+        if (Close <= line3) and (High + RaioWallWIN >= line3) then emZonaResistencia := true;
+      end;
       SetPlotColor(3, line3Color);
       SetPlotWidth(3, line3Width);
       SetPlotStyle(3, line3Style);
       Plot3(line3);
-      line4 := 173924.624;
-      line4Color := clMidleWall;
-      line4Width := 1;
+      line4 := 169361.004;
+      line4IsMid := false;
       line4Style := 0;
+      line4Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line4 then line4Color := clLime else line4Color := clRed; end else line4Color := clRed;
+      if (Low - RaioWallWIN <= line4) and (High + RaioWallWIN >= line4) then
+      begin
+        if DestacarDefesaNaWall and (not line4IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line4Width := 3;
+        if (Close >= line4) and (Low - RaioWallWIN <= line4) then emZonaSuporte := true;
+        if (Close <= line4) and (High + RaioWallWIN >= line4) then emZonaResistencia := true;
+      end;
       SetPlotColor(4, line4Color);
       SetPlotWidth(4, line4Width);
       SetPlotStyle(4, line4Style);
       Plot4(line4);
-      line5 := 174431.693;
-      line5Color := clRed;
+      line5 := 169868.073;
+      line5IsMid := true;
+      line5Style := stlMidleWall;
       line5Width := 1;
-      line5Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line5 then line5Color := clGreen else line5Color := clMaroon; end else line5Color := clMidleWall;
+      if (Low - RaioWallWIN <= line5) and (High + RaioWallWIN >= line5) then
+      begin
+        if DestacarDefesaNaWall and (not line5IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line5Width := 3;
+        if (Close >= line5) and (Low - RaioWallWIN <= line5) then emZonaSuporte := true;
+        if (Close <= line5) and (High + RaioWallWIN >= line5) then emZonaResistencia := true;
+      end;
       SetPlotColor(5, line5Color);
       SetPlotWidth(5, line5Width);
       SetPlotStyle(5, line5Style);
       Plot5(line5);
-      line6 := 174938.761;
-      line6Color := clMidleWall;
-      line6Width := 1;
+      line6 := 170375.142;
+      line6IsMid := false;
       line6Style := 0;
+      line6Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line6 then line6Color := clLime else line6Color := clRed; end else line6Color := clRed;
+      if (Low - RaioWallWIN <= line6) and (High + RaioWallWIN >= line6) then
+      begin
+        if DestacarDefesaNaWall and (not line6IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line6Width := 3;
+        if (Close >= line6) and (Low - RaioWallWIN <= line6) then emZonaSuporte := true;
+        if (Close <= line6) and (High + RaioWallWIN >= line6) then emZonaResistencia := true;
+      end;
       SetPlotColor(6, line6Color);
       SetPlotWidth(6, line6Width);
       SetPlotStyle(6, line6Style);
       Plot6(line6);
-      line7 := 175445.830;
-      line7Color := clRed;
+      line7 := 171896.348;
+      line7IsMid := true;
+      line7Style := stlMidleWall;
       line7Width := 1;
-      line7Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line7 then line7Color := clGreen else line7Color := clMaroon; end else line7Color := clMidleWall;
+      if (Low - RaioWallWIN <= line7) and (High + RaioWallWIN >= line7) then
+      begin
+        if DestacarDefesaNaWall and (not line7IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line7Width := 3;
+        if (Close >= line7) and (Low - RaioWallWIN <= line7) then emZonaSuporte := true;
+        if (Close <= line7) and (High + RaioWallWIN >= line7) then emZonaResistencia := true;
+      end;
       SetPlotColor(7, line7Color);
       SetPlotWidth(7, line7Width);
       SetPlotStyle(7, line7Style);
       Plot7(line7);
-      line8 := 176459.968;
-      line8Color := clMidleWall;
-      line8Width := 1;
+      line8 := 173417.555;
+      line8IsMid := false;
       line8Style := 0;
+      line8Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line8 then line8Color := clLime else line8Color := clRed; end else line8Color := clRed;
+      if (Low - RaioWallWIN <= line8) and (High + RaioWallWIN >= line8) then
+      begin
+        if DestacarDefesaNaWall and (not line8IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line8Width := 3;
+        if (Close >= line8) and (Low - RaioWallWIN <= line8) then emZonaSuporte := true;
+        if (Close <= line8) and (High + RaioWallWIN >= line8) then emZonaResistencia := true;
+      end;
       SetPlotColor(8, line8Color);
       SetPlotWidth(8, line8Width);
       SetPlotStyle(8, line8Style);
       Plot8(line8);
-      line9 := 177474.106;
-      line9Color := clRed;
+      line9 := 173924.624;
+      line9IsMid := true;
+      line9Style := stlMidleWall;
       line9Width := 1;
-      line9Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line9 then line9Color := clGreen else line9Color := clMaroon; end else line9Color := clMidleWall;
+      if (Low - RaioWallWIN <= line9) and (High + RaioWallWIN >= line9) then
+      begin
+        if DestacarDefesaNaWall and (not line9IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line9Width := 3;
+        if (Close >= line9) and (Low - RaioWallWIN <= line9) then emZonaSuporte := true;
+        if (Close <= line9) and (High + RaioWallWIN >= line9) then emZonaResistencia := true;
+      end;
       SetPlotColor(9, line9Color);
       SetPlotWidth(9, line9Width);
       SetPlotStyle(9, line9Style);
       Plot9(line9);
-      line10 := 177981.175;
-      line10Color := clMidleWall;
-      line10Width := 1;
+      line10 := 174431.693;
+      line10IsMid := false;
       line10Style := 0;
+      line10Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line10 then line10Color := clLime else line10Color := clRed; end else line10Color := clRed;
+      if (Low - RaioWallWIN <= line10) and (High + RaioWallWIN >= line10) then
+      begin
+        if DestacarDefesaNaWall and (not line10IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line10Width := 3;
+        if (Close >= line10) and (Low - RaioWallWIN <= line10) then emZonaSuporte := true;
+        if (Close <= line10) and (High + RaioWallWIN >= line10) then emZonaResistencia := true;
+      end;
       SetPlotColor(10, line10Color);
       SetPlotWidth(10, line10Width);
       SetPlotStyle(10, line10Style);
       Plot10(line10);
-      line11 := 178488.244;
-      line11Color := clRed;
+      line11 := 174938.761;
+      line11IsMid := true;
+      line11Style := stlMidleWall;
       line11Width := 1;
-      line11Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line11 then line11Color := clGreen else line11Color := clMaroon; end else line11Color := clMidleWall;
+      if (Low - RaioWallWIN <= line11) and (High + RaioWallWIN >= line11) then
+      begin
+        if DestacarDefesaNaWall and (not line11IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line11Width := 3;
+        if (Close >= line11) and (Low - RaioWallWIN <= line11) then emZonaSuporte := true;
+        if (Close <= line11) and (High + RaioWallWIN >= line11) then emZonaResistencia := true;
+      end;
       SetPlotColor(11, line11Color);
       SetPlotWidth(11, line11Width);
       SetPlotStyle(11, line11Style);
       Plot11(line11);
-      line12 := 178995.312;
-      line12Color := clMidleWall;
-      line12Width := 1;
+      line12 := 175445.830;
+      line12IsMid := false;
       line12Style := 0;
+      line12Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line12 then line12Color := clLime else line12Color := clRed; end else line12Color := clRed;
+      if (Low - RaioWallWIN <= line12) and (High + RaioWallWIN >= line12) then
+      begin
+        if DestacarDefesaNaWall and (not line12IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line12Width := 3;
+        if (Close >= line12) and (Low - RaioWallWIN <= line12) then emZonaSuporte := true;
+        if (Close <= line12) and (High + RaioWallWIN >= line12) then emZonaResistencia := true;
+      end;
       SetPlotColor(12, line12Color);
       SetPlotWidth(12, line12Width);
       SetPlotStyle(12, line12Style);
       Plot12(line12);
-      line13 := 179502.381;
-      line13Color := clLime;
+      line13 := 176459.968;
+      line13IsMid := true;
+      line13Style := stlMidleWall;
       line13Width := 1;
-      line13Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line13 then line13Color := clGreen else line13Color := clMaroon; end else line13Color := clMidleWall;
+      if (Low - RaioWallWIN <= line13) and (High + RaioWallWIN >= line13) then
+      begin
+        if DestacarDefesaNaWall and (not line13IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line13Width := 3;
+        if (Close >= line13) and (Low - RaioWallWIN <= line13) then emZonaSuporte := true;
+        if (Close <= line13) and (High + RaioWallWIN >= line13) then emZonaResistencia := true;
+      end;
       SetPlotColor(13, line13Color);
       SetPlotWidth(13, line13Width);
       SetPlotStyle(13, line13Style);
       Plot13(line13);
-      line14 := 180009.450;
-      line14Color := clMidleWall;
-      line14Width := 1;
+      line14 := 177474.106;
+      line14IsMid := false;
       line14Style := 0;
+      line14Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line14 then line14Color := clLime else line14Color := clRed; end else line14Color := clRed;
+      if (Low - RaioWallWIN <= line14) and (High + RaioWallWIN >= line14) then
+      begin
+        if DestacarDefesaNaWall and (not line14IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line14Width := 3;
+        if (Close >= line14) and (Low - RaioWallWIN <= line14) then emZonaSuporte := true;
+        if (Close <= line14) and (High + RaioWallWIN >= line14) then emZonaResistencia := true;
+      end;
       SetPlotColor(14, line14Color);
       SetPlotWidth(14, line14Width);
       SetPlotStyle(14, line14Style);
       Plot14(line14);
-      line15 := 180516.519;
-      line15Color := clRed;
-      line15Width := 3;
-      line15Style := 0;
+      line15 := 177981.175;
+      line15IsMid := true;
+      line15Style := stlMidleWall;
+      line15Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line15 then line15Color := clGreen else line15Color := clMaroon; end else line15Color := clMidleWall;
+      if (Low - RaioWallWIN <= line15) and (High + RaioWallWIN >= line15) then
+      begin
+        if DestacarDefesaNaWall and (not line15IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line15Width := 3;
+        if (Close >= line15) and (Low - RaioWallWIN <= line15) then emZonaSuporte := true;
+        if (Close <= line15) and (High + RaioWallWIN >= line15) then emZonaResistencia := true;
+      end;
       SetPlotColor(15, line15Color);
       SetPlotWidth(15, line15Width);
       SetPlotStyle(15, line15Style);
       Plot15(line15);
-      line16 := 181023.588;
-      line16Color := clMidleWall;
-      line16Width := 1;
+      line16 := 178488.244;
+      line16IsMid := false;
       line16Style := 0;
+      line16Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line16 then line16Color := clLime else line16Color := clRed; end else line16Color := clRed;
+      if (Low - RaioWallWIN <= line16) and (High + RaioWallWIN >= line16) then
+      begin
+        if DestacarDefesaNaWall and (not line16IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line16Width := 3;
+        if (Close >= line16) and (Low - RaioWallWIN <= line16) then emZonaSuporte := true;
+        if (Close <= line16) and (High + RaioWallWIN >= line16) then emZonaResistencia := true;
+      end;
       SetPlotColor(16, line16Color);
       SetPlotWidth(16, line16Width);
       SetPlotStyle(16, line16Style);
       Plot16(line16);
-      line17 := 181530.657;
-      line17Color := clRed;
-      line17Width := 2;
-      line17Style := 0;
+      line17 := 178995.312;
+      line17IsMid := true;
+      line17Style := stlMidleWall;
+      line17Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line17 then line17Color := clGreen else line17Color := clMaroon; end else line17Color := clMidleWall;
+      if (Low - RaioWallWIN <= line17) and (High + RaioWallWIN >= line17) then
+      begin
+        if DestacarDefesaNaWall and (not line17IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line17Width := 3;
+        if (Close >= line17) and (Low - RaioWallWIN <= line17) then emZonaSuporte := true;
+        if (Close <= line17) and (High + RaioWallWIN >= line17) then emZonaResistencia := true;
+      end;
       SetPlotColor(17, line17Color);
       SetPlotWidth(17, line17Width);
       SetPlotStyle(17, line17Style);
       Plot17(line17);
-      line18 := 182037.726;
-      line18Color := clMidleWall;
-      line18Width := 1;
+      line18 := 179502.381;
+      line18IsMid := false;
       line18Style := 0;
+      line18Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line18 then line18Color := clLime else line18Color := clRed; end else line18Color := clLime;
+      if (Low - RaioWallWIN <= line18) and (High + RaioWallWIN >= line18) then
+      begin
+        if DestacarDefesaNaWall and (not line18IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line18Width := 3;
+        if (Close >= line18) and (Low - RaioWallWIN <= line18) then emZonaSuporte := true;
+        if (Close <= line18) and (High + RaioWallWIN >= line18) then emZonaResistencia := true;
+      end;
       SetPlotColor(18, line18Color);
       SetPlotWidth(18, line18Width);
       SetPlotStyle(18, line18Style);
       Plot18(line18);
-      line19 := 182544.795;
-      line19Color := clRed;
+      line19 := 180009.450;
+      line19IsMid := true;
+      line19Style := stlMidleWall;
       line19Width := 1;
-      line19Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line19 then line19Color := clGreen else line19Color := clMaroon; end else line19Color := clMidleWall;
+      if (Low - RaioWallWIN <= line19) and (High + RaioWallWIN >= line19) then
+      begin
+        if DestacarDefesaNaWall and (not line19IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line19Width := 3;
+        if (Close >= line19) and (Low - RaioWallWIN <= line19) then emZonaSuporte := true;
+        if (Close <= line19) and (High + RaioWallWIN >= line19) then emZonaResistencia := true;
+      end;
       SetPlotColor(19, line19Color);
       SetPlotWidth(19, line19Width);
       SetPlotStyle(19, line19Style);
       Plot19(line19);
-      line20 := 183051.864;
-      line20Color := clMidleWall;
-      line20Width := 1;
+      line20 := 180516.519;
+      line20IsMid := false;
       line20Style := 0;
+      line20Width := 3;
+      if UsarPolaridadeDinamica then begin if Close >= line20 then line20Color := clLime else line20Color := clRed; end else line20Color := clRed;
+      if (Low - RaioWallWIN <= line20) and (High + RaioWallWIN >= line20) then
+      begin
+        if DestacarDefesaNaWall and (not line20IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line20Width := 4;
+        if (Close >= line20) and (Low - RaioWallWIN <= line20) then emZonaSuporte := true;
+        if (Close <= line20) and (High + RaioWallWIN >= line20) then emZonaResistencia := true;
+      end;
       SetPlotColor(20, line20Color);
       SetPlotWidth(20, line20Width);
       SetPlotStyle(20, line20Style);
       Plot20(line20);
-      line21 := 183558.932;
-      line21Color := clRed;
+      line21 := 181023.588;
+      line21IsMid := true;
+      line21Style := stlMidleWall;
       line21Width := 1;
-      line21Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line21 then line21Color := clGreen else line21Color := clMaroon; end else line21Color := clMidleWall;
+      if (Low - RaioWallWIN <= line21) and (High + RaioWallWIN >= line21) then
+      begin
+        if DestacarDefesaNaWall and (not line21IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line21Width := 3;
+        if (Close >= line21) and (Low - RaioWallWIN <= line21) then emZonaSuporte := true;
+        if (Close <= line21) and (High + RaioWallWIN >= line21) then emZonaResistencia := true;
+      end;
       SetPlotColor(21, line21Color);
       SetPlotWidth(21, line21Width);
       SetPlotStyle(21, line21Style);
       Plot21(line21);
-      line22 := 184066.001;
-      line22Color := clMidleWall;
-      line22Width := 1;
+      line22 := 181218.860;
+      line22IsMid := false;
       line22Style := 0;
+      line22Width := 2;
+      line22Color := clFlip;
+      if (Low - RaioWallWIN <= line22) and (High + RaioWallWIN >= line22) then
+      begin
+        if DestacarDefesaNaWall and (not line22IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line22Width := 4;
+        if (Close >= line22) and (Low - RaioWallWIN <= line22) then emZonaSuporte := true;
+        if (Close <= line22) and (High + RaioWallWIN >= line22) then emZonaResistencia := true;
+      end;
       SetPlotColor(22, line22Color);
       SetPlotWidth(22, line22Width);
       SetPlotStyle(22, line22Style);
       Plot22(line22);
-      line23 := 184573.070;
-      line23Color := clRed;
-      line23Width := 1;
+      line23 := 181530.657;
+      line23IsMid := false;
       line23Style := 0;
+      line23Width := 2;
+      if UsarPolaridadeDinamica then begin if Close >= line23 then line23Color := clLime else line23Color := clRed; end else line23Color := clRed;
+      if (Low - RaioWallWIN <= line23) and (High + RaioWallWIN >= line23) then
+      begin
+        if DestacarDefesaNaWall and (not line23IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line23Width := 4;
+        if (Close >= line23) and (Low - RaioWallWIN <= line23) then emZonaSuporte := true;
+        if (Close <= line23) and (High + RaioWallWIN >= line23) then emZonaResistencia := true;
+      end;
       SetPlotColor(23, line23Color);
       SetPlotWidth(23, line23Width);
       SetPlotStyle(23, line23Style);
       Plot23(line23);
-      line24 := 185080.139;
-      line24Color := clMidleWall;
-      line24Width := 1;
+      line24 := 212460.000;
+      line24IsMid := false;
       line24Style := 0;
+      line24Width := 3;
+      if UsarPolaridadeDinamica then begin if Close >= line24 then line24Color := clLime else line24Color := clRed; end else line24Color := clMaxGamma;
+      if (Low - RaioWallWIN <= line24) and (High + RaioWallWIN >= line24) then
+      begin
+        if DestacarDefesaNaWall and (not line24IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line24Width := 4;
+        if (Close >= line24) and (Low - RaioWallWIN <= line24) then emZonaSuporte := true;
+        if (Close <= line24) and (High + RaioWallWIN >= line24) then emZonaResistencia := true;
+      end;
       SetPlotColor(24, line24Color);
       SetPlotWidth(24, line24Width);
       SetPlotStyle(24, line24Style);
       Plot24(line24);
-      line25 := 185587.208;
-      line25Color := clRed;
-      line25Width := 1;
+      NoPlot(25);
+      NoPlot(26);
+      NoPlot(27);
+      NoPlot(28);
+      NoPlot(29);
+      NoPlot(30);
+    end
+    else if isDOL then
+    begin
+      emZonaSuporte := false;
+      emZonaResistencia := false;
+      line1 := 4911.140;
+      line1IsMid := false;
+      line1Style := 0;
+      line1Width := 3;
+      if UsarPolaridadeDinamica then begin if Close >= line1 then line1Color := clLime else line1Color := clRed; end else line1Color := clMinGamma;
+      if (Low - RaioWallWDO <= line1) and (High + RaioWallWDO >= line1) then
+      begin
+        if DestacarDefesaNaWall and (not line1IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line1Width := 4;
+        if (Close >= line1) and (Low - RaioWallWDO <= line1) then emZonaSuporte := true;
+        if (Close <= line1) and (High + RaioWallWDO >= line1) then emZonaResistencia := true;
+      end;
+      SetPlotColor(1, line1Color);
+      SetPlotWidth(1, line1Width);
+      SetPlotStyle(1, line1Style);
+      Plot(line1);
+      line2 := 5147.330;
+      line2IsMid := false;
+      line2Style := 0;
+      line2Width := 2;
+      line2Color := clFlip;
+      if (Low - RaioWallWDO <= line2) and (High + RaioWallWDO >= line2) then
+      begin
+        if DestacarDefesaNaWall and (not line2IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line2Width := 4;
+        if (Close >= line2) and (Low - RaioWallWDO <= line2) then emZonaSuporte := true;
+        if (Close <= line2) and (High + RaioWallWDO >= line2) then emZonaResistencia := true;
+      end;
+      SetPlotColor(2, line2Color);
+      SetPlotWidth(2, line2Width);
+      SetPlotStyle(2, line2Style);
+      Plot2(line2);
+      line3 := 5150.000;
+      line3IsMid := false;
+      line3Style := 0;
+      line3Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line3 then line3Color := clLime else line3Color := clRed; end else line3Color := clRed;
+      if (Low - RaioWallWDO <= line3) and (High + RaioWallWDO >= line3) then
+      begin
+        if DestacarDefesaNaWall and (not line3IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line3Width := 3;
+        if (Close >= line3) and (Low - RaioWallWDO <= line3) then emZonaSuporte := true;
+        if (Close <= line3) and (High + RaioWallWDO >= line3) then emZonaResistencia := true;
+      end;
+      SetPlotColor(3, line3Color);
+      SetPlotWidth(3, line3Width);
+      SetPlotStyle(3, line3Style);
+      Plot3(line3);
+      line4 := 5165.000;
+      line4IsMid := true;
+      line4Style := stlMidleWall;
+      line4Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line4 then line4Color := clGreen else line4Color := clMaroon; end else line4Color := clMidleWall;
+      if (Low - RaioWallWDO <= line4) and (High + RaioWallWDO >= line4) then
+      begin
+        if DestacarDefesaNaWall and (not line4IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line4Width := 3;
+        if (Close >= line4) and (Low - RaioWallWDO <= line4) then emZonaSuporte := true;
+        if (Close <= line4) and (High + RaioWallWDO >= line4) then emZonaResistencia := true;
+      end;
+      SetPlotColor(4, line4Color);
+      SetPlotWidth(4, line4Width);
+      SetPlotStyle(4, line4Style);
+      Plot4(line4);
+      line5 := 5180.000;
+      line5IsMid := false;
+      line5Style := 0;
+      line5Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line5 then line5Color := clLime else line5Color := clRed; end else line5Color := clLime;
+      if (Low - RaioWallWDO <= line5) and (High + RaioWallWDO >= line5) then
+      begin
+        if DestacarDefesaNaWall and (not line5IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line5Width := 3;
+        if (Close >= line5) and (Low - RaioWallWDO <= line5) then emZonaSuporte := true;
+        if (Close <= line5) and (High + RaioWallWDO >= line5) then emZonaResistencia := true;
+      end;
+      SetPlotColor(5, line5Color);
+      SetPlotWidth(5, line5Width);
+      SetPlotStyle(5, line5Style);
+      Plot5(line5);
+      line6 := 5190.000;
+      line6IsMid := true;
+      line6Style := stlMidleWall;
+      line6Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line6 then line6Color := clGreen else line6Color := clMaroon; end else line6Color := clMidleWall;
+      if (Low - RaioWallWDO <= line6) and (High + RaioWallWDO >= line6) then
+      begin
+        if DestacarDefesaNaWall and (not line6IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line6Width := 3;
+        if (Close >= line6) and (Low - RaioWallWDO <= line6) then emZonaSuporte := true;
+        if (Close <= line6) and (High + RaioWallWDO >= line6) then emZonaResistencia := true;
+      end;
+      SetPlotColor(6, line6Color);
+      SetPlotWidth(6, line6Width);
+      SetPlotStyle(6, line6Style);
+      Plot6(line6);
+      line7 := 5200.000;
+      line7IsMid := false;
+      line7Style := 0;
+      line7Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line7 then line7Color := clLime else line7Color := clRed; end else line7Color := clLime;
+      if (Low - RaioWallWDO <= line7) and (High + RaioWallWDO >= line7) then
+      begin
+        if DestacarDefesaNaWall and (not line7IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line7Width := 3;
+        if (Close >= line7) and (Low - RaioWallWDO <= line7) then emZonaSuporte := true;
+        if (Close <= line7) and (High + RaioWallWDO >= line7) then emZonaResistencia := true;
+      end;
+      SetPlotColor(7, line7Color);
+      SetPlotWidth(7, line7Width);
+      SetPlotStyle(7, line7Style);
+      Plot7(line7);
+      line8 := 5225.000;
+      line8IsMid := true;
+      line8Style := stlMidleWall;
+      line8Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line8 then line8Color := clGreen else line8Color := clMaroon; end else line8Color := clMidleWall;
+      if (Low - RaioWallWDO <= line8) and (High + RaioWallWDO >= line8) then
+      begin
+        if DestacarDefesaNaWall and (not line8IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line8Width := 3;
+        if (Close >= line8) and (Low - RaioWallWDO <= line8) then emZonaSuporte := true;
+        if (Close <= line8) and (High + RaioWallWDO >= line8) then emZonaResistencia := true;
+      end;
+      SetPlotColor(8, line8Color);
+      SetPlotWidth(8, line8Width);
+      SetPlotStyle(8, line8Style);
+      Plot8(line8);
+      line9 := 5250.000;
+      line9IsMid := false;
+      line9Style := 0;
+      line9Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line9 then line9Color := clLime else line9Color := clRed; end else line9Color := clLime;
+      if (Low - RaioWallWDO <= line9) and (High + RaioWallWDO >= line9) then
+      begin
+        if DestacarDefesaNaWall and (not line9IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line9Width := 3;
+        if (Close >= line9) and (Low - RaioWallWDO <= line9) then emZonaSuporte := true;
+        if (Close <= line9) and (High + RaioWallWDO >= line9) then emZonaResistencia := true;
+      end;
+      SetPlotColor(9, line9Color);
+      SetPlotWidth(9, line9Width);
+      SetPlotStyle(9, line9Style);
+      Plot9(line9);
+      line10 := 5265.000;
+      line10IsMid := true;
+      line10Style := stlMidleWall;
+      line10Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line10 then line10Color := clGreen else line10Color := clMaroon; end else line10Color := clMidleWall;
+      if (Low - RaioWallWDO <= line10) and (High + RaioWallWDO >= line10) then
+      begin
+        if DestacarDefesaNaWall and (not line10IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line10Width := 3;
+        if (Close >= line10) and (Low - RaioWallWDO <= line10) then emZonaSuporte := true;
+        if (Close <= line10) and (High + RaioWallWDO >= line10) then emZonaResistencia := true;
+      end;
+      SetPlotColor(10, line10Color);
+      SetPlotWidth(10, line10Width);
+      SetPlotStyle(10, line10Style);
+      Plot10(line10);
+      line11 := 5280.000;
+      line11IsMid := false;
+      line11Style := 0;
+      line11Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line11 then line11Color := clLime else line11Color := clRed; end else line11Color := clLime;
+      if (Low - RaioWallWDO <= line11) and (High + RaioWallWDO >= line11) then
+      begin
+        if DestacarDefesaNaWall and (not line11IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line11Width := 3;
+        if (Close >= line11) and (Low - RaioWallWDO <= line11) then emZonaSuporte := true;
+        if (Close <= line11) and (High + RaioWallWDO >= line11) then emZonaResistencia := true;
+      end;
+      SetPlotColor(11, line11Color);
+      SetPlotWidth(11, line11Width);
+      SetPlotStyle(11, line11Style);
+      Plot11(line11);
+      line12 := 5290.000;
+      line12IsMid := true;
+      line12Style := stlMidleWall;
+      line12Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line12 then line12Color := clGreen else line12Color := clMaroon; end else line12Color := clMidleWall;
+      if (Low - RaioWallWDO <= line12) and (High + RaioWallWDO >= line12) then
+      begin
+        if DestacarDefesaNaWall and (not line12IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line12Width := 3;
+        if (Close >= line12) and (Low - RaioWallWDO <= line12) then emZonaSuporte := true;
+        if (Close <= line12) and (High + RaioWallWDO >= line12) then emZonaResistencia := true;
+      end;
+      SetPlotColor(12, line12Color);
+      SetPlotWidth(12, line12Width);
+      SetPlotStyle(12, line12Style);
+      Plot12(line12);
+      line13 := 5300.000;
+      line13IsMid := false;
+      line13Style := 0;
+      line13Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line13 then line13Color := clLime else line13Color := clRed; end else line13Color := clRed;
+      if (Low - RaioWallWDO <= line13) and (High + RaioWallWDO >= line13) then
+      begin
+        if DestacarDefesaNaWall and (not line13IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line13Width := 3;
+        if (Close >= line13) and (Low - RaioWallWDO <= line13) then emZonaSuporte := true;
+        if (Close <= line13) and (High + RaioWallWDO >= line13) then emZonaResistencia := true;
+      end;
+      SetPlotColor(13, line13Color);
+      SetPlotWidth(13, line13Width);
+      SetPlotStyle(13, line13Style);
+      Plot13(line13);
+      line14 := 5310.000;
+      line14IsMid := true;
+      line14Style := stlMidleWall;
+      line14Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line14 then line14Color := clGreen else line14Color := clMaroon; end else line14Color := clMidleWall;
+      if (Low - RaioWallWDO <= line14) and (High + RaioWallWDO >= line14) then
+      begin
+        if DestacarDefesaNaWall and (not line14IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line14Width := 3;
+        if (Close >= line14) and (Low - RaioWallWDO <= line14) then emZonaSuporte := true;
+        if (Close <= line14) and (High + RaioWallWDO >= line14) then emZonaResistencia := true;
+      end;
+      SetPlotColor(14, line14Color);
+      SetPlotWidth(14, line14Width);
+      SetPlotStyle(14, line14Style);
+      Plot14(line14);
+      line15 := 5320.000;
+      line15IsMid := false;
+      line15Style := 0;
+      line15Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line15 then line15Color := clLime else line15Color := clRed; end else line15Color := clLime;
+      if (Low - RaioWallWDO <= line15) and (High + RaioWallWDO >= line15) then
+      begin
+        if DestacarDefesaNaWall and (not line15IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line15Width := 3;
+        if (Close >= line15) and (Low - RaioWallWDO <= line15) then emZonaSuporte := true;
+        if (Close <= line15) and (High + RaioWallWDO >= line15) then emZonaResistencia := true;
+      end;
+      SetPlotColor(15, line15Color);
+      SetPlotWidth(15, line15Width);
+      SetPlotStyle(15, line15Style);
+      Plot15(line15);
+      line16 := 5335.000;
+      line16IsMid := true;
+      line16Style := stlMidleWall;
+      line16Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line16 then line16Color := clGreen else line16Color := clMaroon; end else line16Color := clMidleWall;
+      if (Low - RaioWallWDO <= line16) and (High + RaioWallWDO >= line16) then
+      begin
+        if DestacarDefesaNaWall and (not line16IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line16Width := 3;
+        if (Close >= line16) and (Low - RaioWallWDO <= line16) then emZonaSuporte := true;
+        if (Close <= line16) and (High + RaioWallWDO >= line16) then emZonaResistencia := true;
+      end;
+      SetPlotColor(16, line16Color);
+      SetPlotWidth(16, line16Width);
+      SetPlotStyle(16, line16Style);
+      Plot16(line16);
+      line17 := 5350.000;
+      line17IsMid := false;
+      line17Style := 0;
+      line17Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line17 then line17Color := clLime else line17Color := clRed; end else line17Color := clLime;
+      if (Low - RaioWallWDO <= line17) and (High + RaioWallWDO >= line17) then
+      begin
+        if DestacarDefesaNaWall and (not line17IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line17Width := 3;
+        if (Close >= line17) and (Low - RaioWallWDO <= line17) then emZonaSuporte := true;
+        if (Close <= line17) and (High + RaioWallWDO >= line17) then emZonaResistencia := true;
+      end;
+      SetPlotColor(17, line17Color);
+      SetPlotWidth(17, line17Width);
+      SetPlotStyle(17, line17Style);
+      Plot17(line17);
+      line18 := 5375.000;
+      line18IsMid := true;
+      line18Style := stlMidleWall;
+      line18Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line18 then line18Color := clGreen else line18Color := clMaroon; end else line18Color := clMidleWall;
+      if (Low - RaioWallWDO <= line18) and (High + RaioWallWDO >= line18) then
+      begin
+        if DestacarDefesaNaWall and (not line18IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line18Width := 3;
+        if (Close >= line18) and (Low - RaioWallWDO <= line18) then emZonaSuporte := true;
+        if (Close <= line18) and (High + RaioWallWDO >= line18) then emZonaResistencia := true;
+      end;
+      SetPlotColor(18, line18Color);
+      SetPlotWidth(18, line18Width);
+      SetPlotStyle(18, line18Style);
+      Plot18(line18);
+      line19 := 5400.000;
+      line19IsMid := false;
+      line19Style := 0;
+      line19Width := 2;
+      if UsarPolaridadeDinamica then begin if Close >= line19 then line19Color := clLime else line19Color := clRed; end else line19Color := clLime;
+      if (Low - RaioWallWDO <= line19) and (High + RaioWallWDO >= line19) then
+      begin
+        if DestacarDefesaNaWall and (not line19IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line19Width := 4;
+        if (Close >= line19) and (Low - RaioWallWDO <= line19) then emZonaSuporte := true;
+        if (Close <= line19) and (High + RaioWallWDO >= line19) then emZonaResistencia := true;
+      end;
+      SetPlotColor(19, line19Color);
+      SetPlotWidth(19, line19Width);
+      SetPlotStyle(19, line19Style);
+      Plot19(line19);
+      line20 := 5425.000;
+      line20IsMid := true;
+      line20Style := stlMidleWall;
+      line20Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line20 then line20Color := clGreen else line20Color := clMaroon; end else line20Color := clMidleWall;
+      if (Low - RaioWallWDO <= line20) and (High + RaioWallWDO >= line20) then
+      begin
+        if DestacarDefesaNaWall and (not line20IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line20Width := 3;
+        if (Close >= line20) and (Low - RaioWallWDO <= line20) then emZonaSuporte := true;
+        if (Close <= line20) and (High + RaioWallWDO >= line20) then emZonaResistencia := true;
+      end;
+      SetPlotColor(20, line20Color);
+      SetPlotWidth(20, line20Width);
+      SetPlotStyle(20, line20Style);
+      Plot20(line20);
+      line21 := 5450.000;
+      line21IsMid := false;
+      line21Style := 0;
+      line21Width := 2;
+      if UsarPolaridadeDinamica then begin if Close >= line21 then line21Color := clLime else line21Color := clRed; end else line21Color := clRed;
+      if (Low - RaioWallWDO <= line21) and (High + RaioWallWDO >= line21) then
+      begin
+        if DestacarDefesaNaWall and (not line21IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line21Width := 4;
+        if (Close >= line21) and (Low - RaioWallWDO <= line21) then emZonaSuporte := true;
+        if (Close <= line21) and (High + RaioWallWDO >= line21) then emZonaResistencia := true;
+      end;
+      SetPlotColor(21, line21Color);
+      SetPlotWidth(21, line21Width);
+      SetPlotStyle(21, line21Style);
+      Plot21(line21);
+      line22 := 5465.000;
+      line22IsMid := true;
+      line22Style := stlMidleWall;
+      line22Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line22 then line22Color := clGreen else line22Color := clMaroon; end else line22Color := clMidleWall;
+      if (Low - RaioWallWDO <= line22) and (High + RaioWallWDO >= line22) then
+      begin
+        if DestacarDefesaNaWall and (not line22IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line22Width := 3;
+        if (Close >= line22) and (Low - RaioWallWDO <= line22) then emZonaSuporte := true;
+        if (Close <= line22) and (High + RaioWallWDO >= line22) then emZonaResistencia := true;
+      end;
+      SetPlotColor(22, line22Color);
+      SetPlotWidth(22, line22Width);
+      SetPlotStyle(22, line22Style);
+      Plot22(line22);
+      line23 := 5480.000;
+      line23IsMid := false;
+      line23Style := 0;
+      line23Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line23 then line23Color := clLime else line23Color := clRed; end else line23Color := clLime;
+      if (Low - RaioWallWDO <= line23) and (High + RaioWallWDO >= line23) then
+      begin
+        if DestacarDefesaNaWall and (not line23IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line23Width := 3;
+        if (Close >= line23) and (Low - RaioWallWDO <= line23) then emZonaSuporte := true;
+        if (Close <= line23) and (High + RaioWallWDO >= line23) then emZonaResistencia := true;
+      end;
+      SetPlotColor(23, line23Color);
+      SetPlotWidth(23, line23Width);
+      SetPlotStyle(23, line23Style);
+      Plot23(line23);
+      line24 := 5490.000;
+      line24IsMid := true;
+      line24Style := stlMidleWall;
+      line24Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line24 then line24Color := clGreen else line24Color := clMaroon; end else line24Color := clMidleWall;
+      if (Low - RaioWallWDO <= line24) and (High + RaioWallWDO >= line24) then
+      begin
+        if DestacarDefesaNaWall and (not line24IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line24Width := 3;
+        if (Close >= line24) and (Low - RaioWallWDO <= line24) then emZonaSuporte := true;
+        if (Close <= line24) and (High + RaioWallWDO >= line24) then emZonaResistencia := true;
+      end;
+      SetPlotColor(24, line24Color);
+      SetPlotWidth(24, line24Width);
+      SetPlotStyle(24, line24Style);
+      Plot24(line24);
+      line25 := 5500.000;
+      line25IsMid := false;
       line25Style := 0;
+      line25Width := 3;
+      if UsarPolaridadeDinamica then begin if Close >= line25 then line25Color := clLime else line25Color := clRed; end else line25Color := clLime;
+      if (Low - RaioWallWDO <= line25) and (High + RaioWallWDO >= line25) then
+      begin
+        if DestacarDefesaNaWall and (not line25IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line25Width := 4;
+        if (Close >= line25) and (Low - RaioWallWDO <= line25) then emZonaSuporte := true;
+        if (Close <= line25) and (High + RaioWallWDO >= line25) then emZonaResistencia := true;
+      end;
       SetPlotColor(25, line25Color);
       SetPlotWidth(25, line25Width);
       SetPlotStyle(25, line25Style);
       Plot25(line25);
-      line26 := 186094.277;
-      line26Color := clMidleWall;
-      line26Width := 1;
+      line26 := 5504.290;
+      line26IsMid := false;
       line26Style := 0;
+      line26Width := 3;
+      if UsarPolaridadeDinamica then begin if Close >= line26 then line26Color := clLime else line26Color := clRed; end else line26Color := clMaxGamma;
+      if (Low - RaioWallWDO <= line26) and (High + RaioWallWDO >= line26) then
+      begin
+        if DestacarDefesaNaWall and (not line26IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line26Width := 4;
+        if (Close >= line26) and (Low - RaioWallWDO <= line26) then emZonaSuporte := true;
+        if (Close <= line26) and (High + RaioWallWDO >= line26) then emZonaResistencia := true;
+      end;
       SetPlotColor(26, line26Color);
       SetPlotWidth(26, line26Width);
       SetPlotStyle(26, line26Style);
       Plot26(line26);
-      line27 := 186601.346;
-      line27Color := clRed;
+      line27 := 5525.000;
+      line27IsMid := true;
+      line27Style := stlMidleWall;
       line27Width := 1;
-      line27Style := 0;
+      if UsarPolaridadeDinamica then begin if Close >= line27 then line27Color := clGreen else line27Color := clMaroon; end else line27Color := clMidleWall;
+      if (Low - RaioWallWDO <= line27) and (High + RaioWallWDO >= line27) then
+      begin
+        if DestacarDefesaNaWall and (not line27IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line27Width := 3;
+        if (Close >= line27) and (Low - RaioWallWDO <= line27) then emZonaSuporte := true;
+        if (Close <= line27) and (High + RaioWallWDO >= line27) then emZonaResistencia := true;
+      end;
       SetPlotColor(27, line27Color);
       SetPlotWidth(27, line27Width);
       SetPlotStyle(27, line27Style);
       Plot27(line27);
-      line28 := 187108.415;
-      line28Color := clMidleWall;
-      line28Width := 1;
+      line28 := 5550.000;
+      line28IsMid := false;
       line28Style := 0;
+      line28Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line28 then line28Color := clLime else line28Color := clRed; end else line28Color := clLime;
+      if (Low - RaioWallWDO <= line28) and (High + RaioWallWDO >= line28) then
+      begin
+        if DestacarDefesaNaWall and (not line28IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line28Width := 3;
+        if (Close >= line28) and (Low - RaioWallWDO <= line28) then emZonaSuporte := true;
+        if (Close <= line28) and (High + RaioWallWDO >= line28) then emZonaResistencia := true;
+      end;
       SetPlotColor(28, line28Color);
       SetPlotWidth(28, line28Width);
       SetPlotStyle(28, line28Style);
       Plot28(line28);
-      line29 := 187615.483;
-      line29Color := clRed;
-      line29Width := 2;
-      line29Style := 0;
+      line29 := 5575.000;
+      line29IsMid := true;
+      line29Style := stlMidleWall;
+      line29Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line29 then line29Color := clGreen else line29Color := clMaroon; end else line29Color := clMidleWall;
+      if (Low - RaioWallWDO <= line29) and (High + RaioWallWDO >= line29) then
+      begin
+        if DestacarDefesaNaWall and (not line29IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line29Width := 3;
+        if (Close >= line29) and (Low - RaioWallWDO <= line29) then emZonaSuporte := true;
+        if (Close <= line29) and (High + RaioWallWDO >= line29) then emZonaResistencia := true;
+      end;
       SetPlotColor(29, line29Color);
       SetPlotWidth(29, line29Width);
       SetPlotStyle(29, line29Style);
       Plot29(line29);
-      line30 := 188158.688;
-      line30Color := clFlip;
-      line30Width := 2;
+      line30 := 5600.000;
+      line30IsMid := false;
       line30Style := 0;
+      line30Width := 1;
+      if UsarPolaridadeDinamica then begin if Close >= line30 then line30Color := clLime else line30Color := clRed; end else line30Color := clLime;
+      if (Low - RaioWallWDO <= line30) and (High + RaioWallWDO >= line30) then
+      begin
+        if DestacarDefesaNaWall and (not line30IsMid) and (volTotal >= mediaVol * FatorLoteDefesa) then line30Width := 3;
+        if (Close >= line30) and (Low - RaioWallWDO <= line30) then emZonaSuporte := true;
+        if (Close <= line30) and (High + RaioWallWDO >= line30) then emZonaResistencia := true;
+      end;
       SetPlotColor(30, line30Color);
       SetPlotWidth(30, line30Width);
       SetPlotStyle(30, line30Style);
       Plot30(line30);
-    end
-    else if isDOL then
-    begin
-      line1 := 5134.490;
-      line1Color := clFlip;
-      line1Width := 2;
-      line1Style := 0;
-      SetPlotColor(1, line1Color);
-      SetPlotWidth(1, line1Width);
-      SetPlotStyle(1, line1Style);
-      Plot(line1);
-      line2 := 5150.000;
-      line2Color := clRed;
-      line2Width := 1;
-      line2Style := 0;
-      SetPlotColor(2, line2Color);
-      SetPlotWidth(2, line2Width);
-      SetPlotStyle(2, line2Style);
-      Plot2(line2);
-      line3 := 5165.000;
-      line3Color := clMidleWall;
-      line3Width := 1;
-      line3Style := 0;
-      SetPlotColor(3, line3Color);
-      SetPlotWidth(3, line3Width);
-      SetPlotStyle(3, line3Style);
-      Plot3(line3);
-      line4 := 5180.000;
-      line4Color := clLime;
-      line4Width := 1;
-      line4Style := 0;
-      SetPlotColor(4, line4Color);
-      SetPlotWidth(4, line4Width);
-      SetPlotStyle(4, line4Style);
-      Plot4(line4);
-      line5 := 5190.000;
-      line5Color := clMidleWall;
-      line5Width := 1;
-      line5Style := 0;
-      SetPlotColor(5, line5Color);
-      SetPlotWidth(5, line5Width);
-      SetPlotStyle(5, line5Style);
-      Plot5(line5);
-      line6 := 5200.000;
-      line6Color := clLime;
-      line6Width := 1;
-      line6Style := 0;
-      SetPlotColor(6, line6Color);
-      SetPlotWidth(6, line6Width);
-      SetPlotStyle(6, line6Style);
-      Plot6(line6);
-      line7 := 5225.000;
-      line7Color := clMidleWall;
-      line7Width := 1;
-      line7Style := 0;
-      SetPlotColor(7, line7Color);
-      SetPlotWidth(7, line7Width);
-      SetPlotStyle(7, line7Style);
-      Plot7(line7);
-      line8 := 5250.000;
-      line8Color := clLime;
-      line8Width := 1;
-      line8Style := 0;
-      SetPlotColor(8, line8Color);
-      SetPlotWidth(8, line8Width);
-      SetPlotStyle(8, line8Style);
-      Plot8(line8);
-      line9 := 5265.000;
-      line9Color := clMidleWall;
-      line9Width := 1;
-      line9Style := 0;
-      SetPlotColor(9, line9Color);
-      SetPlotWidth(9, line9Width);
-      SetPlotStyle(9, line9Style);
-      Plot9(line9);
-      line10 := 5280.000;
-      line10Color := clLime;
-      line10Width := 1;
-      line10Style := 0;
-      SetPlotColor(10, line10Color);
-      SetPlotWidth(10, line10Width);
-      SetPlotStyle(10, line10Style);
-      Plot10(line10);
-      line11 := 5290.000;
-      line11Color := clMidleWall;
-      line11Width := 1;
-      line11Style := 0;
-      SetPlotColor(11, line11Color);
-      SetPlotWidth(11, line11Width);
-      SetPlotStyle(11, line11Style);
-      Plot11(line11);
-      line12 := 5300.000;
-      line12Color := clLime;
-      line12Width := 1;
-      line12Style := 0;
-      SetPlotColor(12, line12Color);
-      SetPlotWidth(12, line12Width);
-      SetPlotStyle(12, line12Style);
-      Plot12(line12);
-      line13 := 5310.000;
-      line13Color := clMidleWall;
-      line13Width := 1;
-      line13Style := 0;
-      SetPlotColor(13, line13Color);
-      SetPlotWidth(13, line13Width);
-      SetPlotStyle(13, line13Style);
-      Plot13(line13);
-      line14 := 5320.000;
-      line14Color := clLime;
-      line14Width := 1;
-      line14Style := 0;
-      SetPlotColor(14, line14Color);
-      SetPlotWidth(14, line14Width);
-      SetPlotStyle(14, line14Style);
-      Plot14(line14);
-      line15 := 5335.000;
-      line15Color := clMidleWall;
-      line15Width := 1;
-      line15Style := 0;
-      SetPlotColor(15, line15Color);
-      SetPlotWidth(15, line15Width);
-      SetPlotStyle(15, line15Style);
-      Plot15(line15);
-      line16 := 5350.000;
-      line16Color := clLime;
-      line16Width := 2;
-      line16Style := 0;
-      SetPlotColor(16, line16Color);
-      SetPlotWidth(16, line16Width);
-      SetPlotStyle(16, line16Style);
-      Plot16(line16);
-      line17 := 5375.000;
-      line17Color := clMidleWall;
-      line17Width := 1;
-      line17Style := 0;
-      SetPlotColor(17, line17Color);
-      SetPlotWidth(17, line17Width);
-      SetPlotStyle(17, line17Style);
-      Plot17(line17);
-      line18 := 5400.000;
-      line18Color := clLime;
-      line18Width := 2;
-      line18Style := 0;
-      SetPlotColor(18, line18Color);
-      SetPlotWidth(18, line18Width);
-      SetPlotStyle(18, line18Style);
-      Plot18(line18);
-      line19 := 5425.000;
-      line19Color := clMidleWall;
-      line19Width := 1;
-      line19Style := 0;
-      SetPlotColor(19, line19Color);
-      SetPlotWidth(19, line19Width);
-      SetPlotStyle(19, line19Style);
-      Plot19(line19);
-      line20 := 5450.000;
-      line20Color := clLime;
-      line20Width := 1;
-      line20Style := 0;
-      SetPlotColor(20, line20Color);
-      SetPlotWidth(20, line20Width);
-      SetPlotStyle(20, line20Style);
-      Plot20(line20);
-      line21 := 5465.000;
-      line21Color := clMidleWall;
-      line21Width := 1;
-      line21Style := 0;
-      SetPlotColor(21, line21Color);
-      SetPlotWidth(21, line21Width);
-      SetPlotStyle(21, line21Style);
-      Plot21(line21);
-      line22 := 5480.000;
-      line22Color := clLime;
-      line22Width := 1;
-      line22Style := 0;
-      SetPlotColor(22, line22Color);
-      SetPlotWidth(22, line22Width);
-      SetPlotStyle(22, line22Style);
-      Plot22(line22);
-      line23 := 5490.000;
-      line23Color := clMidleWall;
-      line23Width := 1;
-      line23Style := 0;
-      SetPlotColor(23, line23Color);
-      SetPlotWidth(23, line23Width);
-      SetPlotStyle(23, line23Style);
-      Plot23(line23);
-      line24 := 5500.000;
-      line24Color := clLime;
-      line24Width := 3;
-      line24Style := 0;
-      SetPlotColor(24, line24Color);
-      SetPlotWidth(24, line24Width);
-      SetPlotStyle(24, line24Style);
-      Plot24(line24);
-      line25 := 5525.000;
-      line25Color := clMidleWall;
-      line25Width := 1;
-      line25Style := 0;
-      SetPlotColor(25, line25Color);
-      SetPlotWidth(25, line25Width);
-      SetPlotStyle(25, line25Style);
-      Plot25(line25);
-      line26 := 5550.000;
-      line26Color := clLime;
-      line26Width := 1;
-      line26Style := 0;
-      SetPlotColor(26, line26Color);
-      SetPlotWidth(26, line26Width);
-      SetPlotStyle(26, line26Style);
-      Plot26(line26);
-      line27 := 5575.000;
-      line27Color := clMidleWall;
-      line27Width := 1;
-      line27Style := 0;
-      SetPlotColor(27, line27Color);
-      SetPlotWidth(27, line27Width);
-      SetPlotStyle(27, line27Style);
-      Plot27(line27);
-      line28 := 5600.000;
-      line28Color := clLime;
-      line28Width := 1;
-      line28Style := 0;
-      SetPlotColor(28, line28Color);
-      SetPlotWidth(28, line28Width);
-      SetPlotStyle(28, line28Style);
-      Plot28(line28);
-      line29 := 5625.000;
-      line29Color := clMidleWall;
-      line29Width := 1;
-      line29Style := 0;
-      SetPlotColor(29, line29Color);
-      SetPlotWidth(29, line29Width);
-      SetPlotStyle(29, line29Style);
-      Plot29(line29);
-      NoPlot(30);
-      emZona := false;
-      if (Low - 2.0 <= line1) and (High + 2.0 >= line1) then emZona := true;
-      if (Low - 2.0 <= line2) and (High + 2.0 >= line2) then emZona := true;
-      if (Low - 2.0 <= line3) and (High + 2.0 >= line3) then emZona := true;
-      if (Low - 2.0 <= line4) and (High + 2.0 >= line4) then emZona := true;
-      if (Low - 2.0 <= line5) and (High + 2.0 >= line5) then emZona := true;
-      if (Low - 2.0 <= line6) and (High + 2.0 >= line6) then emZona := true;
-      if (Low - 2.0 <= line7) and (High + 2.0 >= line7) then emZona := true;
-      if (Low - 2.0 <= line8) and (High + 2.0 >= line8) then emZona := true;
-      if (Low - 2.0 <= line9) and (High + 2.0 >= line9) then emZona := true;
-      if (Low - 2.0 <= line10) and (High + 2.0 >= line10) then emZona := true;
-      if (Low - 2.0 <= line11) and (High + 2.0 >= line11) then emZona := true;
-      if (Low - 2.0 <= line12) and (High + 2.0 >= line12) then emZona := true;
-      if (Low - 2.0 <= line13) and (High + 2.0 >= line13) then emZona := true;
-      if (Low - 2.0 <= line14) and (High + 2.0 >= line14) then emZona := true;
-      if (Low - 2.0 <= line15) and (High + 2.0 >= line15) then emZona := true;
-      if (Low - 2.0 <= line16) and (High + 2.0 >= line16) then emZona := true;
-      if (Low - 2.0 <= line17) and (High + 2.0 >= line17) then emZona := true;
-      if (Low - 2.0 <= line18) and (High + 2.0 >= line18) then emZona := true;
-      if (Low - 2.0 <= line19) and (High + 2.0 >= line19) then emZona := true;
-      if (Low - 2.0 <= line20) and (High + 2.0 >= line20) then emZona := true;
-      if (Low - 2.0 <= line21) and (High + 2.0 >= line21) then emZona := true;
-      if (Low - 2.0 <= line22) and (High + 2.0 >= line22) then emZona := true;
-      if (Low - 2.0 <= line23) and (High + 2.0 >= line23) then emZona := true;
-      if (Low - 2.0 <= line24) and (High + 2.0 >= line24) then emZona := true;
-      if (Low - 2.0 <= line25) and (High + 2.0 >= line25) then emZona := true;
-      if (Low - 2.0 <= line26) and (High + 2.0 >= line26) then emZona := true;
-      if (Low - 2.0 <= line27) and (High + 2.0 >= line27) then emZona := true;
-      if (Low - 2.0 <= line28) and (High + 2.0 >= line28) then emZona := true;
-      if (Low - 2.0 <= line29) and (High + 2.0 >= line29) then emZona := true;
-      rangeBarra := High - Low;
-      if emZona and (rangeBarra > 0) then
-      begin
-        if (Close >= Low + rangeBarra * 0.60) and ((Open - Low >= rangeBarra * 0.35) or (Close - Low >= rangeBarra * 0.68)) then
-          PaintBar(clAqua)
-        else if (Close <= High - rangeBarra * 0.60) and ((High - Open >= rangeBarra * 0.35) or (High - Close >= rangeBarra * 0.68)) then
-          PaintBar(clFuchsia)
-        else if (Close > Open) and ((Close - Open) >= rangeBarra * 0.72) then
-          PaintBar(clLime)
-        else if (Close < Open) and ((Open - Close) >= rangeBarra * 0.72) then
-          PaintBar(clRed);
-      end;
     end
     else
     begin
@@ -700,6 +1116,107 @@ BEGIN
       NoPlot(28);
       NoPlot(29);
       NoPlot(30);
+    end;
+
+    // ── 2. AVALIAÇÃO DE DEFESA NA WALL + EXPLOSÃO DE FLUXO ──
+    if isWIN or isDOL then
+    begin
+      rangeBarra := High - Low;
+      if Open < Close then pavioInf := Open - Low else pavioInf := Close - Low;
+      if Open > Close then pavioSup := High - Open else pavioSup := High - Close;
+
+      sinalCompraWall := false;
+      sinalVendaWall := false;
+      sinalCompraFluxo := false;
+      sinalVendaFluxo := false;
+
+      if rangeBarra > 0 then
+      begin
+        // Regra 1: Compra por Absorção / Defesa na Wall de Suporte
+        if emZonaSuporte and (Close >= Low + rangeBarra * 0.50) and (volTotal >= mediaVol * 0.85) and
+           (((pavioInf >= rangeBarra * 0.32) and ((saldoAgr < 0) or (deltaInstProxy > 0))) or
+            ((Close > Open) and (pesoInst >= 1.15) and (saldoAgr > 0))) then
+          sinalCompraWall := true;
+
+        // Regra 2: Venda por Rejeição / Absorção na Wall de Resistência
+        if emZonaResistencia and (Close <= High - rangeBarra * 0.50) and (volTotal >= mediaVol * 0.85) and
+           (((pavioSup >= rangeBarra * 0.32) and ((saldoAgr > 0) or (deltaInstProxy < 0))) or
+            ((Close < Open) and (pesoInst >= 1.15) and (saldoAgr < 0))) then
+          sinalVendaWall := true;
+
+        // Regra 3: Compra por Explosão de Fluxo Institucional
+        if (not sinalCompraWall) and (Close > Open) and (pesoInst >= 1.25) and
+           (volTotal >= mediaVol * 1.25) and (desequilibrioPct >= 12.0) and (janelaDir = 1) then
+          sinalCompraFluxo := true;
+
+        // Regra 4: Venda por Explosão de Fluxo Institucional
+        if (not sinalVendaWall) and (Close < Open) and (pesoInst >= 1.25) and
+           (volTotal >= mediaVol * 1.25) and (desequilibrioPct <= -12.0) and (janelaDir = -1) then
+          sinalVendaFluxo := true;
+      end;
+
+      // Se ApenasAFavorDaJanela = true (Metodologia 2), bloqueia sinais contra a Janela A.S.G
+      if ApenasAFavorDaJanela then
+      begin
+        if janelaDir = 1 then
+        begin
+          sinalVendaWall := false;
+          sinalVendaFluxo := false;
+        end
+        else
+        begin
+          sinalCompraWall := false;
+          sinalCompraFluxo := false;
+        end;
+      end;
+
+      // ── 3. PINTURA DOS CANDLES (FLUXO REAL A.S.G + DEFESA NA WALL) ──
+      if ColorirVelasFluxoASG then
+      begin
+        if sinalCompraWall then
+          PaintBar(clAqua)
+        else if sinalVendaWall then
+          PaintBar(clFuchsia)
+        else if janelaDir = 1 then
+        begin
+          if (Close >= Open) or (saldoAgr >= 0) then
+            PaintBar(clLime)
+          else
+            PaintBar(clSilver); // Pullback / Respiro dentro da Janela Verde
+        end
+        else
+        begin
+          if (Close <= Open) or (saldoAgr <= 0) then
+            PaintBar(clRed)
+          else
+            PaintBar(clSilver); // Pullback / Respiro dentro da Janela Vermelha
+        end;
+      end;
+
+      // ── 4. SETINHAS OPERACIONAIS NO GRÁFICO (COM COOLDOWN DE 3 BARRAS) ──
+      if MostrarSetasSinais and ((CurrentBar - barraUltimoSinal) >= 3) then
+      begin
+        if sinalCompraWall then
+        begin
+          PlotText("▲ WALL", clAqua, 0, 10);
+          barraUltimoSinal := CurrentBar;
+        end
+        else if sinalVendaWall then
+        begin
+          PlotText("▼ WALL", clFuchsia, 2, 10);
+          barraUltimoSinal := CurrentBar;
+        end
+        else if sinalCompraFluxo then
+        begin
+          PlotText("▲ FLUXO", clLime, 0, 9);
+          barraUltimoSinal := CurrentBar;
+        end
+        else if sinalVendaFluxo then
+        begin
+          PlotText("▼ FLUXO", clRed, 2, 9);
+          barraUltimoSinal := CurrentBar;
+        end;
+      end;
     end;
   end
   else

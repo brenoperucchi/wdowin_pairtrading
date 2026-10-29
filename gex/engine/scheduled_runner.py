@@ -154,7 +154,11 @@ def run_pipeline_step(step_name, module_name):
     env = os.environ.copy()
     env["GEX_SCHEDULED"] = "1"
     
-    res = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
+    try:
+        res = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env, timeout=900)
+    except subprocess.TimeoutExpired:
+        print(f"[Aviso] Etapa {step_name} excedeu 15 min e foi abortada. Continuando esteira...")
+        return
     if res.returncode != 0:
         print(f"[Aviso] Etapa {step_name} retornou código {res.returncode}. Continuando esteira...")
     else:
@@ -182,8 +186,9 @@ def run_full_gex_pipeline():
         ("[10/14] USD / JPY (Forex)", "gex.engine.main_jpy"),
         ("[11/14] DAX 40 / DE40 (Alemanha)", "gex.engine.main_dax"),
         ("[12/14] Nikkei 225 / JP225 (Japão)", "gex.engine.main_nikkei"),
-        ("[13/14] Russell 2000 / US2000 (EUA Small Caps)", "gex.engine.main_russell"),
-        ("[14/14] China 50 / FXI (China)", "gex.engine.main_china"),
+        ("[13/15] Russell 2000 / US2000 (EUA Small Caps)", "gex.engine.main_russell"),
+        ("[14/15] China 50 / FXI (China)", "gex.engine.main_china"),
+        ("[15/15] Dollar Index / DXY (EUA)", "gex.engine.main_dxy"),
     ]
     
     for name, mod in steps:

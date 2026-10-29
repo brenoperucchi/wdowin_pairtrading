@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST03_Scalper_Cambial_WDO.mq5
-//| EST-03 [Scalper Cambial] Confluencia WIN+WDO
+//| EST-03 [Mantido Original] Arbitragem Cambial WIN+WDO Wall (Ret/DD 6.68)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-03 [Scalper Cambial] Confluencia WIN+WDO"
-#property version   "1.00"
+#property description "EST-03 [Mantido Original] Arbitragem Cambial WIN+WDO Wall (Ret/DD 6.68)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

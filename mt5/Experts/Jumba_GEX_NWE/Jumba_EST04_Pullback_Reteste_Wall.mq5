@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST04_Pullback_Reteste_Wall.mq5
-//| EST-04 [Pullback Limit] Reteste de Wall Rompida
+//| EST-04 [Matriz WDO Reteste 220p(off-5) + BE_2Stage(15) + TP_MidWall] (Ret/DD 4.88)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-04 [Pullback Limit] Reteste de Wall Rompida"
-#property version   "1.00"
+#property description "EST-04 [Matriz WDO Reteste 220p(off-5) + BE_2Stage(15) + TP_MidWall] (Ret/DD 4.88)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

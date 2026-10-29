@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST05_Pullback_Cluster_NWE.mq5
-//| EST-05 [Pullback Cluster] NWE Center + Wall
+//| EST-05 [3-Pilares Limit_ExtB1 + TP_MainWall] Pullback Cluster NWE (Ret/DD 6.57)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-05 [Pullback Cluster] NWE Center + Wall"
-#property version   "1.00"
+#property description "EST-05 [3-Pilares Limit_ExtB1 + TP_MainWall] Pullback Cluster NWE (Ret/DD 6.57)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

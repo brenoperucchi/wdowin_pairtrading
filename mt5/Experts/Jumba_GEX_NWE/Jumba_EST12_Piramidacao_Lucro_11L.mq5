@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST12_Piramidacao_Lucro_11L.mq5
-//| EST-12 [Piramidacao no Lucro] 1+1 Lote Anti-Martingale
+//| EST-12 [3-Pilares TP_MainWall Real] Piramidacao no Lucro 1+1L (Ret/DD 4.47)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-12 [Piramidacao no Lucro] 1+1 Lote Anti-Martingale"
-#property version   "1.00"
+#property description "EST-12 [3-Pilares TP_MainWall Real] Piramidacao no Lucro 1+1L (Ret/DD 4.47)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

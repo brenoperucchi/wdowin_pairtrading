@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST10_Breakout_Stop_Wick.mq5
-//| EST-10 [Breakout Stop] Stop Wick Pavio na Wall
+//| EST-10 [Matriz WDO MainWalls pos50+GammaFlip + BE_177k(240/45)] (Ret/DD 5.20)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-10 [Breakout Stop] Stop Wick Pavio na Wall"
-#property version   "1.00"
+#property description "EST-10 [Matriz WDO MainWalls pos50+GammaFlip + BE_177k(240/45)] (Ret/DD 5.20)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

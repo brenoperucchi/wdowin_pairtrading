@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST15_Posicional_EOD_Breakout.mq5
-//| EST-15 [Posicional EOD] Breakout Matinal -> 17h15
+//| EST-15 [3-Pilares Stop_B1 + BE_Wall(15) + TP_MainWall] EOD Breakout (Ret/DD 6.05)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-15 [Posicional EOD] Breakout Matinal -> 17h15"
-#property version   "1.00"
+#property description "EST-15 [3-Pilares Stop_B1 + BE_Wall(15) + TP_MainWall] EOD Breakout (Ret/DD 6.05)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

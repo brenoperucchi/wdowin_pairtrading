@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST02_Scalper_Hibrido_DiaTodo.mq5
-//| EST-02 [Scalper Limit+Mkt] Dia Todo (09h-17h)
+//| EST-02 [3-Pilares Limit_50%B1 + TP_MainWall] Scalper Dia Todo (Ret/DD 3.80)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-02 [Scalper Limit+Mkt] Dia Todo (09h-17h)"
-#property version   "1.00"
+#property description "EST-02 [3-Pilares Limit_50%B1 + TP_MainWall] Scalper Dia Todo (Ret/DD 3.80)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST08_Breakout_Rapido_Core.mq5
-//| EST-08 [Breakout Mkt] Momentum Rapido Core
+//| EST-08 [3-Pilares TP_MainWall Real] Breakout Rapido Core (Ret/DD 5.40)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-08 [Breakout Mkt] Momentum Rapido Core"
-#property version   "1.00"
+#property description "EST-08 [3-Pilares TP_MainWall Real] Breakout Rapido Core (Ret/DD 5.40)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

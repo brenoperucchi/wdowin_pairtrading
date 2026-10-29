@@ -2153,11 +2153,11 @@ def update_flow(
 @app.get("/api/compass/etapa1")
 @app.get("/api/compass/all")
 @app.get("/api/flow/microstructure")
-def get_compass_etapa1():
+def get_compass_etapa1(date_str: str = None):
     """Retorna o snapshot completo unificado das Etapas 1, 2 (Caminho A) e 3 (Caminho B) e sincroniza _broker_flow."""
     try:
         from core.profit_mt5_flow_engine import flow_engine_singleton
-        snap = flow_engine_singleton.update()
+        snap = flow_engine_singleton.update(date_str=date_str)
         win_b = snap.get("WIN", {}).get("brokers", {})
         if win_b:
             any_vol = False
@@ -2187,7 +2187,7 @@ def get_compass_etapa2():
     """Retorna a análise da Etapa 2 (Caminho A — Pressão de Hedge Dinâmico dos Dealers GEX cruzada com o Fluxo Profit/MT5)."""
     try:
         from core.profit_mt5_flow_engine import flow_engine_singleton
-        snap = flow_engine_singleton.update()
+        snap = flow_engine_singleton.update(date_str=date_str)
         return {
             "ok": snap.get("ok", True),
             "timestamp": snap.get("timestamp"),

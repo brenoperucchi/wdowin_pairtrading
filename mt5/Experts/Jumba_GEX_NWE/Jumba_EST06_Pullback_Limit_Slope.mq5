@@ -1,10 +1,10 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST06_Pullback_Limit_Slope.mq5
-//| EST-06 [Pullback Limit] Ordem Limit na Wall c/ Slope
+//| EST-06 [3-Pilares Stop_B1 + BE_Wall(15) + TP_MainWall] Slope Wall (Ret/DD 5.99)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-06 [Pullback Limit] Ordem Limit na Wall c/ Slope"
-#property version   "1.00"
+#property description "EST-06 [3-Pilares Stop_B1 + BE_Wall(15) + TP_MainWall] Slope Wall (Ret/DD 5.99)"
+#property version   "2.00"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -31,7 +31,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

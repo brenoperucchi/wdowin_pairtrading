@@ -97,6 +97,57 @@ class AssetGexCurveModel:
             self.strike_gex = np.array(g_list, dtype=np.float64)[order]
             self.strike_widths = np.array(w_list, dtype=np.int32)[order]
 
+    @classmethod
+    def from_walls_list(cls, asset: str, session_date: str, all_walls: list):
+        """Constrói um modelo GEX calibrado a partir da lista histórica de MagicWalls daquela data."""
+        inst = cls.__new__(cls)
+        inst.asset = asset.upper()
+        inst.cache_file = ""
+        inst.ref_date = session_date
+        inst.updated_at = f"Histórico {session_date}"
+        inst.gamma_flip = 0.0
+        inst.max_gamma_price = 0.0
+        inst.max_gamma_val = 0.0
+        inst.min_gamma_price = 0.0
+        inst.min_gamma_val = 0.0
+        inst.factor = 1.0
+        inst.walls_raw = list(all_walls or [])
+        inst._last_mtime = 0.0
+
+        for w in inst.walls_raw:
+            wtype = w.get("type", "")
+            p = float(w.get("price", 0.0))
+            if wtype == "GammaFlip":
+                inst.gamma_flip = p
+            elif wtype == "MaxGamma":
+                inst.max_gamma_price = p
+            elif wtype == "MinGamma":
+                inst.min_gamma_price = p
+
+        unit_gex = 35e9 if inst.asset == "WIN" else 180e6
+        s_list, g_list, w_list = [], [], []
+        for w in inst.walls_raw:
+            if w.get("type") == "Wall":
+                p = float(w.get("price", 0.0))
+                width = int(w.get("width", 1))
+                if p > 0:
+                    polarity = 1.0 if (inst.gamma_flip > 0 and p >= inst.gamma_flip) else -1.0
+                    g_val = float(w.get("gex", polarity * width * unit_gex))
+                    s_list.append(p)
+                    g_list.append(g_val)
+                    w_list.append(width)
+
+        if s_list:
+            order = np.argsort(s_list)
+            inst.strikes = np.array(s_list, dtype=np.float64)[order]
+            inst.strike_gex = np.array(g_list, dtype=np.float64)[order]
+            inst.strike_widths = np.array(w_list, dtype=np.int32)[order]
+        else:
+            inst.strikes = np.array([], dtype=np.float64)
+            inst.strike_gex = np.array([], dtype=np.float64)
+            inst.strike_widths = np.array([], dtype=np.int32)
+        return inst
+
     def evaluate_local_gex(self, spot_price: float) -> dict:
         """
         Avalia a exposição de Gamma Líquido (Net GEX) no preço atual S(t) usando interpolação
@@ -254,8 +305,15 @@ class GexLiveDealerEngine:
 
     def analyze_asset(self, symbol_payload: dict) -> dict:
         asset = symbol_payload.get("asset", "WIN").upper()
-        model = self.win_model if asset == "WIN" else self.wdo_model
-        model.reload_if_needed()
+        base_model = self.win_model if asset == "WIN" else self.wdo_model
+        base_model.reload_if_needed()
+
+        sess_date = symbol_payload.get("session_date", "")
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if sess_date and sess_date != today_str and symbol_payload.get("all_walls"):
+            model = AssetGexCurveModel.from_walls_list(asset, sess_date, symbol_payload.get("all_walls", []))
+        else:
+            model = base_model
 
         spot = float(symbol_payload.get("last_price", 0.0))
         open_p = float(symbol_payload.get("open_price", spot))
@@ -300,8 +358,52 @@ class GexLiveDealerEngine:
         nearest_sup = sup_walls[0] if sup_walls else None
         nearest_res = res_walls[0] if res_walls else None
 
-        # Enriquecer cada Wall próxima com o seu GEX e o comportamento esperado do Dealer naquela linha
+        # Enriquecer cada Wall próxima e todas as all_walls com GEX, Lotes de Hedge dos Makers e Lotes de Defesa Institucional
         gex_by_price = {round(float(model.strikes[i]), 1): float(model.strike_gex[i]) for i in range(len(model.strikes))}
+        all_walls_list = symbol_payload.get("all_walls", [])
+
+        max_inst_wall_vol = max(
+            [float(w.get("inst_total_vol", 0.0)) for w in all_walls_list if w.get("type") == "Wall"] + [5000.0 if asset == "WIN" else 1000.0]
+        )
+        max_abs_gex = float(np.max(np.abs(model.strike_gex))) if len(model.strike_gex) > 0 else 1.0
+        if max_abs_gex <= 0:
+            max_abs_gex = 1.0
+
+        for w in all_walls_list:
+            wp = round(float(w.get("price", 0.0)), 1)
+            wgex = gex_by_price.get(wp, 0.0)
+            if wgex == 0.0 and w.get("type") == "Wall":
+                wgex = float(model.evaluate_local_gex(wp).get("net_gex_raw", 0.0))
+            w["gex_raw"] = wgex
+            w["gex_formatted"] = (
+                f"{wgex/1e9:+.1f}B" if (asset == "WIN" and wgex != 0)
+                else (f"{wgex/1e6:+.0f}M" if (asset == "WDO" and wgex != 0) else "MidWall")
+            )
+            # Lotes de Hedge dos Market Makers (Dealers) naquela Wall
+            maker_lots = round(abs(wgex) / 1e9 * 45.0, 0) if asset == "WIN" else round(abs(wgex) / 1e6 * 1.2, 0)
+            w["maker_hedge_lots"] = int(maker_lots)
+
+            is_res = wp > spot
+            inst_b = float(w.get("inst_buy_vol", 0.0))
+            inst_s = float(w.get("inst_sell_vol", 0.0))
+            inst_tot = float(w.get("inst_total_vol", inst_b + inst_s))
+            def_lots = inst_s if is_res else inst_b
+            w["defense_lots"] = int(round(def_lots, 0))
+            w["inst_total_vol"] = int(round(inst_tot, 0))
+
+            # Score de Força da Wall (0 a 100): 55% Defesa/Absorção Institucional Real + 45% Potência GEX / Hedge Makers
+            inst_pct = min(100.0, (inst_tot / max(1.0, max_inst_wall_vol)) * 100.0)
+            gex_pct = min(100.0, (abs(wgex) / max_abs_gex) * 100.0) if wgex != 0 else (int(w.get("width", 1)) * 30.0)
+            power_pct = int(round(np.clip(0.55 * inst_pct + 0.45 * gex_pct, 8.0, 100.0)))
+            w["wall_power_pct"] = power_pct
+
+            if power_pct >= 35 or (inst_tot >= max_inst_wall_vol * 0.35):
+                w["wall_tier"] = "FORTE"
+            elif power_pct >= 23:
+                w["wall_tier"] = "MODERADA"
+            else:
+                w["wall_tier"] = "FRACA"
+
         for w_list in (sup_walls, res_walls):
             for w in w_list:
                 wp = round(float(w["price"]), 1)
@@ -400,6 +502,22 @@ class GexLiveDealerEngine:
             all_walls=all_walls,
         )
 
+        # Construir HUD estilo A.S.G + Radar Pro (Decisão em 1 Segundo + Gatilhos Visuais no Gráfico)
+        asg_hud = self._build_asg_hud(
+            asset=asset,
+            spot=spot,
+            vwap=vwap,
+            m5_enriched=signals_result["m5_enriched_series"],
+            flow_Windows=signals_result["flow_windows"],
+            flow_score=flow_score,
+            dealer_pressure_score=dealer_pressure_score,
+            local_gex=local_gex,
+            sup_walls=sup_walls,
+            res_walls=res_walls,
+            op_state=op_state,
+            symbol_payload=symbol_payload,
+        )
+
         return {
             "ref_date": model.ref_date,
             "local_gex": local_gex,
@@ -421,12 +539,14 @@ class GexLiveDealerEngine:
                 "actionable_playbook": playbook,
             },
             "m5_dealer_vs_flow_series": signals_result["m5_enriched_series"],
+            "flow_windows": signals_result["flow_windows"],
+            "asg_hud": asg_hud,
             "signals_log": signals_result["signals_log"],
             "signals_scorecard": signals_result["scorecard"],
         }
 
     def _evaluate_intraday_signals_and_scorecard(
-        self, asset: str, m5_series: list, model: AssetGexCurveModel, all_walls: list
+        self, asset: str, m5_series: list, model: AssetGexCurveModel, all_walls: list, align_with_window: bool = False
     ) -> dict:
         """
         Percorre todas as barras M5 do pregão (09h00 até agora), marca no tempo cada Sinal Oficial
@@ -448,9 +568,31 @@ class GexLiveDealerEngine:
 
         m5_enriched = []
         signals_log = []
+        flow_windows = []
         cum_dealer_hedge = 0.0
         last_sig_idx_by_dir = {1: -99, -1: -99}
         last_any_sig_idx = -99
+
+        alpha_fast = 2.0 / (4.0 + 1.0)
+        alpha_slow = 2.0 / (11.0 + 1.0)
+        alpha_band = 2.0 / (7.0 + 1.0)
+
+        first_b = m5_series[0] if m5_series else {}
+        first_c = float(first_b.get("close", 0.0))
+        first_h = float(first_b.get("high", first_c))
+        first_l = float(first_b.get("low", first_c))
+        first_cvd = round(float(first_b.get("cvd_inst", 0.0)), 0)
+
+        ema_p_high = first_h
+        ema_p_low = first_l
+        ema_atr = max(first_h - first_l, 40.0 if is_win else 1.5)
+        ema_cvd_f = first_cvd
+        ema_cvd_s = first_cvd
+        ema_cvd_step = max(abs(float(first_b.get("inst_delta_bar", 0.0))), 2500.0 if is_win else 500.0)
+        ema_hist = 0.0
+        active_win_dir = 0
+        curr_window = None
+        prev_candle_state = 0
 
         n = len(m5_series)
         for idx, b in enumerate(m5_series):
@@ -507,85 +649,265 @@ class GexLiveDealerEngine:
             loc_g = model.evaluate_local_gex(c)
             is_neg_g = loc_g["local_regime"] == "NEGATIVE_GAMMA"
 
+            # ── 1º PASSO: ATUALIZA JANELA DE FLUXO A.S.G DESTA BARRA ─────────────
+            cvd = round(float(b["cvd_inst"]), 0)
+            prev_cvd = m5_enriched[idx - 1]["cvd_inst"] if idx > 0 else (cvd - round(inst_5m, 0))
+
+            rng_bar = max(round(h, 2) - round(l, 2), 15.0 if is_win else 0.5)
+            ema_atr = alpha_band * rng_bar + (1.0 - alpha_band) * ema_atr
+            ema_p_high = alpha_band * round(h, 2) + (1.0 - alpha_band) * ema_p_high
+            ema_p_low = alpha_band * round(l, 2) + (1.0 - alpha_band) * ema_p_low
+
+            p_upper_trava = round(ema_p_high + 0.35 * ema_atr, 2)
+            p_lower_trava = round(ema_p_low - 0.35 * ema_atr, 2)
+            p_mid_trava = round(0.5 * (p_upper_trava + p_lower_trava), 2)
+
+            ema_cvd_f = alpha_fast * cvd + (1.0 - alpha_fast) * ema_cvd_f
+            ema_cvd_s = alpha_slow * cvd + (1.0 - alpha_slow) * ema_cvd_s
+            ema_cvd_step = alpha_band * max(abs(cvd - prev_cvd), 500.0 if is_win else 100.0) + (1.0 - alpha_band) * ema_cvd_step
+
+            flow_upper_trava = round(max(cvd, prev_cvd, ema_cvd_f) + 0.8 * ema_cvd_step, 0)
+            flow_lower_trava = round(min(cvd, prev_cvd, ema_cvd_f) - 0.8 * ema_cvd_step, 0)
+
+            raw_cvd_osc = (ema_cvd_f - ema_cvd_s) / max(1.0, ema_cvd_step * 1.4)
+            raw_price_osc = (round(c, 2) - p_mid_trava) / max(1.0, ema_atr * 0.9)
+            raw_score = float(np.clip((0.68 * raw_cvd_osc + 0.32 * raw_price_osc) * 55.0, -100.0, 100.0))
+            ema_hist = 0.45 * raw_score + 0.55 * ema_hist
+            hist_val = round(float(np.clip(ema_hist, -100.0, 100.0)), 1)
+
+            if active_win_dir == 0:
+                if hist_val >= 4.0 or (cvd >= prev_cvd and round(c, 2) >= round(o, 2)):
+                    active_win_dir = 1
+                else:
+                    active_win_dir = -1
+            elif active_win_dir == 1 and hist_val <= -6.5:
+                active_win_dir = -1
+            elif active_win_dir == -1 and hist_val >= 6.5:
+                active_win_dir = 1
+
+            is_win_start = False
+            if curr_window is None or curr_window["dir"] != active_win_dir:
+                is_win_start = True
+                if curr_window is not None and idx > 0:
+                    curr_window["end_idx"] = idx - 1
+                    curr_window["end_time"] = m5_enriched[idx - 1]["time"]
+                    curr_window["end_price"] = m5_enriched[idx - 1]["close"]
+                    curr_window["net_pts"] = round(
+                        curr_window["dir"] * (curr_window["end_price"] - curr_window["entry_price"]), 1
+                    )
+                    flow_windows.append(curr_window)
+
+                curr_window = {
+                    "id": f"WIN_{idx}_{time_str}",
+                    "dir": active_win_dir,
+                    "label": "JANELA DE COMPRA" if active_win_dir > 0 else "JANELA DE VENDA",
+                    "start_idx": idx,
+                    "start_time": time_str,
+                    "entry_price": round(c, 2),
+                    "max_favor_pts": 0.0,
+                    "end_idx": idx,
+                    "end_time": time_str,
+                    "end_price": round(c, 2),
+                    "net_pts": 0.0,
+                }
+            else:
+                curr_window["end_idx"] = idx
+                curr_window["end_time"] = time_str
+                curr_window["end_price"] = round(c, 2)
+                curr_window["net_pts"] = round(
+                    curr_window["dir"] * (round(c, 2) - curr_window["entry_price"]), 1
+                )
+                fav_now = (round(h, 2) - curr_window["entry_price"]) if active_win_dir > 0 else (curr_window["entry_price"] - round(l, 2))
+                if fav_now > curr_window["max_favor_pts"]:
+                    curr_window["max_favor_pts"] = round(fav_now, 1)
+
+            if active_win_dir == 1:
+                candle_state = 1 if (round(c, 2) >= round(o, 2) or round(c, 2) >= p_mid_trava or cvd >= prev_cvd) else 0
+            else:
+                candle_state = -1 if (round(c, 2) <= round(o, 2) or round(c, 2) <= p_mid_trava or cvd <= prev_cvd) else 0
+
+            # ── 2º PASSO: SETINHAS DO GRÁFICO 100% ALINHADAS COM A JANELA A.S.G ──
             sig_dir = 0
             sig_type = ""
             sig_reason = ""
             nearest_w = None
 
             if idx >= 1:
-                # 1. COMPRA POR ABSORÇÃO / DEFESA DE SUPORTE NA WALL
-                if (
-                    sup_w is not None
-                    and c >= l + 0.50 * rng
-                    and (
-                        # Caso A: Absorção passiva (venda bateu na mínima e deixou pavio de defesa)
-                        (lower_wick >= 0.32 * rng and (delta_5m < 0 or inst_5m > 0))
-                        # Caso B: Reversão institucional na parede (institucional comprou defendendo o piso)
-                        or (inst_5m >= inst_thresh_5m * 0.45 and c > o)
-                    )
-                ):
-                    sig_dir = 1
-                    nearest_w = sup_w
-                    sig_type = "COMPRA · DEFESA NA WALL"
-                    sig_reason = (
-                        f"Defesa + Absorção no suporte {sup_w['type']} @ {sup_w['price']:{p_fmt}} "
-                        f"(Delta Inst 5m: {inst_5m:+.0f}L | Pavio Defesa: {lower_wick:{p_fmt}}p)"
-                    )
+                if not align_with_window:
+                    # ── METODOLOGIA 1 (PADRÃO): ANTECIPAÇÃO NA WALL + FLUXO INSTITUCIONAL ──
+                    # 1. COMPRA POR ABSORÇÃO / DEFESA DE SUPORTE NA WALL
+                    if (
+                        sup_w is not None
+                        and c >= l + 0.50 * rng
+                        and (
+                            (lower_wick >= 0.32 * rng and (delta_5m < 0 or inst_5m > 0))
+                            or (inst_5m >= inst_thresh_5m * 0.45 and c > o)
+                        )
+                    ):
+                        sig_dir = 1
+                        nearest_w = sup_w
+                        sig_type = "COMPRA · DEFESA NA WALL"
+                        sig_reason = (
+                            f"Defesa + Absorção no suporte {sup_w['type']} @ {sup_w['price']:{p_fmt}} "
+                            f"(Delta Inst 5m: {inst_5m:+.0f}L | Pavio Defesa: {lower_wick:{p_fmt}}p)"
+                        )
 
-                # 2. VENDA POR ABSORÇÃO / DEFESA DE RESISTÊNCIA NA WALL
-                elif (
-                    res_w is not None
-                    and c <= h - 0.50 * rng
-                    and (
-                        # Caso A: Absorção passiva no teto (compra bateu na máxima e deixou pavio superior)
-                        (upper_wick >= 0.32 * rng and (delta_5m > 0 or inst_5m < 0))
-                        # Caso B: Rejeição institucional na parede (institucional vendeu defendendo o teto)
-                        or (inst_5m <= -inst_thresh_5m * 0.45 and c < o)
-                    )
-                ):
-                    sig_dir = -1
-                    nearest_w = res_w
-                    sig_type = "VENDA · DEFESA NA WALL"
-                    sig_reason = (
-                        f"Rejeição + Absorção na resistência {res_w['type']} @ {res_w['price']:{p_fmt}} "
-                        f"(Delta Inst 5m: {inst_5m:+.0f}L | Pavio Rejeição: {upper_wick:{p_fmt}}p)"
-                    )
+                    # 2. VENDA POR ABSORÇÃO / DEFESA DE RESISTÊNCIA NA WALL
+                    elif (
+                        res_w is not None
+                        and c <= h - 0.50 * rng
+                        and (
+                            (upper_wick >= 0.32 * rng and (delta_5m > 0 or inst_5m < 0))
+                            or (inst_5m <= -inst_thresh_5m * 0.45 and c < o)
+                        )
+                    ):
+                        sig_dir = -1
+                        nearest_w = res_w
+                        sig_type = "VENDA · DEFESA NA WALL"
+                        sig_reason = (
+                            f"Rejeição + Absorção na resistência {res_w['type']} @ {res_w['price']:{p_fmt}} "
+                            f"(Delta Inst 5m: {inst_5m:+.0f}L | Pavio Rejeição: {upper_wick:{p_fmt}}p)"
+                        )
 
-                # 3. COMPRA POR FLUXO INSTITUCIONAL + DEALER
-                elif (
-                    inst_5m >= inst_thresh_5m
-                    and inst_15m >= inst_thresh_5m * (0.8 if is_neg_g else 1.35)
-                    and imb_5m >= 9.0
-                    and c > o
-                    and (
-                        is_neg_g  # Em Gamma-, acompanha aceleração
-                        or (move_15m <= target_pts * 0.35 and body <= target_pts * 0.95)  # Em Gamma+, só compra retomada na base sem vela exausta
-                    )
-                ):
-                    sig_dir = 1
-                    sig_type = "COMPRA · FLUXO INSTITUCIONAL" + (" + SQUEEZE" if is_neg_g else "")
-                    sig_reason = (
-                        f"Agressão Institucional Forte (+{inst_5m:.0f}L em 5m / +{inst_15m:.0f}L em 15m) "
-                        f"+ Desequilíbrio +{imb_5m:.1f}% ({'Gamma− Acelerador' if is_neg_g else 'Retomada na Base'})"
-                    )
+                    # 3. COMPRA POR FLUXO INSTITUCIONAL + DEALER
+                    elif (
+                        inst_5m >= inst_thresh_5m
+                        and inst_15m >= inst_thresh_5m * (0.8 if is_neg_g else 1.35)
+                        and imb_5m >= 9.0
+                        and c > o
+                        and (
+                            is_neg_g
+                            or (move_15m <= target_pts * 0.35 and body <= target_pts * 0.95)
+                        )
+                    ):
+                        sig_dir = 1
+                        sig_type = "COMPRA · FLUXO INSTITUCIONAL" + (" + SQUEEZE" if is_neg_g else "")
+                        sig_reason = (
+                            f"Agressão Institucional Forte (+{inst_5m:.0f}L em 5m / +{inst_15m:.0f}L em 15m) "
+                            f"+ Desequilíbrio +{imb_5m:.1f}% ({'Gamma− Acelerador' if is_neg_g else 'Retomada na Base'})"
+                        )
 
-                # 4. VENDA POR FLUXO INSTITUCIONAL + DEALER
-                elif (
-                    inst_5m <= -inst_thresh_5m
-                    and inst_15m <= -inst_thresh_5m * (0.8 if is_neg_g else 1.35)
-                    and imb_5m <= -9.0
-                    and c < o
-                    and (
-                        is_neg_g  # Em Gamma-, acompanha aceleração
-                        or (move_15m >= -target_pts * 0.35 and body <= target_pts * 0.95)  # Em Gamma+, só vende rejeição no topo sem vela exausta
-                    )
-                ):
-                    sig_dir = -1
-                    sig_type = "VENDA · FLUXO INSTITUCIONAL" + (" + DROP" if is_neg_g else "")
-                    sig_reason = (
-                        f"Venda Institucional Forte ({inst_5m:.0f}L em 5m / {inst_15m:.0f}L em 15m) "
-                        f"+ Desequilíbrio {imb_5m:.1f}% ({'Gamma− Acelerador' if is_neg_g else 'Pressão Vendedora'})"
-                    )
+                    # 4. VENDA POR FLUXO INSTITUCIONAL + DEALER
+                    elif (
+                        inst_5m <= -inst_thresh_5m
+                        and inst_15m <= -inst_thresh_5m * (0.8 if is_neg_g else 1.35)
+                        and imb_5m <= -9.0
+                        and c < o
+                        and (
+                            is_neg_g
+                            or (move_15m >= -target_pts * 0.35 and body <= target_pts * 0.95)
+                        )
+                    ):
+                        sig_dir = -1
+                        sig_type = "VENDA · FLUXO INSTITUCIONAL" + (" + DROP" if is_neg_g else "")
+                        sig_reason = (
+                            f"Venda Institucional Forte ({inst_5m:.0f}L em 5m / {inst_15m:.0f}L em 15m) "
+                            f"+ Desequilíbrio {imb_5m:.1f}% ({'Gamma− Acelerador' if is_neg_g else 'Pressão Vendedora'})"
+                        )
+
+                elif active_win_dir == 1:
+                    # ── METODOLOGIA 2: RESTRITA À JANELA VERDE (▲ COMPRAR) ──
+                    if (
+                        sup_w is not None
+                        and c >= l + 0.50 * rng
+                        and inst_5m >= -inst_thresh_5m * 0.25
+                        and hist_val >= 8.0
+                        and (
+                            (lower_wick >= 0.32 * rng and (delta_5m < 0 or inst_5m > 0))
+                            or (inst_5m >= inst_thresh_5m * 0.45 and c > o)
+                        )
+                    ):
+                        sig_dir = 1
+                        nearest_w = sup_w
+                        sig_type = "COMPRA · DEFESA NA WALL"
+                        sig_reason = (
+                            f"Janela Verde + Defesa no suporte {sup_w['type']} @ {sup_w['price']:{p_fmt}} "
+                            f"(Delta Inst 5m: {inst_5m:+.0f}L | Pavio Defesa: {lower_wick:{p_fmt}}p)"
+                        )
+                    elif (
+                        inst_5m >= inst_thresh_5m
+                        and inst_15m >= inst_thresh_5m * (0.8 if is_neg_g else 1.25)
+                        and imb_5m >= 8.0
+                        and c > o
+                        and hist_val >= 10.0
+                        and (
+                            is_neg_g
+                            or (move_15m <= target_pts * 1.15 and body <= target_pts * 1.4)
+                        )
+                    ):
+                        sig_dir = 1
+                        sig_type = "COMPRA · FLUXO INSTITUCIONAL" + (" + SQUEEZE" if is_neg_g else "")
+                        sig_reason = (
+                            f"Janela Verde + Agressão Institucional Forte (+{inst_5m:.0f}L em 5m / +{inst_15m:.0f}L em 15m) "
+                            f"+ Desequilíbrio +{imb_5m:.1f}%"
+                        )
+                    elif (
+                        (is_win_start or prev_candle_state == 0)
+                        and candle_state == 1
+                        and c > o
+                        and inst_5m >= inst_thresh_5m * 0.65
+                        and inst_15m >= 0
+                        and hist_val >= 12.0
+                    ):
+                        sig_dir = 1
+                        sig_type = "COMPRA · RETOMADA NA JANELA"
+                        sig_reason = (
+                            f"{'Abertura de Janela Verde' if is_win_start else 'Fim de Pullback na Janela Verde'} "
+                            f"com Entrada Institucional (+{inst_5m:.0f}L em 5m)"
+                        )
+
+                elif active_win_dir == -1:
+                    # ── METODOLOGIA 2: RESTRITA À JANELA VERMELHA (▼ VENDER) ──
+                    if (
+                        res_w is not None
+                        and c <= h - 0.50 * rng
+                        and inst_5m <= inst_thresh_5m * 0.25
+                        and hist_val <= -8.0
+                        and (
+                            (upper_wick >= 0.32 * rng and (delta_5m > 0 or inst_5m < 0))
+                            or (inst_5m <= -inst_thresh_5m * 0.45 and c < o)
+                        )
+                    ):
+                        sig_dir = -1
+                        nearest_w = res_w
+                        sig_type = "VENDA · DEFESA NA WALL"
+                        sig_reason = (
+                            f"Janela Vermelha + Rejeição na resistência {res_w['type']} @ {res_w['price']:{p_fmt}} "
+                            f"(Delta Inst 5m: {inst_5m:+.0f}L | Pavio Rejeição: {upper_wick:{p_fmt}}p)"
+                        )
+                    elif (
+                        inst_5m <= -inst_thresh_5m
+                        and inst_15m <= -inst_thresh_5m * (0.8 if is_neg_g else 1.25)
+                        and imb_5m <= -8.0
+                        and c < o
+                        and hist_val <= -10.0
+                        and (
+                            is_neg_g
+                            or (move_15m >= -target_pts * 1.15 and body <= target_pts * 1.4)
+                        )
+                    ):
+                        sig_dir = -1
+                        sig_type = "VENDA · FLUXO INSTITUCIONAL" + (" + DROP" if is_neg_g else "")
+                        sig_reason = (
+                            f"Janela Vermelha + Venda Institucional Forte ({inst_5m:.0f}L em 5m / {inst_15m:.0f}L em 15m) "
+                            f"+ Desequilíbrio {imb_5m:.1f}%"
+                        )
+                    elif (
+                        (is_win_start or prev_candle_state == 0)
+                        and candle_state == -1
+                        and c < o
+                        and inst_5m <= -inst_thresh_5m * 0.65
+                        and inst_15m <= 0
+                        and hist_val <= -12.0
+                    ):
+                        sig_dir = -1
+                        sig_type = "VENDA · RETOMADA NA JANELA"
+                        sig_reason = (
+                            f"{'Abertura de Janela Vermelha' if is_win_start else 'Fim de Pullback na Janela Vermelha'} "
+                            f"com Venda Institucional ({inst_5m:.0f}L em 5m)"
+                        )
+
+            prev_candle_state = candle_state
 
             # Cooldown de 5 barras (25 min) para mesma direção e 3 barras (15 min) geral para sinais limpos
             sig_obj = None
@@ -675,22 +997,43 @@ class GexLiveDealerEngine:
                     "validation_status": val_status,
                     "validation_label": val_label,
                     "is_valid": is_valid,
+                    "is_prev_day": bool(b.get("is_prev_day", False)),
                 }
-                signals_log.append(sig_obj)
+                if not b.get("is_prev_day", False):
+                    signals_log.append(sig_obj)
 
             m5_enriched.append({
                 "timestamp": ts_raw,
                 "time": time_str,
+                "is_prev_day": bool(b.get("is_prev_day", False)),
                 "open": round(o, 2),
                 "high": round(h, 2),
                 "low": round(l, 2),
                 "close": round(c, 2),
-                "cvd_inst": b["cvd_inst"],
-                "cvd_retail": b["cvd_retail"],
+                "buy_vol": round(float(b.get("buy_vol", 0.0)), 0),
+                "sell_vol": round(float(b.get("sell_vol", 0.0)), 0),
+                "inst_delta_bar": round(inst_5m, 0),
+                "cvd_inst": cvd,
+                "cvd_retail": round(float(b["cvd_retail"]), 0),
                 "dealer_hedge_bar": hf["dealer_hedge_contracts"],
                 "cum_dealer_hedge": round(cum_dealer_hedge, 0),
                 "signal": sig_obj,
+                "price_upper_trava": p_upper_trava,
+                "price_lower_trava": p_lower_trava,
+                "price_mid_trava": p_mid_trava,
+                "flow_open": round(prev_cvd, 0),
+                "flow_close": round(cvd, 0),
+                "flow_upper_trava": flow_upper_trava,
+                "flow_lower_trava": flow_lower_trava,
+                "flow_hist": hist_val,
+                "window_dir": active_win_dir,
+                "window_entry_price": curr_window["entry_price"],
+                "is_window_start": is_win_start,
+                "candle_state": candle_state,
             })
+
+        if curr_window is not None:
+            flow_windows.append(curr_window)
 
         closed_sigs = [s for s in signals_log if s["is_valid"] is not None]
         valid_sigs = [s for s in closed_sigs if s["is_valid"] is True]
@@ -705,6 +1048,7 @@ class GexLiveDealerEngine:
 
         return {
             "m5_enriched_series": m5_enriched[-120:],
+            "flow_windows": flow_windows[-20:],
             "signals_log": list(reversed(signals_log)),  # Mais recente no topo da tabela
             "scorecard": {
                 "total_signals": len(signals_log),
@@ -717,6 +1061,137 @@ class GexLiveDealerEngine:
                 "avg_15m_pts": round(avg_pnl_15m, 1),
                 "target_ref_pts": target_pts,
                 "stop_ref_pts": stop_pts,
+            },
+        }
+
+    def _build_asg_hud(
+        self,
+        asset: str,
+        spot: float,
+        vwap: float,
+        m5_enriched: list,
+        flow_Windows: list,
+        flow_score: float,
+        dealer_pressure_score: float,
+        local_gex: dict,
+        sup_walls: list,
+        res_walls: list,
+        op_state: str,
+        symbol_payload: dict,
+    ) -> dict:
+        """
+        Constrói o payload completo para o HUD estilo A.S.G + Radar Pro:
+          - Comando visual imediato: 'COMPRA', 'VENDA' ou 'NEUTRALIZADO'
+          - Vela 3D Neon: MICRO (0-100%), MACRO (0-100%), MAKERS (% pressão GEX)
+          - Gatilhos desenhados direto no gráfico: 'Precisa Romper 👉' e 'Zona Stop / Pullback'
+          - Dominância Compradores % vs Vendedores %
+          - Escada de Alvos 1 -> 2 -> 3
+        """
+        is_win = asset.upper() == "WIN"
+        step_default = 150.0 if is_win else 5.0
+
+        last_bar = m5_enriched[-1] if m5_enriched else {}
+        win_dir = int(last_bar.get("window_dir", 0))
+        hist_val = float(last_bar.get("flow_hist", 0.0))
+        p_up = float(last_bar.get("price_upper_trava", spot + step_default * 0.5))
+        p_dn = float(last_bar.get("price_lower_trava", spot - step_default * 0.5))
+        p_mid = float(last_bar.get("price_mid_trava", spot))
+        win_entry = float(last_bar.get("window_entry_price", spot))
+
+        # Dominância Compradores vs Vendedores (últimos 15m combinados com fluxo institucional)
+        w15 = symbol_payload.get("flow_compass", {}).get("windows", {}).get("15m", {})
+        b_vol = float(w15.get("buy_vol", 0.0))
+        s_vol = float(w15.get("sell_vol", 0.0))
+        if (b_vol + s_vol) > 0:
+            buyers_pct = int(round(np.clip((b_vol / (b_vol + s_vol)) * 100.0, 5.0, 95.0)))
+        else:
+            buyers_pct = int(round(np.clip(50.0 + hist_val * 0.4, 10.0, 90.0)))
+        sellers_pct = 100 - buyers_pct
+
+        # MICRO (0 a 100): força imediata na janela atual
+        micro_raw = 0.55 * abs(hist_val) + 0.45 * abs(flow_score)
+        micro_pct = int(round(np.clip(35.0 + micro_raw * 0.65, 15.0, 99.0)))
+
+        # MACRO (0 a 100): tendência estrutural da sessão (CVD Institucional + VWAP + Dealers)
+        cvd_now = float(last_bar.get("cvd_inst", 0.0))
+        macro_dir = 1 if (cvd_now > 0 and spot >= vwap) else (-1 if (cvd_now < 0 and spot <= vwap) else win_dir)
+        macro_pct = int(round(np.clip(45.0 + 0.45 * abs(hist_val) + (15.0 if macro_dir == win_dir else -10.0), 20.0, 98.0)))
+
+        # MAKERS (%): pressão dos Market Makers GEX
+        makers_pct = round(dealer_pressure_score / 40.0, 2)
+
+        # Decisão do Semáforo Central A.S.G: COMPRA, VENDA ou NEUTRALIZADO
+        nearest_sup = sup_walls[0] if sup_walls else None
+        nearest_res = res_walls[0] if res_walls else None
+
+        # Verifica se está num ponto de conflito forte (ex: tentando comprar colado no teto com rejeição ou hist fraco)
+        is_conflict = (
+            abs(hist_val) < 7.0
+            or (win_dir > 0 and flow_score < -25.0)
+            or (win_dir < 0 and flow_score > 25.0)
+        )
+
+        if is_conflict:
+            command = "NEUTRALIZADO"
+            command_sub = "REGIÃO DE TRANSIÇÃO · AGUARDAR DEFINIÇÃO DO FLUXO"
+            command_color = "#00d4ff"
+        elif win_dir > 0:
+            command = "COMPRA"
+            command_sub = "SIGA O FLUXO COMPRADOR · JANELA VERDE ATIVA"
+            command_color = "#00e87a"
+        else:
+            command = "VENDA"
+            command_sub = "SIGA O FLUXO VENDEDOR · JANELA VERMELHA ATIVA"
+            command_color = "#ff3860"
+
+        # Linhas operacionais desenhadas direto no gráfico ("Precisa Romper 👉" e "Zona Stop / Pullback")
+        if win_dir >= 0:
+            precisa_romper = round(max(p_up, last_bar.get("high", spot)), 2)
+            zona_stop = round(min(p_dn, last_bar.get("low", spot) - (35.0 if is_win else 1.5)), 2)
+            raw_targets = [w["price"] for w in res_walls if w["price"] > spot]
+            while len(raw_targets) < 3:
+                prev_t = raw_targets[-1] if raw_targets else spot
+                raw_targets.append(round(prev_t + step_default, 2))
+        else:
+            precisa_romper = round(min(p_dn, last_bar.get("low", spot)), 2)
+            zona_stop = round(max(p_up, last_bar.get("high", spot) + (35.0 if is_win else 1.5)), 2)
+            raw_targets = [w["price"] for w in sup_walls if w["price"] < spot]
+            while len(raw_targets) < 3:
+                prev_t = raw_targets[-1] if raw_targets else spot
+                raw_targets.append(round(prev_t - step_default, 2))
+
+        active_win = flow_Windows[-1] if flow_Windows else None
+
+        return {
+            "command": command,
+            "command_sub": command_sub,
+            "command_color": command_color,
+            "window_dir": win_dir,
+            "window_label": "AMBIENTE COMPRADO" if win_dir > 0 else "AMBIENTE VENDIDO",
+            "window_start_time": active_win["start_time"] if active_win else "",
+            "window_entry_price": round(win_entry, 2),
+            "window_net_pts": active_win["net_pts"] if active_win else 0.0,
+            "window_max_favor_pts": active_win["max_favor_pts"] if active_win else 0.0,
+            "micro_pct": micro_pct,
+            "macro_pct": macro_pct,
+            "makers_pct": makers_pct,
+            "buyers_pct": buyers_pct,
+            "sellers_pct": sellers_pct,
+            "precisa_romper": precisa_romper,
+            "zona_stop": zona_stop,
+            "p_mid_trava": p_mid,
+            "targets": [round(t, 2) for t in raw_targets[:3]],
+            "buy_zone": {
+                "price_top": round(nearest_sup["price"] + (45.0 if is_win else 1.5), 2) if nearest_sup else round(p_dn, 2),
+                "price_bot": round(nearest_sup["price"] - (45.0 if is_win else 1.5), 2) if nearest_sup else round(p_dn - step_default * 0.4, 2),
+                "label": f"Região de Compra ({nearest_sup['type']})" if nearest_sup else "Região de Compra",
+                "ref_price": round(nearest_sup["price"], 2) if nearest_sup else round(p_dn, 2),
+            },
+            "sell_zone": {
+                "price_top": round(nearest_res["price"] + (45.0 if is_win else 1.5), 2) if nearest_res else round(p_up + step_default * 0.4, 2),
+                "price_bot": round(nearest_res["price"] - (45.0 if is_win else 1.5), 2) if nearest_res else round(p_up, 2),
+                "label": f"Região de Venda ({nearest_res['type']})" if nearest_res else "Região de Venda",
+                "ref_price": round(nearest_res["price"], 2) if nearest_res else round(p_up, 2),
             },
         }
 
