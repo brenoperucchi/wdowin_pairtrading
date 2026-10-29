@@ -2183,7 +2183,7 @@ def get_compass_etapa1(date_str: str = None):
 
 @app.get("/api/compass/etapa2")
 @app.get("/api/compass/dealer-gex")
-def get_compass_etapa2():
+def get_compass_etapa2(date_str: str = None):
     """Retorna a análise da Etapa 2 (Caminho A — Pressão de Hedge Dinâmico dos Dealers GEX cruzada com o Fluxo Profit/MT5)."""
     try:
         from core.profit_mt5_flow_engine import flow_engine_singleton
