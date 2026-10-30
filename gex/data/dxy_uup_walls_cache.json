@@ -1,8 +1,8 @@
 {
     "ticker": "DXY_UUP",
-    "ref_date": "2026-10-29",
-    "updated_at": "2026-10-29 07:41:19",
-    "current_price": 103.163,
+    "ref_date": "2026-10-30",
+    "updated_at": "2026-10-30 07:43:23",
+    "current_price": 103.092,
     "walls": [
         {
             "price": 95.85,
@@ -10,7 +10,7 @@
             "width": 1,
             "style": 0,
             "strike_spy": 27.0,
-            "gex": -4042.2833372818204
+            "gex": -111657.7240704714
         },
         {
             "price": 97.62,
@@ -22,10 +22,10 @@
         {
             "price": 99.4,
             "type": "Wall",
-            "width": 1,
+            "width": 2,
             "style": 0,
             "strike_spy": 28.0,
-            "gex": -60306.10222348315
+            "gex": -152116.49756202562
         },
         {
             "price": 101.18,
@@ -40,7 +40,7 @@
             "width": 2,
             "style": 0,
             "strike_spy": 29.0,
-            "gex": 3464244.6022761124
+            "gex": 2330391.9376927665
         },
         {
             "price": 104.72,
@@ -55,7 +55,7 @@
             "width": 3,
             "style": 0,
             "strike_spy": 30.0,
-            "gex": 3607335.1145134117
+            "gex": 3867624.7787277307
         },
         {
             "price": 108.28,
@@ -67,27 +67,27 @@
         {
             "price": 110.05,
             "type": "Wall",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_spy": 31.0,
-            "gex": -87098.68032579194
+            "gex": -65494.39242729751
         },
         {
-            "price": 102.47,
+            "price": 103.26,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 7936741.426887845
+            "gex": 5725767.989180585
         },
         {
-            "price": 94.91,
+            "price": 94.84,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -1017396.3350087361
+            "gex": -975958.9594805562
         },
         {
-            "price": 97.17,
+            "price": 97.09,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
