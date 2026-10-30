@@ -994,7 +994,7 @@ export default function App() {
                     <div className="skeleton-pulse">AGUARDANDO MODELO MATADOR V4...</div>
                 </div>
             )}
-        <div style={{ background: "#0d1117", minHeight: "100vh", color: "#c9d1d9", fontFamily: "monospace", display: "flex", flexDirection: "column" }}>
+        <div style={{ background: "#0c1218", minHeight: "100vh", color: "#c9d1d9", fontFamily: "monospace", display: "flex", flexDirection: "column" }}>
 
             {/* ── Topbar ──────────────────────────────────────────────────────────── */}
             <div className="topbar">
@@ -1170,8 +1170,8 @@ export default function App() {
 
             {/* ——— Barra Principal de Seleção de Tela (3 Modos Limpos) ———————————————————— */}
             <div style={{
-                background: "#090f16",
-                borderBottom: "1px solid #18293a",
+                background: "#0c1218",
+                borderBottom: "1px solid #1a2530",
                 padding: "8px 20px",
                 display: "flex",
                 justifyContent: "space-between",
@@ -1200,8 +1200,8 @@ export default function App() {
                                     letterSpacing: 0.6,
                                     borderRadius: 6,
                                     cursor: "pointer",
-                                    border: active ? `1.5px solid ${tab.accent}` : "1px solid #1c2d3e",
-                                    background: active ? `${tab.accent}22` : "#0d151e",
+                                    border: active ? `1.5px solid ${tab.accent}` : "1px solid #1a2530",
+                                    background: "#0c1218",
                                     color: active ? tab.accent : "#8ca5b5",
                                     transition: "all 0.2s ease",
                                 }}
@@ -1386,7 +1386,7 @@ export default function App() {
             </div>
 
             {/* ── Footer ──────────────────────────────────────────────────────────── */}
-            <div style={{ borderTop: "1px solid #21262d", padding: "7px 20px", display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3d444d", background: "#161b22" }}>
+            <div style={{ borderTop: "1px solid #1a2530", padding: "7px 20px", display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3d444d", background: "#0c1218" }}>
                 <span>{status === "live" ? "DADOS REAIS MT5" : "DADOS SIMULADOS"} — NÃO CONSTITUI RECOMENDAÇÃO DE INVESTIMENTO · PAIR TRADING 2025</span>
                 <span>beta = {meta.beta}  ·  janela {meta.window} barras  ·  {meta.symbol_a} x {meta.symbol_b}  ·  B3</span>
             </div>

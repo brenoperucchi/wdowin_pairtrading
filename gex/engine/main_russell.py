@@ -109,20 +109,34 @@ def run_russell_gex_pipeline():
             "avg_iv": float(group["iv"].mean()),
         }
 
+    # 4. Market Gamma Curve antes de filtrar as Walls para cobrir [MinGamma, MaxGamma] + preço atual
+    sweep_prices = np.linspace(rut_spot * 0.92, rut_spot * 1.08, 250)
+    max_rut, max_val, min_rut, min_val, flip_rut_base = compute_multi_expiry_gamma_curve(
+        df_options, sweep_prices, r=r, q=q
+    )
+
+    max_gamma_rut = max_rut * conv_ratio
+    min_gamma_rut = min_rut * conv_ratio
+    flip_rut = flip_rut_base * conv_ratio
+
+    live_rut_equiv = (current_rut / conv_ratio) if conv_ratio > 0 else rut_spot
+    low_ref = min(rut_spot, live_rut_equiv)
+    high_ref = max(rut_spot, live_rut_equiv)
+
     all_strikes = sorted(gex_per_strike.keys())
-    range_pct = 0.06
-    lower_bound = rut_spot * (1 - range_pct)
-    upper_bound = rut_spot * (1 + range_pct)
+    lower_bound = min(min_rut - 20.0, low_ref * 0.96)
+    upper_bound = max(max_rut + 20.0, high_ref * 1.04)
     filtered_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
 
     if len(filtered_strikes) < 3:
-        filtered_strikes = sorted(all_strikes, key=lambda s: abs(s - rut_spot))[:16]
+        filtered_strikes = sorted(all_strikes, key=lambda s: abs(s - live_rut_equiv))[:32]
         filtered_strikes = sorted(filtered_strikes)
 
-    atm_strike = min(filtered_strikes, key=lambda s: abs(s - rut_spot))
+    center_rut = 0.5 * (low_ref + high_ref)
+    atm_strike = min(filtered_strikes, key=lambda s: abs(s - center_rut))
     atm_idx = filtered_strikes.index(atm_strike)
 
-    num_walls = min(16, len(filtered_strikes))
+    num_walls = min(36, len(filtered_strikes))
     start_idx = max(0, atm_idx - num_walls // 2)
     end_idx = min(len(filtered_strikes), start_idx + num_walls)
     start_idx = max(0, end_idx - num_walls)
@@ -156,16 +170,6 @@ def run_russell_gex_pipeline():
         })
 
     walls = sorted(walls_basic, key=lambda x: x["price"])
-
-    # 4. Market Gamma Curve
-    sweep_prices = np.linspace(rut_spot * 0.92, rut_spot * 1.08, 250)
-    max_rut, max_val, min_rut, min_val, flip_rut_base = compute_multi_expiry_gamma_curve(
-        df_options, sweep_prices, r=r, q=q
-    )
-
-    max_gamma_rut = max_rut * conv_ratio
-    min_gamma_rut = min_rut * conv_ratio
-    flip_rut = flip_rut_base * conv_ratio
 
     walls.append({
         "price": round(max_gamma_rut, 2),

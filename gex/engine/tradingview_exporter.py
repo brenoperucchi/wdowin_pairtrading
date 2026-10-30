@@ -281,7 +281,7 @@ def export_unified_tradingview(output_path):
 // | Desenha os níveis automaticamente dependendo do ativo aberto no gráfico!|
 // +-------------------------------------------------------------------------+
 // indicator e variáveis globais
-indicator("Magic GEX Levels Unified (14 Ativos)", overlay=true, shorttitle="MagicGEX Unified", max_lines_count=200, max_labels_count=200)
+indicator("Magic GEX Levels Unified (14 Ativos)", overlay=true, shorttitle="MagicGEX Unified", max_lines_count=500, max_labels_count=500)
 
 // --- CONFIGURAÇÃO DE DATA ---
 g_date         = "Configuração Temporal"

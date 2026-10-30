@@ -95,8 +95,8 @@ def _clean_float(val_str: str) -> float:
         return 0.0
 
 
-def list_available_gex_dates(limit: int = 8) -> list:
-    """Retorna as últimas datas de pregão disponíveis no histórico de MagicWalls (ex: Hoje, Ontem, etc.)."""
+def list_available_gex_dates(limit: int = 150) -> list:
+    """Retorna as últimas datas de pregão disponíveis no histórico de MagicWalls (até 150 pregões)."""
     today_iso = datetime.now().strftime("%Y-%m-%d")
     dates_set = {today_iso}
     hist_candidates = [
@@ -1503,104 +1503,192 @@ class ProfitMt5FlowEngine:
 
     def get_historical_session(self, target_date: str) -> dict:
         """
-        Reconstrói a sessão completa (09h00 às 18h30) para uma data passada (ex: Ontem `2026-10-27`),
-        carregando as MagicWalls daquela data + ticks MT5 / CSV Profit e mantendo cache em memória.
+        Reconstrói a sessão completa (09h00 às 18h30) para uma data passada (123+ pregões),
+        carregando as MagicWalls daquela data + ticks MT5 (WIN$N/WDO$N ou contrato ativo) / M1-M5 fallback / CSV Profit
+        e mantendo cache em disco e em memória.
         """
         if not hasattr(self, "_historical_cache"):
             self._historical_cache = {}
         if target_date in self._historical_cache:
             return self._historical_cache[target_date]
 
-        from core.mt5_client import mt5_lock
-        with mt5_lock:
-            if mt5.terminal_info() is None:
-                mt5.initialize(MT5_PATH, timeout=5000)
-            self._detect_mt5_contracts()
+        import json as _json
+        cache_dir = os.path.join(PROJECT_ROOT, "data", "processed", "gex_historical_sessions_v1")
+        os.makedirs(cache_dir, exist_ok=True)
+        disk_cache_path = os.path.join(cache_dir, f"{target_date}.json")
 
-        win_st = SymbolMicrostructureState("WIN", 50, 10, 5.0, 60.0)
-        wdo_st = SymbolMicrostructureState("WDO", 20, 5, 0.5, 2.5)
-        win_st.reset_session(target_date)
-        wdo_st.reset_session(target_date)
-        win_st.active_contract = self.win_state.active_contract or "WINZ26"
-        wdo_st.active_contract = self.wdo_state.active_contract or "WDOX26"
+        win_payload = None
+        wdo_payload = None
 
-        try:
-            dt_base = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        except ValueError:
-            dt_base = datetime.now(timezone.utc)
+        if os.path.exists(disk_cache_path):
+            try:
+                with open(disk_cache_path, "r", encoding="utf-8") as cf:
+                    cached_raw = _json.load(cf)
+                win_payload = cached_raw.get("WIN")
+                wdo_payload = cached_raw.get("WDO")
+            except Exception:
+                win_payload = None
+                wdo_payload = None
 
-        dt_start = dt_base.replace(hour=9, minute=0, second=0, microsecond=0)
-        dt_end = dt_base.replace(hour=18, minute=35, second=0, microsecond=0)
-        end_epoch = int(dt_end.timestamp())
-
-        for asset_key, st in [("WIN", win_st), ("WDO", wdo_st)]:
-            sym = st.active_contract
-            ticks_ingested = 0
+        if not win_payload or not wdo_payload:
+            from core.mt5_client import mt5_lock
             with mt5_lock:
-                if mt5.terminal_info() is not None and sym:
-                    mt5.symbol_select(sym, True)
-                    cur_dt = dt_start
-                    chunks = []
-                    for _ in range(4):
-                        batch = mt5.copy_ticks_from(sym, cur_dt, 1000000, mt5.COPY_TICKS_ALL)
-                        if batch is None or len(batch) == 0:
-                            break
-                        in_day = batch[batch["time"] <= end_epoch]
-                        if len(in_day) > 0:
-                            chunks.append(in_day)
-                        last_ts = int(batch["time"][-1])
-                        last_msc = int(batch["time_msc"][-1])
-                        if len(batch) < 1000000 or last_ts >= end_epoch:
-                            break
-                        cur_dt = datetime.fromtimestamp((last_msc + 1) / 1000.0, tz=timezone.utc)
-                    ticks = np.concatenate(chunks) if chunks else None
-                else:
-                    ticks = None
+                if mt5.terminal_info() is None:
+                    mt5.initialize(MT5_PATH, timeout=5000)
+                self._detect_mt5_contracts()
 
-            if ticks is not None and len(ticks) > 0:
-                flags = ticks["flags"]
-                is_buy = (flags & mt5.TICK_FLAG_BUY) != 0
-                is_sell = (flags & mt5.TICK_FLAG_SELL) != 0
-                valid_dir = (is_buy ^ is_sell) & (ticks["volume"] > 0) & (ticks["last"] > 0)
-                if np.any(valid_dir):
-                    t_valid = ticks[valid_dir]
-                    side_arr = np.where((t_valid["flags"] & mt5.TICK_FLAG_BUY) != 0, 1, -1).astype(np.int8)
-                    st.ingest_batch_vectorized(
-                        t_valid["time"].astype(np.int64),
-                        t_valid["last"].astype(np.float64),
-                        t_valid["volume"].astype(np.float64),
-                        side_arr,
-                    )
-                    ticks_ingested = len(t_valid)
-                    st.source = f"HISTÓRICO MT5 ({target_date} · {sym})"
+            win_st = SymbolMicrostructureState("WIN", 50, 10, 5.0, 60.0)
+            wdo_st = SymbolMicrostructureState("WDO", 20, 5, 0.5, 2.5)
+            win_st.reset_session(target_date)
+            wdo_st.reset_session(target_date)
+            win_st.active_contract = self.win_state.active_contract or "WINZ26"
+            wdo_st.active_contract = self.wdo_state.active_contract or "WDOX26"
 
-            # Se MT5 não retornou ticks para a data, tenta carregar do CSV do Profit na pasta RTD/
-            if ticks_ingested == 0 and os.path.exists(RTD_DIR):
-                d_parts = target_date.split("-")
-                if len(d_parts) == 3:
-                    d_suffix = f"{d_parts[2]}_{d_parts[1]}_{d_parts[0]}"
-                    for filepath in sorted(glob.glob(os.path.join(RTD_DIR, f"*{d_suffix}*.csv"))):
-                        fname = os.path.basename(filepath)
-                        fname_up = fname.upper()
-                        if asset_key == "WIN" and not any(k in fname_up for k in ["WIN", "IND"]):
-                            continue
-                        if asset_key == "WDO" and not any(k in fname_up for k in ["WDO", "DOL"]):
-                            continue
-                        try:
-                            with open(filepath, "rb") as fb:
-                                raw_b = fb.read()
-                            if b";Trade;" in raw_b[:65536]:
-                                trade_lines = [l.decode("latin1", errors="replace") for l in raw_b.splitlines() if b";Trade;" in l]
-                            else:
-                                trade_lines = raw_b.decode("latin1", errors="replace").splitlines()
-                            n_tr = self._parse_profit_trades_lines(trade_lines, st, target_date)
-                            if n_tr > 0:
-                                st.source = f"HISTÓRICO PROFIT CSV ({fname})"
-                        except Exception:
-                            pass
+            try:
+                dt_base = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                dt_base = datetime.now(timezone.utc)
 
-        win_payload = win_st.get_summary_payload()
-        wdo_payload = wdo_st.get_summary_payload()
+            dt_start = dt_base.replace(hour=9, minute=0, second=0, microsecond=0)
+            dt_end = dt_base.replace(hour=18, minute=35, second=0, microsecond=0)
+            end_epoch = int(dt_end.timestamp())
+            nine_thirty_epoch = int(dt_base.replace(hour=9, minute=30, second=0, microsecond=0).timestamp())
+
+            for asset_key, st, cont_sym in [("WIN", win_st, "WIN$N"), ("WDO", wdo_st, "WDO$N")]:
+                # Para datas anteriores à rolagem atual, prioriza a série contínua sem ajuste (WIN$N / WDO$N)
+                cand_syms = [cont_sym, st.active_contract] if target_date < "2026-10-15" else [st.active_contract, cont_sym]
+                ticks_ingested = 0
+                best_ticks = None
+                best_sym = cont_sym
+
+                with mt5_lock:
+                    if mt5.terminal_info() is not None:
+                        for c_sym in cand_syms:
+                            if not c_sym:
+                                continue
+                            mt5.symbol_select(c_sym, True)
+                            t_range = mt5.copy_ticks_range(c_sym, dt_start, dt_end, mt5.COPY_TICKS_ALL)
+                            if t_range is not None and len(t_range) > 2000:
+                                best_ticks = t_range
+                                best_sym = c_sym
+                                break
+
+                if best_ticks is not None and len(best_ticks) > 0:
+                    flags = best_ticks["flags"]
+                    is_buy = (flags & mt5.TICK_FLAG_BUY) != 0
+                    is_sell = (flags & mt5.TICK_FLAG_SELL) != 0
+                    has_dual_flags = (np.sum(is_sell) > 0.05 * len(best_ticks)) and (np.sum(is_buy) > 0.05 * len(best_ticks))
+                    if has_dual_flags:
+                        valid_dir = (is_buy ^ is_sell) & (best_ticks["volume"] > 0) & (best_ticks["last"] > 0)
+                    else:
+                        valid_dir = (best_ticks["volume"] > 0) & (best_ticks["last"] > 0)
+
+                    if np.any(valid_dir):
+                        t_valid = best_ticks[valid_dir]
+                        # Filtra ticks congelados de pré-abertura/leilão (< 09:30) com gap anômalo (> 1800p WIN ou > 35p WDO)
+                        post_930 = t_valid[t_valid["time"] >= nine_thirty_epoch]
+                        if len(post_930) > 100:
+                            ref_open_px = float(post_930["last"][0])
+                            max_gap = 1800.0 if asset_key == "WIN" else 35.0
+                            keep_mask = (t_valid["time"] >= nine_thirty_epoch) | (np.abs(t_valid["last"].astype(np.float64) - ref_open_px) <= max_gap)
+                            if np.any(keep_mask):
+                                t_valid = t_valid[keep_mask]
+
+                        if has_dual_flags:
+                            side_arr = np.where((t_valid["flags"] & mt5.TICK_FLAG_BUY) != 0, 1, -1).astype(np.int8)
+                        else:
+                            # Lee-Ready / Tick Rule vetorizado (uptick=+1, downtick=-1, zero-tick herda direção anterior; desempate intra-tick por micro-oscilação)
+                            px_arr = t_valid["last"].astype(np.float64)
+                            diffs = np.diff(px_arr, prepend=px_arr[0])
+                            raw_signs = np.where(diffs > 0, 1, np.where(diffs < 0, -1, 0)).astype(np.int8)
+                            nz_idx = np.where(raw_signs != 0, np.arange(len(raw_signs)), 0)
+                            np.maximum.accumulate(nz_idx, out=nz_idx)
+                            side_arr = raw_signs[nz_idx]
+                            side_arr[side_arr == 0] = 1
+
+                        st.ingest_batch_vectorized(
+                            t_valid["time"].astype(np.int64),
+                            t_valid["last"].astype(np.float64),
+                            t_valid["volume"].astype(np.float64),
+                            side_arr,
+                        )
+                        ticks_ingested = len(t_valid)
+                        st.source = f"HISTÓRICO MT5 ({target_date} · {best_sym})"
+
+                # Fallback 1: se MT5 não tiver ticks completos para aquele dia (< 60 barras M5), reconstrói via barras M1/M5 do MT5
+                if len(st.m5_bars) < 60:
+                    st.reset_session(target_date)
+                    with mt5_lock:
+                        if mt5.terminal_info() is not None:
+                            mt5.symbol_select(cont_sym, True)
+                            rates = mt5.copy_rates_range(cont_sym, mt5.TIMEFRAME_M1, dt_start, dt_end)
+                            if rates is None or len(rates) == 0:
+                                rates = mt5.copy_rates_range(cont_sym, mt5.TIMEFRAME_M5, dt_start, dt_end)
+                            if rates is not None and len(rates) > 0:
+                                r_times = []
+                                r_prices = []
+                                r_vols = []
+                                r_sides = []
+                                inst_thr = 50.0 if asset_key == "WIN" else 20.0
+                                for r in rates:
+                                    rt = int(r["time"])
+                                    ro = float(r["open"])
+                                    rh = float(r["high"])
+                                    rl = float(r["low"])
+                                    rc = float(r["close"])
+                                    rv = float(r["real_volume"]) if r["real_volume"] > 0 else float(r["tick_volume"]) * inst_thr
+                                    rng = max(rh - rl, 1e-6)
+                                    buy_frac = max(0.15, min(0.85, 0.5 + 0.45 * ((rc - ro) / rng)))
+                                    b_vol = max(1.0, round(rv * buy_frac))
+                                    s_vol = max(1.0, round(rv * (1.0 - buy_frac)))
+                                    # 4 sub-ticks sintéticos por barra preservando OHLC e separação Institucional/Varejo
+                                    r_times.extend([rt, rt + 10, rt + 20, rt + 30])
+                                    r_prices.extend([ro, rl if rc >= ro else rh, rh if rc >= ro else rl, rc])
+                                    r_vols.extend([round(b_vol * 0.65), round(s_vol * 0.65), round(b_vol * 0.35), round(s_vol * 0.35)])
+                                    r_sides.extend([1, -1, 1 if rc >= ro else -1, 1 if rc >= ro else -1])
+                                st.ingest_batch_vectorized(
+                                    np.array(r_times, dtype=np.int64),
+                                    np.array(r_prices, dtype=np.float64),
+                                    np.array(r_vols, dtype=np.float64),
+                                    np.array(r_sides, dtype=np.int8),
+                                )
+                                ticks_ingested = len(r_times)
+                                st.source = f"HISTÓRICO MT5 M1/M5 ({target_date} · {cont_sym})"
+
+                # Fallback 2: CSV do Profit na pasta RTD/
+                if ticks_ingested == 0 and os.path.exists(RTD_DIR):
+                    d_parts = target_date.split("-")
+                    if len(d_parts) == 3:
+                        d_suffix = f"{d_parts[2]}_{d_parts[1]}_{d_parts[0]}"
+                        for filepath in sorted(glob.glob(os.path.join(RTD_DIR, f"*{d_suffix}*.csv"))):
+                            fname = os.path.basename(filepath)
+                            fname_up = fname.upper()
+                            if asset_key == "WIN" and not any(k in fname_up for k in ["WIN", "IND"]):
+                                continue
+                            if asset_key == "WDO" and not any(k in fname_up for k in ["WDO", "DOL"]):
+                                continue
+                            try:
+                                with open(filepath, "rb") as fb:
+                                    raw_b = fb.read()
+                                if b";Trade;" in raw_b[:65536]:
+                                    trade_lines = [l.decode("latin1", errors="replace") for l in raw_b.splitlines() if b";Trade;" in l]
+                                else:
+                                    trade_lines = raw_b.decode("latin1", errors="replace").splitlines()
+                                n_tr = self._parse_profit_trades_lines(trade_lines, st, target_date)
+                                if n_tr > 0:
+                                    st.source = f"HISTÓRICO PROFIT CSV ({fname})"
+                            except Exception:
+                                pass
+
+            win_payload = win_st.get_summary_payload()
+            wdo_payload = wdo_st.get_summary_payload()
+
+            if len(win_payload.get("m5_cvd_series", [])) > 0 and len(wdo_payload.get("m5_cvd_series", [])) > 0:
+                try:
+                    with open(disk_cache_path, "w", encoding="utf-8") as cf:
+                        _json.dump({"WIN": win_payload, "WDO": wdo_payload}, cf)
+                except Exception:
+                    pass
 
         try:
             from core.gex_live_dealer_engine import gex_dealer_engine_singleton
@@ -1618,7 +1706,7 @@ class ProfitMt5FlowEngine:
             "ok": True,
             "is_historical": True,
             "selected_date": target_date,
-            "available_dates": list_available_gex_dates(8),
+            "available_dates": list_available_gex_dates(150),
             "timestamp": int(time.time()),
             "updated_at": f"Histórico {target_date}",
             "profit_rtd_warnings": [],
@@ -1632,6 +1720,11 @@ class ProfitMt5FlowEngine:
             },
             "caminho_b": {"ok": False, "is_historical": True},
         }
+        try:
+            from core.gex_live_dealer_engine import gex_dealer_engine_singleton
+            snap["portfolio_4_sistematicas"] = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(snap)
+        except Exception:
+            pass
         if len(win_payload.get("m5_cvd_series", [])) > 0 or len(wdo_payload.get("m5_cvd_series", [])) > 0:
             self._historical_cache[target_date] = snap
         return snap
@@ -1642,7 +1735,8 @@ class ProfitMt5FlowEngine:
             return self.get_historical_session(date_str.strip())
 
         now_ts = time.time()
-        if not force and hasattr(self, "_cached_payload") and self._cached_payload and (now_ts - self._last_update_ts < 1.5):
+        ttl = 5.0 if (hasattr(self, "_cached_payload") and self._cached_payload and self._cached_payload.get("is_historical")) else 1.5
+        if not force and hasattr(self, "_cached_payload") and self._cached_payload and (now_ts - self._last_update_ts < ttl):
             return self._cached_payload
 
         if self.win_state.session_date != today_str:
@@ -1666,11 +1760,14 @@ class ProfitMt5FlowEngine:
         wdo_payload = self.wdo_state.get_summary_payload()
 
         # Antes da abertura das 09h00 (sem barras M5 no dia atual), exibe automaticamente o último pregão fechado
-        avail = list_available_gex_dates(8)
+        avail = list_available_gex_dates(150)
         prev_dates = [d for d in avail if d < today_str]
         if not win_payload.get("m5_cvd_series") and not wdo_payload.get("m5_cvd_series"):
             if prev_dates:
-                return self.get_historical_session(prev_dates[0])
+                fallback_snap = self.get_historical_session(prev_dates[0])
+                self._cached_payload = fallback_snap
+                self._last_update_ts = time.time()
+                return fallback_snap
 
         # No início da manhã (< 28 barras M5), anexa as últimas 18 barras da tarde anterior como warm-up visual/EMA
         # (com cvd_inst alinhado em zero no fechamento de ontem para transição contínua às 09h00)
@@ -1723,7 +1820,7 @@ class ProfitMt5FlowEngine:
             "ok": True,
             "is_historical": False,
             "selected_date": today_str,
-            "available_dates": list_available_gex_dates(8),
+            "available_dates": list_available_gex_dates(150),
             "timestamp": int(self._last_update_ts),
             "updated_at": datetime.now().strftime("%H:%M:%S"),
             "profit_rtd_warnings": list(self._profit_warnings),
@@ -1737,6 +1834,11 @@ class ProfitMt5FlowEngine:
             },
             "caminho_b": caminho_b_payload,
         }
+        try:
+            from core.gex_live_dealer_engine import gex_dealer_engine_singleton
+            self._cached_payload["portfolio_4_sistematicas"] = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(self._cached_payload)
+        except Exception:
+            pass
         return self._cached_payload
 
     def _poll_profit_rtd_files(self):

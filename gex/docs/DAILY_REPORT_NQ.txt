@@ -4,7 +4,7 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    USTEC Atual:       28709.87  (NDX: 29402.51 | QQQ: $699.00)
+    USTEC Atual:       28629.76  (NDX: 29402.51 | QQQ: $699.00)
     Gamma Flip Point:  30132.65
     Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
@@ -19,6 +19,15 @@
 -----------------------------------------------------------------
   TIPO       | STRIKE QQQ   | EQUIVALENTE NQ   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
+  WALL *     | $737.00      | NQ 31006.97     | $             103.68M | Width 1
+  WALL *     | $735.00      | NQ 30906.95     | $              58.24M | Width 1
+  WALL *     | $732.00      | NQ 30806.93     | $              84.44M | Width 1
+  WALL *     | $730.00      | NQ 30706.90     | $              61.85M | Width 1
+  WALL *     | $727.00      | NQ 30606.88     | $             131.81M | Width 1
+  WALL *     | $725.00      | NQ 30506.86     | $              74.20M | Width 1
+  WALL *     | $723.00      | NQ 30406.84     | $             153.89M | Width 1
+  WALL *     | $720.00      | NQ 30306.81     | $             -37.75M | Width 1
+  WALL *     | $718.00      | NQ 30206.79     | $            -251.35M | Width 1
   WALL *     | $716.00      | NQ 30106.77     | $             -55.32M | Width 1
   WALL *     | $713.00      | NQ 30006.75     | $            -420.93M | Width 1
   WALL *     | $711.00      | NQ 29906.72     | $            -524.34M | Width 1
@@ -35,6 +44,15 @@
   WALL *     | $685.00      | NQ 28806.48     | $            -563.66M | Width 1
   WALL *     | $682.00      | NQ 28706.45     | $            -120.53M | Width 1
   WALL *     | $680.00      | NQ 28606.43     | $            -934.03M | Width 1
+  WALL *     | $678.00      | NQ 28506.41     | $            -152.85M | Width 1
+  WALL *     | $675.00      | NQ 28406.39     | $            -632.39M | Width 1
+  WALL *     | $673.00      | NQ 28306.36     | $             -71.63M | Width 1
+  WALL *     | $670.00      | NQ 28206.34     | $            -324.49M | Width 1
+  WALL *     | $668.00      | NQ 28106.32     | $             -60.32M | Width 1
+  WALL *     | $666.00      | NQ 28006.30     | $            -263.82M | Width 1
+  WALL *     | $663.00      | NQ 27906.27     | $             -21.49M | Width 1
+  WALL *     | $661.00      | NQ 27806.25     | $            -188.62M | Width 1
+  WALL *     | $659.00      | NQ 27706.23     | $             -26.46M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE (_NDX + QQQ).
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

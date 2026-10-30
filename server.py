@@ -98,8 +98,8 @@ def calculate_persistence(snapshots, P):
         buy_sum = 0
         sell_sum = 0
         for b in _broker_list:
-            buy_sum += (snap_end["flow"][b]["buy"] - snap_start["flow"][b]["buy"])
-            sell_sum += (snap_end["flow"][b]["sell"] - snap_start["flow"][b]["sell"])
+            buy_sum += (snap_end["flow"].get(b, {}).get("buy", 0) - snap_start["flow"].get(b, {}).get("buy", 0))
+            sell_sum += (snap_end["flow"].get(b, {}).get("sell", 0) - snap_start["flow"].get(b, {}).get("sell", 0))
         fl = buy_sum - sell_sum
         sum_fl += fl
         sum_abs_fl += abs(fl)
@@ -120,8 +120,8 @@ def _calculate_window_factors(snapshots, window_seconds):
     buy_sum = 0
     sell_sum = 0
     for b in _broker_list:
-        buy_sum += (latest["flow"][b]["buy"] - start["flow"][b]["buy"])
-        sell_sum += (latest["flow"][b]["sell"] - start["flow"][b]["sell"])
+        buy_sum += (latest["flow"].get(b, {}).get("buy", 0) - start["flow"].get(b, {}).get("buy", 0))
+        sell_sum += (latest["flow"].get(b, {}).get("sell", 0) - start["flow"].get(b, {}).get("sell", 0))
     
     fl = buy_sum - sell_sum
     va = buy_sum + sell_sum
@@ -133,8 +133,8 @@ def _calculate_window_factors(snapshots, window_seconds):
     # 3. CONC_DIR (Concentração Direcionada)
     broker_nets = []
     for b in _broker_list:
-        b_buy = latest["flow"][b]["buy"] - start["flow"][b]["buy"]
-        b_sell = latest["flow"][b]["sell"] - start["flow"][b]["sell"]
+        b_buy = latest["flow"].get(b, {}).get("buy", 0) - start["flow"].get(b, {}).get("buy", 0)
+        b_sell = latest["flow"].get(b, {}).get("sell", 0) - start["flow"].get(b, {}).get("sell", 0)
         b_net = b_buy - b_sell
         broker_nets.append((b, b_net))
         

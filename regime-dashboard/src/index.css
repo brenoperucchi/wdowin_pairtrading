@@ -19,7 +19,7 @@
     letter-spacing: 0.18px;
     color-scheme: dark;
     color: #c9d1d9;
-    background: #0d1117;
+    background: #0c1218;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -114,9 +114,9 @@ code {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #21262d;
+  border-bottom: 1px solid #1a2530;
   padding: 9px 20px;
-  background: #161b22;
+  background: #0c1218;
   flex-wrap: wrap;
   gap: 10px;
 }

@@ -136,8 +136,10 @@ def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio, termi
                     ny_close_bar = b
                     break
 
-            # Se ainda não abriu o pregão regular de NY hoje (< 16:35 broker time) e achamos o fechamento de ontem:
-            if ny_close_bar is not None and (last_dt.hour < 16 or (last_dt.hour == 16 and last_dt.minute < 35)):
+            # Se ainda não abriu o pregão regular de NY hoje (< 16:35 broker time) ou em replay matinal,
+            # usa o fechamento de NY de ontem (22:55 broker) para preservar Zero-Repainting nas walls:
+            force_ny_close = os.environ.get("GEX_USE_MORNING_ARCHIVE") == "1" or bool(os.environ.get("GEX_ARCHIVE_DATE"))
+            if ny_close_bar is not None and (force_ny_close or last_dt.hour < 16 or (last_dt.hour == 16 and last_dt.minute < 35)):
                 sync_mt5_price = float(ny_close_bar[4])
                 ny_dt = datetime.fromtimestamp(ny_close_bar[0], timezone.utc)
                 sync_time_str = f"NY Close {ny_dt.strftime('%Y-%m-%d %H:%M')} Broker"

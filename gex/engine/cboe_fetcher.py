@@ -14,10 +14,12 @@ import numpy as np
 import pandas as pd
 import requests
 
+import os
+
 try:
-    from gex.engine.chain_archive import archive_payload
+    from gex.engine.chain_archive import archive_payload, list_archived, load_archived_payload
 except ImportError:  # execução direta do módulo
-    from chain_archive import archive_payload
+    from chain_archive import archive_payload, list_archived, load_archived_payload
 
 CBOE_BASE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{ticker}.json"
 
@@ -113,8 +115,35 @@ def fetch_cboe_chain(
         ['ticker', 'type', 'strike', 'expiry', 'dte_days', 'bus_days', 'T', 'oi', 'volume', 'iv', 'cboe_gamma']
     """
     url = CBOE_BASE_URL.format(ticker=ticker)
+    archive_date = os.environ.get("GEX_ARCHIVE_DATE")
+    use_morning_archive = os.environ.get("GEX_USE_MORNING_ARCHIVE") == "1"
+    archived_now_utc = None
+
     if ticker in _PAYLOAD_CACHE:
-        raw_json = _PAYLOAD_CACHE[ticker]
+        raw_json, archived_now_utc = _PAYLOAD_CACHE[ticker]
+    elif archive_date or use_morning_archive:
+        target_date = archive_date or datetime.date.today().isoformat()
+        files = list_archived("cboe", ticker, target_date)
+        rec = None
+        if files:
+            import gzip, json
+            # Usar o primeiro arquivo do dia (coleta matinal pré-mercado das 07:30–07:45 BRT)
+            with gzip.open(files[0], "rt", encoding="utf-8") as f:
+                rec = json.load(f)
+        if rec and rec.get("payload"):
+            raw_json = rec["payload"]
+            if rec.get("fetched_at_utc"):
+                try:
+                    archived_now_utc = datetime.datetime.fromisoformat(rec["fetched_at_utc"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            _PAYLOAD_CACHE[ticker] = (raw_json, archived_now_utc)
+            print(f"      [Archive Replay] Usando snapshot matinal arquivado de {ticker} ({rec.get('fetched_at_local', target_date)})")
+        else:
+            resp = _session().get(url, timeout=20)
+            resp.raise_for_status()
+            raw_json = resp.json()
+            _PAYLOAD_CACHE[ticker] = (raw_json, None)
     else:
         try:
             resp = _session().get(url, timeout=20)
@@ -123,7 +152,7 @@ def fetch_cboe_chain(
         except Exception as e:
             print(f"      [CBOE Warning] Falha ao buscar {ticker} na CBOE após retries ({e}).")
             return None, pd.DataFrame(), None
-        _PAYLOAD_CACHE[ticker] = raw_json
+        _PAYLOAD_CACHE[ticker] = (raw_json, None)
         # Arquivo diário da resposta bruta (permite recalcular este dia no futuro)
         archive_payload("cboe", ticker, url, raw_json)
     payload = raw_json.get("data", {}) or {}
@@ -149,8 +178,8 @@ def fetch_cboe_chain(
     if not raw_options:
         return spot, pd.DataFrame(), None
 
-    today = datetime.date.today()
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    today = datetime.date.fromisoformat(archive_date) if archive_date else datetime.date.today()
+    now_utc = archived_now_utc or datetime.datetime.now(datetime.timezone.utc)
     min_strike = spot * (1.0 - strike_range_pct)
     max_strike = spot * (1.0 + strike_range_pct)
 

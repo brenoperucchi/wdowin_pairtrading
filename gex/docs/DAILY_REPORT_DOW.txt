@@ -4,7 +4,7 @@
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US30 Spot Atual:    52350.43  (DIA: $523.26)
+    US30 Spot Atual:    52103.30  (DIA: $523.26)
     Gamma Flip Point:   51994.51
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
@@ -19,6 +19,15 @@
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
+  Wall       | $539.0        | 53918.49           | $             11.87M | Width 1
+  Wall       | $538.0        | 53818.46           | $              2.12M | Width 1
+  Wall       | $537.0        | 53718.42           | $              2.38M | Width 1
+  Wall       | $536.0        | 53618.39           | $              3.03M | Width 1
+  Wall       | $535.0        | 53518.35           | $             11.57M | Width 1
+  Wall       | $534.0        | 53418.32           | $              6.60M | Width 1
+  Wall       | $533.0        | 53318.28           | $              2.71M | Width 1
+  Wall       | $532.0        | 53218.25           | $              3.54M | Width 1
+  Wall       | $531.0        | 53118.22           | $             10.54M | Width 1
   Wall       | $530.0        | 53018.18           | $             30.49M | Width 2
   Wall       | $529.0        | 52918.15           | $              7.33M | Width 1
   Wall       | $528.0        | 52818.11           | $             15.75M | Width 1
@@ -35,6 +44,13 @@
   Wall       | $517.0        | 51717.74           | $             -5.49M | Width 1
   Wall       | $516.0        | 51617.70           | $             -6.38M | Width 1
   Wall       | $515.0        | 51517.67           | $            -17.10M | Width 2
+  Wall       | $514.0        | 51417.63           | $             -6.92M | Width 1
+  Wall       | $513.0        | 51317.60           | $             -2.13M | Width 1
+  Wall       | $512.0        | 51217.56           | $             -3.77M | Width 1
+  Wall       | $511.0        | 51117.53           | $             -0.38M | Width 1
+  Wall       | $510.0        | 51017.50           | $             -3.40M | Width 1
+  Wall       | $509.0        | 50917.46           | $             -2.41M | Width 1
+  Wall       | $508.0        | 50817.43           | $             -0.45M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE (DIA + _DJX).
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

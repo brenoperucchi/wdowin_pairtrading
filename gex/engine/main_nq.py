@@ -108,15 +108,32 @@ def run_nq_gex_pipeline():
             "avg_iv": float(group["iv"].mean()),
         }
 
-    all_strikes = sorted(gex_per_strike.keys())
-    atm_strike = min(all_strikes, key=lambda s: abs(s - ndx_spot))
-    atm_idx = all_strikes.index(atm_strike)
+    # 4. Calcular Market Gamma Curve antes de filtrar as Walls para cobrir [MinGamma, MaxGamma] + preço atual
+    sweep_prices = np.linspace(ndx_spot * 0.92, ndx_spot * 1.08, 250)
+    max_ndx, max_val, min_ndx, min_val, flip_ndx = compute_multi_expiry_gamma_curve(
+        df_options, sweep_prices, r=r, q=q
+    )
 
-    num_walls = 16
+    live_ndx_equiv = (current_nq / conv_ratio) if conv_ratio > 0 else ndx_spot
+    low_ref = min(ndx_spot, live_ndx_equiv)
+    high_ref = max(ndx_spot, live_ndx_equiv)
+
+    lower_bound = min(min_ndx - 200.0, low_ref * 0.965)
+    upper_bound = max(max_ndx + 200.0, high_ref * 1.035)
+    all_strikes = sorted(gex_per_strike.keys())
+    candidate_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
+    if len(candidate_strikes) < 16:
+        candidate_strikes = all_strikes
+
+    center_ndx = 0.5 * (low_ref + high_ref)
+    atm_strike = min(candidate_strikes, key=lambda s: abs(s - center_ndx))
+    atm_idx = candidate_strikes.index(atm_strike)
+
+    num_walls = min(36, len(candidate_strikes))
     start_idx = max(0, atm_idx - num_walls // 2)
-    end_idx = min(len(all_strikes), start_idx + num_walls)
+    end_idx = min(len(candidate_strikes), start_idx + num_walls)
     start_idx = max(0, end_idx - num_walls)
-    selected_strikes = all_strikes[start_idx:end_idx]
+    selected_strikes = candidate_strikes[start_idx:end_idx]
 
     strike_gex_list = [(s, gex_per_strike[s]) for s in selected_strikes]
     sorted_by_gex = sorted(strike_gex_list, key=lambda x: x[1]["abs_gex"], reverse=True)
@@ -144,12 +161,6 @@ def run_nq_gex_pipeline():
         })
 
     walls = sorted(walls_basic, key=lambda x: x["price"])
-
-    # 4. Calcular Market Gamma Curve
-    sweep_prices = np.linspace(ndx_spot * 0.92, ndx_spot * 1.08, 250)
-    max_ndx, max_val, min_ndx, min_val, flip_ndx = compute_multi_expiry_gamma_curve(
-        df_options, sweep_prices, r=r, q=q
-    )
 
     max_gamma_nq = max_ndx * conv_ratio
     min_gamma_nq = min_ndx * conv_ratio

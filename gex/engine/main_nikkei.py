@@ -84,22 +84,34 @@ def run_nikkei_gex_pipeline():
             "strike_ewj": float(strike_ewj),
         }
 
+    # 4. Market Gamma Curve antes de filtrar as Walls para cobrir [MinGamma, MaxGamma]
+    sweep_prices = np.linspace(current_ewj * 0.90, current_ewj * 1.10, 250)
+    max_ewj, max_val, min_ewj, min_val, flip_ewj = compute_multi_expiry_gamma_curve(
+        df_options, sweep_prices, r=rd, q=rf, multiplier=multiplier
+    )
+
+    max_gamma_jp = max_ewj * conv_ratio
+    min_gamma_jp = min_ewj * conv_ratio
+    flip_jp = flip_ewj * conv_ratio
+
     all_strikes = sorted(gex_per_strike.keys())
     current_jp_approx = current_ewj * conv_ratio
+    low_ref = min(current_jp_approx, current_jp_price)
+    high_ref = max(current_jp_approx, current_jp_price)
 
-    range_pct = 0.08
-    lower_bound = current_jp_approx * (1 - range_pct)
-    upper_bound = current_jp_approx * (1 + range_pct)
+    lower_bound = min(min_gamma_jp - 700.0, low_ref * 0.92)
+    upper_bound = max(max_gamma_jp + 700.0, high_ref * 1.08)
     filtered_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
 
     if len(filtered_strikes) < 6:
-        filtered_strikes = sorted(all_strikes, key=lambda s: abs(s - current_jp_approx))[:14]
+        filtered_strikes = sorted(all_strikes, key=lambda s: abs(s - current_jp_approx))[:24]
         filtered_strikes = sorted(filtered_strikes)
 
-    atm_strike = min(filtered_strikes, key=lambda s: abs(s - current_jp_approx))
+    center_jp = 0.5 * (low_ref + high_ref)
+    atm_strike = min(filtered_strikes, key=lambda s: abs(s - center_jp))
     atm_idx = filtered_strikes.index(atm_strike)
 
-    num_walls = min(14, len(filtered_strikes))
+    num_walls = min(24, len(filtered_strikes))
     start_idx = max(0, atm_idx - num_walls // 2)
     end_idx = min(len(filtered_strikes), start_idx + num_walls)
     start_idx = max(0, end_idx - num_walls)
@@ -133,16 +145,6 @@ def run_nikkei_gex_pipeline():
         })
 
     walls = sorted(walls_basic, key=lambda x: x["price"])
-
-    # 4. Market Gamma Curve
-    sweep_prices = np.linspace(current_ewj * 0.90, current_ewj * 1.10, 250)
-    max_ewj, max_val, min_ewj, min_val, flip_ewj = compute_multi_expiry_gamma_curve(
-        df_options, sweep_prices, r=rd, q=rf, multiplier=multiplier
-    )
-
-    max_gamma_jp = max_ewj * conv_ratio
-    min_gamma_jp = min_ewj * conv_ratio
-    flip_jp = flip_ewj * conv_ratio
 
     walls.append({
         "price": round(max_gamma_jp, 1),

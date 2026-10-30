@@ -113,18 +113,30 @@ def run_us_gex_pipeline():
             "avg_iv": float(group["iv"].mean()),
         }
 
-    # Filtrar strikes dentro de ±4% do spot atual para selecionar as 16 maiores/mais próximas walls
-    lower_bound = spx_spot * 0.96
-    upper_bound = spx_spot * 1.04
+    # 4. Calcular Market Gamma Curve (MaxGamma, MinGamma, GammaFlip) antes de filtrar as Walls
+    # para garantir que todas as linhas entre MinGamma, preço atual do CFD e MaxGamma sejam incluídas.
+    sweep_prices = np.linspace(spx_spot * 0.93, spx_spot * 1.07, 250)
+    max_spx, max_val, min_spx, min_val, flip_spx = compute_multi_expiry_gamma_curve(
+        df_options, sweep_prices, r=r, q=q
+    )
+
+    live_spx_equiv = (current_us500 / conv_ratio) if conv_ratio > 0 else spx_spot
+    low_ref = min(spx_spot, live_spx_equiv)
+    high_ref = max(spx_spot, live_spx_equiv)
+
+    # Cobrir todo o intervalo entre MinGamma e MaxGamma (+ margem de 20 pts) e pelo menos ±2.5% do spot/CFD
+    lower_bound = min(min_spx - 20.0, low_ref * 0.975)
+    upper_bound = max(max_spx + 20.0, high_ref * 1.025)
     candidate_strikes = [s for s in sorted(gex_per_strike.keys()) if lower_bound <= s <= upper_bound]
     if len(candidate_strikes) < 16:
-        all_s = sorted(gex_per_strike.keys(), key=lambda s: abs(s - spx_spot))
-        candidate_strikes = sorted(all_s[:16])
+        all_s = sorted(gex_per_strike.keys(), key=lambda s: abs(s - live_spx_equiv))
+        candidate_strikes = sorted(all_s[:32])
 
-    # Selecionar os 16 strikes de maior importância perto do ATM
-    atm_strike = min(candidate_strikes, key=lambda s: abs(s - spx_spot))
+    # Selecionar até 48 strikes cobrindo de MinGamma a MaxGamma centrado entre o spot e o CFD atual
+    center_spx = 0.5 * (low_ref + high_ref)
+    atm_strike = min(candidate_strikes, key=lambda s: abs(s - center_spx))
     atm_idx = candidate_strikes.index(atm_strike)
-    num_walls = 16
+    num_walls = min(48, len(candidate_strikes))
     start_idx = max(0, atm_idx - num_walls // 2)
     end_idx = min(len(candidate_strikes), start_idx + num_walls)
     start_idx = max(0, end_idx - num_walls)
@@ -157,12 +169,6 @@ def run_us_gex_pipeline():
         })
 
     walls = sorted(walls_basic, key=lambda x: x["price"])
-
-    # 4. Calcular Market Gamma Curve (MaxGamma, MinGamma, GammaFlip)
-    sweep_prices = np.linspace(spx_spot * 0.93, spx_spot * 1.07, 250)
-    max_spx, max_val, min_spx, min_val, flip_spx = compute_multi_expiry_gamma_curve(
-        df_options, sweep_prices, r=r, q=q
-    )
 
     max_gamma_es = max_spx * conv_ratio
     min_gamma_es = min_spx * conv_ratio

@@ -108,15 +108,36 @@ def run_dow_gex_pipeline():
             "strike_dia": float(strike_dia),
         }
 
-    all_strikes = sorted(gex_per_strike.keys())
-    atm_strike = min(all_strikes, key=lambda s: abs(s - (current_dia * conv_ratio)))
-    atm_idx = all_strikes.index(atm_strike)
+    # 4. Calcular Market Gamma Curve antes de filtrar as Walls para cobrir [MinGamma, MaxGamma] + preço atual
+    sweep_prices = np.linspace(current_dia * 0.92, current_dia * 1.08, 250)
+    max_dia, max_val, min_dia, min_val, flip_dia = compute_multi_expiry_gamma_curve(
+        df_options, sweep_prices, r=r, q=q
+    )
 
-    num_walls = 16
+    max_gamma_dow = max_dia * conv_ratio
+    min_gamma_dow = min_dia * conv_ratio
+    flip_dow = flip_dia * conv_ratio
+
+    close_dow = current_dia * conv_ratio
+    low_ref = min(close_dow, current_spot)
+    high_ref = max(close_dow, current_spot)
+    lower_bound = min(min_gamma_dow - 200.0, low_ref * 0.975)
+    upper_bound = max(max_gamma_dow + 200.0, high_ref * 1.025)
+
+    all_strikes = sorted(gex_per_strike.keys())
+    candidate_strikes = [s for s in all_strikes if lower_bound <= s <= upper_bound]
+    if len(candidate_strikes) < 16:
+        candidate_strikes = all_strikes
+
+    center_dow = 0.5 * (low_ref + high_ref)
+    atm_strike = min(candidate_strikes, key=lambda s: abs(s - center_dow))
+    atm_idx = candidate_strikes.index(atm_strike)
+
+    num_walls = min(36, len(candidate_strikes))
     start_idx = max(0, atm_idx - num_walls // 2)
-    end_idx = min(len(all_strikes), start_idx + num_walls)
+    end_idx = min(len(candidate_strikes), start_idx + num_walls)
     start_idx = max(0, end_idx - num_walls)
-    selected_strikes = all_strikes[start_idx:end_idx]
+    selected_strikes = candidate_strikes[start_idx:end_idx]
 
     strike_gex_list = [(s, gex_per_strike[s]) for s in selected_strikes]
     sorted_by_gex = sorted(strike_gex_list, key=lambda x: x[1]["abs_gex"], reverse=True)
@@ -144,16 +165,6 @@ def run_dow_gex_pipeline():
         })
 
     walls = sorted(walls_basic, key=lambda x: x["price"])
-
-    # 4. Calcular Market Gamma Curve
-    sweep_prices = np.linspace(current_dia * 0.92, current_dia * 1.08, 250)
-    max_dia, max_val, min_dia, min_val, flip_dia = compute_multi_expiry_gamma_curve(
-        df_options, sweep_prices, r=r, q=q
-    )
-
-    max_gamma_dow = max_dia * conv_ratio
-    min_gamma_dow = min_dia * conv_ratio
-    flip_dow = flip_dia * conv_ratio
 
     walls.append({
         "price": round(max_gamma_dow, 2),
