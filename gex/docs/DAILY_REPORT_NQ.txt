@@ -1,57 +1,56 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - NASDAQ 100 / USTEC (CBOE)
-  Vencimento de Referencia: 2026-11-02 (Multi-Exp: 25 vencs, Top OI: 2026-11-20) | Data Ref: 02/11/2026
+  Vencimento de Referencia: 2026-11-03 (Multi-Exp: 26 vencs, Top OI: 2026-12-18) | Data Ref: 03/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    USTEC Atual:       28618.98  (NDX: 28384.85 | QQQ: $692.74)
-    Gamma Flip Point:  29764.57
+    USTEC Atual:       28093.89  (NDX: 27989.82 | QQQ: $683.90)
+    Gamma Flip Point:  30234.51
     Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : NQ 27839.78
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : NQ 29764.57
-    [+] MAX GAMMA (Teto Gravitacional)    : NQ 30483.80
+    [-] MIN GAMMA (Piso de Queda Livre)   : NQ 27392.30
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : NQ 30234.51
+    [+] MAX GAMMA (Teto Gravitacional)    : NQ 30234.51
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE QQQ   | EQUIVALENTE NQ   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $747.00      | NQ 30592.30     | $              52.86M | Width 1
-  WALL *     | $744.00      | NQ 30492.32     | $              47.14M | Width 1
-  WALL *     | $742.00      | NQ 30392.35     | $              47.10M | Width 1
-  WALL *     | $739.00      | NQ 30292.37     | $              85.76M | Width 1
-  WALL *     | $737.00      | NQ 30192.40     | $             -88.85M | Width 1
-  WALL *     | $735.00      | NQ 30092.42     | $              35.41M | Width 1
-  WALL *     | $732.00      | NQ 29992.45     | $              33.90M | Width 1
-  WALL *     | $730.00      | NQ 29892.47     | $             -13.41M | Width 1
-  WALL *     | $727.00      | NQ 29792.50     | $              -7.34M | Width 1
-  WALL *     | $725.00      | NQ 29692.52     | $             536.72M | Width 1
-  WALL *     | $722.00      | NQ 29592.55     | $              62.75M | Width 1
-  WALL *     | $720.00      | NQ 29492.57     | $            -130.95M | Width 1
-  WALL *     | $718.00      | NQ 29392.60     | $             -40.29M | Width 1
-  WALL *     | $715.00      | NQ 29292.62     | $             -56.13M | Width 1
-  WALL *     | $713.00      | NQ 29192.65     | $            -537.33M | Width 1
-  WALL *     | $710.00      | NQ 29092.67     | $            -260.17M | Width 1
-  WALL *     | $708.00      | NQ 28992.70     | $            -124.54M | Width 1
-  WALL *     | $705.00      | NQ 28892.72     | $            -237.68M | Width 1
-  WALL *     | $703.00      | NQ 28792.75     | $            -115.91M | Width 1
-  WALL *     | $700.00      | NQ 28692.77     | $            -410.15M | Width 1
-  WALL **    | $698.00      | NQ 28592.80     | $             751.64M | Width 2
-  WALL *     | $696.00      | NQ 28492.83     | $            -274.79M | Width 1
-  WALL *     | $693.00      | NQ 28392.85     | $              15.28M | Width 1
-  WALL **    | $691.00      | NQ 28292.88     | $            -706.31M | Width 2
-  WALL *     | $688.00      | NQ 28192.90     | $            -164.37M | Width 1
-  WALL *     | $686.00      | NQ 28092.93     | $            -465.44M | Width 1
-  WALL *     | $683.00      | NQ 27992.95     | $            -631.09M | Width 1
-  WALL ***   | $681.00      | NQ 27892.98     | $           -1119.26M | Width 3
-  WALL *     | $678.00      | NQ 27793.00     | $            -175.09M | Width 1
-  WALL *     | $676.00      | NQ 27693.03     | $            -545.36M | Width 1
-  WALL *     | $674.00      | NQ 27593.05     | $             -60.11M | Width 1
-  WALL *     | $671.00      | NQ 27493.08     | $            -563.73M | Width 1
-  WALL *     | $669.00      | NQ 27393.10     | $             -52.91M | Width 1
+  WALL *     | $738.00      | NQ 30205.50     | $             -10.09M | Width 1
+  WALL *     | $735.00      | NQ 30105.48     | $              80.20M | Width 1
+  WALL *     | $733.00      | NQ 30005.47     | $              44.15M | Width 1
+  WALL *     | $731.00      | NQ 29905.45     | $              76.55M | Width 1
+  WALL *     | $728.00      | NQ 29805.43     | $              24.02M | Width 1
+  WALL *     | $726.00      | NQ 29705.41     | $             479.74M | Width 1
+  WALL *     | $723.00      | NQ 29605.39     | $             224.88M | Width 1
+  WALL *     | $721.00      | NQ 29505.37     | $             -11.20M | Width 1
+  WALL *     | $718.00      | NQ 29405.36     | $              26.17M | Width 1
+  WALL *     | $716.00      | NQ 29305.34     | $             100.96M | Width 1
+  WALL *     | $713.00      | NQ 29205.32     | $            -249.54M | Width 1
+  WALL *     | $711.00      | NQ 29105.30     | $             -64.02M | Width 1
+  WALL *     | $709.00      | NQ 29005.28     | $              63.68M | Width 1
+  WALL *     | $706.00      | NQ 28905.27     | $             -46.70M | Width 1
+  WALL *     | $704.00      | NQ 28805.25     | $              43.10M | Width 1
+  WALL *     | $701.00      | NQ 28705.23     | $             109.59M | Width 1
+  WALL *     | $699.00      | NQ 28605.21     | $            -144.00M | Width 1
+  WALL *     | $696.00      | NQ 28505.19     | $             -82.14M | Width 1
+  WALL *     | $694.00      | NQ 28405.17     | $            -214.68M | Width 1
+  WALL *     | $691.00      | NQ 28305.16     | $            -216.54M | Width 1
+  WALL *     | $689.00      | NQ 28205.14     | $            -626.27M | Width 1
+  WALL *     | $687.00      | NQ 28105.12     | $            -122.85M | Width 1
+  WALL **    | $684.00      | NQ 28005.10     | $            -998.79M | Width 2
+  WALL *     | $682.00      | NQ 27905.08     | $            -447.13M | Width 1
+  WALL ***   | $679.00      | NQ 27805.07     | $           -1332.44M | Width 3
+  WALL *     | $677.00      | NQ 27705.05     | $            -314.91M | Width 1
+  WALL **    | $674.00      | NQ 27605.03     | $            -884.63M | Width 2
+  WALL *     | $672.00      | NQ 27505.01     | $            -444.68M | Width 1
+  WALL *     | $669.00      | NQ 27404.99     | $            -639.16M | Width 1
+  WALL *     | $667.00      | NQ 27304.97     | $             -56.51M | Width 1
+  WALL *     | $665.00      | NQ 27204.96     | $            -314.06M | Width 1
+  WALL *     | $662.00      | NQ 27104.94     | $             -33.55M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE (_NDX + QQQ).
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

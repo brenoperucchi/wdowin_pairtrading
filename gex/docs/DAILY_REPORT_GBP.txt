@@ -1,36 +1,36 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GBP/USD (CBOE)
-  Vencimento de Referencia: 2026-11-20 (Multi-Exp: 3 vencs, Top OI: 2026-12-18) | Data Ref: 02/11/2026
+  Vencimento de Referencia: 2026-11-20 (Multi-Exp: 3 vencs, Top OI: 2026-12-18) | Data Ref: 03/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    GBPUSD Spot Atual: 1.34079  (FXB: $128.90)
-    Gamma Flip Point:  1.27610
-    Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
-    Vies do Dia:       ALTA / LATERALIZACAO
-    Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
+    GBPUSD Spot Atual: 1.34130  (FXB: $128.87)
+    Gamma Flip Point:  1.36491
+    Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
+    Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
+    Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.25921
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.27610
-    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.30504
+    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.26064
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.36491
+    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.31752
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE FXB   | EQUIVALENTE GBPUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $135.0        | 1.4030             | $              0.00M | Width 1
-  Wall       | $133.0        | 1.3822             | $              0.00M | Width 1
-  Wall       | $132.0        | 1.3718             | $             -0.00M | Width 1
-  Wall       | $131.0        | 1.3614             | $              0.00M | Width 1
-  Wall       | $130.0        | 1.3510             | $             -0.01M | Width 1
-  Wall       | $129.0        | 1.3406             | $              0.02M | Width 1
-  Wall       | $128.0        | 1.3302             | $             -0.04M | Width 2
-  Wall       | $127.0        | 1.3198             | $              0.11M | Width 3
-  Wall       | $126.0        | 1.3094             | $             -0.00M | Width 1
-  Wall       | $125.0        | 1.2991             | $              0.01M | Width 1
-  Wall       | $124.0        | 1.2887             | $              0.04M | Width 2
-  Wall       | $123.0        | 1.2783             | $              0.01M | Width 1
+  Wall       | $135.0        | 1.4049             | $              0.00M | Width 1
+  Wall       | $133.0        | 1.3841             | $              0.00M | Width 1
+  Wall       | $132.0        | 1.3737             | $             -0.00M | Width 1
+  Wall       | $131.0        | 1.3633             | $             -0.00M | Width 1
+  Wall       | $130.0        | 1.3529             | $             -0.01M | Width 1
+  Wall       | $129.0        | 1.3425             | $              0.01M | Width 1
+  Wall       | $128.0        | 1.3321             | $             -0.04M | Width 2
+  Wall       | $127.0        | 1.3216             | $              0.14M | Width 3
+  Wall       | $126.0        | 1.3112             | $             -0.00M | Width 1
+  Wall       | $125.0        | 1.3008             | $             -0.02M | Width 1
+  Wall       | $124.0        | 1.2904             | $              0.03M | Width 2
+  Wall       | $123.0        | 1.2800             | $              0.02M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE no ETF FXB.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
