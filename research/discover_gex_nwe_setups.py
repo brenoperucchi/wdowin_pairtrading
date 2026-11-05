@@ -52,7 +52,10 @@ def compute_nwe_series(closes: np.ndarray, lookback: int = 95, bw: float = 8.0, 
     return center, upper, lower, mae_raw, slope
 
 
-def load_aligned_data():
+def load_aligned_data(use_sqlite: bool = False):
+    if not use_sqlite:
+        from research.mt5_loader import load_aligned_data as _mt5_load_aligned_data
+        return _mt5_load_aligned_data()
     conn = sqlite3.connect(DB_PATH)
     df_bars = pd.read_sql_query(
         """

@@ -190,36 +190,184 @@ def _get_expected_trading_day():
     return prev
 
 
-def _detect_active_win():
+# Feriados nacionais fixos no Brasil (mês, dia) para cálculo determinístico de rolagem B3
+_BR_HOLIDAYS_FIXED = {
+    (1, 1), (4, 21), (5, 1), (9, 7), (10, 12), (11, 2), (11, 15), (11, 20), (12, 25)
+}
+
+
+def _is_b3_business_day(d):
+    return d.weekday() < 5 and (d.month, d.day) not in _BR_HOLIDAYS_FIXED
+
+
+def _next_b3_business_day(d):
+    nxt = d + timedelta(days=1)
+    while not _is_b3_business_day(nxt):
+        nxt += timedelta(days=1)
+    return nxt
+
+
+def get_b3_win_expiry_date(year, month):
+    """
+    Retorna a data de vencimento do contrato futuro de Índice (WIN/IND) na B3
+    para um mês par (2, 4, 6, 8, 10, 12): a quarta-feira mais próxima do dia 15.
+    Se cair em feriado nacional fixo, avança para o próximo dia útil.
+    """
+    d_15 = datetime(year, month, 15).date()
+    days_to_wed = 2 - d_15.weekday()  # 2 = Quarta-feira
+    wed = d_15 + timedelta(days=days_to_wed)
+    candidates = [wed - timedelta(weeks=1), wed, wed + timedelta(weeks=1)]
+    expiry = min(candidates, key=lambda d: abs((d - d_15).days))
+    while not _is_b3_business_day(expiry):
+        expiry += timedelta(days=1)
+    return expiry
+
+
+def get_b3_expected_win_contract(ref_date=None):
+    """
+    Determina de forma determinística o contrato WIN ativo para o pregão de `ref_date`,
+    antecipando a rolagem às 07:30 da manhã na quarta-feira de vencimento (meses pares).
+
+    Retorna:
+        tuple: (expected_symbol, expiring_symbol, expiry_date)
+               Ex: ('WINZ26', 'WINV26', date(2026, 12, 16)) em 2026-10-14.
+    """
+    if ref_date is None:
+        ref_date = datetime.now().date()
+    elif isinstance(ref_date, datetime):
+        ref_date = ref_date.date()
+
+    # Se hoje não é dia útil (ex: domingo), projeta para o próximo pregão útil
+    effective_date = ref_date if _is_b3_business_day(ref_date) else _next_b3_business_day(ref_date)
+
+    win_codes = {2: 'G', 4: 'J', 6: 'M', 8: 'Q', 10: 'V', 12: 'Z'}
+    y = effective_date.year
+    m = effective_date.month
+
+    expiring_symbol = None
+    if m % 2 == 1:
+        active_m = m + 1
+        active_y = y
+    else:
+        exp_this_month = get_b3_win_expiry_date(y, m)
+        if effective_date >= exp_this_month:
+            # No dia do vencimento (ou após), o mercado já rola para o próximo mês par logo na abertura!
+            expiring_symbol = f"WIN{win_codes[m]}{str(y)[2:]}"
+            if m == 12:
+                active_m = 2
+                active_y = y + 1
+            else:
+                active_m = m + 2
+                active_y = y
+        else:
+            active_m = m
+            active_y = y
+
+    active_expiry = get_b3_win_expiry_date(active_y, active_m)
+    expected_symbol = f"WIN{win_codes[active_m]}{str(active_y)[2:]}"
+    return expected_symbol, expiring_symbol, active_expiry
+
+
+def get_b3_expected_wdo_contract(ref_date=None):
+    """
+    Determina de forma determinística o contrato WDO ativo para o pregão de `ref_date`.
+    Na B3, o WDO vence no 1º dia útil do mês, mas a liquidez inteira rola no
+    ÚLTIMO dia útil do mês anterior (dia de formação da PTAX de liquidação).
+
+    Retorna:
+        tuple: (expected_symbol, expiring_symbol)
+               Ex: ('WDOZ26', 'WDOX26') em 2026-10-30 (último dia útil de outubro) e novembro.
+    """
+    if ref_date is None:
+        ref_date = datetime.now().date()
+    elif isinstance(ref_date, datetime):
+        ref_date = ref_date.date()
+
+    effective_date = ref_date if _is_b3_business_day(ref_date) else _next_b3_business_day(ref_date)
+    next_trading_date = _next_b3_business_day(effective_date)
+
+    wdo_codes = {
+        1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',
+        7: 'N', 8: 'Q', 9: 'U', 10: 'V', 11: 'X', 12: 'Z'
+    }
+
+    y = effective_date.year
+    m = effective_date.month
+
+    # Se o próximo pregão útil já é no mês seguinte, hoje é o último dia útil do mês (Dia de Rolagem do WDO!)
+    is_last_bday_of_month = (next_trading_date.month != m)
+
+    if is_last_bday_of_month:
+        # Ex: 30/10/2026 -> contrato que está fechando PTAX é Nov (X26), contrato líquido do dia é Dez (Z26)
+        exp_m = m + 1
+        exp_y = y
+        if exp_m > 12:
+            exp_m -= 12
+            exp_y += 1
+
+        act_m = m + 2
+        act_y = y
+        if act_m > 12:
+            act_m -= 12
+            act_y += 1
+    else:
+        # Dia normal do mês `m`: contrato ativo é `m + 1`; contrato `m` (se no 1º dia útil) está vencendo hoje
+        exp_m = m
+        exp_y = y
+        act_m = m + 1
+        act_y = y
+        if act_m > 12:
+            act_m -= 12
+            act_y += 1
+
+    expected_symbol = f"WDO{wdo_codes[act_m]}{str(act_y)[2:]}"
+    expiring_symbol = f"WDO{wdo_codes[exp_m]}{str(exp_y)[2:]}"
+    return expected_symbol, expiring_symbol
+
+
+def _detect_active_win(ref_date=None):
     """
     Detecta automaticamente o contrato WIN ativo.
-    Busca todos os simbolos WIN[A-Z]NN e retorna o que tem maior volume.
-    Antes das 09h00 (quando session_deals == 0), usa o volume da última barra diária (D1)
-    para nunca escolher um contrato longo sem liquidez (ex: WING27).
+    Respeita o calendário oficial de rolagem da B3 (quarta-feira mais próxima do dia 15
+    dos meses pares), evitando que às 07h30 da manhã do dia de vencimento o detector
+    escolha o contrato que está morrendo por causa do volume D1 do dia anterior.
     """
+    expected_win, expiring_win, _ = get_b3_expected_win_contract(ref_date)
+
     syms = mt5.symbols_get("WIN*")
     if not syms:
         return None
-    
+
+    # 1. Verificar se o contrato esperado pelo calendário oficial B3 está disponível e com cotação no MT5
+    if expected_win:
+        mt5.symbol_select(expected_win, True)
+        tick_exp = mt5.symbol_info_tick(expected_win)
+        rates_exp = mt5.copy_rates_from_pos(expected_win, mt5.TIMEFRAME_D1, 0, 2)
+        if (tick_exp is not None and tick_exp.last > 0) or (rates_exp is not None and len(rates_exp) > 0):
+            return expected_win
+
     best = None
     best_score = -1
     now_ts = time.time()
-    
+
     for s in syms:
         # Filtrar: apenas contratos tipo WINM26, WINQ26, etc.
         if not re.match(r'^WIN[A-Z]\d{2}$', s.name):
             continue
+        # Nunca selecionar o contrato que está expirando no dia da rolagem
+        if expiring_win and s.name == expiring_win:
+            continue
         if getattr(s, "expiration_time", 0) > 0 and s.expiration_time < now_ts - 86400:
             continue
-        
+
         mt5.symbol_select(s.name, True)
         tick = mt5.symbol_info_tick(s.name)
-        
+
         if tick is None or tick.last == 0:
             continue
         if tick.time > 0 and (now_ts - tick.time) > 10 * 86400:
             continue
-        
+
         # Score = session_deals (numero de negocios do dia); antes das 09h00 usa tick_volume D1
         score = int(getattr(s, "session_deals", 0) or 0) * 1_000_000
         if score == 0:
@@ -229,7 +377,7 @@ def _detect_active_win():
         if score > best_score:
             best_score = score
             best = s.name
-    
+
     return best
 
 

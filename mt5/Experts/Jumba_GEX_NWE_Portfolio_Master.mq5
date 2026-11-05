@@ -53,7 +53,7 @@ int OnInit()
 
 void OnDeinit(const int reason)
   {
-   Comment("");
+   g_engine.Deinit();
   }
 
 void OnTick()

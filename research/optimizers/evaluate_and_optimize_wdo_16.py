@@ -83,7 +83,10 @@ def window_ok(t_min: int, wmode: str) -> bool:
     return False
 
 
-def load_wdo_and_win_aligned():
+def load_wdo_and_win_aligned(use_sqlite: bool = False):
+    if not use_sqlite:
+        from research.mt5_loader import load_wdo_and_win_aligned as _mt5_load_wdo_and_win_aligned
+        return _mt5_load_wdo_and_win_aligned()
     conn = sqlite3.connect(DB_PATH)
     df_bars = pd.read_sql_query(
         """

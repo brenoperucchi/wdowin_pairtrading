@@ -1,10 +1,10 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                                Jumba_WDO10_Stop_Limit_Main_Walls.mq5
 //|        Jumba Quantitative Trading - WDO-10 Stop & Limit So nas Walls Principais
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quantitative Trading"
 #property version   "1.00"
-#property description "WDO-10 Stop & Limit So nas Walls Principais (Magic 89010)"
+#property description "WDO-10 [WDO_S2] Reversao Banda NWE 12:00-14:30 c/ Escudo Candle (Magic 89010)"
 
 #include <Jumba_WDO_GEX_NWE_Core.mqh>
 

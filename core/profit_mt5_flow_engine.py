@@ -1510,7 +1510,23 @@ class ProfitMt5FlowEngine:
         if not hasattr(self, "_historical_cache"):
             self._historical_cache = {}
         if target_date in self._historical_cache:
-            return self._historical_cache[target_date]
+            cached_snap = self._historical_cache[target_date]
+            try:
+                from core.gex_live_dealer_engine import gex_dealer_engine_singleton
+                p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
+                if p4.get("version") != cached_snap.get("portfolio_4_sistematicas", {}).get("version"):
+                    win_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WIN"])
+                    wdo_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WDO"])
+                    cached_snap["WIN"]["caminho_a"] = win_d
+                    cached_snap["WIN"]["dealer_gex"] = win_d
+                    cached_snap["WDO"]["caminho_a"] = wdo_d
+                    cached_snap["WDO"]["dealer_gex"] = wdo_d
+                    cached_snap["caminho_a"] = {"WIN": win_d, "WDO": wdo_d}
+                    p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
+                cached_snap["portfolio_4_sistematicas"] = p4
+            except Exception:
+                pass
+            return cached_snap
 
         import json as _json
         cache_dir = os.path.join(PROJECT_ROOT, "data", "processed", "gex_historical_sessions_v1")

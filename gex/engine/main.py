@@ -244,7 +244,10 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     trading_date_str = trading_date.isoformat()
 
     # Filtra apenas vencimentos que não expiraram (>= data de negociação)
-    df_options = df_options[df_options['expiry'].str[:10] >= trading_date_str].copy()
+    session_date = max(trading_date, datetime.date.today())
+    session_date_str = session_date.isoformat()
+    df_future_opts = df_options[df_options['expiry'].str[:10] > session_date_str].copy()
+    df_options = df_future_opts if not df_future_opts.empty else df_options[df_options['expiry'].str[:10] >= trading_date_str].copy()
     
     # Filtra apenas o vencimento mais proximo (front-month) com liquidez minima
     MIN_CONTRACTS = 5
@@ -271,7 +274,7 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     
     expiry_date_str = front_month[:10]
     
-    expiry_days = int(np.busday_count(trading_date_str, expiry_date_str))
+    expiry_days = int(np.busday_count(session_date_str, expiry_date_str))
     expiry_days = max(1, expiry_days)
     
     T = max(1/252, expiry_days / 252)
@@ -292,7 +295,8 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
         c_market = get_option_price(atm_ticker)
         if c_market and c_market > 0:
             # Fator teorico pro K_WIN
-            factor = (1 + r) ** T
+            mt5_factor = (current_win / current_ibov) if (current_win and current_ibov and current_ibov > 0) else None
+            factor = mt5_factor if (mt5_factor and 0.995 <= mt5_factor <= 1.045) else ((1 + r) ** T)
             k_win = atm_strike * factor
             
             dynamic_iv = implied_volatility_newton_raphson(
@@ -320,7 +324,8 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
         iv=dynamic_iv,
         expiry_days=expiry_days,
         r=r_anchored,
-        use_anchored_factor=True
+        use_anchored_factor=True,
+        ref_date=session_date
     )
     
     # Tambem calcula a versao dinamica para exportar MagicWall_Dinamico
@@ -331,7 +336,8 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
         iv=dynamic_iv,
         expiry_days=expiry_days,
         r=r_current,
-        use_anchored_factor=False
+        use_anchored_factor=False,
+        ref_date=session_date
     )
     
     print(f"\n      {len(walls)} linhas geradas (Modo Ancorado):")

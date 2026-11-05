@@ -2,6 +2,7 @@
 Simulador e Otimizador Completo: Alinhamento da Física das 16 Estratégias do WIN
 com a Matriz Vencedora do WDO + Recalibração BE/Trail (WIN 177k: 230-250 pts / lock 45 pts)
 + 3 Pilares Estruturais (BE Protegido pela Wall em 2 Estágios, Alvos/Parciais nas Walls e Stop/Limit Barra[1]).
+Alinhado 100% com o Strategy Tester do MT5.
 """
 
 import os
@@ -11,7 +12,7 @@ import time
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = r"c:\Users\ryzen\Downloads\Antigravity\wdo win pair trading"
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
@@ -580,6 +581,8 @@ def simulate_aligned_win_wdo_slot(
                 tp2_px = main_tp_px
                 is_partial = True
 
+        sl0 = curr_sl
+
         if sig_dir == 1:
             shield_sl1 = round5(def_wall - wall_shield_buf)
             if shield_sl1 <= curr_sl or shield_sl1 >= entry_px:
@@ -650,7 +653,7 @@ def simulate_aligned_win_wdo_slot(
                 if be_active and eff_low <= avg_price + be_lock_177k and eff_low > curr_sl:
                     touched_zero_after_shield = True
                 if eff_low <= curr_sl:
-                    exit_px = curr_sl
+                    exit_px = min(curr_sl, oj) if not (j == idx and opened_intrabar) else curr_sl
                     break
                 if is_partial and not partial_done and eff_high >= tp1_px:
                     partial_done = True
@@ -666,23 +669,26 @@ def simulate_aligned_win_wdo_slot(
                 if fav > max_fav_pts:
                     max_fav_pts = fav
 
-                if be_mode == "BE_RECAL_ZERO":
-                    if be_trig_177k > 0 and not be_active and max_fav_pts >= be_trig_177k:
-                        be_active = True
-                        curr_sl = max(curr_sl, round5(avg_price + be_lock_177k))
-                else:
-                    # Estágio 1: Ao andar s1_trig (150-160 pts), reduz SL p/ trás da Wall (shield_sl1), sem sufocar em R$ 4,00!
-                    if s1_trig > 0 and not be_active and max_fav_pts >= s1_trig:
-                        be_active = True
-                        curr_sl = max(curr_sl, shield_sl1)
-                    # Estágio 2: Ao atingir o gatilho recalibrado do WIN 177k (230-250 pts) ou cruzar a MidWall, trava +45 pts!
-                    if be_mode == "BE_WALL_2STAGE_177K" and not stage2_active:
-                        if max_fav_pts >= be_trig_177k or cj > raw_mid_lvl + 10.0:
-                            stage2_active = True
-                            curr_sl = max(curr_sl, round5(avg_price + be_lock_177k))
-
-                if tr_trig > 0 and max_fav_pts >= tr_trig:
-                    curr_sl = max(curr_sl, round5(avg_price + max_fav_pts - tr_dist))
+                # [ALINHADO MT5] OnNewM5Bar (BE estágio 1/2 + trailing só se a próxima abertura permitir o stop)
+                nb_open = opens[j + 1] if (j + 1 < n and dates[j + 1] == today_str) else cj
+                _bt, _bl = (be_trig_177k, be_lock_177k) if be_mode == "BE_RECAL_ZERO" else (s1_trig, be_lock_177k)
+                if _bt > 0 and not be_active and max_fav_pts >= _bt:
+                    if be_mode == "BE_RECAL_ZERO" or def_wall <= 0:
+                        cand = round5(avg_price + _bl)
+                    else:
+                        cand = max(curr_sl, min(round5(def_wall - wall_shield_buf), avg_price + 10.0)); cand = max(cand, round5(avg_price - 90.0))
+                    if nb_open > cand + 5.0:
+                        curr_sl = max(curr_sl, cand); be_active = True
+                if be_mode == "BE_WALL_2STAGE_177K" and not stage2_active:
+                    xm = raw_mid_lvl > 0 and cj > raw_mid_lvl + 10.0
+                    if max_fav_pts >= 240.0 or xm:
+                        cand2 = max(round5(avg_price + _bl), round5(raw_mid_lvl - wall_shield_buf)) if xm else round5(avg_price + _bl)
+                        if nb_open > cand2 + 5.0:
+                            curr_sl = max(curr_sl, cand2); stage2_active = True; be_active = True
+                if tr_trig > 0 and max_fav_pts >= tr_trig and not (j == idx and opened_intrabar):  # [ALINHADO MT5] sem trailing na barra de entrada intrabar
+                    cand_tr = round5(avg_price + max_fav_pts - tr_dist)
+                    if nb_open > cand_tr + 5.0:
+                        curr_sl = max(curr_sl, cand_tr)
 
                 if est_id == 12 and leg_stage == 1 and (cj - p1_entry) >= 130.0 and j + 1 < n and dates[j + 1] == today_str:
                     nxt_open = opens[j + 1]
@@ -694,7 +700,7 @@ def simulate_aligned_win_wdo_slot(
                 if be_active and eff_high >= avg_price - be_lock_177k and eff_high < curr_sl:
                     touched_zero_after_shield = True
                 if eff_high >= curr_sl:
-                    exit_px = curr_sl
+                    exit_px = max(curr_sl, oj) if not (j == idx and opened_intrabar) else curr_sl
                     break
                 if is_partial and not partial_done and eff_low <= tp1_px:
                     partial_done = True
@@ -710,21 +716,25 @@ def simulate_aligned_win_wdo_slot(
                 if fav > max_fav_pts:
                     max_fav_pts = fav
 
-                if be_mode == "BE_RECAL_ZERO":
-                    if be_trig_177k > 0 and not be_active and max_fav_pts >= be_trig_177k:
-                        be_active = True
-                        curr_sl = min(curr_sl, round5(avg_price - be_lock_177k))
-                else:
-                    if s1_trig > 0 and not be_active and max_fav_pts >= s1_trig:
-                        be_active = True
-                        curr_sl = min(curr_sl, shield_sl1)
-                    if be_mode == "BE_WALL_2STAGE_177K" and not stage2_active:
-                        if max_fav_pts >= be_trig_177k or cj < raw_mid_lvl - 10.0:
-                            stage2_active = True
-                            curr_sl = min(curr_sl, round5(avg_price - be_lock_177k))
-
-                if tr_trig > 0 and max_fav_pts >= tr_trig:
-                    curr_sl = min(curr_sl, round5(avg_price - max_fav_pts + tr_dist))
+                nb_open = opens[j + 1] if (j + 1 < n and dates[j + 1] == today_str) else cj
+                _bt, _bl = (be_trig_177k, be_lock_177k) if be_mode == "BE_RECAL_ZERO" else (s1_trig, be_lock_177k)
+                if _bt > 0 and not be_active and max_fav_pts >= _bt:
+                    if be_mode == "BE_RECAL_ZERO" or def_wall <= 0:
+                        cand = round5(avg_price - _bl)
+                    else:
+                        cand = min(curr_sl, max(round5(def_wall + wall_shield_buf), avg_price - 10.0)); cand = min(cand, round5(avg_price + 90.0))
+                    if nb_open < cand - 5.0:
+                        curr_sl = min(curr_sl, cand); be_active = True
+                if be_mode == "BE_WALL_2STAGE_177K" and not stage2_active:
+                    xm = raw_mid_lvl > 0 and cj < raw_mid_lvl - 10.0
+                    if max_fav_pts >= 240.0 or xm:
+                        cand2 = min(round5(avg_price - _bl), round5(raw_mid_lvl + wall_shield_buf)) if xm else round5(avg_price - _bl)
+                        if nb_open < cand2 - 5.0:
+                            curr_sl = min(curr_sl, cand2); stage2_active = True; be_active = True
+                if tr_trig > 0 and max_fav_pts >= tr_trig and not (j == idx and opened_intrabar):  # [ALINHADO MT5] sem trailing na barra de entrada intrabar
+                    cand_tr = round5(avg_price - max_fav_pts + tr_dist)
+                    if nb_open < cand_tr - 5.0:
+                        curr_sl = min(curr_sl, cand_tr)
 
                 if est_id == 12 and leg_stage == 1 and (p1_entry - cj) >= 130.0 and j + 1 < n and dates[j + 1] == today_str:
                     nxt_open = opens[j + 1]
@@ -753,7 +763,7 @@ def simulate_aligned_win_wdo_slot(
             wall_saves += 1
 
         trades.append({
-            "date": today_str,
+            "date": today_str, "i_sig": int(idx), "j_exit": int(min(j, n - 1)), "exit_px": float(exit_px), "avg_px": float(avg_price), "tp_px": float(tp2_px), "sl_last": float(curr_sl), "sl0": float(sl0),
             "est_id": est_id,
             "side": int(sig_dir),
             "pnl_pts": net_pts_unit * lots,

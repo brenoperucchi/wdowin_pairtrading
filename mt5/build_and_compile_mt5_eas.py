@@ -13,6 +13,7 @@ os.makedirs(MT5_EXP_DIR, exist_ok=True)
 # 1. Keep canonical Jumba_GEX_NWE_Core.mqh
 core_path = os.path.join(MT5_INC_DIR, "Jumba_GEX_NWE_Core.mqh")
 wdo_core_path = os.path.join(MT5_INC_DIR, "Jumba_WDO_GEX_NWE_Core.mqh")
+guard_path = os.path.join(MT5_INC_DIR, "Jumba_SafetyGuard.mqh")  # kill-switch anti-loop (obrigatorio)
 
 # 2. Write Jumba_GEX_NWE_Portfolio_Master.mq5 (Default = PRESET_TODAS_16_ATIVAS - MIX CAMPEÃO)
 master_mq5 = r"""//+------------------------------------------------------------------+
@@ -167,6 +168,7 @@ os.makedirs(TERM_INC, exist_ok=True)
 os.makedirs(TERM_EXP, exist_ok=True)
 
 shutil.copy2(core_path, os.path.join(TERM_INC, "Jumba_GEX_NWE_Core.mqh"))
+shutil.copy2(guard_path, os.path.join(TERM_INC, "Jumba_SafetyGuard.mqh"))
 if os.path.exists(wdo_core_path):
     shutil.copy2(wdo_core_path, os.path.join(TERM_INC, "Jumba_WDO_GEX_NWE_Core.mqh"))
 
@@ -209,6 +211,7 @@ for t_mql5 in term_mql5_dirs:
     os.makedirs(t_inc, exist_ok=True)
     os.makedirs(t_exp, exist_ok=True)
     shutil.copy2(core_path, os.path.join(t_inc, "Jumba_GEX_NWE_Core.mqh"))
+    shutil.copy2(guard_path, os.path.join(t_inc, "Jumba_SafetyGuard.mqh"))
     if os.path.exists(wdo_core_path):
         shutil.copy2(wdo_core_path, os.path.join(t_inc, "Jumba_WDO_GEX_NWE_Core.mqh"))
     for f in os.listdir(MT5_EXP_DIR):

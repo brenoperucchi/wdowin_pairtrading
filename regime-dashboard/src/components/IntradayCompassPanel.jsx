@@ -54,8 +54,9 @@ function FluxoRealAsgChart({
 }) {
     const svgRef = useRef(null);
     const [hoverPos, setHoverPos] = useState(null); // { idx, relX, relY }
+    const [hoveredSigId, setHoveredSigId] = useState(null);
     const [rightGapPx, setRightGapPx] = useState(145);
-    const [viewMode, setViewMode] = useState("RECENTE"); // "RECENTE" | "HOJE" | "TUDO" | "CUSTOM"
+    const [viewMode, setViewMode] = useState("TUDO"); // "RECENTE" | "HOJE" | "TUDO" | "CUSTOM"
     const [visibleCount, setVisibleCount] = useState(48);
     const [panOffsetRight, setPanOffsetRight] = useState(0); // quantas barras deslocado do fim
     const [yZoomFactor, setYZoomFactor] = useState(1.0); // >1 abre mais o eixo Y para ver mais Walls do Pine
@@ -63,6 +64,7 @@ function FluxoRealAsgChart({
     const [showNweLine, setShowNweLine] = useState(true);
     const [wallColorMode, setWallColorMode] = useState("PINE"); // "PINE" (#00e676 original) | "POLARIDADE"
     const [candleColorMode, setCandleColorMode] = useState("TRADICIONAL"); // "TRADICIONAL" (padrão) | "JANELA" (fluxo A.S.G)
+    const [gexViewMode, setGexViewMode] = useState("OPCAO_1"); // "OPCAO_1" (Hedge Acum. Makers) | "OPCAO_3" (Ímã & Regime GEX)
     const [dragState, setDragState] = useState(null); // { type: 'PAN' | 'YSCALE', startX, startY, startPan, startYZoom }
 
     const dec = symKey === "WDO" ? 1 : 0;
@@ -105,17 +107,19 @@ function FluxoRealAsgChart({
     const series = baseSeries.slice(startSlice, endSlice);
 
     const width = 900;
-    const height = 500;
+    const height = 544;
     const padL = 10;
     const padR = 118; // Eixo Y estilo TradingView à direita
 
-    // 3 Painéis Verticais Sincronizados estilo TradingView:
-    // Painel 1 (Preço + Pine GEX Walls): Y de 14 até 322 (altura 308)
-    // Painel 2 (Fluxo CVD Institucional): Y de 330 até 396 (altura 66)
-    // Painel 3 (Janelas de Fluxo A.S.G): Y de 404 até 474 (altura 70)
-    const p1Top = 14, p1H = 308, p1Bot = p1Top + p1H;
-    const p2Top = 330, p2H = 66, p2Bot = p2Top + p2H;
-    const p3Top = 404, p3H = 70, p3Bot = p3Top + p3H;
+    // 4 Painéis Verticais Sincronizados estilo TradingView:
+    // Painel 1 (Preço + Pine GEX Walls): Y de 14 até 312 (altura 298)
+    // Painel 2 (Fluxo CVD Institucional): Y de 319 até 377 (altura 58)
+    // Painel 3 (Fluxo Makers GEX % Intraday): Y de 384 até 442 (altura 58)
+    // Painel 4 (Janelas de Fluxo A.S.G Conjunta): Y de 449 até 517 (altura 68)
+    const p1Top = 14, p1H = 298, p1Bot = p1Top + p1H;
+    const p2Top = 319, p2H = 58, p2Bot = p2Top + p2H;
+    const pGexTop = 384, pGexH = 58, pGexBot = pGexTop + pGexH;
+    const p3Top = 449, p3H = 68, p3Bot = p3Top + p3H;
     const plotW = width - padL - padR;
 
     const innerPadL = 16;
@@ -195,7 +199,41 @@ function FluxoRealAsgChart({
     const rangeF = Math.max(1e-6, maxF - minF);
     const toY2 = (v) => p2Top + p2H - ((Number(v) - minF) / rangeF) * p2H;
 
-    // ── Escala Y do Painel 3 (Histograma Linha Zero -100 a +100) ──
+    // ── Escala Y do Painel 3 (Opção 1: Hedge Acumulado dos Makers | Opção 3: Mapa de Atração / Ímã GEX) ──
+    const getCumDealer = (pt) => Number(pt?.cum_dealer_hedge || 0);
+    let minD = Infinity;
+    let maxD = -Infinity;
+    series.forEach(pt => {
+        const dc = getCumDealer(pt);
+        if (dc < minD) minD = dc;
+        if (dc > maxD) maxD = dc;
+    });
+    if (!Number.isFinite(minD) || !Number.isFinite(maxD) || maxD <= minD) {
+        minD = -1000;
+        maxD = 1000;
+    }
+    const padD = (maxD - minD) * 0.14 || 100;
+    minD -= padD;
+    maxD += padD;
+    const rangeD = Math.max(1e-6, maxD - minD);
+    const toYGexCum = (v) => pGexTop + pGexH - ((Number(v) - minD) / rangeD) * pGexH;
+
+    const getMagnetPct = (pt) => {
+        if (pt?.gex_magnet_pct !== undefined && pt?.gex_magnet_pct !== null) {
+            return Number(pt.gex_magnet_pct);
+        }
+        return Number(pt?.makers_pct_bar || 0) * 35;
+    };
+    let maxAbsMag = 25;
+    series.forEach(pt => {
+        const mv = Math.abs(getMagnetPct(pt));
+        if (mv > maxAbsMag) maxAbsMag = mv;
+    });
+    maxAbsMag = Math.min(100, Math.max(25, maxAbsMag * 1.15));
+    const yZeroGex = pGexTop + pGexH / 2;
+    const toYGexMag = (mv) => yZeroGex - (Number(mv || 0) / maxAbsMag) * (pGexH * 0.42);
+
+    // ── Escala Y do Painel 4 (Histograma Linha Zero -100 a +100) ──
     let maxAbsH = 25;
     series.forEach(pt => {
         const hv = Math.abs(Number(pt.flow_hist || 0));
@@ -361,20 +399,20 @@ function FluxoRealAsgChart({
                         </button>
                         <button
                             onClick={() => setWallColorMode(m => (m === "PINE" ? "POLARIDADE" : "PINE"))}
-                            title="Alternar entre cores originais do jumba_tradingview.pine (#00e676) ou Polaridade Suporte/Resistência"
+                            title="Alternar entre MagicWalls em Branco (#ffffff) ou Polaridade Suporte/Resistência"
                             style={{
                                 padding: "2px 6px",
                                 fontSize: 9,
                                 fontFamily: "monospace",
                                 fontWeight: "bold",
                                 background: "#0c1218",
-                                color: wallColorMode === "PINE" ? "#00e87a" : "#ff6b8b",
-                                border: `1px solid ${wallColorMode === "PINE" ? "rgba(0, 232, 122, 0.45)" : "rgba(255, 56, 96, 0.45)"}`,
+                                color: wallColorMode === "PINE" ? "#ffffff" : "#ff6b8b",
+                                border: `1px solid ${wallColorMode === "PINE" ? "rgba(255, 255, 255, 0.45)" : "rgba(255, 56, 96, 0.45)"}`,
                                 borderRadius: 4,
                                 cursor: "pointer",
                             }}
                         >
-                            {wallColorMode === "PINE" ? "🌲 Pine Original" : "⚡ Polaridade"}
+                            {wallColorMode === "PINE" ? "⬜ Walls: Branco" : "⚡ Polaridade"}
                         </button>
                         <button
                             onClick={() => setShowMidleWalls(v => !v)}
@@ -409,6 +447,23 @@ function FluxoRealAsgChart({
                             }}
                         >
                             〰️ Média NWE
+                        </button>
+                        <button
+                            onClick={() => setGexViewMode(m => (m === "OPCAO_1" ? "OPCAO_3" : "OPCAO_1"))}
+                            title="Alternar o Painel 3 (GEX) entre Opção 1 (Curva de Hedge Acumulado dos Makers em Lotes) e Opção 3 (Mapa de Atração / Ímã de Liquidez GEX + Regime Gamma)"
+                            style={{
+                                padding: "2px 7px",
+                                fontSize: 9,
+                                fontFamily: "monospace",
+                                fontWeight: "bold",
+                                background: "#0c1218",
+                                color: gexViewMode === "OPCAO_1" ? "#f5d061" : "#a78bfa",
+                                border: gexViewMode === "OPCAO_1" ? "1px solid rgba(245, 208, 97, 0.55)" : "1px solid rgba(167, 139, 250, 0.55)",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                            }}
+                        >
+                            {gexViewMode === "OPCAO_1" ? "📈 GEX: 1. Hedge Acum." : "🧲 GEX: 3. Ímã & Regime"}
                         </button>
                         <span style={{ color: "#1a2530", margin: "0 2px" }}>|</span>
                         <button
@@ -545,6 +600,15 @@ function FluxoRealAsgChart({
                         <span style={{ color: "#00d4ff" }}>
                             Hist: {fmtNum(inspectedPt.flow_hist, 1, true)}
                         </span>
+                        {gexViewMode === "OPCAO_1" ? (
+                            <span style={{ color: getCumDealer(inspectedPt) >= 0 ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
+                                Hedge Makers: {fmtNum(getCumDealer(inspectedPt), 0, true)}L
+                            </span>
+                        ) : (
+                            <span style={{ color: getMagnetPct(inspectedPt) >= 0 ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
+                                Ímã GEX: {getMagnetPct(inspectedPt) >= 0 ? "▲+" : "▼"}{fmtNum(getMagnetPct(inspectedPt), 0)}% ({inspectedPt.gex_regime_bar === "NEG" ? "Γ- Squeeze" : "Γ+ Defesa"})
+                            </span>
+                        )}
                         {Number(inspectedPt.nwe_line) > 0 && (
                             <span style={{ color: inspectedPt.nwe_is_up !== false ? "#00d4ff" : "#ff6b8b", fontWeight: "bold" }}>
                                 NWE: {fmtNum(inspectedPt.nwe_line, dec)} {inspectedPt.nwe_is_up !== false ? "↑" : "↓"}
@@ -629,17 +693,19 @@ function FluxoRealAsgChart({
                     setYZoomFactor(1.0);
                     setPanOffsetRight(0);
                     setVisibleCount(48);
-                    setViewMode("RECENTE");
+                    setViewMode("TUDO");
                 }}
             >
-                {/* Fundos dos 3 Painéis Unificados com o Dashboard (#0c1218) — Sem Grade no Fundo */}
+                {/* Fundos dos 4 Painéis Unificados com o Dashboard (#0c1218) — Sem Grade no Fundo */}
                 <rect x={padL} y={p1Top} width={plotW} height={p1H} fill="#0c1218" />
                 <rect x={padL} y={p2Top} width={plotW} height={p2H} fill="#0c1218" />
+                <rect x={padL} y={pGexTop} width={plotW} height={pGexH} fill="#0c1218" />
                 <rect x={padL} y={p3Top} width={plotW} height={p3H} fill="#0c1218" />
 
-                {/* Divisórias Horizontais Discretas dos 3 Painéis e Eixo Y Direito */}
+                {/* Divisórias Horizontais Discretas dos 4 Painéis e Eixo Y Direito */}
                 <line x1={padL} y1={p1Bot} x2={width} y2={p1Bot} stroke="#1a2530" strokeWidth="1" />
                 <line x1={padL} y1={p2Bot} x2={width} y2={p2Bot} stroke="#1a2530" strokeWidth="1" />
+                <line x1={padL} y1={pGexBot} x2={width} y2={pGexBot} stroke="#1a2530" strokeWidth="1" />
                 <line x1={padL} y1={p3Bot} x2={width} y2={p3Bot} stroke="#1a2530" strokeWidth="1" />
                 <line x1={padL + plotW} y1={p1Top} x2={padL + plotW} y2={p3Bot} stroke="#1a2530" strokeWidth="1" />
 
@@ -650,8 +716,13 @@ function FluxoRealAsgChart({
                 <text x={padL + 8} y={p2Top + 11} fill="#5a7288" fontSize="7.2" fontWeight="bold" fontFamily="monospace">
                     2. FLUXO INSTITUCIONAL CVD (Cor mais escura = Maior Lote)
                 </text>
+                <text x={padL + 8} y={pGexTop + 11} fill="#5a7288" fontSize="7.2" fontWeight="bold" fontFamily="monospace">
+                    {gexViewMode === "OPCAO_1"
+                        ? "3. OPÇÃO 1 · HEDGE ACUMULADO MAKERS GEX (Verde/Vermelho = Junto c/ Inst. [Squeeze] | Dourado = Defesa/Absorção na Wall)"
+                        : "3. OPÇÃO 3 · MAPA DE ATRAÇÃO GEX (Ímã Dominante: +Verde Puxa p/ Cima | -Vermelho Puxa p/ Baixo | Zero = Na Wall)"}
+                </text>
                 <text x={padL + 8} y={p3Top + 11} fill="#5a7288" fontSize="7.2" fontWeight="bold" fontFamily="monospace">
-                    3. JANELAS DE FLUXO A.S.G (Histograma Linha Zero)
+                    4. JANELAS DE FLUXO A.S.G (Campeã Conjunta · Linha Zero)
                 </text>
 
                 {/* Regiões Sombreadas de Compra e Venda (MagicWall + MidWall) Diferenciadas por Defesa Institucional + Hedge Makers */}
@@ -715,10 +786,13 @@ function FluxoRealAsgChart({
                         const yTop = Math.max(p1Top, toY1(Math.min(maxP, z.topP)));
                         const yBot = Math.min(p1Bot, toY1(Math.max(minP, z.botP)));
                         const hBand = Math.max(5, yBot - yTop);
-                        const col = z.isSell ? "#ff3860" : "#00e87a";
-                        const fillRgba = z.isSell
-                            ? (z.isStrong ? "rgba(255, 56, 96, 0.13)" : (z.isMid ? "rgba(255, 56, 96, 0.05)" : "rgba(255, 56, 96, 0.08)"))
-                            : (z.isStrong ? "rgba(0, 232, 122, 0.13)" : (z.isMid ? "rgba(0, 232, 122, 0.05)" : "rgba(0, 232, 122, 0.08)"));
+                        const isWhiteWallMode = wallColorMode === "PINE";
+                        const col = isWhiteWallMode ? "#ffffff" : (z.isSell ? "#ff3860" : "#00e87a");
+                        const fillRgba = isWhiteWallMode
+                            ? (z.isStrong ? "rgba(255, 255, 255, 0.08)" : (z.isMid ? "rgba(255, 255, 255, 0.03)" : "rgba(255, 255, 255, 0.05)"))
+                            : (z.isSell
+                                ? (z.isStrong ? "rgba(255, 56, 96, 0.13)" : (z.isMid ? "rgba(255, 56, 96, 0.05)" : "rgba(255, 56, 96, 0.08)"))
+                                : (z.isStrong ? "rgba(0, 232, 122, 0.13)" : (z.isMid ? "rgba(0, 232, 122, 0.05)" : "rgba(0, 232, 122, 0.08)")));
                         const borderDash = z.isMid ? "3,3" : "none";
                         return (
                             <g key={z.key}>
@@ -746,10 +820,10 @@ function FluxoRealAsgChart({
                                 <text
                                     x={padL + 6}
                                     y={yTop + Math.min(9.5, hBand - 1.5)}
-                                    fill={z.isSell ? "#ff8fa6" : "#66ffcc"}
+                                    fill={isWhiteWallMode ? "#e2e8f0" : (z.isSell ? "#ff8fa6" : "#66ffcc")}
                                     fontSize="6.5"
                                     fontFamily="monospace"
-                                    opacity="0.58"
+                                    opacity="0.72"
                                 >
                                     {z.label}
                                 </text>
@@ -758,19 +832,17 @@ function FluxoRealAsgChart({
                     });
                 })()}
 
-                {/* ── LINHAS E LABELS OFICIAIS DO `jumba_tradingview.pine` (MagicWall + MidWall) ── */}
+                {/* ── LINHAS E LABELS OFICIAIS DO `jumba_tradingview.pine` (MagicWall em Branco + MidWall) ── */}
                 {nearbyWalls.map((w, i) => {
                     const yW = toY1(w.price);
                     const wType = String(w.type || "Wall");
                     const isMid = wType.toLowerCase().includes("mid") || String(w.label || "").toUpperCase() === "MIDLEWALL";
                     const isRes = w.role === "RES";
 
-                    const pineCol = w.color || (
-                        wType === "GammaFlip" ? "#ffd600"
-                            : wType === "MaxGamma" ? "#00b0ff"
-                                : wType === "MinGamma" ? "#ff1744"
-                                    : isMid ? "#7f96a8" : "#00e87a"
-                    );
+                    const pineCol = wType === "GammaFlip" ? "#ffd600"
+                        : wType === "MaxGamma" ? "#00b0ff"
+                            : wType === "MinGamma" ? "#ff1744"
+                                : isMid ? "#94a3b8" : "#ffffff";
                     const polCol = wType === "GammaFlip"
                         ? "#ffd600"
                         : (isRes ? (isMid ? "#ff6b8b" : "#ff3860") : (isMid ? "#38ef94" : "#00e87a"));
@@ -1378,18 +1450,48 @@ function FluxoRealAsgChart({
                     );
                 })}
 
-                {/* Marcadores Sutis dos Sinais Emitidos (▲ COMPRA / ▼ VENDA) */}
+                {/* Marcadores dos Sinais Emitidos (▲ COMPRA / ▼ VENDA; Nome do Setup só aparece no Hover ou Clique) */}
                 {showSignalsMarkers && plottedSignals.map((sig) => {
                     const isBuy = sig.dir_num > 0;
-                    const isAsgFlip = String(sig.type || "").includes("JANELA ASG") || String(sig.type || "").includes("VIRADA ASG") || String(sig.type || "").includes("_2") || String(sig.strategy_id || "").endsWith("S2");
+                    const sid = String(sig.strategy_id || "");
+                    const shortMap = {
+                        EST_01: "WIN Rejeição",
+                        EST_07: "WIN Rompimento",
+                        EST_13: "WIN Next Wall",
+                        WDO_09: "WDO Pullback",
+                        WDO_11: "WDO Next Wall",
+                        WDO_S2: "WDO Lunch",
+                    };
+                    const colorMap = {
+                        EST_01: "#38bdf8",
+                        EST_07: "#00d4ff",
+                        EST_13: "#10b981",
+                        WDO_09: "#ffd600",
+                        WDO_11: "#f59e0b",
+                        WDO_S2: "#a78bfa",
+                    };
+                    const tagLabel = shortMap[sid] || sig.strategy_short || sid || (isBuy ? "COMPRA" : "VENDA");
+                    const stratCol = colorMap[sid] || (isBuy ? "#00e87a" : "#ff3860");
                     const col = isBuy ? "#00e87a" : "#ff3860";
                     const isSelected = selectedSigId === sig.id;
+                    const isHovered = hoveredSigId === sig.id;
+                    const showLabel = isSelected || isHovered;
                     const x = sig.x;
                     const slotShift = (sig.sSlot || 0) * 10;
                     const y = sig.y + (isBuy ? slotShift : -slotShift);
                     const triPoints = isBuy
-                        ? `${x},${y + 6} ${x - 4.4},${y + 13.5} ${x + 4.4},${y + 13.5}`
-                        : `${x},${y - 6} ${x - 4.4},${y - 13.5} ${x + 4.4},${y - 13.5}`;
+                        ? `${x},${y + 5} ${x - 4.8},${y + 13} ${x + 4.8},${y + 13}`
+                        : `${x},${y - 5} ${x - 4.8},${y - 13} ${x + 4.8},${y - 13}`;
+                    const ptsVal = Number(sig.realized_pts || 0);
+                    const ptsTxt = sig.validation_status === "EM_ANDAMENTO"
+                        ? "⏳"
+                        : `${ptsVal >= 0 ? "+" : ""}${fmtNum(ptsVal, dec)}p`;
+                    const pillText = `${tagLabel} (${ptsTxt})`;
+                    const pillW = Math.max(66, pillText.length * 4.7 + 8);
+                    const pillX = Math.max(padL + 2, Math.min(padL + plotW - pillW - 2, x - pillW / 2));
+                    const pillY = isBuy
+                        ? Math.min(p1Bot - 15, y + 15)
+                        : Math.max(p1Top + 2, y - 28);
                     const beInfo = sig.be_triggered && sig.be_time
                         ? ` | BE acionado às ${sig.be_time} (Stop → ${fmtNum(sig.be_stop_price, dec)})`
                         : "";
@@ -1400,20 +1502,55 @@ function FluxoRealAsgChart({
                     return (
                         <g
                             key={sig.id}
+                            onMouseEnter={() => setHoveredSigId(sig.id)}
+                            onMouseLeave={() => setHoveredSigId(prev => (prev === sig.id ? null : prev))}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (onSelectSignal) onSelectSignal(sig.id);
+                                if (onSelectSignal) onSelectSignal(isSelected ? null : sig.id);
                             }}
                             style={{ cursor: "pointer" }}
                         >
-                            <title>{`${sig.time} · ${sig.type} | Entrada @ ${fmtNum(sig.entry_price, dec)} | Stop @ ${fmtNum(sig.stop_price, dec)}${beInfo}${exitInfo} → ${sig.validation_label || ""}`}</title>
+                            <title>{`${sig.time} · ${tagLabel} (${sid}) | Entrada @ ${fmtNum(sig.entry_price, dec)} | Stop @ ${fmtNum(sig.stop_price, dec)}${beInfo}${exitInfo} → ${sig.validation_label || ""}`}</title>
+                            {/* Área de toque maior invisível para facilitar o hover e clique no marcador */}
+                            <circle
+                                cx={x}
+                                cy={isBuy ? y + 9 : y - 9}
+                                r="9"
+                                fill="transparent"
+                            />
                             <polygon
                                 points={triPoints}
                                 fill={col}
-                                fillOpacity="0.88"
-                                stroke={isSelected ? "#ffffff" : (isAsgFlip ? "#f5d061" : "#0c1218")}
-                                strokeWidth={isSelected || isAsgFlip ? "1.3" : "1.0"}
+                                fillOpacity="0.95"
+                                stroke={showLabel ? "#ffffff" : stratCol}
+                                strokeWidth={showLabel ? "1.6" : "1.1"}
                             />
+                            {showLabel && (
+                                <>
+                                    <rect
+                                        x={pillX}
+                                        y={pillY}
+                                        width={pillW}
+                                        height={13}
+                                        rx="3"
+                                        fill="#05080d"
+                                        fillOpacity="0.95"
+                                        stroke={isSelected ? "#ffffff" : stratCol}
+                                        strokeWidth={isSelected ? "1.3" : "1.0"}
+                                    />
+                                    <text
+                                        x={pillX + pillW / 2}
+                                        y={pillY + 9.2}
+                                        fill={stratCol}
+                                        fontSize="7.5"
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                        textAnchor="middle"
+                                    >
+                                        {pillText}
+                                    </text>
+                                </>
+                            )}
                         </g>
                     );
                 })}
@@ -1471,7 +1608,100 @@ function FluxoRealAsgChart({
                 </text>
 
                 {/* ══════════════════════════════════════════════════════════════════════
-                   PAINEL 3 (BASE): HISTOGRAMA LINHA ZERO (VERDE = COMPRA / VERMELHO = VENDA)
+                   PAINEL 3: OPÇÃO 1 (HEDGE ACUMULADO MAKERS) OU OPÇÃO 3 (MAPA DE ATRAÇÃO / ÍMÃ GEX)
+                   ══════════════════════════════════════════════════════════════════════ */}
+                {gexViewMode === "OPCAO_1" ? (
+                    <g>
+                        <polyline
+                            fill="none"
+                            stroke="#1e3246"
+                            strokeWidth="1.35"
+                            points={series.map((pt, idx) => `${toX(idx).toFixed(1)},${toYGexCum(getCumDealer(pt)).toFixed(1)}`).join(" ")}
+                        />
+                        {series.map((pt, idx) => {
+                            const x = toX(idx);
+                            const dc = getCumDealer(pt);
+                            const yD = toYGexCum(dc);
+                            const dhBar = Number(pt.dealer_hedge_bar || 0);
+                            const instBar = Number(pt.inst_delta_bar || 0);
+                            const isWithInst = (dhBar * instBar) > 0;
+                            const isCounterInst = (dhBar * instBar) < 0 && Math.abs(dhBar) >= (symKey === "WDO" ? 40 : 250);
+                            let dCol = "#7d91a3";
+                            if (isCounterInst) {
+                                dCol = "#f5d061"; // Dourado = Makers absorvendo/defendendo contra o fluxo na Wall
+                            } else if (isWithInst) {
+                                dCol = dhBar >= 0 ? "#00e87a" : "#ff3860"; // Verde/Vermelho vivo = Squeeze a favor do Institucional
+                            } else {
+                                dCol = dhBar >= 0 ? "#38ef94" : "#ff758f";
+                            }
+                            return (
+                                <circle
+                                    key={`gex-cum-dot-${idx}`}
+                                    cx={x}
+                                    cy={yD}
+                                    r={isCounterInst ? "2.7" : "2.3"}
+                                    fill={dCol}
+                                />
+                            );
+                        })}
+                        {(() => {
+                            const lastCumD = getCumDealer(lastPt);
+                            const lastCol = lastCumD >= 0 ? "#00e87a" : "#ff3860";
+                            const yBadge = Math.max(pGexTop + 10, Math.min(pGexBot - 6, toYGexCum(lastCumD)));
+                            return (
+                                <text x={padL + plotW + 6} y={yBadge + 3} fill={lastCol} fontSize="9" fontWeight="bold" fontFamily="monospace">
+                                    {fmtNum(lastCumD, 0, true)}L
+                                </text>
+                            );
+                        })()}
+                    </g>
+                ) : (
+                    <g>
+                        <line x1={padL} y1={yZeroGex} x2={padL + plotW} y2={yZeroGex} stroke="#1a2530" strokeWidth="1.0" strokeDasharray="3,3" />
+                        {series.map((pt, idx) => {
+                            const x = toX(idx);
+                            const mv = getMagnetPct(pt);
+                            const yM = toYGexMag(mv);
+                            const isPos = mv >= 0;
+                            const isNegGamma = pt.gex_regime_bar === "NEG";
+                            const col = isPos ? "#00e87a" : "#ff3860";
+                            const barTop = isPos ? yM : yZeroGex;
+                            const barH = Math.max(1.5, Math.abs(yZeroGex - yM));
+                            return (
+                                <rect
+                                    key={`gex-mag-bar-${idx}`}
+                                    x={x - candleW * 0.42}
+                                    y={barTop}
+                                    width={candleW * 0.84}
+                                    height={barH}
+                                    fill={col}
+                                    opacity={isNegGamma ? "0.85" : "0.42"}
+                                    rx="0.5"
+                                />
+                            );
+                        })}
+                        <polyline
+                            fill="none"
+                            stroke="#a78bfa"
+                            strokeWidth="1.35"
+                            points={series.map((pt, idx) => `${toX(idx).toFixed(1)},${toYGexMag(getMagnetPct(pt)).toFixed(1)}`).join(" ")}
+                        />
+                        {(() => {
+                            const lastMag = getMagnetPct(lastPt);
+                            const lastCol = lastMag >= 0 ? "#00e87a" : "#ff3860";
+                            const regTag = lastPt?.gex_regime_bar === "NEG" ? "Γ-" : "Γ+";
+                            const yBadge = Math.max(pGexTop + 10, Math.min(pGexBot - 6, toYGexMag(lastMag)));
+                            return (
+                                <text x={padL + plotW + 6} y={yBadge + 3} fill={lastCol} fontSize="8.8" fontWeight="bold" fontFamily="monospace">
+                                    {lastMag >= 0 ? "▲+" : "▼"}{fmtNum(lastMag, 0)}% ({regTag})
+                                </text>
+                            );
+                        })()}
+                    </g>
+                )}
+
+                {/* ══════════════════════════════════════════════════════════════════════
+                   PAINEL 4 (BASE): HISTOGRAMA LINHA ZERO (VERDE = COMPRA / VERMELHO = VENDA)
                    ══════════════════════════════════════════════════════════════════════ */}
                 <line x1={padL} y1={yZero3} x2={padL + plotW} y2={yZero3} stroke="#1a2530" strokeWidth="1.0" />
                 <text x={padL + plotW + 6} y={yZero3 + 3} fill="#5a7288" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
@@ -1591,334 +1821,61 @@ function FluxoRealAsgChart({
                     </g>
                 )}
             </svg>
-
-            {/* ── Barra Inferior de Dominância Compradores % vs Vendedores % ── */}
-            <div style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                background: "#0c1218",
-                padding: "6px 12px",
-                borderRadius: 7,
-                border: "1px solid #1a2530",
-            }}>
-                <span style={{ fontSize: 13, fontWeight: "bold", color: "#00e87a", minWidth: 110 }}>
-                    {buyersPct}% <span style={{ fontSize: 9.5, fontWeight: "normal", color: "#7f96a8" }}>COMPRADORES</span>
-                </span>
-                <div style={{ flex: 1, height: 8, background: "#ff3860", borderRadius: 4, overflow: "hidden", display: "flex" }}>
-                    <div style={{ width: `${buyersPct}%`, height: "100%", background: "#00e87a", boxShadow: "0 0 10px #00e87a", transition: "width 0.3s ease" }} />
-                </div>
-                <span style={{ fontSize: 13, fontWeight: "bold", color: "#ff3860", minWidth: 110, textAlign: "right" }}>
-                    <span style={{ fontSize: 9.5, fontWeight: "normal", color: "#7f96a8" }}>VENDEDORES</span> {sellersPct}%
-                </span>
-            </div>
         </div>
     );
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   2. HUD FUTURISTA ESTILO "A.S.G (ALGORITHMIC SYSTEM GENERATION)" (VÍDEO 3)
-      - Semáforo Gigante: ▲ COMPRA | ▼ VENDA | ❖ NEUTRALIZADO
-      - Vela 3D Neon + Anel Circular MICRO (92%) + MACRO (50) + MAKERS (+0.2%)
-      - Trilha de Alvos 1 -> 2 -> 3 + Botão para abrir Histórico de Sinais
+   2. BARRA COMPACTA DE RESUMO DO DIA (SEM REDUNDÂNCIAS DE VELA 3D / ALVOS 1-2-3)
    ══════════════════════════════════════════════════════════════════════════════ */
 function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleHistory, showHistory }) {
-    const dec = symKey === "WDO" ? 1 : 0;
-    const cmd = asgHud.command || "NEUTRALIZADO";
-    const isBuy = cmd === "COMPRA";
-    const isSell = cmd === "VENDA";
-    const mainColor = isBuy ? "#00e87a" : isSell ? "#ff3860" : "#00d4ff";
-
-    const microPct = Number(asgHud.micro_pct || 50);
-    const macroPct = Number(asgHud.macro_pct || 50);
+    const winDir = Number(asgHud.window_dir || 0);
     const makersPct = Number(asgHud.makers_pct || 0);
-    const targets = asgHud.targets || [];
-
-    // Arco circular SVG para o medidor MICRO (estilo o arco 92 MICRO do Vídeo 3)
-    const radius = 30;
-    const circum = 2 * Math.PI * radius;
-    const arcOffset = circum - (Math.min(100, Math.max(10, microPct)) / 100) * (circum * 0.75);
+    const winCol = winDir >= 0 ? "#00e87a" : "#ff3860";
 
     return (
         <div style={{
             display: "flex",
             flexDirection: "column",
-            gap: 12,
+            gap: 8,
             background: "#0c1218",
             border: "1px solid #1a2530",
             borderRadius: 10,
-            padding: "14px 16px",
+            padding: "10px 14px",
         }}>
-            {/* ── 1. DISPLAY SUPERIOR: TRIÂNGULO GIGANTE OU ORBE NEUTRALIZADO (VÍDEO 3) ── */}
-            <div style={{
-                position: "relative",
-                background: "#0c1218",
-                border: `1.5px solid ${mainColor}66`,
-                borderRadius: 10,
-                padding: "14px 12px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 6,
-            }}>
-                <div style={{ fontSize: 9.5, color: "#7f96a8", letterSpacing: 1.5, fontFamily: "monospace" }}>
-                    STATUS OPERACIONAL · {symKey} ({payload?.active_contract})
-                </div>
-
-                {/* Ícone Central Gigante (Triângulo Verde / Triângulo Vermelho / Hexágono Neutralizado) */}
-                <svg width="110" height="76" viewBox="0 0 110 76">
-                    <defs>
-                        <filter id={`glow-${symKey}`} x="-30%" y="-30%" width="160%" height="160%">
-                            <feGaussianBlur stdDeviation="5" result="blur" />
-                            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                        </filter>
-                    </defs>
-                    {/* Moldura HUD estilo A.S.G */}
-                    <polygon
-                        points="18,6 92,6 106,38 92,70 18,70 4,38"
-                        fill="none"
-                        stroke={mainColor}
-                        strokeWidth="1.2"
-                        strokeOpacity="0.45"
-                    />
-                    {isBuy && (
-                        <polygon
-                            points="55,14 82,60 28,60"
-                            fill="#00e87a"
-                            filter={`url(#glow-${symKey})`}
-                        />
-                    )}
-                    {isSell && (
-                        <polygon
-                            points="55,62 82,16 28,16"
-                            fill="#ff3860"
-                            filter={`url(#glow-${symKey})`}
-                        />
-                    )}
-                    {!isBuy && !isSell && (
-                        <g>
-                            <polygon
-                                points="55,12 80,25 80,51 55,64 30,51 30,25"
-                                fill="rgba(0, 212, 255, 0.12)"
-                                stroke="#00d4ff"
-                                strokeWidth="2"
-                            />
-                            <path d="M 38 38 Q 46 26, 55 38 T 72 38" fill="none" stroke="#ffffff" strokeWidth="2.5" />
-                            <ellipse cx="55" cy="58" rx="16" ry="4" fill="#f5a623" opacity="0.75" />
-                        </g>
-                    )}
-                </svg>
-
-                <div style={{
-                    fontSize: 22,
-                    fontWeight: 900,
-                    color: mainColor,
-                    letterSpacing: 3,
-                    textShadow: `0 0 14px ${mainColor}88`,
-                }}>
-                    {isBuy ? "COMPRAR" : isSell ? "VENDER" : "NEUTRALIZADO"}
-                </div>
-
-                <div style={{
-                    fontSize: 10,
-                    fontWeight: "bold",
-                    color: "#d0dde8",
-                    textAlign: "center",
-                    letterSpacing: 0.6,
-                }}>
-                    {asgHud.command_sub || "SIGA O FLUXO NO CONTEXTO"}
-                </div>
-            </div>
-
-            {/* ── 2. VELA 3D NEON DE CONTEXTO: MICRO + MACRO + MAKERS (IGUAL VÍDEO 3) ── */}
-            <div style={{
-                background: "#0c1218",
-                border: "1px solid #1a2530",
-                borderRadius: 10,
-                padding: "12px 14px",
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-            }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 10, fontWeight: "bold", color: "#8ca5b5", letterSpacing: 1.5 }}>
-                        CONTEXTO:
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                        fontSize: 9.5,
+                        fontWeight: "bold",
+                        color: winCol,
+                        background: "#0c1218",
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        border: `1px solid ${winCol}55`,
+                        fontFamily: "monospace",
+                    }}>
+                        {winDir >= 0 ? "🟢 JANELA COMPRADA" : "🔴 JANELA VENDIDA"} · desde {asgHud.window_start_time || "09:00"}
                     </span>
                     <span style={{
                         fontSize: 9.5,
                         fontWeight: "bold",
-                        color: (asgHud.window_dir || 0) > 0 ? "#00e87a" : "#ff3860",
-                        background: "#0c1218",
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        border: `1px solid ${(asgHud.window_dir || 0) > 0 ? "#00e87a55" : "#ff386055"}`,
+                        color: makersPct >= 0 ? "#00e87a" : "#ff3860",
+                        fontFamily: "monospace",
                     }}>
-                        {asgHud.window_label} (desde {asgHud.window_start_time || "09:00"})
+                        Makers GEX: {makersPct >= 0 ? "+" : ""}{fmtNum(makersPct, 1)}%
                     </span>
                 </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1.1fr 1fr", alignItems: "center", gap: 6, padding: "4px 0" }}>
-                    {/* Esquerda: Anel Circular Neon MICRO */}
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                        <div style={{ position: "relative", width: 76, height: 76, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <svg width="76" height="76" viewBox="0 0 76 76" style={{ transform: "rotate(135deg)" }}>
-                                <circle
-                                    cx="38"
-                                    cy="38"
-                                    r={radius}
-                                    fill="none"
-                                    stroke="#1a2530"
-                                    strokeWidth="5"
-                                    strokeDasharray={circum}
-                                    strokeDashoffset={circum * 0.25}
-                                    strokeLinecap="round"
-                                />
-                                <circle
-                                    cx="38"
-                                    cy="38"
-                                    r={radius}
-                                    fill="none"
-                                    stroke={mainColor}
-                                    strokeWidth="5.5"
-                                    strokeDasharray={circum}
-                                    strokeDashoffset={arcOffset}
-                                    strokeLinecap="round"
-                                />
-                            </svg>
-                            <div style={{ position: "absolute", textAlign: "center" }}>
-                                <div style={{ fontSize: 19, fontWeight: "bold", color: "#ffffff", lineHeight: 1 }}>{microPct}</div>
-                                <div style={{ fontSize: 7.5, color: mainColor, fontWeight: "bold", letterSpacing: 1 }}>MICRO</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Centro: MACRO + Vela 3D Isométrica Neon */}
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                        <div style={{ textAlign: "center", marginBottom: 2 }}>
-                            <div style={{ fontSize: 16, fontWeight: "bold", color: "#ffffff", lineHeight: 1 }}>{macroPct}</div>
-                            <div style={{ fontSize: 7.5, color: "#8ca5b5", letterSpacing: 1 }}>MACRO</div>
-                        </div>
-                        {/* Cubo/Vela 3D Neon SVG */}
-                        <svg width="84" height="110" viewBox="0 0 84 110">
-                            {/* Pavio Superior 3D */}
-                            <line x1="42" y1="4" x2="42" y2="26" stroke={mainColor} strokeWidth="3" strokeLinecap="round" />
-                            {/* Face Topo do Prisma 3D */}
-                            <polygon
-                                points="42,18 66,28 42,38 18,28"
-                                fill={`${mainColor}33`}
-                                stroke={mainColor}
-                                strokeWidth="1.6"
-                            />
-                            {/* Face Esquerda */}
-                            <polygon
-                                points="18,28 42,38 42,84 18,74"
-                                fill={`${mainColor}18`}
-                                stroke={mainColor}
-                                strokeWidth="1.5"
-                            />
-                            {/* Face Direita */}
-                            <polygon
-                                points="42,38 66,28 66,74 42,84"
-                                fill={`${mainColor}28`}
-                                stroke={mainColor}
-                                strokeWidth="1.5"
-                            />
-                            {/* Pavio Inferior Pontilhado */}
-                            <line x1="42" y1="84" x2="42" y2="106" stroke="#f5a623" strokeWidth="2.2" strokeDasharray="3,3" />
-                            <circle cx="42" cy="96" r="2.5" fill="#ffffff" />
-                        </svg>
-                    </div>
-
-                    {/* Direita: MAKERS (Pressão dos Market Makers GEX) */}
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                        <div style={{
-                            background: "#0c1218",
-                            border: "1px solid #1a2530",
-                            borderRadius: 8,
-                            padding: "8px 10px",
-                            textAlign: "center",
-                            width: "100%",
-                        }}>
-                            <div style={{
-                                fontSize: 16,
-                                fontWeight: "bold",
-                                color: makersPct >= 0 ? "#00e87a" : "#ff3860",
-                            }}>
-                                {makersPct > 0 ? "+" : ""}{fmtNum(makersPct, 1)}%
-                            </div>
-                            <div style={{ fontSize: 8, color: "#9fb4c4", fontWeight: "bold", letterSpacing: 1 }}>
-                                MAKERS (GEX)
-                            </div>
-                        </div>
-
-                        <div style={{
-                            fontSize: 8.5,
-                            color: "#8ca5b5",
-                            textAlign: "center",
-                        }}>
-                            Médio Janela:<br />
-                            <strong style={{ color: "#ffd700", fontSize: 11 }}>{fmtNum(asgHud.window_entry_price, dec)}</strong>
-                        </div>
-                    </div>
-                </div>
             </div>
 
-            {/* ── 3. TRILHA DE ALVOS DA JANELA (1 -> 2 -> 3) ── */}
-            <div style={{
-                background: "#0c1218",
-                border: "1px solid #1a2530",
-                borderRadius: 10,
-                padding: "10px 14px",
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-            }}>
-                {/* Escada de Alvos (1 -> 2 -> 3) igual aos degraus dourados do Vídeo 3 */}
-                <div>
-                    <div style={{ fontSize: 9, color: "#8ca5b5", fontWeight: "bold", letterSpacing: 1, marginBottom: 6, textAlign: "center" }}>
-                        SIGA O FLUXO NO CONTEXTO · ALVOS DA JANELA
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                        {[0, 1, 2].map((idx) => {
-                            const tPrice = targets[idx];
-                            const isFirst = idx === 0;
-                            return (
-                                <div
-                                    key={`t-step-${idx}`}
-                                    style={{
-                                        background: isFirst ? "linear-gradient(180deg, #d4af37, #9a7b1c)" : "#0c1218",
-                                        color: isFirst ? "#05080d" : "#9fb4c4",
-                                        border: isFirst ? "1px solid #ffd700" : "1px solid #1a2530",
-                                        borderRadius: 6,
-                                        padding: "6px 6px",
-                                        textAlign: "center",
-                                        boxShadow: isFirst ? "0 0 12px rgba(212,175,55,0.4)" : "none",
-                                    }}
-                                >
-                                    <div style={{ fontSize: 8, fontWeight: "bold", opacity: 0.85 }}>
-                                        ALVO {idx + 1}
-                                    </div>
-                                    <div style={{ fontSize: 13, fontWeight: 900, color: isFirst ? "#05080d" : "#ffffff", marginTop: 1 }}>
-                                        {tPrice ? fmtNum(tPrice, dec) : "—"}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-
-            {/* ── 4. PLACAR RESUMIDO + BOTÃO PARA ABRIR HISTÓRICO DE SINAIS ── */}
             <div style={{
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                background: "#0c1218",
-                border: "1px solid #1a2530",
-                borderRadius: 8,
-                padding: "8px 12px",
+                borderTop: "1px solid #16222d",
+                paddingTop: 8,
             }}>
-                <div style={{ fontSize: 9.5, color: "#9fb4c4" }}>
+                <div style={{ fontSize: 10, color: "#9fb4c4" }}>
                     🎯 Assertividade Hoje:{" "}
                     <strong style={{ color: "#00e87a" }}>
                         {fmtNum(scorecard.win_rate_pct, 0)}% ({scorecard.valid_signals || 0}✅ / {scorecard.invalid_signals || 0}❌)
@@ -1938,7 +1895,7 @@ function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleH
                         cursor: "pointer",
                     }}
                 >
-                    {showHistory ? "▲ Ocultar Sinais" : "📋 Ver Sinais do Dia"}
+                    {showHistory ? "▲ Ocultar Tabela" : "📋 Ver Sinais do Dia"}
                 </button>
             </div>
         </div>
@@ -1963,9 +1920,9 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
     const beTrigger = Number(scorecard.be_trigger_pts || (symKey === "WDO" ? 3.5 : 150));
     const beLock = Number(scorecard.be_lock_pts || (symKey === "WDO" ? 1.0 : 50));
     const timeStopMin = Number(scorecard.time_stop_min || (symKey === "WDO" ? 120 : 40));
-    const methodLabel = scorecard.methodology_label || (symKey === "WDO" ? "WDO_1 + WDO_2 (09:30–14:30)" : "WIN_1 + WIN_2 (09:30–14:30)");
-    const isWdoHybrid = symKey === "WDO" && (String(methodLabel).toLowerCase().includes("híbrida") || String(methodLabel).includes("WDO_1"));
-    const isWinHybrid = symKey === "WIN" && (String(methodLabel).toLowerCase().includes("híbrida") || String(methodLabel).includes("WIN_1"));
+    const methodLabel = scorecard.methodology_label || (symKey === "WDO" ? "WDO Pullback + WDO Next Wall + WDO Lunch" : "WIN Rejeição + WIN Rompimento + WIN Next Wall");
+    const isWdoHybrid = symKey === "WDO" && (String(methodLabel).toLowerCase().includes("fluxo") || String(methodLabel).includes("Pullback") || String(methodLabel).includes("Lunch") || String(methodLabel).includes("WDO-09") || String(methodLabel).includes("WDO_1"));
+    const isWinHybrid = symKey === "WIN" && (String(methodLabel).toLowerCase().includes("fluxo") || String(methodLabel).includes("Rejeição") || String(methodLabel).includes("Price Action") || String(methodLabel).includes("EST-01") || String(methodLabel).includes("WIN_1"));
 
     // Ordenar sinais em ordem cronológica (09:00 -> atual)
     const chronoSignals = [...signalsLog].reverse();
@@ -2044,7 +2001,7 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
     const profitFactor = grossLossPts > 0 ? (grossGainPts / grossLossPts) : (grossGainPts > 0 ? 9.9 : 1.0);
 
     const w = 400;
-    const h = 112;
+    const h = 160;
     const padL = 10;
     const padR = 54;
     const padT = 12;
@@ -2079,13 +2036,15 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
 
     return (
         <div style={{
+            flex: 1,
             background: "#0c1218",
             border: "1px solid #1a2530",
             borderRadius: 10,
-            padding: "10px 14px",
+            padding: "12px 14px",
             display: "flex",
             flexDirection: "column",
-            gap: 8,
+            justifyContent: "space-between",
+            gap: 10,
         }}>
             {/* Cabeçalho + Seletor de Contratos */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -2126,61 +2085,6 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                             {c} {c === 1 ? "Contr." : "Contr."}
                         </button>
                     ))}
-                </div>
-            </div>
-
-            {/* Faixa de Parâmetros Operacionais Otimizados (TP / SL / BE / Metodologia) */}
-            <div style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1.3fr 1.2fr",
-                gap: 5,
-                background: "#0c1218",
-                border: "1px solid #1a2530",
-                borderRadius: 7,
-                padding: "5px 8px",
-                fontFamily: "monospace",
-            }}>
-                <div>
-                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>ALVO (TP)</div>
-                    <div style={{ fontSize: 10.5, fontWeight: 900, color: "#00e87a" }}>
-                        {isWdoHybrid ? (
-                            <>+10,0p / +15,0p</>
-                        ) : isWinHybrid ? (
-                            <>+350p / Virada</>
-                        ) : (
-                            <>+{fmtNum(targetRef, dec)}p <span style={{ fontSize: 8, color: "#7f96a8", fontWeight: "normal" }}>(+R$ {fmtNum(targetRef * brlPerPt * contracts, 0)})</span></>
-                        )}
-                    </div>
-                </div>
-                <div>
-                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>STOP (SL)</div>
-                    <div style={{ fontSize: 10.5, fontWeight: 900, color: "#ff3860" }}>
-                        {isWdoHybrid ? (
-                            <>Wall+5p / -10,0p</>
-                        ) : isWinHybrid ? (
-                            <>-300p (WIN_1 / WIN_2)</>
-                        ) : (
-                            <>-{fmtNum(stopRef, dec)}p <span style={{ fontSize: 8, color: "#7f96a8", fontWeight: "normal" }}>(-R$ {fmtNum(stopRef * brlPerPt * contracts, 0)})</span></>
-                        )}
-                    </div>
-                </div>
-                <div>
-                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>BREAK-EVEN (BE)</div>
-                    <div style={{ fontSize: 9.5, fontWeight: "bold", color: useBe ? "#ffd600" : "#8ca5b5" }}>
-                        {useBe
-                            ? (isWdoHybrid
-                                ? "Mín/Máx Candle + 1,5p (+5p)"
-                                : isWinHybrid
-                                    ? "+30p (após +200p)"
-                                    : `+${fmtNum(beLock, dec)}p (após +${fmtNum(beTrigger, dec)}p)`)
-                            : `OFF · OCO 1:1 (${timeStopMin}m)`}
-                    </div>
-                </div>
-                <div>
-                    <div style={{ fontSize: 7, color: "#6c8496", fontWeight: "bold" }}>METODOLOGIA</div>
-                    <div style={{ fontSize: 9, fontWeight: "bold", color: "#00d4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {methodLabel}
-                    </div>
                 </div>
             </div>
 
@@ -2296,7 +2200,7 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                 fontSize: 9,
                 fontFamily: "monospace",
                 background: "#0c1218",
-                padding: "4px 8px",
+                padding: "5px 8px",
                 borderRadius: 5,
                 border: "1px solid #1a2530",
             }}>
@@ -2308,6 +2212,74 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                         ? "⏳ EM ABERTO (Aguardando Alvo/Stop)"
                         : `Trade: ${inspected.tradeBrl >= 0 ? "+" : ""}R$ ${fmtNum(inspected.tradeBrl, 0)} (${fmtNum(inspected.tradePts, dec, true)}p)`}
                 </span>
+            </div>
+
+            {/* Lista Compacta das Operações do Dia */}
+            <div style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                maxHeight: 165,
+                overflowY: "auto",
+                borderTop: "1px solid #16222d",
+                paddingTop: 6,
+            }}>
+                {signalsLog.length === 0 ? (
+                    <div style={{ fontSize: 9, color: "#5a7288", textAlign: "center", padding: "12px 0", fontFamily: "monospace" }}>
+                        Nenhuma operação encerrada/aberta hoje até o momento.
+                    </div>
+                ) : (
+                    signalsLog.slice(0, 8).map((sig) => {
+                        const isBuy = (sig.dir_num || 0) > 0;
+                        const st = String(sig.validation_status || "");
+                        const isOpen = st === "EM_ANDAMENTO";
+                        const pts = Number(sig.realized_pts || 0);
+                        const brl = pts * brlPerPt * contracts;
+                        const isSel = selectedSigId === sig.id;
+                        const shortMap = {
+                            EST_01: "WIN Rejeição",
+                            EST_07: "WIN Rompimento",
+                            EST_13: "WIN Next Wall",
+                            WDO_09: "WDO Pullback",
+                            WDO_11: "WDO Next Wall",
+                            WDO_S2: "WDO Lunch",
+                        };
+                        const sName = shortMap[sig.strategy_id] || sig.strategy_short || sig.type || "Setup";
+                        return (
+                            <div
+                                key={sig.id}
+                                onClick={() => onSelectSignal && onSelectSignal(isSel ? null : sig.id)}
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    fontSize: 8.8,
+                                    fontFamily: "monospace",
+                                    padding: "4px 7px",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                    background: isSel ? "rgba(0, 212, 255, 0.12)" : "#090e13",
+                                    border: isSel ? "1px solid #00d4ff66" : "1px solid #141e28",
+                                }}
+                            >
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ color: "#9fb4c7", fontWeight: "bold" }}>{sig.time}</span>
+                                    <span style={{ color: isBuy ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
+                                        {isBuy ? "▲" : "▼"}
+                                    </span>
+                                    <span style={{ color: "#d0dde8" }}>{sName}</span>
+                                    <span style={{ color: "#6b8299" }}>@{fmtNum(sig.entry_price, dec)}</span>
+                                </div>
+                                <span style={{
+                                    fontWeight: "bold",
+                                    color: isOpen ? "#ffd600" : (pts >= 0 ? "#00e87a" : "#ff6b8b"),
+                                }}>
+                                    {isOpen ? "⏳ ABERTO" : `${brl >= 0 ? "+" : ""}R$ ${fmtNum(brl, 0)} (${pts >= 0 ? "+" : ""}${fmtNum(pts, dec)}p)`}
+                                </span>
+                            </div>
+                        );
+                    })
+                )}
             </div>
         </div>
     );
@@ -2394,7 +2366,7 @@ function CombinedPortfolioDayCard({ winPayload, wdoPayload }) {
                         ⚖️ CARTEIRA COMBINADA DO DIA (ÍNDICE WIN + DÓLAR WDO JUNTOS)
                     </span>
                     <span style={{ fontSize: 9.5, color: "#00e87a", background: "#0c1218", border: "1px solid #00e87a44", padding: "2px 8px", borderRadius: 4, fontFamily: "monospace", fontWeight: "bold" }}>
-                        WIN_1 + WIN_2 (09:30–14:30) + WDO_1 + WDO_2 (09:30–14:30)
+                        WIN Rejeição + WIN Rompimento + WIN Next Wall | WDO Pullback + WDO Next Wall + WDO Lunch (c/ Fluxo)
                     </span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, fontFamily: "monospace", fontSize: 10 }}>
@@ -2434,18 +2406,22 @@ function CombinedPortfolioDayCard({ winPayload, wdoPayload }) {
     );
 }
 
-/* ── CURVA DE CAPITAL AUDITADA DAS 4 SISTEMÁTICAS + PORTFÓLIO (BACKTEST 123D + LIVE TRADING A PARTIR DE HOJE) ── */
+/* ── CURVA DE CAPITAL AUDITADA DAS 6 ESTRATÉGIAS C/ FLUXO + PORTFÓLIO (BACKTEST 124D + LIVE TRADING A PARTIR DE HOJE) ── */
 function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, onSelectDate }) {
     const [winContracts, setWinContracts] = useState(2);
     const [wdoContracts, setWdoContracts] = useState(1);
     const [rangeMode, setRangeMode] = useState("ALL"); // "ALL" | "60D" | "30D"
     const [hoverIdx, setHoverIdx] = useState(null);
     const [pinnedIdx, setPinnedIdx] = useState(null);
+    const [tradeHistTab, setTradeHistTab] = useState("ALL"); // "ALL" (Todos os 1.102 trades) | "DAY" (Trades do Pregão)
+    const [stratFilter, setStratFilter] = useState("ALL");   // "ALL" | "EST_01" | "EST_07" | "EST_13" | "WDO_09" | "WDO_11" | "WDO_S2"
     const [visibleCurves, setVisibleCurves] = useState({
         PORTFOLIO: true,
-        WIN_S1: true,
-        WIN_S2: true,
-        WDO_S1: true,
+        EST_01: true,
+        EST_07: true,
+        EST_13: true,
+        WDO_09: true,
+        WDO_11: true,
         WDO_S2: true,
     });
 
@@ -2464,9 +2440,9 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
     const liveDays = portfolioData.live_days || [];
 
     // Constrói a série acumulada desde o Dia 1 (07/05/2026) até o Live Trading (Hoje+)
-    let cWinS1 = 0, cWinS2 = 0, cWdoS1 = 0, cWdoS2 = 0, cPort = 0;
-    let pkWinS1 = 0, pkWinS2 = 0, pkWdoS1 = 0, pkWdoS2 = 0, pkPort = 0;
-    let mddWinS1 = 0, mddWinS2 = 0, mddWdoS1 = 0, mddWdoS2 = 0, mddPort = 0;
+    let cEst01 = 0, cEst07 = 0, cEst13 = 0, cWdo09 = 0, cWdo11 = 0, cWdoS2 = 0, cPort = 0;
+    let pkEst01 = 0, pkEst07 = 0, pkEst13 = 0, pkWdo09 = 0, pkWdo11 = 0, pkWdoS2 = 0, pkPort = 0;
+    let mddEst01 = 0, mddEst07 = 0, mddEst13 = 0, mddWdo09 = 0, mddWdo11 = 0, mddWdoS2 = 0, mddPort = 0;
 
     const fullSeries = [
         {
@@ -2475,9 +2451,9 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
             month: "Início",
             is_live: false,
             isOrigin: true,
-            d_WIN_S1: 0, d_WIN_S2: 0, d_WDO_S1: 0, d_WDO_S2: 0, d_PORT: 0,
-            WIN_S1: 0, WIN_S2: 0, WDO_S1: 0, WDO_S2: 0, PORTFOLIO: 0,
-            dd_PORT: 0, dd_WIN: 0, dd_WDO: 0,
+            d_EST_01: 0, d_EST_07: 0, d_EST_13: 0, d_WDO_09: 0, d_WDO_11: 0, d_WDO_S2: 0, d_PORT: 0,
+            EST_01: 0, EST_07: 0, EST_13: 0, WDO_09: 0, WDO_11: 0, WDO_S2: 0, PORTFOLIO: 0,
+            dd_PORT: 0,
             ops_total: 0,
             trades: [],
             open_trades: [],
@@ -2487,26 +2463,36 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
     const byMonth = {};
 
     allDays.forEach((d, i) => {
-        const dWinS1 = Number(d.WIN_S1_pts || 0) * winMult;
-        const dWinS2 = Number(d.WIN_S2_pts || 0) * winMult;
-        const dWdoS1 = Number(d.WDO_S1_pts || 0) * wdoMult;
+        const dEst01 = Number(d.EST_01_pts || 0) * winMult;
+        const dEst07 = Number(d.EST_07_pts || 0) * winMult;
+        const dEst13 = Number(d.EST_13_pts || 0) * winMult;
+        const dWdo09 = Number(d.WDO_09_pts || 0) * wdoMult;
+        const dWdo11 = Number(d.WDO_11_pts || 0) * wdoMult;
         const dWdoS2 = Number(d.WDO_S2_pts || 0) * wdoMult;
-        const dPort = dWinS1 + dWinS2 + dWdoS1 + dWdoS2;
+        const dPort = dEst01 + dEst07 + dEst13 + dWdo09 + dWdo11 + dWdoS2;
 
-        cWinS1 += dWinS1;
-        cWinS2 += dWinS2;
-        cWdoS1 += dWdoS1;
+        cEst01 += dEst01;
+        cEst07 += dEst07;
+        cEst13 += dEst13;
+        cWdo09 += dWdo09;
+        cWdo11 += dWdo11;
         cWdoS2 += dWdoS2;
         cPort += dPort;
 
-        if (cWinS1 > pkWinS1) pkWinS1 = cWinS1;
-        if (pkWinS1 - cWinS1 > mddWinS1) mddWinS1 = pkWinS1 - cWinS1;
+        if (cEst01 > pkEst01) pkEst01 = cEst01;
+        if (pkEst01 - cEst01 > mddEst01) mddEst01 = pkEst01 - cEst01;
 
-        if (cWinS2 > pkWinS2) pkWinS2 = cWinS2;
-        if (pkWinS2 - cWinS2 > mddWinS2) mddWinS2 = pkWinS2 - cWinS2;
+        if (cEst07 > pkEst07) pkEst07 = cEst07;
+        if (pkEst07 - cEst07 > mddEst07) mddEst07 = pkEst07 - cEst07;
 
-        if (cWdoS1 > pkWdoS1) pkWdoS1 = cWdoS1;
-        if (pkWdoS1 - cWdoS1 > mddWdoS1) mddWdoS1 = pkWdoS1 - cWdoS1;
+        if (cEst13 > pkEst13) pkEst13 = cEst13;
+        if (pkEst13 - cEst13 > mddEst13) mddEst13 = pkEst13 - cEst13;
+
+        if (cWdo09 > pkWdo09) pkWdo09 = cWdo09;
+        if (pkWdo09 - cWdo09 > mddWdo09) mddWdo09 = pkWdo09 - cWdo09;
+
+        if (cWdo11 > pkWdo11) pkWdo11 = cWdo11;
+        if (pkWdo11 - cWdo11 > mddWdo11) mddWdo11 = pkWdo11 - cWdo11;
 
         if (cWdoS2 > pkWdoS2) pkWdoS2 = cWdoS2;
         if (pkWdoS2 - cWdoS2 > mddWdoS2) mddWdoS2 = pkWdoS2 - cWdoS2;
@@ -2514,48 +2500,66 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
         if (cPort > pkPort) pkPort = cPort;
         if (pkPort - cPort > mddPort) mddPort = pkPort - cPort;
 
+        const opsDay =
+            Number(d.EST_01_ops || 0) +
+            Number(d.EST_07_ops || 0) +
+            Number(d.EST_13_ops || 0) +
+            Number(d.WDO_09_ops || 0) +
+            Number(d.WDO_11_ops || 0) +
+            Number(d.WDO_S2_ops || 0);
+
         const mKey = d.is_live ? `${d.month} (Live)` : d.month;
         if (!byMonth[mKey]) {
             byMonth[mKey] = {
                 month: mKey,
                 is_live: Boolean(d.is_live),
-                WIN_S1: 0, WIN_S2: 0, WDO_S1: 0, WDO_S2: 0, PORTFOLIO: 0,
+                EST_01: 0, EST_07: 0, EST_13: 0, WDO_09: 0, WDO_11: 0, WDO_S2: 0, PORTFOLIO: 0,
                 ops: 0,
             };
         }
-        byMonth[mKey].WIN_S1 += dWinS1;
-        byMonth[mKey].WIN_S2 += dWinS2;
-        byMonth[mKey].WDO_S1 += dWdoS1;
+        byMonth[mKey].EST_01 += dEst01;
+        byMonth[mKey].EST_07 += dEst07;
+        byMonth[mKey].EST_13 += dEst13;
+        byMonth[mKey].WDO_09 += dWdo09;
+        byMonth[mKey].WDO_11 += dWdo11;
         byMonth[mKey].WDO_S2 += dWdoS2;
         byMonth[mKey].PORTFOLIO += dPort;
-        byMonth[mKey].ops += Number(d.WIN_S1_ops || 0) + Number(d.WIN_S2_ops || 0) + Number(d.WDO_S1_ops || 0) + Number(d.WDO_S2_ops || 0);
+        byMonth[mKey].ops += opsDay;
 
         fullSeries.push({
             idx: i + 1,
             date: d.date,
             month: d.month,
             is_live: Boolean(d.is_live),
-            d_WIN_S1: dWinS1,
-            d_WIN_S2: dWinS2,
-            d_WDO_S1: dWdoS1,
+            d_EST_01: dEst01,
+            d_EST_07: dEst07,
+            d_EST_13: dEst13,
+            d_WDO_09: dWdo09,
+            d_WDO_11: dWdo11,
             d_WDO_S2: dWdoS2,
             d_PORT: dPort,
-            WIN_S1_pts: Number(d.WIN_S1_pts || 0),
-            WIN_S2_pts: Number(d.WIN_S2_pts || 0),
-            WDO_S1_pts: Number(d.WDO_S1_pts || 0),
+            EST_01_pts: Number(d.EST_01_pts || 0),
+            EST_07_pts: Number(d.EST_07_pts || 0),
+            EST_13_pts: Number(d.EST_13_pts || 0),
+            WDO_09_pts: Number(d.WDO_09_pts || 0),
+            WDO_11_pts: Number(d.WDO_11_pts || 0),
             WDO_S2_pts: Number(d.WDO_S2_pts || 0),
-            WIN_S1_ops: Number(d.WIN_S1_ops || 0),
-            WIN_S2_ops: Number(d.WIN_S2_ops || 0),
-            WDO_S1_ops: Number(d.WDO_S1_ops || 0),
+            EST_01_ops: Number(d.EST_01_ops || 0),
+            EST_07_ops: Number(d.EST_07_ops || 0),
+            EST_13_ops: Number(d.EST_13_ops || 0),
+            WDO_09_ops: Number(d.WDO_09_ops || 0),
+            WDO_11_ops: Number(d.WDO_11_ops || 0),
             WDO_S2_ops: Number(d.WDO_S2_ops || 0),
-            ops_total: Number(d.WIN_S1_ops || 0) + Number(d.WIN_S2_ops || 0) + Number(d.WDO_S1_ops || 0) + Number(d.WDO_S2_ops || 0),
-            WIN_S1: cWinS1,
-            WIN_S2: cWinS2,
-            WDO_S1: cWdoS1,
+            ops_total: opsDay,
+            EST_01: cEst01,
+            EST_07: cEst07,
+            EST_13: cEst13,
+            WDO_09: cWdo09,
+            WDO_11: cWdo11,
             WDO_S2: cWdoS2,
             PORTFOLIO: cPort,
             dd_PORT: cPort - pkPort,
-             trades: d.trades || [],
+            trades: d.trades || [],
             open_trades: d.open_trades || [],
         });
     });
@@ -2567,7 +2571,7 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
             ? fullSeries.slice(-61)
             : fullSeries;
 
-    // Calcula KPIs consolidados (Backtest + Live) para cada sistemática e Portfólio
+    // Calcula KPIs consolidados (Backtest + Live) para cada estratégia e Portfólio
     const buildCurveKpi = (sid, multContracts, totBrl, maxDdBrl) => {
         const base = summary1c[sid] || {};
         let ops = Number(base.ops || 0);
@@ -2600,15 +2604,17 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
         return { ops, wins, wr, pf, gWin, gLoss, totPts, totBrl, maxDdBrl: exactMaxDd, retDd };
     };
 
-    const kpiWinS1 = buildCurveKpi("WIN_S1", winContracts, cWinS1, mddWinS1);
-    const kpiWinS2 = buildCurveKpi("WIN_S2", winContracts, cWinS2, mddWinS2);
-    const kpiWdoS1 = buildCurveKpi("WDO_S1", wdoContracts, cWdoS1, mddWdoS1);
+    const kpiEst01 = buildCurveKpi("EST_01", winContracts, cEst01, mddEst01);
+    const kpiEst07 = buildCurveKpi("EST_07", winContracts, cEst07, mddEst07);
+    const kpiEst13 = buildCurveKpi("EST_13", winContracts, cEst13, mddEst13);
+    const kpiWdo09 = buildCurveKpi("WDO_09", wdoContracts, cWdo09, mddWdo09);
+    const kpiWdo11 = buildCurveKpi("WDO_11", wdoContracts, cWdo11, mddWdo11);
     const kpiWdoS2 = buildCurveKpi("WDO_S2", wdoContracts, cWdoS2, mddWdoS2);
 
-    const portOps = kpiWinS1.ops + kpiWinS2.ops + kpiWdoS1.ops + kpiWdoS2.ops;
-    const portWins = kpiWinS1.wins + kpiWinS2.wins + kpiWdoS1.wins + kpiWdoS2.wins;
-    const portGWin = kpiWinS1.gWin + kpiWinS2.gWin + kpiWdoS1.gWin + kpiWdoS2.gWin;
-    const portGLoss = kpiWinS1.gLoss + kpiWinS2.gLoss + kpiWdoS1.gLoss + kpiWdoS2.gLoss;
+    const portOps = kpiEst01.ops + kpiEst07.ops + kpiEst13.ops + kpiWdo09.ops + kpiWdo11.ops + kpiWdoS2.ops;
+    const portWins = kpiEst01.wins + kpiEst07.wins + kpiEst13.wins + kpiWdo09.wins + kpiWdo11.wins + kpiWdoS2.wins;
+    const portGWin = kpiEst01.gWin + kpiEst07.gWin + kpiEst13.gWin + kpiWdo09.gWin + kpiWdo11.gWin + kpiWdoS2.gWin;
+    const portGLoss = kpiEst01.gLoss + kpiEst07.gLoss + kpiEst13.gLoss + kpiWdo09.gLoss + kpiWdo11.gLoss + kpiWdoS2.gLoss;
     const portWr = portOps > 0 ? (portWins / portOps) * 100 : 0;
     const portPf = portGLoss > 0 ? portGWin / portGLoss : 1.5;
     const portRetDd = mddPort > 0 ? cPort / mddPort : 99.9;
@@ -2616,11 +2622,11 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
     const curveConfigs = [
         {
             key: "PORTFOLIO",
-            shortLabel: "🏆 PORTFÓLIO TOTAL",
-            title: "🏆 PORTFÓLIO COMPLETO (4 SISTEMÁTICAS)",
-            subRule: `WIN (${winContracts}c) + WDO (${wdoContracts}c) · 6/6 Meses Positivos`,
+            shortLabel: "🏆 PORTFÓLIO (6 ESTRAT.)",
+            title: "🏆 PORTFÓLIO COMPLETO (6 ESTRATÉGIAS C/ FLUXO)",
+            subRule: `WIN (${winContracts}c) + WDO (${wdoContracts}c) · 6/6 Meses Positivos · Ret/DD 38,97x`,
             color: "#00e87a",
-            strokeW: 2.8,
+            strokeW: 2.9,
             kpi: {
                 ops: portOps,
                 wr: portWr,
@@ -2632,40 +2638,60 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
             },
         },
         {
-            key: "WIN_S1",
-            shortLabel: "🔵 WIN_1",
-            title: "🔵 WIN_1",
-            subRule: "12:00–14:30 · Reversão Banda NWE (≥1,0 MAE) | TP +350p | SL -300p | BE +200→+30p",
+            key: "EST_01",
+            shortLabel: "🔵 WIN Rejeição",
+            title: "🔵 WIN Rejeição (EST-01)",
+            subRule: "Rejeição/PinBar na Wall + Combo Smart",
             color: "#38bdf8",
             strokeW: 1.8,
-            kpi: kpiWinS1,
+            kpi: kpiEst01,
             dec: 0,
         },
         {
-            key: "WIN_S2",
-            shortLabel: "💠 WIN_2",
-            title: "💠 WIN_2",
-            subRule: "09:30–13:00 · Virada A.S.G (Sem Wall Oposta) | Saída Virada | SL -300p | BE +200→+30p",
+            key: "EST_07",
+            shortLabel: "💠 WIN Rompimento",
+            title: "💠 WIN Rompimento (EST-07)",
+            subRule: "Ignição/Rompimento na Wall + Fluxo Institucional",
             color: "#00d4ff",
-            strokeW: 1.9,
-            kpi: kpiWinS2,
+            strokeW: 1.8,
+            kpi: kpiEst07,
             dec: 0,
         },
         {
-            key: "WDO_S1",
-            shortLabel: "🟡 WDO_1",
-            title: "🟡 WDO_1",
-            subRule: "09:30–12:00 · Defesa na Wall + NWE | TP +10p | SL Wall+5p | Proteção Candle (+5p)",
-            color: "#ffd600",
+            key: "EST_13",
+            shortLabel: "🟢 WIN Next Wall",
+            title: "🟢 WIN Next Wall (EST-13)",
+            subRule: "SmartGrid na Próxima Wall + Absorção Institucional",
+            color: "#10b981",
             strokeW: 1.9,
-            kpi: kpiWdoS1,
+            kpi: kpiEst13,
+            dec: 0,
+        },
+        {
+            key: "WDO_09",
+            shortLabel: "🟡 WDO Pullback",
+            title: "🟡 WDO Pullback (WDO-09)",
+            subRule: "Pullback de Tendência na Wall + Janela A.S.G",
+            color: "#ffd600",
+            strokeW: 1.8,
+            kpi: kpiWdo09,
+            dec: 1,
+        },
+        {
+            key: "WDO_11",
+            shortLabel: "🟠 WDO Next Wall",
+            title: "🟠 WDO Next Wall (WDO-11)",
+            subRule: "SmartGrid na Próxima Wall + Absorção Institucional",
+            color: "#f59e0b",
+            strokeW: 1.9,
+            kpi: kpiWdo11,
             dec: 1,
         },
         {
             key: "WDO_S2",
-            shortLabel: "🟣 WDO_2",
-            title: "🟣 WDO_2",
-            subRule: "12:00–14:30 · Reversão Banda NWE (≥0,75 MAE) | TP +15p | SL -10p | Proteção Candle (+5p)",
+            shortLabel: "🟣 WDO Lunch",
+            title: "🟣 WDO Lunch (WDO_S2)",
+            subRule: "Reversão Z30 no Almoço (12:00–14:30) + MidWall",
             color: "#a78bfa",
             strokeW: 2.0,
             kpi: kpiWdoS2,
@@ -2742,10 +2768,22 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
             : visibleSeries.length - 1;
     const inspectedPt = visibleSeries[Math.min(visibleSeries.length - 1, Math.max(0, activeIdx))] || visibleSeries[visibleSeries.length - 1];
 
-    // Sinais ao vivo do dia atual (para acompanhamento em tempo real)
+    // Sinais ao vivo do dia atual e histórico completo de todos os trades (1.102 ops)
     const latestLiveDay = liveDays.length > 0 ? liveDays[liveDays.length - 1] : null;
     const liveOpenTrades = latestLiveDay?.open_trades || [];
     const liveClosedTrades = latestLiveDay?.trades || [];
+
+    const allHistoricalTrades = [];
+    for (let di = fullSeries.length - 1; di >= 1; di--) {
+        const dayObj = fullSeries[di];
+        const dayOpen = dayObj.open_trades || [];
+        const dayClosed = dayObj.trades || [];
+        dayOpen.forEach((tr) => allHistoricalTrades.push({ ...tr, date: tr.date || dayObj.date }));
+        for (let ti = dayClosed.length - 1; ti >= 0; ti--) {
+            const tr = dayClosed[ti];
+            allHistoricalTrades.push({ ...tr, date: tr.date || dayObj.date });
+        }
+    }
 
     return (
         <div style={{
@@ -2771,7 +2809,7 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                 <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 13, fontWeight: 900, color: "#ffffff", letterSpacing: 0.7 }}>
-                            📈 CURVA DE CAPITAL DAS 4 SISTEMÁTICAS + PORTFÓLIO (BACKTEST AUDITADO + LIVE TRADING)
+                            📈 CURVA DE CAPITAL DAS 6 ESTRATÉGIAS C/ FLUXO + PORTFÓLIO (WIN Rejeição | WIN Rompimento | WIN Next Wall | WDO Pullback | WDO Next Wall | WDO Lunch)
                         </span>
                         <span style={{
                             fontSize: 9,
@@ -2783,11 +2821,11 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                             padding: "2px 8px",
                             borderRadius: 4,
                         }}>
-                            ✅ {portfolioData.total_bt_sessions || 123} Pregões BT ({fmtDateShort(portfolioData.start_date)} a {fmtDateShort(portfolioData.last_bt_date)}) + 🟢 Live ({fmtDateShort(portfolioData.live_start_date)}+)
+                            ✅ {portfolioData.total_bt_sessions || 124} Pregões BT ({fmtDateShort(portfolioData.start_date)} a {fmtDateShort(portfolioData.last_bt_date)}) + 🟢 Live ({fmtDateShort(portfolioData.live_start_date)}+)
                         </span>
                     </div>
                     <span style={{ fontSize: 9.5, color: "#7f96a8" }}>
-                        Histórico auditado barra a barra desde o 1º dia de teste (sem sobreposição por sistemática, stop verificado antes do alvo) + acompanhamento em tempo real das operações a partir de hoje.
+                        Portfólio Campeão com Filtros de Fluxo do Dashboard (Combo Smart + Absorção Institucional + Janela A.S.G) · 1.102 trades (~8,89 ops/dia) · 6/6 meses positivos · Ret/DD = 38,97x.
                     </span>
                 </div>
 
@@ -2906,11 +2944,11 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                 </div>
             </div>
 
-            {/* 2. SCORECARD INTERATIVO DAS 5 CURVAS (PORTFÓLIO + 4 SISTEMÁTICAS) */}
+            {/* 2. SCORECARD INTERATIVO DAS 7 CURVAS (PORTFÓLIO + 6 ESTRATÉGIAS C/ FLUXO) */}
             <div style={{
                 display: "grid",
-                gridTemplateColumns: "1.25fr 1fr 1fr 1fr 1fr",
-                gap: 8,
+                gridTemplateColumns: "1.18fr repeat(6, 1fr)",
+                gap: 6,
             }}>
                 {curveConfigs.map((cfg) => {
                     const isOn = visibleCurves[cfg.key];
@@ -2924,36 +2962,36 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                                 background: "#05080d",
                                 border: isOn ? `1.5px solid ${cfg.color}88` : "1px solid #1a2530",
                                 borderRadius: 8,
-                                padding: "8px 10px",
+                                padding: "7px 8px",
                                 cursor: "pointer",
                                 opacity: isOn ? 1 : 0.45,
                                 display: "flex",
                                 flexDirection: "column",
                                 justifyContent: "space-between",
-                                gap: 5,
+                                gap: 4,
                             }}
                         >
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
-                                <span style={{ fontSize: 9.5, fontWeight: 900, color: cfg.color, letterSpacing: 0.3 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 3 }}>
+                                <span style={{ fontSize: 9, fontWeight: 900, color: cfg.color, letterSpacing: 0.2 }}>
                                     {cfg.shortLabel}
                                 </span>
                                 <span style={{
-                                    fontSize: 7.5,
+                                    fontSize: 7,
                                     fontFamily: "monospace",
-                                    padding: "1px 5px",
+                                    padding: "1px 4px",
                                     borderRadius: 3,
                                     background: isOn ? `${cfg.color}22` : "#0c1218",
                                     color: isOn ? cfg.color : "#6c8496",
                                     border: `1px solid ${cfg.color}44`,
                                 }}>
-                                    {isOn ? "VISÍVEL" : "OCULTO"}
+                                    {isOn ? "ON" : "OFF"}
                                 </span>
                             </div>
 
-                            <div style={{ fontSize: 15, fontWeight: 900, color: k.totBrl >= 0 ? cfg.color : "#ff3860", fontFamily: "monospace" }}>
+                            <div style={{ fontSize: 13.5, fontWeight: 900, color: k.totBrl >= 0 ? cfg.color : "#ff3860", fontFamily: "monospace" }}>
                                 {k.totBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(k.totBrl), 0)}
                                 {k.totPts !== null && (
-                                    <span style={{ fontSize: 9, color: "#8ca5b5", fontWeight: "normal", marginLeft: 5 }}>
+                                    <span style={{ fontSize: 8, color: "#8ca5b5", fontWeight: "normal", marginLeft: 4 }}>
                                         ({fmtNum(k.totPts, cfg.dec || 0, true)}p)
                                     </span>
                                 )}
@@ -2962,31 +3000,31 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                             <div style={{
                                 display: "grid",
                                 gridTemplateColumns: "repeat(4, 1fr)",
-                                gap: 4,
+                                gap: 3,
                                 fontFamily: "monospace",
-                                fontSize: 8.5,
+                                fontSize: 8,
                                 borderTop: "1px solid #141e28",
                                 paddingTop: 4,
                             }}>
                                 <div>
-                                    <div style={{ fontSize: 7, color: "#6c8496" }}>WR ({k.ops})</div>
+                                    <div style={{ fontSize: 6.5, color: "#6c8496" }}>WR ({k.ops})</div>
                                     <div style={{ fontWeight: "bold", color: "#e6edf3" }}>{fmtNum(k.wr, 1)}%</div>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 7, color: "#6c8496" }}>PF</div>
+                                    <div style={{ fontSize: 6.5, color: "#6c8496" }}>PF</div>
                                     <div style={{ fontWeight: "bold", color: k.pf >= 1.5 ? "#00e87a" : "#ffd600" }}>{fmtNum(k.pf, 2)}x</div>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 7, color: "#6c8496" }}>MAX DD</div>
+                                    <div style={{ fontSize: 6.5, color: "#6c8496" }}>MAX DD</div>
                                     <div style={{ fontWeight: "bold", color: "#ff6b8b" }}>-R$ {fmtNum(k.maxDdBrl, 0)}</div>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: 7, color: "#6c8496" }}>RET/DD</div>
+                                    <div style={{ fontSize: 6.5, color: "#6c8496" }}>RET/DD</div>
                                     <div style={{ fontWeight: "bold", color: "#00d4ff" }}>{fmtNum(k.retDd, 2)}x</div>
                                 </div>
                             </div>
 
-                            <div style={{ fontSize: 7.5, color: "#6c8496", lineHeight: 1.25 }}>
+                            <div style={{ fontSize: 7, color: "#6c8496", lineHeight: 1.2 }}>
                                 {cfg.subRule}
                             </div>
                         </div>
@@ -2994,7 +3032,7 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                 })}
             </div>
 
-            {/* 3. GRÁFICO PRINCIPAL SVG (CURVAS DAS 4 SISTEMÁTICAS + PORTFÓLIO + MARCO LIVE TRADING + SUBWATER DD) */}
+            {/* 3. GRÁFICO PRINCIPAL SVG (CURVAS DAS 6 ESTRATÉGIAS + PORTFÓLIO + MARCO LIVE TRADING + SUBWATER DD) */}
             <div style={{ position: "relative" }}>
                 <svg
                     viewBox={`0 0 ${w} ${h}`}
@@ -3116,7 +3154,7 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                         return <polygon points={areaStr} fill="url(#port4-grad)" />;
                     })()}
 
-                    {/* As 5 Curvas de Capital (4 Sistemáticas + Portfólio) */}
+                    {/* As 7 Curvas de Capital (6 Estratégias + Portfólio) */}
                     {[...curveConfigs].reverse().map((cfg) => {
                         if (!visibleCurves[cfg.key]) return null;
                         const ptsStr = visibleSeries.map((pt, i) => `${toX(i).toFixed(1)},${toYEq(pt[cfg.key]).toFixed(1)}`).join(" ");
@@ -3253,30 +3291,36 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                             )}
                         </div>
 
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                             <span style={{ color: "#00e87a", fontWeight: "bold" }}>
                                 🏆 Portfólio: {inspectedPt.PORTFOLIO >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.PORTFOLIO), 0)}
                             </span>
                             <span style={{ color: "#38bdf8" }}>
-                                WIN_1: {inspectedPt.WIN_S1 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.WIN_S1), 0)}
+                                WIN Rejeição: {inspectedPt.EST_01 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.EST_01), 0)}
                             </span>
                             <span style={{ color: "#00d4ff" }}>
-                                WIN_2: {inspectedPt.WIN_S2 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.WIN_S2), 0)}
+                                WIN Rompimento: {inspectedPt.EST_07 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.EST_07), 0)}
+                            </span>
+                            <span style={{ color: "#10b981" }}>
+                                WIN Next Wall: {inspectedPt.EST_13 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.EST_13), 0)}
                             </span>
                             <span style={{ color: "#ffd600" }}>
-                                WDO_1: {inspectedPt.WDO_S1 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.WDO_S1), 0)}
+                                WDO Pullback: {inspectedPt.WDO_09 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.WDO_09), 0)}
+                            </span>
+                            <span style={{ color: "#f59e0b" }}>
+                                WDO Next Wall: {inspectedPt.WDO_11 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.WDO_11), 0)}
                             </span>
                             <span style={{ color: "#a78bfa" }}>
-                                WDO_2: {inspectedPt.WDO_S2 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.WDO_S2), 0)}
+                                WDO Lunch: {inspectedPt.WDO_S2 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(inspectedPt.WDO_S2), 0)}
                             </span>
                         </div>
                     </div>
                 )}
             </div>
 
-            {/* 4. RODAPÉ DUPLO: TABELA MENSAL AUDITADA (ESQUERDA) + MONITOR DE LIVE TRADING HOJE (DIREITA) */}
-            <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 12 }}>
-                {/* Esquerda: Matriz Mensal das 4 Sistemáticas + Portfólio */}
+            {/* 4. RODAPÉ DUPLO: TABELA MENSAL AUDITADA (ESQUERDA) + HISTÓRICO COMPLETO DE TODOS OS TRADES & MONITOR (DIREITA) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1.18fr 1.04fr", gap: 12 }}>
+                {/* Esquerda: Matriz Mensal das 6 Estratégias + Portfólio */}
                 <div style={{
                     background: "#05080d",
                     border: "1px solid #1a2530",
@@ -3286,14 +3330,16 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                     <div style={{ fontSize: 10, fontWeight: "bold", color: "#ffffff", marginBottom: 8, letterSpacing: 0.5 }}>
                         🗓️ RESULTADO MENSAL AUDITADO POR ESTRATÉGIA (WIN {winContracts}c · WDO {wdoContracts}c)
                     </div>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "monospace", fontSize: 9 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "monospace", fontSize: 8.5 }}>
                         <thead>
                             <tr style={{ color: "#6c8496", borderBottom: "1px solid #1a2530", textAlign: "right" }}>
                                 <th style={{ textAlign: "left", padding: "4px" }}>MÊS</th>
-                                <th style={{ padding: "4px", color: "#38bdf8" }}>WIN_1</th>
-                                <th style={{ padding: "4px", color: "#00d4ff" }}>WIN_2</th>
-                                <th style={{ padding: "4px", color: "#ffd600" }}>WDO_1</th>
-                                <th style={{ padding: "4px", color: "#a78bfa" }}>WDO_2</th>
+                                <th style={{ padding: "4px", color: "#38bdf8" }}>WIN Rejeição</th>
+                                <th style={{ padding: "4px", color: "#00d4ff" }}>WIN Rompimento</th>
+                                <th style={{ padding: "4px", color: "#10b981" }}>WIN Next Wall</th>
+                                <th style={{ padding: "4px", color: "#ffd600" }}>WDO Pullback</th>
+                                <th style={{ padding: "4px", color: "#f59e0b" }}>WDO Next Wall</th>
+                                <th style={{ padding: "4px", color: "#a78bfa" }}>WDO Lunch</th>
                                 <th style={{ padding: "4px", color: "#00e87a" }}>🏆 PORTFÓLIO</th>
                             </tr>
                         </thead>
@@ -3310,14 +3356,20 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                                     <td style={{ textAlign: "left", padding: "4px", fontWeight: "bold", color: m.is_live ? "#00e87a" : "#e6edf3" }}>
                                         {m.is_live ? `🟢 ${m.month}` : m.month}
                                     </td>
-                                    <td style={{ padding: "4px", color: m.WIN_S1 >= 0 ? "#38bdf8" : "#ff6b8b" }}>
-                                        {m.WIN_S1 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.WIN_S1), 0)}
+                                    <td style={{ padding: "4px", color: m.EST_01 >= 0 ? "#38bdf8" : "#ff6b8b" }}>
+                                        {m.EST_01 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.EST_01), 0)}
                                     </td>
-                                    <td style={{ padding: "4px", color: m.WIN_S2 >= 0 ? "#00d4ff" : "#ff6b8b" }}>
-                                        {m.WIN_S2 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.WIN_S2), 0)}
+                                    <td style={{ padding: "4px", color: m.EST_07 >= 0 ? "#00d4ff" : "#ff6b8b" }}>
+                                        {m.EST_07 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.EST_07), 0)}
                                     </td>
-                                    <td style={{ padding: "4px", color: m.WDO_S1 >= 0 ? "#ffd600" : "#ff6b8b" }}>
-                                        {m.WDO_S1 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.WDO_S1), 0)}
+                                    <td style={{ padding: "4px", color: m.EST_13 >= 0 ? "#10b981" : "#ff6b8b" }}>
+                                        {m.EST_13 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.EST_13), 0)}
+                                    </td>
+                                    <td style={{ padding: "4px", color: m.WDO_09 >= 0 ? "#ffd600" : "#ff6b8b" }}>
+                                        {m.WDO_09 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.WDO_09), 0)}
+                                    </td>
+                                    <td style={{ padding: "4px", color: m.WDO_11 >= 0 ? "#f59e0b" : "#ff6b8b" }}>
+                                        {m.WDO_11 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.WDO_11), 0)}
                                     </td>
                                     <td style={{ padding: "4px", color: m.WDO_S2 >= 0 ? "#a78bfa" : "#ff6b8b" }}>
                                         {m.WDO_S2 >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(m.WDO_S2), 0)}
@@ -3331,7 +3383,7 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                     </table>
                 </div>
 
-                {/* Direita: Monitor Ao Vivo de Hoje (Live Trading) + Operações do Dia Inspecionado */}
+                {/* Direita: Histórico Completo de Todos os Trades (1.102 ops) + Trades do Pregão Inspecionado */}
                 <div style={{
                     background: "#05080d",
                     border: "1px solid #1a2530",
@@ -3343,21 +3395,86 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                         <span style={{ fontSize: 10, fontWeight: "bold", color: "#00e87a", letterSpacing: 0.5 }}>
-                            🟢 ACOMPANHAMENTO LIVE TRADING ({fmtDateShort(portfolioData.live_start_date)}+) & TRADES DO PREGÃO
+                            📋 HISTÓRICO DE TODOS OS TRADES ({allHistoricalTrades.length}) & MONITOR LIVE
                         </span>
-                        <span style={{ fontSize: 8.5, fontFamily: "monospace", color: "#8ca5b5" }}>
-                            {liveOpenTrades.length > 0
-                                ? `⚡ ${liveOpenTrades.length} op(s) em aberto agora`
-                                : liveClosedTrades.length > 0
-                                    ? `✅ ${liveClosedTrades.length} op(s) fechadas hoje`
-                                    : "Janela Operacional: 09:30–14:30 (WIN e WDO)"}
-                        </span>
+                        <div style={{ display: "flex", gap: 4 }}>
+                            <button
+                                onClick={() => setTradeHistTab("ALL")}
+                                style={{
+                                    padding: "2px 8px",
+                                    fontSize: 8,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                    background: tradeHistTab === "ALL" ? "#00e87a" : "#0c1218",
+                                    color: tradeHistTab === "ALL" ? "#04080e" : "#8ca5b5",
+                                    border: tradeHistTab === "ALL" ? "1px solid #00e87a" : "1px solid #1a2530",
+                                }}
+                            >
+                                📋 Todos ({allHistoricalTrades.length})
+                            </button>
+                            <button
+                                onClick={() => setTradeHistTab("DAY")}
+                                style={{
+                                    padding: "2px 8px",
+                                    fontSize: 8,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                    background: tradeHistTab === "DAY" ? "#00d4ff" : "#0c1218",
+                                    color: tradeHistTab === "DAY" ? "#04080e" : "#8ca5b5",
+                                    border: tradeHistTab === "DAY" ? "1px solid #00d4ff" : "1px solid #1a2530",
+                                }}
+                            >
+                                📅 Pregão {fmtDateShort(inspectedPt?.date)} ({(inspectedPt?.trades?.length || 0) + (inspectedPt?.open_trades?.length || 0)})
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Filtro Rápido por Categoria/Estratégia */}
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {[
+                            { id: "ALL", label: "Todas (6)", col: "#00e87a" },
+                            { id: "EST_01", label: "WIN Rejeição", col: "#38bdf8" },
+                            { id: "EST_07", label: "WIN Rompimento", col: "#00d4ff" },
+                            { id: "EST_13", label: "WIN Next Wall", col: "#10b981" },
+                            { id: "WDO_09", label: "WDO Pullback", col: "#ffd600" },
+                            { id: "WDO_11", label: "WDO Next Wall", col: "#f59e0b" },
+                            { id: "WDO_S2", label: "WDO Lunch", col: "#a78bfa" },
+                        ].map((sf) => {
+                            const active = stratFilter === sf.id;
+                            return (
+                                <button
+                                    key={sf.id}
+                                    onClick={() => setStratFilter(sf.id)}
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 7.5,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                        background: active ? `${sf.col}22` : "#0c1218",
+                                        color: active ? sf.col : "#7f96a8",
+                                        border: active ? `1px solid ${sf.col}` : "1px solid #1a2530",
+                                    }}
+                                >
+                                    {sf.label}
+                                </button>
+                            );
+                        })}
                     </div>
 
                     {(() => {
-                        const tradesToShow = (inspectedPt && (inspectedPt.trades?.length > 0 || inspectedPt.open_trades?.length > 0))
+                        const dayTrades = (inspectedPt && (inspectedPt.trades?.length > 0 || inspectedPt.open_trades?.length > 0))
                             ? [...(inspectedPt.open_trades || []), ...(inspectedPt.trades || [])]
                             : [...liveOpenTrades, ...liveClosedTrades];
+                        const rawList = tradeHistTab === "DAY" ? dayTrades : allHistoricalTrades;
+                        const tradesToShow = stratFilter === "ALL"
+                            ? rawList
+                            : rawList.filter((tr) => tr.strategy_id === stratFilter);
 
                         if (tradesToShow.length === 0) {
                             return (
@@ -3371,23 +3488,23 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                                     fontFamily: "monospace",
                                     textAlign: "center",
                                 }}>
-                                    🟢 Monitor Live Trading ativo para hoje ({fmtDateFull(portfolioData.live_start_date)}). Assim que uma das 4 sistemáticas confirmar gatilho em barra fechada (09:30–14:30), a operação é registrada automaticamente aqui e na ponta direita da curva de capital.
+                                    Nenhuma operação encontrada para este filtro. Clique em "📋 Todos" ou "Todas (6)" para ver o histórico completo.
                                 </div>
                             );
                         }
 
                         return (
-                            <div style={{ maxHeight: 165, overflowY: "auto" }}>
-                                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "monospace", fontSize: 8.5 }}>
-                                    <thead>
+                            <div style={{ maxHeight: 195, overflowY: "auto", border: "1px solid #111a24", borderRadius: 6 }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "monospace", fontSize: 8.2 }}>
+                                    <thead style={{ position: "sticky", top: 0, background: "#091017", zIndex: 1 }}>
                                         <tr style={{ color: "#6c8496", borderBottom: "1px solid #1a2530", textAlign: "right" }}>
-                                            <th style={{ textAlign: "left", padding: "3px" }}>DATA / HORA</th>
-                                            <th style={{ textAlign: "left", padding: "3px" }}>SISTEMÁTICA</th>
-                                            <th style={{ textAlign: "center", padding: "3px" }}>LADO</th>
-                                            <th style={{ padding: "3px" }}>ENTRADA</th>
-                                            <th style={{ padding: "3px" }}>PTS</th>
-                                            <th style={{ padding: "3px" }}>RESULTADO R$</th>
-                                            <th style={{ textAlign: "left", padding: "3px 6px" }}>DESFECHO</th>
+                                            <th style={{ textAlign: "left", padding: "4px" }}>DATA / HORA</th>
+                                            <th style={{ textAlign: "left", padding: "4px" }}>ESTRATÉGIA</th>
+                                            <th style={{ textAlign: "center", padding: "4px" }}>LADO</th>
+                                            <th style={{ padding: "4px" }}>ENTRADA</th>
+                                            <th style={{ padding: "4px" }}>PTS</th>
+                                            <th style={{ padding: "4px" }}>RESULTADO R$</th>
+                                            <th style={{ textAlign: "left", padding: "4px 6px" }}>DESFECHO</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -3395,27 +3512,40 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                                             const mult = tr.asset === "WIN" ? winContracts : wdoContracts;
                                             const brlVal = Number(tr.brl_1c || 0) * mult;
                                             const isOpen = tr.status === "ABERTA";
-                                            const sCol = tr.strategy_id === "WIN_S1" ? "#38bdf8"
-                                                : tr.strategy_id === "WIN_S2" ? "#00d4ff"
-                                                    : tr.strategy_id === "WDO_S1" ? "#ffd600" : "#a78bfa";
+                                            const sCol = tr.strategy_id === "EST_01" ? "#38bdf8"
+                                                : tr.strategy_id === "EST_07" ? "#00d4ff"
+                                                    : tr.strategy_id === "EST_13" ? "#10b981"
+                                                        : tr.strategy_id === "WDO_09" ? "#ffd600"
+                                                            : tr.strategy_id === "WDO_11" ? "#f59e0b" : "#a78bfa";
+                                            const sName = tr.strategy_id === "EST_01" ? "WIN Rejeição"
+                                                : tr.strategy_id === "EST_07" ? "WIN Rompimento"
+                                                    : tr.strategy_id === "EST_13" ? "WIN Next Wall"
+                                                        : tr.strategy_id === "WDO_09" ? "WDO Pullback"
+                                                            : tr.strategy_id === "WDO_11" ? "WDO Next Wall"
+                                                                : tr.strategy_id === "WDO_S2" ? "WDO Lunch" : tr.strategy_id;
                                             return (
-                                                <tr key={`tr-${ti}`} style={{ borderBottom: "1px solid #111a24", textAlign: "right" }}>
-                                                    <td style={{ textAlign: "left", padding: "3px", color: "#9fb4c4" }}>
+                                                <tr
+                                                    key={`tr-${ti}`}
+                                                    onClick={() => onSelectDate && tr.date && onSelectDate(tr.date)}
+                                                    title="Clique para abrir este pregão e ver a marcação no gráfico acima"
+                                                    style={{ borderBottom: "1px solid #111a24", textAlign: "right", cursor: "pointer" }}
+                                                >
+                                                    <td style={{ textAlign: "left", padding: "3px 4px", color: "#9fb4c4" }}>
                                                         {fmtDateShort(tr.date)} {tr.time}
                                                     </td>
-                                                    <td style={{ textAlign: "left", padding: "3px", color: sCol, fontWeight: "bold" }}>
-                                                        {tr.strategy_id === "WIN_S1" ? "WIN_1" : tr.strategy_id === "WIN_S2" ? "WIN_2" : tr.strategy_id === "WDO_S1" ? "WDO_1" : tr.strategy_id === "WDO_S2" ? "WDO_2" : tr.strategy_id}
+                                                    <td style={{ textAlign: "left", padding: "3px 4px", color: sCol, fontWeight: "bold" }}>
+                                                        {sName}
                                                     </td>
-                                                    <td style={{ textAlign: "center", padding: "3px", color: tr.direction === "COMPRA" ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
+                                                    <td style={{ textAlign: "center", padding: "3px 4px", color: tr.direction === "COMPRA" ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
                                                         {tr.direction}
                                                     </td>
-                                                    <td style={{ padding: "3px", color: "#e6edf3" }}>
+                                                    <td style={{ padding: "3px 4px", color: "#e6edf3" }}>
                                                         {fmtNum(tr.entry_price, tr.asset === "WDO" ? 1 : 0)}
                                                     </td>
-                                                    <td style={{ padding: "3px", color: isOpen ? "#ffd600" : (tr.pts >= 0 ? "#00e87a" : "#ff6b8b") }}>
+                                                    <td style={{ padding: "3px 4px", color: isOpen ? "#ffd600" : (tr.pts >= 0 ? "#00e87a" : "#ff6b8b") }}>
                                                         {fmtNum(tr.pts, tr.asset === "WDO" ? 1 : 0, true)}p
                                                     </td>
-                                                    <td style={{ padding: "3px", fontWeight: "bold", color: isOpen ? "#ffd600" : (brlVal >= 0 ? "#00e87a" : "#ff3860") }}>
+                                                    <td style={{ padding: "3px 4px", fontWeight: "bold", color: isOpen ? "#ffd600" : (brlVal >= 0 ? "#00e87a" : "#ff3860") }}>
                                                         {isOpen ? "⏳ ABERTA" : `${brlVal >= 0 ? "+" : "-"}R$ ${fmtNum(Math.abs(brlVal), 0)}`}
                                                     </td>
                                                     <td style={{ textAlign: "left", padding: "3px 6px", color: "#8ca5b5", fontSize: 8 }}>
@@ -3431,6 +3561,322 @@ function Portfolio4SistematicasPanel({ portfolioData, winPayload, wdoPayload, on
                     })()}
                 </div>
             </div>
+
+            {/* 5. GRÁFICO E MATRIZ DE CORRELAÇÃO ENTRE AS 6 ESTRATÉGIAS (HEATMAP 6x6 + BARRAS DIVERGENTES DOS 15 PARES) */}
+            {(() => {
+                const sessionPts = fullSeries.slice(1);
+                if (sessionPts.length < 5) return null;
+
+                const stratMeta = [
+                    { id: "EST_01", dKey: "d_EST_01", name: "WIN Rejeição", short: "WIN Rej", col: "#38bdf8" },
+                    { id: "EST_07", dKey: "d_EST_07", name: "WIN Rompimento", short: "WIN Romp", col: "#00d4ff" },
+                    { id: "EST_13", dKey: "d_EST_13", name: "WIN Next Wall", short: "WIN Next", col: "#10b981" },
+                    { id: "WDO_09", dKey: "d_WDO_09", name: "WDO Pullback", short: "WDO PB", col: "#ffd600" },
+                    { id: "WDO_11", dKey: "d_WDO_11", name: "WDO Next Wall", short: "WDO Next", col: "#f59e0b" },
+                    { id: "WDO_S2", dKey: "d_WDO_S2", name: "WDO Lunch", short: "WDO Lunch", col: "#a78bfa" },
+                ];
+
+                const calcPearson = (arrA, arrB) => {
+                    const n = arrA.length;
+                    if (n < 2) return 0;
+                    let sumA = 0, sumB = 0;
+                    for (let i = 0; i < n; i++) {
+                        sumA += arrA[i];
+                        sumB += arrB[i];
+                    }
+                    const meanA = sumA / n;
+                    const meanB = sumB / n;
+                    let num = 0, denA = 0, denB = 0;
+                    for (let i = 0; i < n; i++) {
+                        const da = arrA[i] - meanA;
+                        const db = arrB[i] - meanB;
+                        num += da * db;
+                        denA += da * da;
+                        denB += db * db;
+                    }
+                    const den = Math.sqrt(denA * denB);
+                    return den > 1e-9 ? num / den : 0;
+                };
+
+                const vectors = {};
+                stratMeta.forEach((sm) => {
+                    vectors[sm.id] = sessionPts.map((p) => Number(p[sm.dKey] || 0));
+                });
+
+                const winDailyVec = sessionPts.map((p) => Number(p.d_EST_01 || 0) + Number(p.d_EST_07 || 0) + Number(p.d_EST_13 || 0));
+                const dolDailyVec = sessionPts.map((p) => Number(p.d_WDO_09 || 0) + Number(p.d_WDO_11 || 0) + Number(p.d_WDO_S2 || 0));
+                const corrWinDol = calcPearson(winDailyVec, dolDailyVec);
+
+                const corrMatrix = {};
+                const pairsList = [];
+                for (let i = 0; i < stratMeta.length; i++) {
+                    const a = stratMeta[i];
+                    corrMatrix[a.id] = {};
+                    for (let j = 0; j < stratMeta.length; j++) {
+                        const b = stratMeta[j];
+                        const r = i === j ? 1.0 : calcPearson(vectors[a.id], vectors[b.id]);
+                        corrMatrix[a.id][b.id] = r;
+                        if (j > i) {
+                            pairsList.push({
+                                key: `${a.id}_${b.id}`,
+                                label: `${a.name} × ${b.name}`,
+                                shortLabel: `${a.short} × ${b.short}`,
+                                colA: a.col,
+                                colB: b.col,
+                                corr: r,
+                            });
+                        }
+                    }
+                }
+
+                pairsList.sort((x, y) => x.corr - y.corr);
+                const avgPairCorr = pairsList.reduce((acc, p) => acc + p.corr, 0) / Math.max(1, pairsList.length);
+                const negPairsCount = pairsList.filter((p) => p.corr < 0).length;
+
+                const getCellStyle = (r, isDiag) => {
+                    if (isDiag) {
+                        return {
+                            bg: "rgba(255, 255, 255, 0.07)",
+                            border: "1px solid #2a3f54",
+                            text: "#8ca5b5",
+                        };
+                    }
+                    if (r < -0.02) {
+                        const alpha = Math.min(0.42, 0.14 + Math.abs(r) * 1.4);
+                        return {
+                            bg: `rgba(0, 212, 255, ${alpha.toFixed(2)})`,
+                            border: "1px solid rgba(0, 212, 255, 0.45)",
+                            text: "#67e8f9",
+                        };
+                    }
+                    if (r <= 0.18) {
+                        const alpha = Math.min(0.32, 0.10 + Math.abs(r) * 0.8);
+                        return {
+                            bg: `rgba(0, 232, 122, ${alpha.toFixed(2)})`,
+                            border: "1px solid rgba(0, 232, 122, 0.35)",
+                            text: "#00e87a",
+                        };
+                    }
+                    if (r <= 0.45) {
+                        return {
+                            bg: "rgba(255, 214, 0, 0.18)",
+                            border: "1px solid rgba(255, 214, 0, 0.40)",
+                            text: "#ffd600",
+                        };
+                    }
+                    return {
+                        bg: "rgba(255, 107, 139, 0.22)",
+                        border: "1px solid rgba(255, 107, 139, 0.45)",
+                        text: "#ff6b8b",
+                    };
+                };
+
+                return (
+                    <div style={{
+                        background: "#05080d",
+                        border: "1px solid #1a2530",
+                        borderRadius: 8,
+                        padding: "12px 14px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 10,
+                    }}>
+                        {/* Cabeçalho + KPIs de Descorrelação */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 10.5, fontWeight: "bold", color: "#ffffff", letterSpacing: 0.6 }}>
+                                    🧩 MATRIZ & GRÁFICO DE CORRELAÇÃO DIÁRIA ENTRE AS 6 ESTRATÉGIAS ({sessionPts.length} PREGÕES)
+                                </span>
+                                <span style={{
+                                    fontSize: 8,
+                                    fontFamily: "monospace",
+                                    color: "#00e87a",
+                                    background: "rgba(0, 232, 122, 0.10)",
+                                    border: "1px solid rgba(0, 232, 122, 0.35)",
+                                    padding: "2px 7px",
+                                    borderRadius: 4,
+                                    fontWeight: "bold",
+                                }}>
+                                    ORTOGONALIDADE DA CARTEIRA
+                                </span>
+                            </div>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: "monospace", fontSize: 8.5 }}>
+                                <span style={{ background: "#0c1218", border: "1px solid #1a2530", padding: "3px 8px", borderRadius: 5, color: "#9fb4c4" }}>
+                                    Bloco WIN × Bloco WDO:{" "}
+                                    <strong style={{ color: "#00e87a" }}>
+                                        {corrWinDol >= 0 ? "+" : ""}{fmtNum(corrWinDol, 2)} (Independentes)
+                                    </strong>
+                                </span>
+                                <span style={{ background: "#0c1218", border: "1px solid #1a2530", padding: "3px 8px", borderRadius: 5, color: "#9fb4c4" }}>
+                                    Correlação Média (15 Pares):{" "}
+                                    <strong style={{ color: "#00d4ff" }}>
+                                        {avgPairCorr >= 0 ? "+" : ""}{fmtNum(avgPairCorr, 2)}
+                                    </strong>
+                                </span>
+                                <span style={{ background: "#0c1218", border: "1px solid #1a2530", padding: "3px 8px", borderRadius: 5, color: "#9fb4c4" }}>
+                                    Pares c/ Hedge Negativo:{" "}
+                                    <strong style={{ color: "#67e8f9" }}>
+                                        {negPairsCount} de 15 pares
+                                    </strong>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1.12fr 1.1fr", gap: 14, alignItems: "stretch" }}>
+                            {/* Esquerda: Heatmap 6x6 de Correlação de Pearson */}
+                            <div style={{
+                                background: "#0c1218",
+                                border: "1px solid #141e28",
+                                borderRadius: 7,
+                                padding: "8px 10px",
+                                display: "flex",
+                                flexDirection: "column",
+                                justifyContent: "space-between",
+                                gap: 8,
+                            }}>
+                                <div style={{ fontSize: 8.5, color: "#8ca5b5", fontWeight: "bold", fontFamily: "monospace" }}>
+                                    🔥 MAPA DE CALOR (CORRELAÇÃO DE PEARSON -1,00 A +1,00)
+                                </div>
+                                <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 3, fontFamily: "monospace", fontSize: 8.2 }}>
+                                    <thead>
+                                        <tr>
+                                            <th style={{ textAlign: "left", padding: "3px 4px", color: "#6c8496", fontSize: 7.5 }}>ESTRATÉGIA</th>
+                                            {stratMeta.map((sm) => (
+                                                <th key={`ch-${sm.id}`} style={{ textAlign: "center", padding: "3px 2px", color: sm.col, fontSize: 7.5 }}>
+                                                    {sm.short}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {stratMeta.map((rowSm, ri) => (
+                                            <tr key={`cr-${rowSm.id}`}>
+                                                <td style={{ padding: "4px 5px", color: rowSm.col, fontWeight: "bold", whiteSpace: "nowrap", fontSize: 8 }}>
+                                                    {rowSm.name}
+                                                </td>
+                                                {stratMeta.map((colSm, ci) => {
+                                                    const r = corrMatrix[rowSm.id][colSm.id];
+                                                    const isDiag = ri === ci;
+                                                    const st = getCellStyle(r, isDiag);
+                                                    return (
+                                                        <td
+                                                            key={`cc-${rowSm.id}-${colSm.id}`}
+                                                            title={`${rowSm.name} × ${colSm.name}: Correlação = ${r >= 0 ? "+" : ""}${fmtNum(r, 2)}`}
+                                                            style={{
+                                                                textAlign: "center",
+                                                                padding: "6px 3px",
+                                                                borderRadius: 4,
+                                                                background: st.bg,
+                                                                border: st.border,
+                                                                color: st.text,
+                                                                fontWeight: isDiag ? "normal" : "bold",
+                                                                fontSize: 8.5,
+                                                            }}
+                                                        >
+                                                            {isDiag ? "1,00" : `${r >= 0 ? "+" : ""}${fmtNum(r, 2)}`}
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 7.5, color: "#6c8496", fontFamily: "monospace", paddingTop: 2 }}>
+                                    <span>💠 &lt; 0,00: Hedge Natural (Inversa)</span>
+                                    <span>🟢 0,00 a +0,18: Descorrelacionadas (Ideal)</span>
+                                    <span>🔴 &gt; +0,50: Alta Sinergia Direcional</span>
+                                </div>
+                            </div>
+
+                            {/* Direita: Gráfico de Barras Divergentes dos 15 Pares (Menor -> Maior Correlação) */}
+                            <div style={{
+                                background: "#0c1218",
+                                border: "1px solid #141e28",
+                                borderRadius: 7,
+                                padding: "8px 10px",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 5,
+                            }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 8.5, color: "#8ca5b5", fontWeight: "bold", fontFamily: "monospace" }}>
+                                    <span>📊 RANKING DOS 15 PARES (DA MENOR À MAIOR CORRELAÇÃO)</span>
+                                    <span style={{ fontSize: 7.5, color: "#00e87a" }}>14 de 15 pares abaixo de +0,18!</span>
+                                </div>
+
+                                <div style={{ display: "flex", flexDirection: "column", gap: 3.5, maxHeight: 215, overflowY: "auto", paddingRight: 2 }}>
+                                    {pairsList.map((pr) => {
+                                        const isNeg = pr.corr < 0;
+                                        const isHigh = pr.corr > 0.45;
+                                        const barColor = isNeg ? "#00d4ff" : isHigh ? "#ff6b8b" : "#00e87a";
+                                        // Escala de -0.25 a +0.80 -> zero fica em 24% da largura
+                                        const zeroPct = 24;
+                                        const widthPct = pr.corr < 0
+                                            ? Math.min(zeroPct, (Math.abs(pr.corr) / 0.25) * zeroPct)
+                                            : Math.min(100 - zeroPct, (pr.corr / 0.80) * (100 - zeroPct));
+                                        const leftPct = pr.corr < 0 ? (zeroPct - widthPct) : zeroPct;
+
+                                        return (
+                                            <div
+                                                key={pr.key}
+                                                style={{
+                                                    display: "grid",
+                                                    gridTemplateColumns: "1.35fr 1.65fr 44px",
+                                                    alignItems: "center",
+                                                    gap: 6,
+                                                    fontFamily: "monospace",
+                                                    fontSize: 7.8,
+                                                }}
+                                            >
+                                                <div style={{ color: "#c9d8e4", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={pr.label}>
+                                                    {pr.label}
+                                                </div>
+                                                <div style={{
+                                                    position: "relative",
+                                                    height: 9,
+                                                    background: "#05080d",
+                                                    borderRadius: 3,
+                                                    border: "1px solid #182430",
+                                                    overflow: "hidden",
+                                                }}>
+                                                    {/* Linha Zero (0,00) */}
+                                                    <div style={{
+                                                        position: "absolute",
+                                                        left: `${zeroPct}%`,
+                                                        top: 0,
+                                                        bottom: 0,
+                                                        width: 1,
+                                                        background: "#4a6070",
+                                                        zIndex: 2,
+                                                    }} />
+                                                    {/* Barra de Correlação */}
+                                                    <div style={{
+                                                        position: "absolute",
+                                                        left: `${leftPct.toFixed(1)}%`,
+                                                        width: `${Math.max(1.5, widthPct).toFixed(1)}%`,
+                                                        top: 1,
+                                                        bottom: 1,
+                                                        background: barColor,
+                                                        borderRadius: 2,
+                                                        opacity: 0.85,
+                                                    }} />
+                                                </div>
+                                                <div style={{
+                                                    textAlign: "right",
+                                                    fontWeight: "bold",
+                                                    color: barColor,
+                                                }}>
+                                                    {pr.corr >= 0 ? "+" : ""}{fmtNum(pr.corr, 2)}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
@@ -3468,7 +3914,7 @@ function SingleAssetCockpitView({ symKey, payload }) {
                     selectedSigId={selectedSigId}
                     onSelectSignal={(id) => {
                         setSelectedSigId(id);
-                        setShowHistory(true);
+                        if (id) setShowHistory(true);
                     }}
                 />
 
@@ -3489,7 +3935,7 @@ function SingleAssetCockpitView({ symKey, payload }) {
                         selectedSigId={selectedSigId}
                         onSelectSignal={(id) => {
                             setSelectedSigId(id);
-                            setShowHistory(true);
+                            if (id) setShowHistory(true);
                         }}
                     />
                 </div>

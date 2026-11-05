@@ -1564,6 +1564,15 @@ def get_gex_walls():
     return []
 
 
+@app.get("/api/live-calendar")
+def get_live_calendar(account: str = ""):
+    """Calendário do Live Trading: trades fechados das EAs Jumba no MT5 milhao (via CSV do Live Monitor)."""
+    try:
+        from core.live_calendar import load_live_calendar, LIVE_ACCOUNT
+        return load_live_calendar(account or LIVE_ACCOUNT)
+    except Exception as e:
+        return {"ok": False, "error": str(e), "trades": [], "open_positions": []}
+
 
 # ─── Multi-day History Endpoint ──────────────────────────────────────────────
 

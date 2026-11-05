@@ -2,7 +2,7 @@
 AUDITORIA E OTIMIZAÇÃO INDIVIDUAL DOS 16 SETUPS EXISTENTES DO MT5 (EST-01 A EST-16)
 ===================================================================================
 Replica fielmente a lógica exata de cada uma das 16 estratégias (`EST-01` a `EST-16`)
-de `mt5/Include/Jumba_GEX_NWE_Core.mqh` sobre os 122 pregões de WIN$N + WDO$N
+de `mt5/Include/Jumba_GEX_NWE_Core.mqh` sobre os pregões de WIN$N + WDO$N (via `mt5_loader`)
 e compara, ESTRATÉGIA POR ESTRATÉGIA (Antes vs. Depois):
 
   - BASELINE ATUAL (como está hoje no MT5: BE no Zero + Alvo Fixo + Entrada Atual)
@@ -34,6 +34,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from research.discover_gex_nwe_setups import load_aligned_data, compute_nwe_series, DB_PATH
+from research.mt5_loader import load_win_and_wdo_aligned as _mt5_load_win_and_wdo_aligned
 
 OUT_DIR = os.path.join(ROOT_DIR, "data", "reports", "existing_16_setups_opt")
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -74,10 +75,12 @@ def window_ok(t_min: int, wm: str) -> bool:
     return True
 
 
-def load_win_and_wdo_aligned():
-    df_bars, gex_by_date = load_aligned_data()
+def load_win_and_wdo_aligned(use_sqlite: bool = False):
+    """Por padrão carrega as barras M5 do terminal MT5 e o jumba_gex_win_history.csv."""
+    if not use_sqlite:
+        return _mt5_load_win_and_wdo_aligned()
 
-    # Load WDO$N M5 bars from irai_live.db to compute wdo_ret3 and wdo_z for EST-03
+    df_bars, gex_by_date = load_aligned_data(use_sqlite=True)
     conn = sqlite3.connect(DB_PATH)
     df_wdo = pd.read_sql_query(
         """
@@ -102,36 +105,33 @@ def load_win_and_wdo_aligned():
 
 
 def find_structural_targets(entry_px: float, side: int, walls: np.ndarray, all_lvls: np.ndarray, front_run: float = 20.0):
+    """[ALINHADO MT5] Cópia exata de FindStructuralTargets() do Jumba_GEX_NWE_Core.mqh:
+    mid = 1º nível (Wall ou MidWall) a >=135 pts; main = 1ª WALL a >=300 pts E além de mid+80 (pula para a próxima Wall)."""
+    walls = np.sort(np.asarray(walls, float))
+    all_lvls = np.sort(np.asarray(all_lvls, float))
     if side == 1:
-        cand_all = all_lvls[all_lvls >= entry_px + 140.0]
-        cand_walls = walls[walls >= entry_px + 320.0]
-        raw_mid = float(cand_all[0]) if len(cand_all) > 0 else entry_px + 480.0
-        if len(cand_walls) > 0:
-            raw_main = float(cand_walls[0])
-            if raw_main <= raw_mid + 80.0 and len(cand_all) > 1:
-                raw_main = float(cand_all[1])
-            elif raw_main <= raw_mid + 80.0:
-                raw_main = raw_mid + 480.0
-        elif len(cand_all) > 1:
-            raw_main = float(cand_all[1])
+        ia = np.where(all_lvls >= entry_px + 135.0)[0]
+        mid_i = int(ia[0]) if len(ia) else -1
+        raw_mid = float(all_lvls[mid_i]) if mid_i >= 0 else entry_px + 460.0
+        cw = walls[(walls >= entry_px + 300.0) & (walls > raw_mid + 80.0)]
+        if len(cw):
+            raw_main = float(cw[0])
+        elif mid_i >= 0 and mid_i + 1 < len(all_lvls) and all_lvls[mid_i + 1] > raw_mid + 80.0:
+            raw_main = float(all_lvls[mid_i + 1])
         else:
             raw_main = raw_mid + 480.0
         return round5(raw_mid - front_run), round5(raw_main - front_run), raw_mid, raw_main
+    ia = np.where(all_lvls <= entry_px - 135.0)[0]
+    mid_i = int(ia[-1]) if len(ia) else -1
+    raw_mid = float(all_lvls[mid_i]) if mid_i >= 0 else entry_px - 460.0
+    cw = walls[(walls <= entry_px - 300.0) & (walls < raw_mid - 80.0)]
+    if len(cw):
+        raw_main = float(cw[-1])
+    elif mid_i > 0 and all_lvls[mid_i - 1] < raw_mid - 80.0:
+        raw_main = float(all_lvls[mid_i - 1])
     else:
-        cand_all = all_lvls[all_lvls <= entry_px - 140.0]
-        cand_walls = walls[walls <= entry_px - 320.0]
-        raw_mid = float(cand_all[-1]) if len(cand_all) > 0 else entry_px - 480.0
-        if len(cand_walls) > 0:
-            raw_main = float(cand_walls[-1])
-            if raw_main >= raw_mid - 80.0 and len(cand_all) > 1:
-                raw_main = float(cand_all[-2])
-            elif raw_main >= raw_mid - 80.0:
-                raw_main = raw_mid - 480.0
-        elif len(cand_all) > 1:
-            raw_main = float(cand_all[-2])
-        else:
-            raw_main = raw_mid - 480.0
-        return round5(raw_mid + front_run), round5(raw_main + front_run), raw_mid, raw_main
+        raw_main = raw_mid - 480.0
+    return round5(raw_mid + front_run), round5(raw_main + front_run), raw_mid, raw_main
 
 
 def simulate_single_est_slot(
@@ -574,6 +574,8 @@ def simulate_single_est_slot(
 
             curr_tp = round5(avg_price + base_tp_dist) if sig_dir == 1 else round5(avg_price - base_tp_dist)
             curr_sl = round5(avg_price - max_sl_p) if sig_dir == 1 else round5(avg_price + max_sl_p)
+            sl0 = curr_sl
+            tp2_px = curr_tp
 
             j = idx
             exit_px = avg_price
@@ -595,6 +597,7 @@ def simulate_single_est_slot(
                         max_fav_pts = 0.0
                         curr_tp = round5(avg_price + tp_avg_p) if sig_dir == 1 else round5(avg_price - tp_avg_p)
                         curr_sl = round5(avg_price - max_sl_p) if sig_dir == 1 else round5(avg_price + max_sl_p)
+                        tp2_px = curr_tp
 
                 if leg_stage == 2 and lot3 > 0:
                     p3_lvl = (p1_entry - step3_d) if sig_dir == 1 else (p1_entry + step3_d)
@@ -607,11 +610,12 @@ def simulate_single_est_slot(
                         max_fav_pts = 0.0
                         curr_tp = round5(avg_price + tp_avg_p) if sig_dir == 1 else round5(avg_price - tp_avg_p)
                         curr_sl = round5(avg_price - max_sl_p) if sig_dir == 1 else round5(avg_price + max_sl_p)
+                        tp2_px = curr_tp
 
                 # Verifica SL / TP na barra j
                 if sig_dir == 1:
                     if lj <= curr_sl:
-                        exit_px = curr_sl
+                        exit_px = min(curr_sl, opens[j]) if j > idx else curr_sl
                         break
                     if hj >= curr_tp:
                         exit_px = curr_tp
@@ -630,7 +634,7 @@ def simulate_single_est_slot(
                         curr_sl = max(curr_sl, round5(avg_price + be_lock))
                 else:
                     if hj >= curr_sl:
-                        exit_px = curr_sl
+                        exit_px = max(curr_sl, opens[j]) if j > idx else curr_sl
                         break
                     if lj <= curr_tp:
                         exit_px = curr_tp
@@ -658,7 +662,7 @@ def simulate_single_est_slot(
 
             net_pts_per_lot = (exit_px - avg_price) * sig_dir - cost_pts
             trades.append({
-                "date": today_str,
+                "date": today_str, "i_sig": int(idx), "j_exit": int(min(j, n - 1)), "exit_px": float(exit_px), "avg_px": float(avg_price), "tp_px": float(tp2_px), "sl_last": float(curr_sl), "sl0": float(sl0),
                 "est_id": est_id,
                 "side": int(sig_dir),
                 "pnl_pts": net_pts_per_lot * lots,
@@ -703,6 +707,7 @@ def simulate_single_est_slot(
                 is_partial = False
 
             curr_sl = round5(avg_price - sl_pts) if sig_dir == 1 else round5(avg_price + sl_pts)
+            sl0 = curr_sl
 
             if sig_dir == 1:
                 shield_sl1 = max(curr_sl + 35.0, round5(min(def_wall - wall_shield_buf, avg_price - 15.0)))
@@ -734,7 +739,7 @@ def simulate_single_est_slot(
                         touched_zero_after_shield = True
 
                     if eff_low <= curr_sl:
-                        exit_px = curr_sl
+                        exit_px = min(curr_sl, ob_j) if not (j == idx and opened_intrabar) else curr_sl
                         break
 
                     if is_partial and not partial_done and eff_high >= tp1_px:
@@ -753,21 +758,27 @@ def simulate_single_est_slot(
                     if fav > max_fav_pts:
                         max_fav_pts = fav
 
+                    # [ALINHADO MT5] OnNewM5Bar: stop só sobe se a abertura da próxima barra já estiver além do novo stop + 5
+                    nb_open = opens[j + 1] if (j + 1 < n and dates[j + 1] == today_str) else cj
                     if be_trig > 0 and not be_active and max_fav_pts >= be_trig:
-                        be_active = True
-                        if be_mode == "BE_ZERO":
-                            curr_sl = max(curr_sl, round5(avg_price + be_lock))
+                        if be_mode == "BE_ZERO" or def_wall <= 0:
+                            cand = round5(avg_price + be_lock)
                         else:
-                            curr_sl = max(curr_sl, shield_sl1)
+                            cand = max(curr_sl, min(round5(def_wall - wall_shield_buf), avg_price + 10.0))
+                            cand = max(cand, round5(avg_price - 90.0))
+                        if nb_open > cand + 5.0:
+                            curr_sl = max(curr_sl, cand); be_active = True
 
                     if be_mode == "BE_WALL_2STAGE" and not stage2_active:
-                        if max_fav_pts >= max(240.0, be_trig + 100.0) or cj > raw_mid_lvl + 10.0:
-                            stage2_active = True
-                            curr_sl = max(curr_sl, round5(avg_price + be_lock))
+                        if max_fav_pts >= 240.0 or (raw_mid_lvl > 0 and cj > raw_mid_lvl + 10.0):
+                            cand2 = max(round5(avg_price + be_lock), round5(raw_mid_lvl - wall_shield_buf)) if (raw_mid_lvl > 0 and cj > raw_mid_lvl + 10.0) else round5(avg_price + be_lock)
+                            if nb_open > cand2 + 5.0:
+                                curr_sl = max(curr_sl, cand2); stage2_active = True; be_active = True
 
-                    if tr_trig > 0 and max_fav_pts >= tr_trig:
+                    if tr_trig > 0 and max_fav_pts >= tr_trig and not (j == idx and opened_intrabar):  # [ALINHADO MT5] sem trailing na barra de entrada intrabar
                         cand_tr = round5(avg_price + max_fav_pts - tr_dist)
-                        curr_sl = max(curr_sl, cand_tr)
+                        if nb_open > cand_tr + 5.0:
+                            curr_sl = max(curr_sl, cand_tr)
 
                     # EST-12 Piramidação no Fechamento
                     if est_id == 12 and leg_stage == 1 and (cj - p1_entry) >= 110.0 and j + 1 < n and dates[j + 1] == today_str:
@@ -782,7 +793,7 @@ def simulate_single_est_slot(
                         touched_zero_after_shield = True
 
                     if eff_high >= curr_sl:
-                        exit_px = curr_sl
+                        exit_px = max(curr_sl, ob_j) if not (j == idx and opened_intrabar) else curr_sl
                         break
 
                     if is_partial and not partial_done and eff_low <= tp1_px:
@@ -800,21 +811,27 @@ def simulate_single_est_slot(
                     if fav > max_fav_pts:
                         max_fav_pts = fav
 
+                    # [ALINHADO MT5] OnNewM5Bar: stop só sobe se a abertura da próxima barra já estiver além do novo stop + 5
+                    nb_open = opens[j + 1] if (j + 1 < n and dates[j + 1] == today_str) else cj
                     if be_trig > 0 and not be_active and max_fav_pts >= be_trig:
-                        be_active = True
-                        if be_mode == "BE_ZERO":
-                            curr_sl = min(curr_sl, round5(avg_price - be_lock))
+                        if be_mode == "BE_ZERO" or def_wall <= 0:
+                            cand = round5(avg_price - be_lock)
                         else:
-                            curr_sl = min(curr_sl, shield_sl1)
+                            cand = min(curr_sl, max(round5(def_wall + wall_shield_buf), avg_price - 10.0))
+                            cand = min(cand, round5(avg_price + 90.0))
+                        if nb_open < cand - 5.0:
+                            curr_sl = min(curr_sl, cand); be_active = True
 
                     if be_mode == "BE_WALL_2STAGE" and not stage2_active:
-                        if max_fav_pts >= max(240.0, be_trig + 100.0) or cj < raw_mid_lvl - 10.0:
-                            stage2_active = True
-                            curr_sl = min(curr_sl, round5(avg_price - be_lock))
+                        if max_fav_pts >= 240.0 or (raw_mid_lvl > 0 and cj < raw_mid_lvl - 10.0):
+                            cand2 = min(round5(avg_price - be_lock), round5(raw_mid_lvl + wall_shield_buf)) if (raw_mid_lvl > 0 and cj < raw_mid_lvl - 10.0) else round5(avg_price - be_lock)
+                            if nb_open < cand2 - 5.0:
+                                curr_sl = min(curr_sl, cand2); stage2_active = True; be_active = True
 
-                    if tr_trig > 0 and max_fav_pts >= tr_trig:
+                    if tr_trig > 0 and max_fav_pts >= tr_trig and not (j == idx and opened_intrabar):  # [ALINHADO MT5] sem trailing na barra de entrada intrabar
                         cand_tr = round5(avg_price - max_fav_pts + tr_dist)
-                        curr_sl = min(curr_sl, cand_tr)
+                        if nb_open < cand_tr - 5.0:
+                            curr_sl = min(curr_sl, cand_tr)
 
                     if est_id == 12 and leg_stage == 1 and (p1_entry - cj) >= 110.0 and j + 1 < n and dates[j + 1] == today_str:
                         nxt_open = opens[j + 1]
@@ -843,7 +860,7 @@ def simulate_single_est_slot(
                 wall_saves += 1
 
             trades.append({
-                "date": today_str,
+                "date": today_str, "i_sig": int(idx), "j_exit": int(min(j, n - 1)), "exit_px": float(exit_px), "avg_px": float(avg_price), "tp_px": float(tp2_px), "sl_last": float(curr_sl), "sl0": float(sl0),
                 "est_id": est_id,
                 "side": int(sig_dir),
                 "pnl_pts": net_pts_unit * lots,
@@ -1001,4 +1018,3 @@ def run_16_setups_optimization():
 
 if __name__ == "__main__":
     run_16_setups_optimization()
-

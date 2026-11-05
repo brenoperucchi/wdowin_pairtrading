@@ -40,7 +40,7 @@ def get_ntsl_asset_checks(ref_date=None):
                 target_year += 1
                 
     asset_checks = []
-    for offset in [-1, 0, 1]:
+    for offset in [-1, 0, 1, 2]:
         idx = (target_idx + offset) % 6
         year = target_year
         if target_idx + offset < 0:
@@ -66,7 +66,7 @@ def get_ntsl_dol_asset_checks(ref_date=None):
     
     target_idx = (m - 1) % 12
     asset_checks = []
-    for offset in [-1, 0, 1]:
+    for offset in [-1, 0, 1, 2]:
         idx = (target_idx + offset) % 12
         year = y
         if target_idx + offset < 0:

@@ -17,14 +17,15 @@ flowchart LR
 
 A tela é dividida em **3 blocos integrados**:
 1. **Barra Superior de Controle**: Seleção instantânea do ativo (`WIN`, `WDO` ou `Visão Dupla`) e seleção do pregão (`🟢 HOJE (AO VIVO)`, `⏪ ONTEM` ou qualquer pregão histórico salvo).
-2. **Coluna Esquerda (68% da tela) — Gráfico Triplo Sincronizado (`FluxoRealAsgChart`)**:
-   - **Andar 1**: Candles de Preço M5 pintados pelo fluxo + todas as `Wall`s e `MidWall`s do dia + Regiões de Compra/Venda diferenciadas por lote institucional e hedge dos Makers.
+2. **Coluna Esquerda (68% da tela) — Gráfico de 4 Andares Sincronizados (`FluxoRealAsgChart`)**:
+   - **Andar 1**: Candles de Preço M5 (modo Tradicional ou Janelas) + todas as `MagicWall`s (em branco por padrão) e `MidWall`s do dia + Envelope NWE Causal + Caixas de Operação dos 6 setups.
    - **Andar 2**: Curva de Fluxo Institucional (`Smart Money CVD`) em pontinhos com graduação de cor por peso do lote.
-   - **Andar 3**: Histograma Linha Zero (`Janelas de Fluxo`) com linhas verticais douradas marcando cada virada de janela.
-   - **Rodapé**: Barra de dominância `COMPRADORES %` vs `VENDEDORES %`.
-3. **Coluna Direita (32% da tela) — HUD A.S.G (`AsgCockpitHud`) + Curva de Capital (`DailyOperationsEquityChart`)**:
-   - **Topo**: Semáforo Gigante (`COMPRAR` / `VENDER` / `NEUTRALIZADO`), Vela 3D de contexto (`MICRO`, `MACRO`, `MAKERS GEX`), Escada de Alvos (`ALVO 1`, `ALVO 2`, `ALVO 3`) e Placar de Assertividade.
-   - **Base**: Gráfico da Curva de Capital acumulada das operações do dia (em R\$ e pontos).
+   - **Andar 3**: Painel GEX Makers Intraday (alternável com 1 clique entre **Opção 1: Curva de Hedge Acumulado dos Makers** e **Opção 3: Mapa de Atração Gravitacional / Ímã GEX & Regime Gamma**).
+   - **Andar 4**: Histograma Linha Zero (`Janelas de Fluxo A.S.G — Campeã Conjunta`) com linhas verticais douradas marcando cada virada de janela.
+3. **Coluna Direita (32% da tela) — Resumo Enxuto + Curva de Capital (`DailyOperationsEquityChart`)**:
+   - **Topo**: Faixa enxuta indicando a Janela Ativa (`🟢 JANELA COMPRADA` / `🔴 JANELA VENDIDA`), `Makers GEX %`, Placar de **Assertividade Hoje** e botão `📋 Ver Sinais do Dia`.
+   - **Base**: Gráfico ampliado da Curva de Capital acumulada das operações do dia (em R\$ e pontos) + lista direta das operações abertas/encerradas na sessão.
+   - *(Para o índice geral das 3 partes do projeto — Cálculo GEX, Robôs MT5 e Dashboard — consulte [`docs/MAPA_GERAL_DO_PROJETO.md`](./MAPA_GERAL_DO_PROJETO.md)).*
 
 ---
 

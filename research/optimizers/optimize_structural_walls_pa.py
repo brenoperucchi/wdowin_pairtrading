@@ -43,47 +43,34 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 
 def find_structural_targets(entry_px: float, side: int, walls: np.ndarray, mid_walls: np.ndarray, all_lvls: np.ndarray, front_run: float = 20.0):
-    """
-    Localiza as coordenadas reais da próxima MidWall (ou barreira intermediária)
-    e da próxima Main Wall na direção do trade (`side = 1` Compra, `side = -1` Venda).
-    Retorna `(tp_mid_px, tp_main_px, raw_mid_lvl, raw_main_lvl)`.
-    """
+    """[ALINHADO MT5] Cópia exata de FindStructuralTargets() do Jumba_GEX_NWE_Core.mqh:
+    mid = 1º nível (Wall ou MidWall) a >=135 pts; main = 1ª WALL a >=300 pts E além de mid+80."""
+    walls = np.sort(np.asarray(walls, float))
+    all_lvls = np.sort(np.asarray(all_lvls, float))
+    r5 = lambda v: float(np.round(v / 5.0) * 5.0)
     if side == 1:
-        cand_all = all_lvls[all_lvls >= entry_px + 130.0]
-        cand_walls = walls[walls >= entry_px + 300.0]
-
-        raw_mid = float(cand_all[0]) if len(cand_all) > 0 else entry_px + 450.0
-
-        if len(cand_walls) > 0:
-            raw_main = float(cand_walls[0])
-            if raw_main <= raw_mid + 80.0 and len(cand_all) > 1:
-                raw_main = float(cand_all[1])
-            elif raw_main <= raw_mid + 80.0:
-                raw_main = raw_mid + 480.0
-        elif len(cand_all) > 1:
-            raw_main = float(cand_all[1])
+        ia = np.where(all_lvls >= entry_px + 135.0)[0]
+        mid_i = int(ia[0]) if len(ia) else -1
+        raw_mid = float(all_lvls[mid_i]) if mid_i >= 0 else entry_px + 460.0
+        cw = walls[(walls >= entry_px + 300.0) & (walls > raw_mid + 80.0)]
+        if len(cw):
+            raw_main = float(cw[0])
+        elif mid_i >= 0 and mid_i + 1 < len(all_lvls) and all_lvls[mid_i + 1] > raw_mid + 80.0:
+            raw_main = float(all_lvls[mid_i + 1])
         else:
             raw_main = raw_mid + 480.0
-
-        return raw_mid - front_run, raw_main - front_run, raw_mid, raw_main
+        return r5(raw_mid - front_run), r5(raw_main - front_run), raw_mid, raw_main
+    ia = np.where(all_lvls <= entry_px - 135.0)[0]
+    mid_i = int(ia[-1]) if len(ia) else -1
+    raw_mid = float(all_lvls[mid_i]) if mid_i >= 0 else entry_px - 460.0
+    cw = walls[(walls <= entry_px - 300.0) & (walls < raw_mid - 80.0)]
+    if len(cw):
+        raw_main = float(cw[-1])
+    elif mid_i > 0 and all_lvls[mid_i - 1] < raw_mid - 80.0:
+        raw_main = float(all_lvls[mid_i - 1])
     else:
-        cand_all = all_lvls[all_lvls <= entry_px - 130.0]
-        cand_walls = walls[walls <= entry_px - 300.0]
-
-        raw_mid = float(cand_all[-1]) if len(cand_all) > 0 else entry_px - 450.0
-
-        if len(cand_walls) > 0:
-            raw_main = float(cand_walls[-1])
-            if raw_main >= raw_mid - 80.0 and len(cand_all) > 1:
-                raw_main = float(cand_all[-2])
-            elif raw_main >= raw_mid - 80.0:
-                raw_main = raw_mid - 480.0
-        elif len(cand_all) > 1:
-            raw_main = float(cand_all[-2])
-        else:
-            raw_main = raw_mid - 480.0
-
-        return raw_mid + front_run, raw_main + front_run, raw_mid, raw_main
+        raw_main = raw_mid - 480.0
+    return r5(raw_mid + front_run), r5(raw_main + front_run), raw_mid, raw_main
 
 
 def simulate_structural_setup(

@@ -1,16 +1,22 @@
+import datetime
 import numpy as np
 import pandas as pd
 from .black76 import black76_gamma
+from .mt5_prices import get_b3_expected_win_contract
 
-def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry_days=27, r=0.1425, use_anchored_factor=True):
+def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry_days=27, r=0.1425, use_anchored_factor=True, ref_date=None):
     """
     Calcula o perfil GEX completo e gera as Jumba Walls.
     
-    Se use_anchored_factor=True: usa o fator de custodia ancorado no inicio do ciclo do vencimento (27 dias uteis),
-    preservando a liquidez real dos Market Makers (ex: 176.710 e 177.758).
-    Se use_anchored_factor=False: usa o fator dinamico diario.
+    Se use_anchored_factor=True: usa o fator sincronizado do contrato WIN ativo (current_win / current_ibov),
+    ajustando perfeitamente o carry real até o vencimento do contrato futuro ativo (inclusive nos dias de rolagem).
+    Se use_anchored_factor=False: usa o fator teórico dinâmico até o vencimento do contrato WIN.
     """
-    
+    if ref_date is None:
+        ref_date = datetime.date.today()
+    elif isinstance(ref_date, datetime.datetime):
+        ref_date = ref_date.date()
+
     # Filtrar apenas o Vencimento Mais Proximo (Front-Month) com liquidez minima
     MIN_CONTRACTS = 5
     MIN_STRIKES = 3
@@ -36,16 +42,25 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
     options_df = options_df[options_df['expiry'] == front_month].copy()
     print(f"  Front-Month Selecionado: {front_month} ({len(options_df)} contratos, {options_df['strike'].nunique()} strikes)")
     
-    # --- 1. Fator de conversao IBOV -> WIN Teorico ---
-    cycle_days = 27 if use_anchored_factor else expiry_days
+    # --- 1. Fator de conversao IBOV -> WIN (Sincronizado com o Contrato Ativo) ---
+    expected_win, _, win_expiry_date = get_b3_expected_win_contract(ref_date)
+    win_expiry_days = max(1, int(np.busday_count(ref_date.isoformat(), win_expiry_date.isoformat())))
     T = max(1/252, expiry_days / 252)
-    T_factor = max(1/252, cycle_days / 252)
+    T_win = max(1/252, win_expiry_days / 252)
     
-    factor = (1 + r) ** T_factor
+    mt5_factor = (current_win / current_ibov) if (current_win and current_ibov and current_ibov > 0) else None
+    theo_win_factor = (1 + r) ** T_win
     
-    print(f"  Taxa de Juros (r): {r*100:.2f}% | Modo: {'ANCORADO (Custodia Ciclo)' if use_anchored_factor else 'DINAMICO (Diario)'}")
-    print(f"  Fator Teorico IBOV->WIN: {factor:.6f} (MT5 era {current_win/current_ibov:.6f})")
-    print(f"  T (anos): {T:.4f}, IV: {iv}")
+    if use_anchored_factor and mt5_factor is not None and (0.995 <= mt5_factor <= 1.045):
+        factor = mt5_factor
+        mode_desc = f"SINCRONIZADO MT5 ({expected_win}, {win_expiry_days}d uteis ate {win_expiry_date})"
+    else:
+        factor = theo_win_factor if not use_anchored_factor else (mt5_factor or theo_win_factor)
+        mode_desc = f"TEORICO DI ({expected_win}, {win_expiry_days}d uteis ate {win_expiry_date})"
+    
+    print(f"  Taxa de Juros (r): {r*100:.2f}% | Modo: {mode_desc}")
+    print(f"  Fator IBOV->WIN Aplicado: {factor:.6f} (MT5 Real: {mt5_factor:.6f} | Teorico {win_expiry_days}d: {theo_win_factor:.6f})")
+    print(f"  T Opcoes (anos): {T:.4f} ({expiry_days}d uteis), IV: {iv:.4f}")
     
     # --- 2. Calcular GEX por strike IBOV (1000 em 1000) ---
     # Agrupar OI por strike arredondado para o 1000 mais proximo
@@ -130,59 +145,83 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
             "gex": 0
         })
     
-    # --- 7. Market Gamma Curve: MaxGamma, MinGamma, GammaFlip ---
-    # Varrer de 0.80*F ate 1.20*F em 200 pontos
-    f_low = current_win * 0.80
-    f_high = current_win * 1.20
+    # --- 7. Market Gamma Curve (Janela Operacional Local ±4.5%): MaxGamma, MinGamma, GammaFlip ---
+    # Restringe a curva Gamma aos strikes dentro da janela operacional ativa (selected_strikes)
+    # para que Calls/Puts muito fora do dinheiro (ex: 200k-250k) não distorçam o GammaFlip!
+    options_local = options_df[options_df['strike_round'].isin(selected_strikes)].copy()
+    if options_local.empty:
+        options_local = options_df
+
+    min_wall_win = min(gex_per_strike[s]['strike_win'] for s in selected_strikes)
+    max_wall_win = max(gex_per_strike[s]['strike_win'] for s in selected_strikes)
+    f_low = max(current_win * 0.955, min_wall_win)
+    f_high = min(current_win * 1.045, max_wall_win)
+    if f_low >= f_high:
+        f_low = current_win * 0.96
+        f_high = current_win * 1.04
+
     sweep_prices = np.linspace(f_low, f_high, 200)
-    
     gamma_curve = []
-    
+    call_put_balance_curve = []
+
     for s_hyp in sweep_prices:
         gex_total = 0.0
-        for _, row in options_df.iterrows():
+        call_gex = 0.0
+        put_gex = 0.0
+        for _, row in options_local.iterrows():
             k_win = row['strike'] * factor
             gamma = black76_gamma(F=s_hyp, K=k_win, T=T, sigma=iv)
             contrib = row['oi'] * gamma * (s_hyp ** 2) * 0.01
-            
+
             if row['type'].upper() == 'PUT':
-                contrib = -contrib
-                
-            gex_total += contrib
-            
+                put_gex += contrib
+                gex_total -= contrib
+            else:
+                call_gex += contrib
+                gex_total += contrib
+
         gamma_curve.append((s_hyp, gex_total))
-    
+        # Equilíbrio normalizado entre Call GEX local e Put GEX local (para dias unidirecionais)
+        call_put_balance_curve.append(call_gex - put_gex)
+
     gamma_curve_arr = np.array(gamma_curve)
     prices = gamma_curve_arr[:, 0]
     gex_values = gamma_curve_arr[:, 1]
-    
-    # MaxGamma: ponto onde GEX positivo e maximo
-    max_gamma_idx = np.argmax(gex_values)
+
+    # MaxGamma: ponto onde GEX positivo (ou menos negativo) é máximo na janela operacional
+    max_gamma_idx = int(np.argmax(gex_values))
     max_gamma_price = float(prices[max_gamma_idx])
-    
-    # MinGamma: ponto onde GEX negativo e mais negativo
-    min_gamma_idx = np.argmin(gex_values)
+
+    # MinGamma: ponto onde GEX negativo é mais intenso na janela operacional
+    min_gamma_idx = int(np.argmin(gex_values))
     min_gamma_price = float(prices[min_gamma_idx])
-    
-    # GammaFlip: onde GEX cruza zero (mais proximo do ATM)
+
+    # GammaFlip: onde GEX cruza zero dentro da janela operacional (mais próximo do preço atual)
     flip_price = None
-    atm_win = current_ibov * factor
+    atm_win = current_win
     best_flip_dist = float('inf')
-    
+
     for i in range(len(gex_values) - 1):
-        if gex_values[i] * gex_values[i+1] < 0:  # Mudanca de sinal
-            # Interpolacao linear
+        if gex_values[i] * gex_values[i+1] < 0:  # Mudanca de sinal real na janela operacional
             x0, x1 = prices[i], prices[i+1]
             y0, y1 = gex_values[i], gex_values[i+1]
             cross = x0 - y0 * (x1 - x0) / (y1 - y0)
-            
+
             dist = abs(cross - atm_win)
             if dist < best_flip_dist:
                 best_flip_dist = dist
                 flip_price = float(cross)
-    
+
     if flip_price is None:
-        flip_price = atm_win  # fallback
+        # Quando todos os strikes locais têm o mesmo sinal líquido (ex: domínio de Puts),
+        # usa o ponto de inflexão / menor |GEX| entre MinGamma e MaxGamma próximo ao ATM (±2.5%)
+        near_mask = (prices >= current_win * 0.975) & (prices <= current_win * 1.025)
+        if np.any(near_mask):
+            near_prices = prices[near_mask]
+            near_abs_gex = np.abs(gex_values[near_mask])
+            flip_price = float(near_prices[int(np.argmin(near_abs_gex))])
+        else:
+            flip_price = float(atm_win)
     
     # Adicionar niveis especiais
     walls.append({

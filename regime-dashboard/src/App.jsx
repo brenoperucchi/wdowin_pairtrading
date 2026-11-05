@@ -13,6 +13,7 @@ import FlowDeltaChart from "./components/FlowDeltaChart";
 import FlowScoreChart from "./components/FlowScoreChart";
 import FlowAccelerationChart from "./components/FlowAccelerationChart";
 import IntradayCompassPanel from "./components/IntradayCompassPanel";
+import LiveTradingCalendar from "./components/LiveTradingCalendar";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -1383,6 +1384,12 @@ export default function App() {
                 <TradingGuide />
                 </>
                 )}
+
+                {/* Calendário do Live Trading (mesmas operações do Portfólio das 6 Estratégias) */}
+                <LiveTradingCalendar
+                    portfolioData={compassData?.portfolio_4_sistematicas}
+                    onSelectDate={setSelectedDate}
+                />
             </div>
 
             {/* ── Footer ──────────────────────────────────────────────────────────── */}
