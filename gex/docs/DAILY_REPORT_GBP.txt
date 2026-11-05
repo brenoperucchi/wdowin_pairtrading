@@ -1,19 +1,19 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GBP/USD (CBOE)
-  Vencimento de Referencia: 2026-11-20 (Multi-Exp: 3 vencs, Top OI: 2026-12-18) | Data Ref: 04/11/2026
+  Vencimento de Referencia: 2026-11-20 (Multi-Exp: 3 vencs, Top OI: 2026-12-18) | Data Ref: 05/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    GBPUSD Spot Atual: 1.34796  (FXB: $128.81)
-    Gamma Flip Point:  1.36018
+    GBPUSD Spot Atual: 1.34603  (FXB: $129.38)
+    Gamma Flip Point:  1.36385
     Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.26090
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.36018
-    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.31261
+    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.26644
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.36385
+    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.32163
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
@@ -21,12 +21,12 @@
 -----------------------------------------------------------------
   Wall       | $135.0        | 1.4058             | $              0.00M | Width 1
   Wall       | $133.0        | 1.3850             | $              0.00M | Width 1
-  Wall       | $132.0        | 1.3746             | $             -0.00M | Width 1
+  Wall       | $132.0        | 1.3746             | $             -0.01M | Width 1
   Wall       | $131.0        | 1.3641             | $             -0.00M | Width 1
-  Wall       | $130.0        | 1.3537             | $             -0.02M | Width 1
-  Wall       | $129.0        | 1.3433             | $              0.01M | Width 1
-  Wall       | $128.0        | 1.3329             | $             -0.04M | Width 2
-  Wall       | $127.0        | 1.3225             | $              0.14M | Width 3
+  Wall       | $130.0        | 1.3537             | $             -0.01M | Width 1
+  Wall       | $129.0        | 1.3433             | $              0.02M | Width 1
+  Wall       | $128.0        | 1.3329             | $             -0.03M | Width 2
+  Wall       | $127.0        | 1.3225             | $              0.13M | Width 3
   Wall       | $126.0        | 1.3121             | $             -0.00M | Width 1
   Wall       | $125.0        | 1.3017             | $              0.01M | Width 1
   Wall       | $124.0        | 1.2913             | $              0.03M | Width 2
