@@ -10,10 +10,18 @@ const Z_CONS_WDO = 1.8;
 const Z_CONS_DI = 2.2;
 const Z_ATT = 1.2;
 
+// Paleta de duas intensidades:
+// 1. Cor clara / translúcida: primeira condição (Z-Score atingido, mas NWE ainda não alinhada)
+// 2. Cor marcante / vermelho escuro: setup completo (Z-Score + NWE alinhada ou operação em execução)
+const COLOR_SELL_COMPLETE = "#b91c1c"; // Vermelho escuro marcante
+const COLOR_SELL_INITIAL  = "rgba(244, 63, 94, 0.35)"; // Vermelho/rosa claro suave
+const COLOR_BUY_COMPLETE  = "#00e87a"; // Verde marcante vivo
+const COLOR_BUY_INITIAL   = "rgba(0, 232, 122, 0.35)";  // Verde claro suave
+
 function getBarStratColor(d, stratKey, trades = []) {
     if (!d || !d.bar_time) return "transparent";
 
-    // 1. Check if bar falls into an active trade window for this strategy
+    // 1. Se houver trade ativo desta estratégia nesta barra -> Setup Completo confirmado em execução
     const activeTrade = (trades || []).find((t) => 
         (t.strat === stratKey || t.strategy_id === stratKey) &&
         d.bar_time >= t.entry_time && 
@@ -21,35 +29,76 @@ function getBarStratColor(d, stratKey, trades = []) {
     );
     if (activeTrade) {
         const isBuy = activeTrade.dir === "BUY" || activeTrade.direction === "COMPRA" || activeTrade.dir_num === 1;
-        return isBuy ? "#00e87a" : "#ff3860";
+        return isBuy ? COLOR_BUY_COMPLETE : COLOR_SELL_COMPLETE;
     }
 
-    // 2. If no active trade, check if bar reaches entry threshold or has live signal
+    // 2. Dados de NWE e preço da barra para verificar alinhamento contra-tendência
+    const winPx = d.win_price != null ? Number(d.win_price) : (d.win != null ? Number(d.win) : null);
+    const isNweUp = Boolean(d.isUp ?? d.is_up);
+    const nu = d.nweUpper != null ? Number(d.nweUpper) : null;
+    const nl = d.nweLower != null ? Number(d.nweLower) : null;
+    const bw = (nu != null && nl != null) ? (nu - nl) : 0;
+
+    // Zonas de proximidade NWE (15% para WDO e CONS, 10% para DI)
+    const npu_15 = d.nweProxUpper != null ? Number(d.nweProxUpper) : (nu != null && bw > 0 ? nu - bw * 0.15 : null);
+    const npl_15 = d.nweProxLower != null ? Number(d.nweProxLower) : (nl != null && bw > 0 ? nl + bw * 0.15 : null);
+    const npu_10 = nu != null && bw > 0 ? nu - bw * 0.10 : npu_15;
+    const npl_10 = nl != null && bw > 0 ? nl + bw * 0.10 : npl_15;
+
     const zw = d.z ?? d.z_raw_wdo ?? null;
     const zd = d.z_di ?? d.z_raw_di ?? null;
 
     if (stratKey === "WDO_NWE") {
         const sig = d.sig_wdo ?? 0;
-        if (sig < 0 || (zw != null && zw <= -Z_WDO_ENT)) return "#00e87a";
-        if (sig > 0 || (zw != null && zw >= Z_WDO_ENT)) return "#ff3860";
+        const isZSell = sig > 0 || (zw != null && zw >= Z_WDO_ENT);
+        const isZBuy = sig < 0 || (zw != null && zw <= -Z_WDO_ENT);
+        if (isZSell) {
+            const isNweAligned = sig > 0 || (isNweUp && winPx != null && npu_15 != null && winPx >= npu_15);
+            return isNweAligned ? COLOR_SELL_COMPLETE : COLOR_SELL_INITIAL;
+        }
+        if (isZBuy) {
+            const isNweAligned = sig < 0 || (!isNweUp && winPx != null && npl_15 != null && winPx <= npl_15);
+            return isNweAligned ? COLOR_BUY_COMPLETE : COLOR_BUY_INITIAL;
+        }
     } else if (stratKey === "DI_NWE") {
         const sig = d.sig_di ?? 0;
-        if (sig < 0 || (zd != null && zd <= -Z_DI_ENT)) return "#00e87a";
-        if (sig > 0 || (zd != null && zd >= Z_DI_ENT)) return "#ff3860";
+        const isZSell = sig > 0 || (zd != null && zd >= Z_DI_ENT);
+        const isZBuy = sig < 0 || (zd != null && zd <= -Z_DI_ENT);
+        if (isZSell) {
+            const isNweAligned = sig > 0 || (isNweUp && winPx != null && npu_10 != null && winPx >= npu_10);
+            return isNweAligned ? COLOR_SELL_COMPLETE : COLOR_SELL_INITIAL;
+        }
+        if (isZBuy) {
+            const isNweAligned = sig < 0 || (!isNweUp && winPx != null && npl_10 != null && winPx <= npl_10);
+            return isNweAligned ? COLOR_BUY_COMPLETE : COLOR_BUY_INITIAL;
+        }
     } else if (stratKey === "CONS") {
         const sig = d.sig_cons ?? (
             (d.cons_wdo_sig && d.cons_di_sig && Math.sign(d.cons_wdo_sig) === Math.sign(d.cons_di_sig))
                 ? d.cons_wdo_sig : 0
         );
-        if (sig < 0 || (zw != null && zd != null && ((zw <= -Z_CONS_WDO && zd <= -Z_ATT) || (zd <= -Z_DI_ENT && zw <= -Z_ATT)))) {
-            return "#00e87a";
+        const isZSell = sig > 0 || (zw != null && zd != null && ((zw >= Z_CONS_WDO && zd >= Z_ATT) || (zd >= Z_DI_ENT && zw >= Z_ATT)));
+        const isZBuy = sig < 0 || (zw != null && zd != null && ((zw <= -Z_CONS_WDO && zd <= -Z_ATT) || (zd <= -Z_DI_ENT && zw <= -Z_ATT)));
+        if (isZSell) {
+            const isNweAligned = sig > 0 || (isNweUp && winPx != null && npu_15 != null && winPx >= npu_15);
+            return isNweAligned ? COLOR_SELL_COMPLETE : COLOR_SELL_INITIAL;
         }
-        if (sig > 0 || (zw != null && zd != null && ((zw >= Z_CONS_WDO && zd >= Z_ATT) || (zd >= Z_DI_ENT && zw >= Z_ATT)))) {
-            return "#ff3860";
+        if (isZBuy) {
+            const isNweAligned = sig < 0 || (!isNweUp && winPx != null && npl_15 != null && winPx <= npl_15);
+            return isNweAligned ? COLOR_BUY_COMPLETE : COLOR_BUY_INITIAL;
         }
     }
 
     return "transparent";
+}
+
+function getLabelColor(barColor) {
+    if (!barColor || barColor === "transparent") return "#5a7a90";
+    if (barColor === COLOR_SELL_COMPLETE) return "#ff3860";
+    if (barColor === COLOR_SELL_INITIAL) return "#fb7185";
+    if (barColor === COLOR_BUY_COMPLETE) return "#00e87a";
+    if (barColor === COLOR_BUY_INITIAL) return "#4ade80";
+    return barColor;
 }
 
 function timeStrToTimestamp(timeStr) {
@@ -79,9 +128,9 @@ const SignalHistogram = forwardRef(({ data, trades = [] }, ref) => {
                     const wc = getBarStratColor(d, "WDO_NWE", trades);
                     const dc = getBarStratColor(d, "DI_NWE", trades);
                     const cc = getBarStratColor(d, "CONS", trades);
-                    if (wc !== "transparent") wdoColor = wc;
-                    if (dc !== "transparent") diColor = dc;
-                    if (cc !== "transparent") consColor = cc;
+                    if (wc !== "transparent") wdoColor = getLabelColor(wc);
+                    if (dc !== "transparent") diColor = getLabelColor(dc);
+                    if (cc !== "transparent") consColor = getLabelColor(cc);
                     break;
                 }
             }
@@ -195,6 +244,25 @@ const SignalHistogram = forwardRef(({ data, trades = [] }, ref) => {
                 <span style={{ fontSize: 7, color: activeColors.diColor, fontFamily: "monospace", fontWeight: activeColors.diColor !== "#5a7a90" ? "bold" : "normal" }}>DI NWE</span>
                 <span style={{ fontSize: 7, color: activeColors.consColor, fontFamily: "monospace", fontWeight: activeColors.consColor !== "#5a7a90" ? "bold" : "normal" }}>WDO DI</span>
             </div>
+
+            {/* Legenda sutil das intensidades */}
+            <div style={{
+                position: "absolute", top: 2, right: 14,
+                display: "flex", alignItems: "center", gap: 10,
+                fontFamily: "monospace", fontSize: 8, color: "#64748b",
+                pointerEvents: "none", zIndex: 10, background: "rgba(12, 18, 24, 0.8)",
+                padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(30, 41, 59, 0.5)"
+            }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 1, background: "rgba(244, 63, 94, 0.4)", border: "1px solid rgba(244, 63, 94, 0.6)" }} />
+                    <span>Gatilho Z (Claro)</span>
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 1, background: "#b91c1c", border: "1px solid #ff3860" }} />
+                    <span style={{ color: "#e2e8f0" }}>Setup Completo + NWE (Vermelho Escuro)</span>
+                </span>
+            </div>
+
             {/* Chart Area */}
             <div style={{ width: "100%", height: "80px", paddingLeft: Y_AXIS_WIDTH }} ref={chartContainerRef} />
             {(!data || data.length === 0) && (
