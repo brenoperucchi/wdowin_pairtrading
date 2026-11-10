@@ -1,16 +1,16 @@
 {
     "ticker": "DXY_UUP",
-    "ref_date": "2026-11-09",
-    "updated_at": "2026-11-09 07:30:42",
-    "current_price": 103.41149999999999,
+    "ref_date": "2026-11-10",
+    "updated_at": "2026-11-10 07:32:05",
+    "current_price": 102.84349999999999,
     "walls": [
         {
             "price": 95.85,
             "type": "Wall",
-            "width": 1,
+            "width": 2,
             "style": 0,
             "strike_spy": 27.0,
-            "gex": -126480.36280860528
+            "gex": -109825.68402741509
         },
         {
             "price": 97.62,
@@ -22,10 +22,10 @@
         {
             "price": 99.4,
             "type": "Wall",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_spy": 28.0,
-            "gex": -173966.30544572417
+            "gex": -82274.72474729095
         },
         {
             "price": 101.18,
@@ -40,7 +40,7 @@
             "width": 2,
             "style": 0,
             "strike_spy": 29.0,
-            "gex": 2974620.1038188683
+            "gex": 1369924.1895855237
         },
         {
             "price": 104.72,
@@ -55,7 +55,7 @@
             "width": 3,
             "style": 0,
             "strike_spy": 30.0,
-            "gex": 4196105.158187536
+            "gex": 3413460.54471067
         },
         {
             "price": 108.28,
@@ -70,24 +70,24 @@
             "width": 1,
             "style": 0,
             "strike_spy": 31.0,
-            "gex": -38296.08293384641
+            "gex": -24266.759390975945
         },
         {
-            "price": 102.78,
+            "price": 104.4,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 7406553.348090628
+            "gex": 4869018.524492053
         },
         {
-            "price": 95.14,
+            "price": 94.62,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -721417.4871903879
+            "gex": -608693.3817892709
         },
         {
-            "price": 97.38,
+            "price": 95.85,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
