@@ -3,6 +3,7 @@ import {
     STATARB_STRAT_META,
     simulateDayStatArbTradesJs,
     getAllAudited2026Trades,
+    normalizeStatArbTrade,
 } from "../utils/statArbDayTrades";
 
 function fmtPts(v) {
@@ -33,13 +34,13 @@ function outcomeBadgeStyle(reason, status) {
         };
     }
     const r = String(reason || "").toUpperCase();
-    if (r.includes("GAIN")) {
+    if (r.includes("GAIN") || r.includes("ALVO")) {
         return {
             bg: "rgba(8, 153, 129, 0.22)",
             border: "rgba(45, 212, 191, 0.55)",
             color: "#2dd4bf",
             icon: "🎯",
-            label: reason || "GAIN WALL",
+            label: reason || "ALVO WALL",
         };
     }
     if (r.includes("BE")) {
@@ -83,13 +84,13 @@ export default function StatArbLiveTradePanel({
     const [page, setPage] = useState(0);
     const PAGE_SIZE = 35;
 
-    // 1. Trades da sessão atual ou histórica selecionada
+    // 1. Trades da sessão atual ou histórica selecionada (normalizados com todos os aliases)
     const sessionTrades = useMemo(() => {
         if (!isViewingHistory && Array.isArray(dayTrades) && dayTrades.length > 0) {
-            return dayTrades;
+            return dayTrades.map(normalizeStatArbTrade);
         }
-        return simulateDayStatArbTradesJs(history, walls);
-    }, [dayTrades, history, walls, isViewingHistory]);
+        return simulateDayStatArbTradesJs(history, walls, !isViewingHistory, selectedDate).map(normalizeStatArbTrade);
+    }, [dayTrades, history, walls, isViewingHistory, selectedDate]);
 
     // Última barra real da sessão para status de Z-Score, NWE e horário
     const latestBar = useMemo(() => {
@@ -110,11 +111,11 @@ export default function StatArbLiveTradePanel({
 
         return keys.map((key) => {
             const meta = STATARB_STRAT_META[key];
-            const trades = sessionTrades.filter((t) => t.strat === key);
+            const trades = sessionTrades.filter((t) => t.strat === key || t.strategy_id === key);
             const openTrade = trades.find((t) => t.status === "ABERTA") || null;
             const closedTrades = trades.filter((t) => t.status !== "ABERTA");
-            const totalPts = trades.reduce((acc, t) => acc + Number(t.pnl_pts || 0), 0);
-            const totalBrl = trades.reduce((acc, t) => acc + Number(t.pnl_brl || 0), 0);
+            const totalPts = trades.reduce((acc, t) => acc + Number(t.pnl_pts ?? t.pts ?? 0), 0);
+            const totalBrl = trades.reduce((acc, t) => acc + Number(t.pnl_brl ?? t.brl_2c ?? 0), 0);
             const lastTrade = trades.length > 0 ? trades[trades.length - 1] : null;
 
             let liveSignalDesc = "";
@@ -148,25 +149,34 @@ export default function StatArbLiveTradePanel({
     const daySummary = useMemo(() => {
         const totalOps = sessionTrades.length;
         const openOps = sessionTrades.filter((t) => t.status === "ABERTA").length;
-        const gains = sessionTrades.filter((t) => String(t.reason || "").includes("GAIN")).length;
-        const bes = sessionTrades.filter((t) => String(t.reason || "").includes("BE")).length;
-        const stops = sessionTrades.filter((t) => String(t.reason || "").includes("STOP") && !String(t.reason || "").includes("BE")).length;
-        const grossPts = sessionTrades.reduce((a, t) => a + Number(t.pnl_pts || 0), 0);
-        const grossBrl = sessionTrades.reduce((a, t) => a + Number(t.pnl_brl || 0), 0);
+        const gains = sessionTrades.filter((t) => {
+            const r = String(t.reason || t.exit_reason || "").toUpperCase();
+            return r.includes("GAIN") || r.includes("ALVO") || Number(t.pnl_pts ?? t.pts ?? 0) > 0;
+        }).length;
+        const bes = sessionTrades.filter((t) => String(t.reason || t.exit_reason || "").toUpperCase().includes("BE")).length;
+        const stops = sessionTrades.filter((t) => {
+            const r = String(t.reason || t.exit_reason || "").toUpperCase();
+            return r.includes("STOP") && !r.includes("BE");
+        }).length;
+        const grossPts = sessionTrades.reduce((a, t) => a + Number(t.pnl_pts ?? t.pts ?? 0), 0);
+        const grossBrl = sessionTrades.reduce((a, t) => a + Number(t.pnl_brl ?? t.brl_2c ?? 0), 0);
 
         // Deduplicado por entry_time (priorizando CONS > DI_NWE > WDO_NWE)
         const priority = { CONS: 1, DI_NWE: 2, WDO_NWE: 3 };
         const byTime = new Map();
         sessionTrades.forEach((tr) => {
-            const k = `${tr.entry_time}_${tr.dir}`;
+            const strat = tr.strat || tr.strategy_id;
+            const dir = tr.dir || tr.direction;
+            const k = `${tr.entry_time}_${dir}`;
             const prev = byTime.get(k);
-            if (!prev || (priority[tr.strat] || 9) < (priority[prev.strat] || 9)) {
+            const prevStrat = prev ? (prev.strat || prev.strategy_id) : null;
+            if (!prev || (priority[strat] || 9) < (priority[prevStrat] || 9)) {
                 byTime.set(k, tr);
             }
         });
         const dedupList = Array.from(byTime.values());
-        const dedupPts = dedupList.reduce((a, t) => a + Number(t.pnl_pts || 0), 0);
-        const dedupBrl = dedupList.reduce((a, t) => a + Number(t.pnl_brl || 0), 0);
+        const dedupPts = dedupList.reduce((a, t) => a + Number(t.pnl_pts ?? t.pts ?? 0), 0);
+        const dedupBrl = dedupList.reduce((a, t) => a + Number(t.pnl_brl ?? t.brl_2c ?? 0), 0);
 
         return {
             totalOps,
@@ -192,10 +202,10 @@ export default function StatArbLiveTradePanel({
         const hasDateInBase = base.some((t) => t.date === activeDate);
         let merged = base;
         if (!hasDateInBase && sessionTrades.length > 0) {
-            const liveRows = sessionTrades.map((t) => ({
+            const liveRows = sessionTrades.map((t) => normalizeStatArbTrade({
                 ...t,
                 date: activeDate,
-                date_br: activeDate.split("-").reverse().join("/"),
+                date_br: activeDate.includes("-") ? activeDate.split("-").reverse().join("/") : activeDate,
             }));
             merged = [...liveRows, ...base];
         }
@@ -204,10 +214,11 @@ export default function StatArbLiveTradePanel({
 
     const filteredAllTrades = useMemo(() => {
         return allAuditedTrades.filter((tr) => {
-            if (stratFilter !== "ALL" && tr.strat !== stratFilter) return false;
+            const strat = tr.strat || tr.strategy_id;
+            if (stratFilter !== "ALL" && strat !== stratFilter) return false;
             if (outcomeFilter !== "ALL") {
-                const r = String(tr.reason || "").toUpperCase();
-                if (outcomeFilter === "GAIN" && !r.includes("GAIN")) return false;
+                const r = String(tr.reason || tr.exit_reason || "").toUpperCase();
+                if (outcomeFilter === "GAIN" && !r.includes("GAIN") && !r.includes("ALVO")) return false;
                 if (outcomeFilter === "BE" && !r.includes("BE")) return false;
                 if (outcomeFilter === "STOP" && (!r.includes("STOP") || r.includes("BE"))) return false;
             }
@@ -223,7 +234,7 @@ export default function StatArbLiveTradePanel({
 
     const displayDateLabel = useMemo(() => {
         if (selectedDate) {
-            return selectedDate.split("-").reverse().join("/");
+            return selectedDate.includes("-") ? selectedDate.split("-").reverse().join("/") : selectedDate;
         }
         return "HOJE (AO VIVO)";
     }, [selectedDate]);

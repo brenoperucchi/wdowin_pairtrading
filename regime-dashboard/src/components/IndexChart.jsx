@@ -29,7 +29,7 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
 
     // Compute day trades (from backend if live and available, or via deterministic JS simulation)
     const computedDayTrades = useMemo(() => {
-        if (!isViewingHistory && Array.isArray(propDayTrades) && propDayTrades.length > 0) {
+        if (Array.isArray(propDayTrades) && propDayTrades.length > 0) {
             return propDayTrades;
         }
         return simulateDayStatArbTradesJs(history, walls, !isViewingHistory);

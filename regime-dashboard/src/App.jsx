@@ -12,6 +12,7 @@ import IntradayCompassPanel from "./components/IntradayCompassPanel";
 import LiveTradingCalendar from "./components/LiveTradingCalendar";
 import StatArbBacktest2026Panel from "./components/StatArbBacktest2026Panel";
 import StatArbLiveTradePanel from "./components/StatArbLiveTradePanel";
+import { simulateDayStatArbTradesJs, normalizeStatArbTrade } from "./utils/statArbDayTrades";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -585,6 +586,14 @@ export default function App() {
         return unique;
     }, [mergedSignals]);
 
+    // Deterministic trades for the current/selected day (synced across SignalHistogram, IndexChart, and StatArbLiveTradePanel)
+    const currentDayTrades = useMemo(() => {
+        if (!isViewingHistory && Array.isArray(data?.day_trades) && data.day_trades.length > 0) {
+            return data.day_trades.map(normalizeStatArbTrade);
+        }
+        return simulateDayStatArbTradesJs(paddedSignals, gexWalls, !isViewingHistory, selectedDate);
+    }, [data?.day_trades, paddedSignals, gexWalls, isViewingHistory, selectedDate]);
+
     // Sync Time Scales & Crosshairs (ZScoreChart, SignalHistogram, IndexChart)
     useEffect(() => {
         const zChart = zScoreChartRef.current?.getChart();
@@ -1144,13 +1153,17 @@ export default function App() {
                         useV2={true}
                         hideXAxis={true}
                     />
-                    <SignalHistogram ref={histogramChartRef} data={paddedSignals} />
+                    <SignalHistogram 
+                        ref={histogramChartRef} 
+                        data={paddedSignals} 
+                        trades={currentDayTrades}
+                    />
                     <IndexChart
                         ref={indexChartRef}
                         history={paddedSignals}
                         walls={gexWalls}
                         tradeEngine={data?.trade_engine}
-                        dayTrades={data?.day_trades}
+                        dayTrades={currentDayTrades}
                         isViewingHistory={isViewingHistory}
                         hideXAxis={false}
                     />
@@ -1159,7 +1172,7 @@ export default function App() {
                 <StatArbLiveTradePanel
                     history={paddedSignals}
                     walls={gexWalls}
-                    dayTrades={data?.day_trades}
+                    dayTrades={currentDayTrades}
                     selectedDate={selectedDate}
                     isViewingHistory={isViewingHistory}
                     onSelectDate={(d) => {

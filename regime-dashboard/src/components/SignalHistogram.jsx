@@ -10,38 +10,45 @@ const Z_CONS_WDO = 1.8;
 const Z_CONS_DI = 2.2;
 const Z_ATT = 1.2;
 
-function getWdoColor(d) {
-    if (!d) return "transparent";
-    const sig = d.sig_wdo ?? 0;
-    const zw = d.z ?? d.z_raw_wdo ?? null;
-    if (sig < 0 || (zw != null && zw <= -Z_WDO_ENT)) return "#00e87a";
-    if (sig > 0 || (zw != null && zw >= Z_WDO_ENT)) return "#ff3860";
-    return "transparent";
-}
+function getBarStratColor(d, stratKey, trades = []) {
+    if (!d || !d.bar_time) return "transparent";
 
-function getDiColor(d) {
-    if (!d) return "transparent";
-    const sig = d.sig_di ?? 0;
-    const zd = d.z_di ?? d.z_raw_di ?? null;
-    if (sig < 0 || (zd != null && zd <= -Z_DI_ENT)) return "#00e87a";
-    if (sig > 0 || (zd != null && zd >= Z_DI_ENT)) return "#ff3860";
-    return "transparent";
-}
-
-function getConsColor(d) {
-    if (!d) return "transparent";
-    const sig = d.sig_cons ?? (
-        (d.cons_wdo_sig && d.cons_di_sig && Math.sign(d.cons_wdo_sig) === Math.sign(d.cons_di_sig))
-            ? d.cons_wdo_sig : 0
+    // 1. Check if bar falls into an active trade window for this strategy
+    const activeTrade = (trades || []).find((t) => 
+        (t.strat === stratKey || t.strategy_id === stratKey) &&
+        d.bar_time >= t.entry_time && 
+        d.bar_time <= (t.exit_time || t.entry_time)
     );
+    if (activeTrade) {
+        const isBuy = activeTrade.dir === "BUY" || activeTrade.direction === "COMPRA" || activeTrade.dir_num === 1;
+        return isBuy ? "#00e87a" : "#ff3860";
+    }
+
+    // 2. If no active trade, check if bar reaches entry threshold or has live signal
     const zw = d.z ?? d.z_raw_wdo ?? null;
     const zd = d.z_di ?? d.z_raw_di ?? null;
-    if (sig < 0 || (zw != null && zd != null && ((zw <= -Z_CONS_WDO && zd <= -Z_ATT) || (zd <= -Z_DI_ENT && zw <= -Z_ATT)))) {
-        return "#00e87a";
+
+    if (stratKey === "WDO_NWE") {
+        const sig = d.sig_wdo ?? 0;
+        if (sig < 0 || (zw != null && zw <= -Z_WDO_ENT)) return "#00e87a";
+        if (sig > 0 || (zw != null && zw >= Z_WDO_ENT)) return "#ff3860";
+    } else if (stratKey === "DI_NWE") {
+        const sig = d.sig_di ?? 0;
+        if (sig < 0 || (zd != null && zd <= -Z_DI_ENT)) return "#00e87a";
+        if (sig > 0 || (zd != null && zd >= Z_DI_ENT)) return "#ff3860";
+    } else if (stratKey === "CONS") {
+        const sig = d.sig_cons ?? (
+            (d.cons_wdo_sig && d.cons_di_sig && Math.sign(d.cons_wdo_sig) === Math.sign(d.cons_di_sig))
+                ? d.cons_wdo_sig : 0
+        );
+        if (sig < 0 || (zw != null && zd != null && ((zw <= -Z_CONS_WDO && zd <= -Z_ATT) || (zd <= -Z_DI_ENT && zw <= -Z_ATT)))) {
+            return "#00e87a";
+        }
+        if (sig > 0 || (zw != null && zd != null && ((zw >= Z_CONS_WDO && zd >= Z_ATT) || (zd >= Z_DI_ENT && zw >= Z_ATT)))) {
+            return "#ff3860";
+        }
     }
-    if (sig > 0 || (zw != null && zd != null && ((zw >= Z_CONS_WDO && zd >= Z_ATT) || (zd >= Z_DI_ENT && zw >= Z_ATT)))) {
-        return "#ff3860";
-    }
+
     return "transparent";
 }
 
@@ -51,7 +58,7 @@ function timeStrToTimestamp(timeStr) {
     return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
 }
 
-const SignalHistogram = forwardRef(({ data }, ref) => {
+const SignalHistogram = forwardRef(({ data, trades = [] }, ref) => {
     const chartContainerRef = useRef();
     const chartRef = useRef(null);
     const seriesRefs = useRef({});
@@ -69,9 +76,9 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
             for (let i = data.length - 1; i >= 0; i--) {
                 const d = data[i];
                 if (d && (d.z != null || d.z_raw_wdo != null)) {
-                    const wc = getWdoColor(d);
-                    const dc = getDiColor(d);
-                    const cc = getConsColor(d);
+                    const wc = getBarStratColor(d, "WDO_NWE", trades);
+                    const dc = getBarStratColor(d, "DI_NWE", trades);
+                    const cc = getBarStratColor(d, "CONS", trades);
                     if (wc !== "transparent") wdoColor = wc;
                     if (dc !== "transparent") diColor = dc;
                     if (cc !== "transparent") consColor = cc;
@@ -80,7 +87,7 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
             }
         }
         return { wdoColor, diColor, consColor };
-    }, [data]);
+    }, [data, trades]);
 
     useEffect(() => {
         if (!chartContainerRef.current) return;
@@ -122,13 +129,13 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
         });
 
         const wdoSeries = chart.addSeries(CandlestickSeries, { 
-            upColor: '#1e2a36', downColor: '#1e2a36', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
+            upColor: 'transparent', downColor: 'transparent', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
         });
         const diSeries = chart.addSeries(CandlestickSeries, { 
-            upColor: '#1e2a36', downColor: '#1e2a36', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
+            upColor: 'transparent', downColor: 'transparent', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
         });
         const consSeries = chart.addSeries(CandlestickSeries, { 
-            upColor: '#1e2a36', downColor: '#1e2a36', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
+            upColor: 'transparent', downColor: 'transparent', borderVisible: false, wickVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false 
         });
 
         // Add reference lines between layers
@@ -156,9 +163,9 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
             const t = timeStrToTimestamp(d.bar_time);
             if (t === 0) return;
 
-            const wCol = getWdoColor(d);
-            const dCol = getDiColor(d);
-            const cCol = getConsColor(d);
+            const wCol = getBarStratColor(d, "WDO_NWE", trades);
+            const dCol = getBarStratColor(d, "DI_NWE", trades);
+            const cCol = getBarStratColor(d, "CONS", trades);
 
             // Use Candlestick data format to draw solid non-overlapping blocks
             wdoData.push({ time: t, open: 2.1, high: 2.9, low: 2.1, close: 2.9, color: wCol, borderColor: wCol, wickColor: wCol });
@@ -173,7 +180,7 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
         consSeries.setData(sortData(consData));
         try { chartRef.current.timeScale().fitContent(); } catch (e) {}
 
-    }, [data]);
+    }, [data, trades]);
 
     return (
         <div style={{ width: "100%", height: 80, background: "#0c1218", position: "relative" }}>

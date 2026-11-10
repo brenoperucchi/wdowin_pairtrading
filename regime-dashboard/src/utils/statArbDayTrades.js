@@ -30,6 +30,64 @@ export const STATARB_STRAT_META = {
     },
 };
 
+/**
+ * Normaliza qualquer objeto de trade (do JSON estático de 2026 ou gerado pelo simulador ao vivo)
+ * para que contenha todos os aliases comuns (strat/strategy_id, dir/direction, reason/exit_reason, pts/pnl_pts, brl_2c/pnl_brl).
+ */
+export function normalizeStatArbTrade(t) {
+    if (!t) return t;
+    const strat = t.strategy_id || t.strat || "CONS";
+    const rawDir = String(t.direction || t.dir || (t.dir_num === 1 ? "BUY" : "SELL")).toUpperCase();
+    const isBuy = rawDir === "COMPRA" || rawDir === "BUY" || t.dir_num === 1;
+    const dir = isBuy ? "BUY" : "SELL";
+    const direction = isBuy ? "COMPRA" : "VENDA";
+    const dir_num = isBuy ? 1 : -1;
+    const pts = Number(t.pts != null ? t.pts : (t.pnl_pts != null ? t.pnl_pts : 0));
+    const pnl_pts = pts;
+    const brl_2c = Number(t.brl_2c != null ? t.brl_2c : (t.pnl_brl != null ? t.pnl_brl : Math.round(pts * 0.4)));
+    const pnl_brl = brl_2c;
+    const reason = t.exit_reason || t.reason || "—";
+    const exit_reason = reason;
+    const sl_price = t.stop_price != null ? t.stop_price : t.sl_price;
+    const stop_price = sl_price;
+    const tp_price = t.tp_price != null ? t.tp_price : t.target_price;
+    const entry_price = t.entry_price != null ? t.entry_price : t.entryPx;
+    const exit_price = t.exit_price != null ? t.exit_price : t.exitPx;
+    const entry_time = t.entry_time || t.entryTime || "";
+    const exit_time = t.exit_time || t.exitTime || entry_time;
+    const status = t.status || (reason.includes("EM ABERTO") ? "ABERTA" : "FECHADA");
+    const date = t.date || "";
+    const date_br = t.date_br || (date ? (date.includes("-") ? date.split("-").reverse().join("/") : date) : "");
+
+    return {
+        ...t,
+        id: t.id || `${date}_${entry_time}_${strat}`,
+        strat,
+        strategy_id: strat,
+        dir,
+        direction,
+        dir_num,
+        pts,
+        pnl_pts,
+        brl_2c,
+        pnl_brl,
+        reason,
+        exit_reason,
+        sl_price,
+        stop_price,
+        initial_sl_price: t.initial_sl_price != null ? t.initial_sl_price : stop_price,
+        tp_price,
+        target_price: tp_price,
+        entry_price,
+        exit_price,
+        entry_time,
+        exit_time,
+        status,
+        date,
+        date_br,
+    };
+}
+
 export function calcWallTpSlJs(direction, entryPx, walls, minPts = 200, slBuf = 30, tpBuf = 10) {
     const wallList = Array.isArray(walls?.walls) ? walls.walls : (Array.isArray(walls) ? walls : []);
     const wallPrices = Array.from(
@@ -72,20 +130,35 @@ export function calcWallTpSlJs(direction, entryPx, walls, minPts = 200, slBuf = 
     }
 }
 
-export function simulateDayStatArbTradesJs(historyBars, walls = [], isLiveSession = true) {
+export function simulateDayStatArbTradesJs(historyBars, walls = [], isLiveSession = true, explicitDate = "") {
     if (!Array.isArray(historyBars) || historyBars.length === 0) return [];
 
     // Filter out empty padded bars (that have no win_price)
-    const validBars = historyBars.filter((b) => b && b.bar_time && b.win_price != null && Number.isFinite(Number(b.win_price)) && Number(b.win_price) > 0);
+    const validBars = historyBars.filter((b) => b && b.bar_time && (b.win_price != null || b.win != null || b.close != null) && Number.isFinite(Number(b.win_price || b.win || b.close)));
     if (validBars.length === 0) return [];
 
-    const sessionDate = validBars[validBars.length - 1]?.date || "";
+    // Determine the session date from explicit parameter or from the bars
+    let sessionDate = explicitDate;
+    if (!sessionDate) {
+        for (let i = validBars.length - 1; i >= 0; i--) {
+            if (validBars[i]?.date) {
+                sessionDate = validBars[i].date;
+                break;
+            }
+        }
+    }
 
-    // If viewing a historical date that is in RAW_2026.trades and we don't have intraday M5 high/low on all bars,
-    // check if RAW_2026 has audited trades for that date
-    const auditedTradesForDate = (RAW_2026.trades || []).filter((t) => t.date === sessionDate);
+    // Standardize date to YYYY-MM-DD for comparison with RAW_2026.trades
+    let isoDate = sessionDate;
+    if (isoDate && isoDate.includes("/")) {
+        const parts = isoDate.split("/");
+        if (parts.length === 3) isoDate = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    }
+
+    // If viewing a historical date that is in RAW_2026.trades, return exact audited trades
+    const auditedTradesForDate = (RAW_2026.trades || []).filter((t) => t.date === isoDate || t.date === sessionDate);
     if (!isLiveSession && auditedTradesForDate.length > 0) {
-        return auditedTradesForDate;
+        return auditedTradesForDate.map(normalizeStatArbTrade);
     }
 
     const stratConfigs = [
@@ -271,9 +344,11 @@ export function simulateDayStatArbTradesJs(historyBars, walls = [], isLiveSessio
         }
     }
 
-    return allTrades.sort((a, b) => a.entry_time.localeCompare(b.entry_time) || a.strategy_id.localeCompare(b.strategy_id));
+    return allTrades
+        .sort((a, b) => a.entry_time.localeCompare(b.entry_time) || a.strategy_id.localeCompare(b.strategy_id))
+        .map(normalizeStatArbTrade);
 }
 
 export function getAllAudited2026Trades() {
-    return RAW_2026.trades || [];
+    return (RAW_2026.trades || []).map(normalizeStatArbTrade);
 }
