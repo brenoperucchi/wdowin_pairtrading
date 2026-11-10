@@ -10,11 +10,40 @@ const Z_CONS_WDO = 1.8;
 const Z_CONS_DI = 2.2;
 const Z_ATT = 1.2;
 
-function getSignalColor(sig) {
-    if (sig == null || sig === 0) return "#1e2a36";
-    return sig < 0 ? "#00e87a" : "#ff3860";
+function getWdoColor(d) {
+    if (!d) return "transparent";
+    const sig = d.sig_wdo ?? 0;
+    const zw = d.z ?? d.z_raw_wdo ?? null;
+    if (sig < 0 || (zw != null && zw <= -Z_WDO_ENT)) return "#00e87a";
+    if (sig > 0 || (zw != null && zw >= Z_WDO_ENT)) return "#ff3860";
+    return "transparent";
 }
 
+function getDiColor(d) {
+    if (!d) return "transparent";
+    const sig = d.sig_di ?? 0;
+    const zd = d.z_di ?? d.z_raw_di ?? null;
+    if (sig < 0 || (zd != null && zd <= -Z_DI_ENT)) return "#00e87a";
+    if (sig > 0 || (zd != null && zd >= Z_DI_ENT)) return "#ff3860";
+    return "transparent";
+}
+
+function getConsColor(d) {
+    if (!d) return "transparent";
+    const sig = d.sig_cons ?? (
+        (d.cons_wdo_sig && d.cons_di_sig && Math.sign(d.cons_wdo_sig) === Math.sign(d.cons_di_sig))
+            ? d.cons_wdo_sig : 0
+    );
+    const zw = d.z ?? d.z_raw_wdo ?? null;
+    const zd = d.z_di ?? d.z_raw_di ?? null;
+    if (sig < 0 || (zw != null && zd != null && ((zw <= -Z_CONS_WDO && zd <= -Z_ATT) || (zd <= -Z_DI_ENT && zw <= -Z_ATT)))) {
+        return "#00e87a";
+    }
+    if (sig > 0 || (zw != null && zd != null && ((zw >= Z_CONS_WDO && zd >= Z_ATT) || (zd >= Z_DI_ENT && zw >= Z_ATT)))) {
+        return "#ff3860";
+    }
+    return "transparent";
+}
 
 function timeStrToTimestamp(timeStr) {
     if (!timeStr) return 0;
@@ -38,18 +67,14 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
         let consColor = "#5a7a90";
         if (data && data.length > 0) {
             for (let i = data.length - 1; i >= 0; i--) {
-                if (data[i].z != null) {
-                    const wdo = data[i].sig_wdo ?? 0;
-                    const di = data[i].sig_di ?? 0;
-                    const cons = data[i].sig_cons ?? (
-                        (data[i].cons_wdo_sig && data[i].cons_di_sig && Math.sign(data[i].cons_wdo_sig) === Math.sign(data[i].cons_di_sig))
-                            ? data[i].cons_wdo_sig : 0
-                    );
-                    
-                    wdoColor = wdo < 0 ? "#00e87a" : wdo > 0 ? "#ff3860" : "#5a7a90";
-                    diColor = di < 0 ? "#00e87a" : di > 0 ? "#ff3860" : "#5a7a90";
-                    consColor = cons < 0 ? "#00e87a" : cons > 0 ? "#ff3860" : "#5a7a90";
-                    
+                const d = data[i];
+                if (d && (d.z != null || d.z_raw_wdo != null)) {
+                    const wc = getWdoColor(d);
+                    const dc = getDiColor(d);
+                    const cc = getConsColor(d);
+                    if (wc !== "transparent") wdoColor = wc;
+                    if (dc !== "transparent") diColor = dc;
+                    if (cc !== "transparent") consColor = cc;
                     break;
                 }
             }
@@ -131,16 +156,9 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
             const t = timeStrToTimestamp(d.bar_time);
             if (t === 0) return;
 
-            const sigWdo = d.sig_wdo ?? 0;
-            const sigDi = d.sig_di ?? 0;
-            const sigCons = d.sig_cons ?? (
-                (d.cons_wdo_sig && d.cons_di_sig && Math.sign(d.cons_wdo_sig) === Math.sign(d.cons_di_sig))
-                    ? d.cons_wdo_sig : 0
-            );
-
-            const wCol = getSignalColor(sigWdo);
-            const dCol = getSignalColor(sigDi);
-            const cCol = getSignalColor(sigCons);
+            const wCol = getWdoColor(d);
+            const dCol = getDiColor(d);
+            const cCol = getConsColor(d);
 
             // Use Candlestick data format to draw solid non-overlapping blocks
             wdoData.push({ time: t, open: 2.1, high: 2.9, low: 2.1, close: 2.9, color: wCol, borderColor: wCol, wickColor: wCol });

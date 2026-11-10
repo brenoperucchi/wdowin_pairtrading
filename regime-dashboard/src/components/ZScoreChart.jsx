@@ -77,19 +77,16 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
         });
         const diSeries = chart.addSeries(LineSeries, { color: "#8a6dff", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false, priceLineVisible: false });
 
-        // Reference lines (Z=±2.2 DI Gatilho, Z=±1.4 WDO Gatilho, Z=±1.2 Consenso/Atenção, Z=±4.0 Anomalia)
+        // Reference lines (subtle guidelines, no axis badges)
         const lines = [
-            { price: 4, color: "#ff386044", style: LineStyle.Dashed, width: 1, title: "ANOM" },
-            { price: -4, color: "#ff386044", style: LineStyle.Dashed, width: 1, title: "ANOM" },
-            { price: 2.2, color: "#8a6dffaa", style: LineStyle.Dotted, width: 1, title: "DI +2.2" },
-            { price: -2.2, color: "#8a6dffaa", style: LineStyle.Dotted, width: 1, title: "DI -2.2" },
-            { price: 1.4, color: "#ff3860aa", style: LineStyle.Dotted, width: 1, title: "WDO +1.4" },
-            { price: -1.4, color: "#00e87aaa", style: LineStyle.Dotted, width: 1, title: "WDO -1.4" },
-            { price: 1.2, color: "#f5a62366", style: LineStyle.Dotted, width: 1, title: "CONS +1.2" },
-            { price: -1.2, color: "#f5a62366", style: LineStyle.Dotted, width: 1, title: "CONS -1.2" },
+            { price: 4, color: "#ff386022", style: LineStyle.Dashed, width: 1 },
+            { price: -4, color: "#ff386022", style: LineStyle.Dashed, width: 1 },
+            { price: 2.2, color: "#8a6dff26", style: LineStyle.Dotted, width: 1 },
+            { price: -2.2, color: "#8a6dff26", style: LineStyle.Dotted, width: 1 },
+            { price: 1.4, color: "#ff386033", style: LineStyle.Dotted, width: 1 },
+            { price: -1.4, color: "#00e87a33", style: LineStyle.Dotted, width: 1 },
             { price: 0, color: "#3a5060", style: LineStyle.Solid, width: 1 },
         ];
-
 
         lines.forEach(l => {
             zSeries.createPriceLine({
@@ -97,8 +94,8 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
                 color: l.color,
                 lineWidth: l.width,
                 lineStyle: l.style,
-                axisLabelVisible: !!l.title,
-                title: l.title || "",
+                axisLabelVisible: false,
+                title: "",
             });
         });
 
