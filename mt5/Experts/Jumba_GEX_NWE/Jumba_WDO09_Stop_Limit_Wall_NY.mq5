@@ -14,6 +14,7 @@ input double                   InpMaxDailyLossBRL  = 2000.0;                    
 input ENUM_JUMBA_WDO_EXEC_MODE InpExecMode         = WDO_EXEC_HEDGING_DIRECT_MAGIC;// Modo de Execucao
 input bool                     InpDrawGexLevels    = true;                         // Desenhar MagicWalls
 input bool                     InpShowHud          = true;                         // Mostrar Painel HUD
+input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)
 
 CJumbaWdoGexNweEngine ExtEngine;
 
@@ -22,6 +23,7 @@ int OnInit()
    ExtEngine.Init(InpBaseMagic, InpLotMultiplier, InpMaxDailyLossBRL,
                   InpDrawGexLevels, InpShowHud, InpExecMode,
                   false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false);
+   ExtEngine.SetUseFlowFilter(InpUseFlowFilter);
    return(INIT_SUCCEEDED);
   }
 

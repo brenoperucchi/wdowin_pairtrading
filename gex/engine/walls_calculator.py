@@ -55,7 +55,7 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
         factor = mt5_factor
         mode_desc = f"SINCRONIZADO MT5 ({expected_win}, {win_expiry_days}d uteis ate {win_expiry_date})"
     else:
-        factor = theo_win_factor if not use_anchored_factor else (mt5_factor or theo_win_factor)
+        factor = theo_win_factor
         mode_desc = f"TEORICO DI ({expected_win}, {win_expiry_days}d uteis ate {win_expiry_date})"
     
     print(f"  Taxa de Juros (r): {r*100:.2f}% | Modo: {mode_desc}")
@@ -161,32 +161,25 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
         f_high = current_win * 1.04
 
     sweep_prices = np.linspace(f_low, f_high, 200)
-    gamma_curve = []
-    call_put_balance_curve = []
+    F_sw = sweep_prices[:, None]
+    k_arr = (options_local['strike'].to_numpy(dtype=float) * factor)[None, :]
+    oi_arr = options_local['oi'].to_numpy(dtype=float)
+    type_arr = options_local['type'].str.upper().to_numpy()
+    is_put = (type_arr == 'PUT')
 
-    for s_hyp in sweep_prices:
-        gex_total = 0.0
-        call_gex = 0.0
-        put_gex = 0.0
-        for _, row in options_local.iterrows():
-            k_win = row['strike'] * factor
-            gamma = black76_gamma(F=s_hyp, K=k_win, T=T, sigma=iv)
-            contrib = row['oi'] * gamma * (s_hyp ** 2) * 0.01
+    d1 = (np.log(F_sw / k_arr) + 0.5 * (iv ** 2) * T) / (iv * np.sqrt(T))
+    gamma_mat = np.exp(-0.5 * d1 ** 2) / (np.sqrt(2 * np.pi) * F_sw * iv * np.sqrt(T))
+    contrib_mat = oi_arr[None, :] * gamma_mat * (F_sw ** 2) * 0.01
 
-            if row['type'].upper() == 'PUT':
-                put_gex += contrib
-                gex_total -= contrib
-            else:
-                call_gex += contrib
-                gex_total += contrib
+    call_mask = ~is_put[None, :]
+    put_mask = is_put[None, :]
 
-        gamma_curve.append((s_hyp, gex_total))
-        # Equilíbrio normalizado entre Call GEX local e Put GEX local (para dias unidirecionais)
-        call_put_balance_curve.append(call_gex - put_gex)
+    call_gex = np.sum(contrib_mat * call_mask, axis=1)
+    put_gex = np.sum(contrib_mat * put_mask, axis=1)
+    gex_values = call_gex - put_gex
+    call_put_balance_curve = (call_gex - put_gex).tolist()
 
-    gamma_curve_arr = np.array(gamma_curve)
-    prices = gamma_curve_arr[:, 0]
-    gex_values = gamma_curve_arr[:, 1]
+    prices = sweep_prices
 
     # MaxGamma: ponto onde GEX positivo (ou menos negativo) é máximo na janela operacional
     max_gamma_idx = int(np.argmax(gex_values))

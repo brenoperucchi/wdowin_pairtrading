@@ -48,6 +48,13 @@ from core.config import (
 from core.mt5_client import (
     connect_mt5, fetch_bars, align_series_by_time, beta_state, save_beta_ultimo, load_beta_ultimo,
 )
+from core.profit_statarb_engine import (
+    fetch_profit_m5_series,
+    align_profit_series_with_ffill,
+    get_profit_day_flow_bundle,
+    format_flow_score_for_frontend,
+    format_iaf_for_frontend,
+)
 from core.signals import (
     calc_beta_ols, calc_half_life, calc_zscore,
     get_signal, get_rho_status, get_beta_status,
@@ -55,8 +62,9 @@ from core.signals import (
     _coint_cache,
 )
 from core.kalman_filter import KalmanBetaFilter
-from core.trade_engine import TradeEngine
+from core.trade_engine import TradeEngine, calc_wall_tp_sl
 import core.hmm_background as hmm
+
 
 
 # ─── B3 Order Flow / RTD Broker State ────────────────────────────────────────
@@ -169,8 +177,8 @@ def _calculate_window_factors(snapshots, window_seconds):
         j_buy = 0
         j_sell = 0
         for b in _broker_list:
-            j_buy += (snap_j["flow"][b]["buy"] - snap_prev["flow"][b]["buy"])
-            j_sell += (snap_j["flow"][b]["sell"] - snap_prev["flow"][b]["sell"])
+            j_buy += (snap_j["flow"].get(b, {}).get("buy", 0) - snap_prev["flow"].get(b, {}).get("buy", 0))
+            j_sell += (snap_j["flow"].get(b, {}).get("sell", 0) - snap_prev["flow"].get(b, {}).get("sell", 0))
             
         j_va = j_buy + j_sell
         j_absor = j_va / (abs(j_ticks) + 1.0)
@@ -452,9 +460,24 @@ async def flow_snapshot_loop():
 
 # ─── App setup ───────────────────────────────────────────────────────────────
 import contextlib
+import concurrent.futures
+
+_single_mt5_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt5_single")
+_firebase_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="firebase_io")
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Force all sync endpoints & asyncio.to_thread calls onto a single OS thread so MetaTrader5 C++ DLL never segfaults
+    try:
+        asyncio.get_running_loop().set_default_executor(_single_mt5_executor)
+    except Exception:
+        pass
+    try:
+        import anyio.to_thread
+        anyio.to_thread.current_default_thread_limiter().total_tokens = 1
+    except Exception:
+        pass
+
     # Startup
     if firebase_initialized:
         asyncio.create_task(firebase_push_loop())
@@ -463,9 +486,8 @@ async def lifespan(app: FastAPI):
     # _seed_flow_history()  # Pre-populate flow chart with full-day simulated data
     asyncio.create_task(flow_snapshot_loop())
     
-    # Run backfill async
-    import threading
-    threading.Thread(target=do_backfill_if_empty, daemon=True).start()
+    # Run backfill on the single MT5 worker thread
+    asyncio.create_task(asyncio.to_thread(do_backfill_if_empty))
     
     yield
     # Shutdown
@@ -512,25 +534,32 @@ async def firebase_push_loop():
                 
                 # Push para RTDB (dashboard live) a cada 15 segundos ou imediatamente se houver trade
                 if push_immediate or current_time - last_dash_update >= 15:
-                    compass_snap = await asyncio.to_thread(get_compass_etapa1)
-                    await asyncio.to_thread(_sync_firebase_dash, r_v2, r_di, perf, compass_snap)
+                    compass_snap = await asyncio.to_thread(get_compass_etapa1, None, True)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(_firebase_executor, _sync_firebase_dash, r_v2, r_di, perf, compass_snap)
                     last_dash_update = current_time
 
                 # Push history_30d a cada 5 minutos (300 segundos) para economizar banda
                 if current_time - last_hist_update > 300:
                     hist = await asyncio.to_thread(history_endpoint, 30)
-                    await asyncio.to_thread(_sync_firebase_hist, hist.get("history", []))
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(_firebase_executor, _sync_firebase_hist, hist.get("history", []))
                     last_hist_update = current_time
 
         except Exception as e:
             print(f"[AVISO] Erro no sync do Firebase: {e}")
         await asyncio.sleep(2.5)  # Envia live a cada 2.5s
 
+import threading
 _trade_engine = TradeEngine(db_path="trades.db")
 _cache: dict = {}
 _cache_ts: float = 0.0
 _v2_cache: dict = {}
 _v2_cache_ts: float = 0.0
+from core.mt5_client import mt5_lock as _mt5_lock
+_v2_lock = _mt5_lock
+_di_lock = _mt5_lock
+_hist_lock = _mt5_lock
 _flow_api_cache: dict = {}
 _flow_api_cache_ts: float = 0.0
 
@@ -700,7 +729,293 @@ def save_bar_history(timestamp, date_str, bar_time, win_price, wdo_price, di_pri
     except Exception as e:
         print(f"[ERRO DB] falha ao salvar bar_history: {e}")
 
-def load_bar_history(days=30):
+ANCHOR_2026_TS = int(datetime(2026, 1, 2, 0, 0).timestamp()) - TIME_OFFSET
+
+
+def _evaluate_bar_setups(
+    orig_z_wdo: float,
+    orig_z_di: float,
+    win_val: float | None,
+    nv: float | None,
+    nu: float | None,
+    nl: float | None,
+    n_is_up: bool | None,
+    t_min: int,
+    active_walls: list | None = None,
+    is_closed_bar: bool = True,
+) -> dict:
+    """
+    Canonical evaluation of the 3 Stat-Arb setups (WDO_NWE, DI_NWE, CONSENSO WDO+DI)
+    on a single M5 bar. Marks signals ONLY when the full setup triggers an entry
+    on a closed bar (Z-score + NWE contra-trend & band proximity + GEX Wall RR/SL).
+    """
+    npu = npl = npu_10 = npl_10 = None
+    bw = 0.0
+    if nv is not None and nu is not None and nl is not None and nu > nl:
+        bw = float(nu - nl)
+        npu = float(nu - bw * 0.15)
+        npl = float(nl + bw * 0.15)
+        npu_10 = float(nu - bw * 0.10)
+        npl_10 = float(nl + bw * 0.10)
+
+    sig_wdo = 0
+    sig_di = 0
+    sig_cons = 0
+    wall_tp = None
+    wall_sl = None
+    wall_tp_pts = None
+    wall_sl_pts = None
+
+    in_entry_window = (545 <= t_min <= 1005)  # 09:05 .. 16:45
+    no_anomaly = (abs(orig_z_wdo) < 4.0 and abs(orig_z_di) < 4.0)
+
+    if is_closed_bar and in_entry_window and no_anomaly and win_val is not None and n_is_up is not None and bw > 0:
+        buy_nwe_15 = (not n_is_up) and (win_val <= npl)
+        sell_nwe_15 = bool(n_is_up) and (win_val >= npu)
+        buy_nwe_10 = (not n_is_up) and (win_val <= npl_10)
+        sell_nwe_10 = bool(n_is_up) and (win_val >= npu_10)
+
+        if orig_z_wdo <= -1.4 and buy_nwe_15:
+            sig_wdo = -1
+        elif orig_z_wdo >= 1.4 and sell_nwe_15:
+            sig_wdo = 1
+
+        if orig_z_di <= -2.2 and buy_nwe_10:
+            sig_di = -1
+        elif orig_z_di >= 2.2 and sell_nwe_10:
+            sig_di = 1
+
+        cons_buy = ((orig_z_wdo <= -1.8 and orig_z_di <= -1.2) or (orig_z_di <= -2.2 and orig_z_wdo <= -1.2)) and buy_nwe_15
+        cons_sell = ((orig_z_wdo >= 1.8 and orig_z_di >= 1.2) or (orig_z_di >= 2.2 and orig_z_wdo >= 1.2)) and sell_nwe_15
+        if cons_buy:
+            sig_cons = -1
+        elif cons_sell:
+            sig_cons = 1
+
+        if (sig_wdo != 0 or sig_di != 0 or sig_cons != 0) and active_walls is not None:
+            sig_val = sig_cons if sig_cons != 0 else (sig_wdo if sig_wdo != 0 else sig_di)
+            dir_str = "BUY" if sig_val < 0 else "SELL"
+            tp_w, sl_w, tp_d, sl_d = calc_wall_tp_sl(dir_str, float(win_val), active_walls)
+            if sl_d <= 300.0 and (tp_d / max(sl_d, 1.0)) >= 1.4:
+                wall_tp = tp_w
+                wall_sl = sl_w
+                wall_tp_pts = tp_d
+                wall_sl_pts = sl_d
+            else:
+                sig_wdo = 0
+                sig_di = 0
+                sig_cons = 0
+
+    return {
+        "nweProxUpper": round(npu, 2) if npu is not None else None,
+        "nweProxLower": round(npl, 2) if npl is not None else None,
+        "z_raw_wdo": orig_z_wdo if sig_wdo != 0 else 0.0,
+        "z_raw_di": orig_z_di if sig_di != 0 else 0.0,
+        "sig_wdo": sig_wdo,
+        "sig_di": sig_di,
+        "sig_cons": sig_cons,
+        "cons_wdo_sig": sig_cons,
+        "cons_di_sig": sig_cons,
+        "wall_tp": wall_tp,
+        "wall_sl": wall_sl,
+        "wall_tp_pts": wall_tp_pts,
+        "wall_sl_pts": wall_sl_pts,
+    }
+
+
+def simulate_day_statarb_trades(day_bars: list, active_walls: list | None = None) -> list:
+    """
+    Simulate the 3 Stat-Arb strategies (CONS, WDO_NWE, DI_NWE) on a single session's M5 bars
+    using the exact audited 2026 rules. Returns both closed trades and currently open live trades.
+    """
+    if not day_bars:
+        return []
+    if active_walls is None:
+        active_walls = get_gex_walls()
+
+    now_epoch = int(time.time())
+    strat_configs = [
+        {"id": "CONS", "sig_key": "sig_cons", "be_act": 150.0, "wait_bars": 4},
+        {"id": "WDO_NWE", "sig_key": "sig_wdo", "be_act": 150.0, "wait_bars": 4},
+        {"id": "DI_NWE", "sig_key": "sig_di", "be_act": 200.0, "wait_bars": 4},
+    ]
+
+    all_trades = []
+    for cfg in strat_configs:
+        strat_id = cfg["id"]
+        sig_key = cfg["sig_key"]
+        be_act = cfg["be_act"]
+        wait_bars = cfg["wait_bars"]
+        pos = None
+        cooldown_until = -1
+
+        for i, b in enumerate(day_bars):
+            bt = b.get("bar_time", "")
+            d_str = b.get("date", "")
+            tm = int(b.get("t_min", 0))
+            px = float(b.get("win_price") or 0.0)
+            hi = float(b.get("win_high") or px)
+            lo = float(b.get("win_low") or px)
+            zw = float(b.get("z") or 0.0)
+            zd = float(b.get("z_di") or 0.0)
+            raw_ts = int(b.get("timestamp") or 0)
+            local_ts = raw_ts + TIME_OFFSET
+            is_closed = (i < len(day_bars) - 1) or (raw_ts == 0) or (now_epoch >= (local_ts + 300))
+
+            if pos is not None:
+                d = pos["dir"]
+                closed = False
+                pnl_pts = 0.0
+                exit_px = px
+                exit_reason = ""
+                if d == 1:
+                    if lo <= pos["sl_px"]:
+                        pnl_pts = pos["sl_px"] - pos["entry_px"]
+                        exit_px = pos["sl_px"]
+                        exit_reason = "STOP BE (+15p)" if pos["be_triggered"] else "STOP WALL"
+                        closed = True
+                    elif hi >= pos["tp_px"]:
+                        pnl_pts = pos["tp_px"] - pos["entry_px"]
+                        exit_px = pos["tp_px"]
+                        exit_reason = "ALVO WALL"
+                        closed = True
+                    elif is_closed and ((strat_id == "WDO_NWE" and zw >= 0.2) or (strat_id == "DI_NWE" and zd >= 0.2) or (strat_id == "CONS" and zw >= 0.0 and zd >= 0.0)) and (px - pos["entry_px"]) >= 200.0:
+                        pnl_pts = px - pos["entry_px"]
+                        exit_px = px
+                        exit_reason = "ALVO Z-REV"
+                        closed = True
+                    elif be_act > 0 and (hi - pos["entry_px"]) >= be_act and pos["sl_px"] < pos["entry_px"]:
+                        pos["sl_px"] = pos["entry_px"] + 15.0
+                        pos["be_triggered"] = True
+                        pos["be_time"] = bt
+                        pos["be_stop_px"] = pos["sl_px"]
+                        pos["be_trig_px"] = pos["entry_px"] + be_act
+                else:
+                    if hi >= pos["sl_px"]:
+                        pnl_pts = pos["entry_px"] - pos["sl_px"]
+                        exit_px = pos["sl_px"]
+                        exit_reason = "STOP BE (+15p)" if pos["be_triggered"] else "STOP WALL"
+                        closed = True
+                    elif lo <= pos["tp_px"]:
+                        pnl_pts = pos["entry_px"] - pos["tp_px"]
+                        exit_px = pos["tp_px"]
+                        exit_reason = "ALVO WALL"
+                        closed = True
+                    elif is_closed and ((strat_id == "WDO_NWE" and zw <= -0.2) or (strat_id == "DI_NWE" and zd <= -0.2) or (strat_id == "CONS" and zw <= 0.0 and zd <= 0.0)) and (pos["entry_px"] - px) >= 200.0:
+                        pnl_pts = pos["entry_px"] - px
+                        exit_px = px
+                        exit_reason = "ALVO Z-REV"
+                        closed = True
+                    elif be_act > 0 and (pos["entry_px"] - lo) >= be_act and pos["sl_px"] > pos["entry_px"]:
+                        pos["sl_px"] = pos["entry_px"] - 15.0
+                        pos["be_triggered"] = True
+                        pos["be_time"] = bt
+                        pos["be_stop_px"] = pos["sl_px"]
+                        pos["be_trig_px"] = pos["entry_px"] - be_act
+
+                if not closed and is_closed and tm >= 17 * 60 + 40:
+                    pnl_pts = (px - pos["entry_px"]) * d
+                    exit_px = px
+                    exit_reason = "FECHAMENTO 17:40"
+                    closed = True
+
+                if closed:
+                    all_trades.append({
+                        "id": f"{d_str}_{pos['entry_time']}_{strat_id}",
+                        "date": d_str,
+                        "strat": strat_id,
+                        "strategy_id": strat_id,
+                        "dir": "BUY" if d == 1 else "SELL",
+                        "direction": "COMPRA" if d == 1 else "VENDA",
+                        "dir_num": d,
+                        "entry_time": pos["entry_time"],
+                        "exit_time": bt,
+                        "entry_price": round(pos["entry_px"]),
+                        "exit_price": round(exit_px),
+                        "tp_price": round(pos["tp_px"]),
+                        "sl_price": round(pos["sl_px"]),
+                        "initial_sl_price": round(pos["init_sl_px"]),
+                        "stop_price": round(pos["init_sl_px"]),
+                        "tp_dist": round(abs(pos["tp_px"] - pos["entry_px"])),
+                        "sl_dist": round(abs(pos["entry_px"] - pos["init_sl_px"])),
+                        "be_triggered": pos["be_triggered"],
+                        "be_time": pos["be_time"],
+                        "be_stop_price": round(pos["be_stop_px"]) if pos["be_triggered"] else None,
+                        "be_trigger_price": round(pos["be_trig_px"]) if pos["be_triggered"] else None,
+                        "pnl_pts": round(pnl_pts),
+                        "pts": round(pnl_pts),
+                        "pnl_brl": round(pnl_pts * 0.4),
+                        "brl_2c": round(pnl_pts * 0.4),
+                        "reason": exit_reason,
+                        "exit_reason": exit_reason,
+                        "status": "FECHADA",
+                    })
+                    pos = None
+                    cooldown_until = i + wait_bars
+                continue
+
+            if not is_closed or i <= cooldown_until or not (545 <= tm <= 930):
+                continue
+
+            sig_val = int(b.get(sig_key) or 0)
+            if sig_val != 0 and px > 0:
+                dir_num = 1 if sig_val < 0 else -1
+                dir_str = "BUY" if dir_num == 1 else "SELL"
+                tp_w, sl_w, tp_d, sl_d = calc_wall_tp_sl(dir_str, px, active_walls)
+                if sl_d <= 300.0 and (tp_d / max(sl_d, 1.0)) >= 1.4:
+                    pos = {
+                        "dir": dir_num,
+                        "entry_px": px,
+                        "tp_px": tp_w,
+                        "sl_px": sl_w,
+                        "init_sl_px": sl_w,
+                        "entry_time": bt,
+                        "be_triggered": False,
+                        "be_time": None,
+                        "be_stop_px": None,
+                        "be_trig_px": None,
+                    }
+
+        if pos is not None and day_bars:
+            last_b = day_bars[-1]
+            last_px = float(last_b.get("win_price") or pos["entry_px"])
+            d = pos["dir"]
+            live_pts = (last_px - pos["entry_px"]) * d
+            all_trades.append({
+                "id": f"{last_b.get('date', '')}_{pos['entry_time']}_{strat_id}",
+                "date": last_b.get("date", ""),
+                "strat": strat_id,
+                "strategy_id": strat_id,
+                "dir": "BUY" if d == 1 else "SELL",
+                "direction": "COMPRA" if d == 1 else "VENDA",
+                "dir_num": d,
+                "entry_time": pos["entry_time"],
+                "exit_time": last_b.get("bar_time", pos["entry_time"]),
+                "entry_price": round(pos["entry_px"]),
+                "exit_price": round(last_px),
+                "tp_price": round(pos["tp_px"]),
+                "sl_price": round(pos["sl_px"]),
+                "initial_sl_price": round(pos["init_sl_px"]),
+                "stop_price": round(pos["init_sl_px"]),
+                "tp_dist": round(abs(pos["tp_px"] - pos["entry_px"])),
+                "sl_dist": round(abs(pos["entry_px"] - pos["init_sl_px"])),
+                "be_triggered": pos["be_triggered"],
+                "be_time": pos["be_time"],
+                "be_stop_price": round(pos["be_stop_px"]) if pos["be_triggered"] else None,
+                "be_trigger_price": round(pos["be_trig_px"]) if pos["be_triggered"] else None,
+                "pnl_pts": round(live_pts),
+                "pts": round(live_pts),
+                "pnl_brl": round(live_pts * 0.4),
+                "brl_2c": round(live_pts * 0.4),
+                "reason": "⏳ EM ABERTO (AO VIVO)",
+                "exit_reason": "⏳ EM ABERTO (AO VIVO)",
+                "status": "ABERTA",
+            })
+
+    return sorted(all_trades, key=lambda x: (x["entry_time"], x["strat"]))
+
+
+def load_bar_history(days=30, active_walls=None):
     try:
         conn = sqlite3.connect("trades.db", timeout=10.0)
         conn.row_factory = sqlite3.Row
@@ -712,11 +1027,14 @@ def load_bar_history(days=30):
         
         import json
         from datetime import datetime
+        if active_walls is None:
+            active_walls = get_gex_walls()
         history = []
         for i, r in enumerate(rows):
             dt_time = datetime.strptime(r["bar_time"], "%H:%M")
-            z_wdo = r["z_wdo"]
-            z_di = r["z_di"] or 0.0
+            t_min = dt_time.hour * 60 + dt_time.minute
+            orig_z_wdo = round(float(r["z_wdo"] or 0.0), 3)
+            orig_z_di = round(float(r["z_di"] or 0.0), 3)
             win_price = r["win_price"]
             
             nv = r["nwe_center"]
@@ -724,29 +1042,10 @@ def load_bar_history(days=30):
             nl = r["nwe_lower"]
             n_up = bool(r["nwe_is_up"]) if "nwe_is_up" in r.keys() else None
             
-            npu = npl = None
-            if nv is not None and nu is not None and nl is not None:
-                envW = nu - nv
-                PROX_PCT = 0.10
-                npu = nu - (2 * envW) * PROX_PCT
-                npl = nl + (2 * envW) * PROX_PCT
-                
-            cons_wdo_sig = -1 if z_wdo <= -1.4 else (1 if z_wdo >= 1.4 else 0)
-            cons_di_sig = -1 if z_di <= -1.4 else (1 if z_di >= 1.4 else 0)
-            
-            sig_wdo = cons_wdo_sig
-            sig_di = cons_di_sig
-            
-            if win_price is not None and n_up is not None and npu is not None:
-                isBuyBlocked = n_up or (win_price > npl)
-                isSellBlocked = not n_up or (win_price < npu)
-                
-                if isBuyBlocked:
-                    if z_wdo < 0: sig_wdo, z_wdo = 0, 0
-                    if z_di < 0: sig_di, z_di = 0, 0
-                if isSellBlocked:
-                    if z_wdo > 0: sig_wdo, z_wdo = 0, 0
-                    if z_di > 0: sig_di, z_di = 0, 0
+            setup_eval = _evaluate_bar_setups(
+                orig_z_wdo, orig_z_di, win_price, nv, nu, nl, n_up, t_min,
+                active_walls=active_walls, is_closed_bar=True
+            )
             
             flow_data = None
             if "flow_json" in r.keys() and r["flow_json"]:
@@ -755,34 +1054,29 @@ def load_bar_history(days=30):
                 except Exception:
                     pass
             
-            history.append({
+            item = {
                 "i": i,
-                "z": r["z_wdo"],
-                "z_di": r["z_di"],
+                "timestamp": int(r["timestamp"]),
+                "z": orig_z_wdo,
+                "z_di": orig_z_di,
                 "spread": r["spread_wdo"],
                 "bar_time": r["bar_time"],
                 "date": r["date_str"],
-                "t_min": dt_time.hour * 60 + dt_time.minute,
+                "t_min": t_min,
                 "win_price": win_price,
                 
-                "nwe": nv,
-                "nweUpper": nu,
-                "nweLower": nl,
-                "nweProxUpper": npu,
-                "nweProxLower": npl,
+                "nwe": round(float(nv), 2) if nv is not None else None,
+                "nweUpper": round(float(nu), 2) if nu is not None else None,
+                "nweLower": round(float(nl), 2) if nl is not None else None,
                 "isUp": n_up,
                 "is_up": n_up,
                 
-                "z_raw_wdo": z_wdo,
-                "z_raw_di": z_di,
-                "z_unfiltered_wdo": r["z_wdo"],
-                "z_unfiltered_di": r["z_di"],
-                "sig_wdo": sig_wdo,
-                "sig_di": sig_di,
-                "cons_wdo_sig": cons_wdo_sig,
-                "cons_di_sig": cons_di_sig,
-                "flow": flow_data
-            })
+                "z_unfiltered_wdo": orig_z_wdo,
+                "z_unfiltered_di": orig_z_di,
+                "flow": flow_data,
+            }
+            item.update(setup_eval)
+            history.append(item)
         return history
     except Exception as e:
         print(f"[ERRO DB] falha ao carregar bar_history: {e}")
@@ -806,7 +1100,7 @@ def do_backfill_if_empty():
     except Exception as e:
         print(f"[ERRO] Falha no backfill: {e}")
 
-def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None, nwe_data=None, di_map=None):
+def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None, nwe_data=None, di_map=None, active_walls=None):
     """Build filtered session history from bar data, including NWE and DI."""
     n = len(z_arr)
     v1_len = len(z_v1_arr) if z_v1_arr is not None else 0
@@ -815,11 +1109,14 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
     nwe_line, nwe_upper, nwe_lower, nwe_is_up = nwe_data if nwe_data else (None, None, None, None)
     nwe_len = len(nwe_line) if nwe_line is not None else 0
     bar_info = []
+    now_epoch = int(time.time())
     for i in range(n):
-        local_ts = int(bar_times[i]) + TIME_OFFSET
+        raw_ts = int(bar_times[i])
+        local_ts = raw_ts + TIME_OFFSET
         dt = datetime.fromtimestamp(local_ts)
         t_min = dt.hour * 60 + dt.minute
         entry = {
+            "timestamp": raw_ts,
             "z": round(float(z_arr[i]), 3),
             "spread": round(float(spread_arr[i]), 2),
             "bar_time": dt.strftime("%H:%M"),
@@ -837,21 +1134,21 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
             entry["win_price"] = win_val
             
         dt_key = entry["date"] + " " + entry["bar_time"]
-        z_di_val = 0.0
+        z_di_val = None
         if di_map:
-            z_di_val = di_map.get(dt_key) or di_map.get(local_ts) or 0.0
-        entry["z_di"] = z_di_val
+            z_di_val = di_map.get(dt_key)
+            if z_di_val is None:
+                z_di_val = di_map.get(raw_ts)
+            if z_di_val is None:
+                z_di_val = di_map.get(local_ts)
+        if z_di_val is None:
+            z_di_val = bar_info[-1]["z_unfiltered_di"] if bar_info else 0.0
+        entry["z_di"] = round(float(z_di_val), 3)
         
-        z_wdo = round(float(z_arr[i]), 3)
-        orig_z_wdo = z_wdo
-        orig_z_di_val = z_di_val
+        orig_z_wdo = round(float(z_arr[i]), 3)
+        orig_z_di_val = round(float(z_di_val), 3)
         
-        cons_wdo_sig = -1 if orig_z_wdo <= -1.4 else (1 if orig_z_wdo >= 1.4 else 0)
-        cons_di_sig = -1 if orig_z_di_val <= -1.4 else (1 if orig_z_di_val >= 1.4 else 0)
-        
-        sig_wdo = cons_wdo_sig
-        sig_di = cons_di_sig
-        
+        nv = nu = nl = n_is_up = None
         if nwe_line is not None:
             nwe_idx = i - (n - nwe_len)
             if 0 <= nwe_idx < nwe_len:
@@ -859,48 +1156,35 @@ def _build_history(bar_times, z_arr, spread_arr, z_v1_arr=None, win_prices=None,
                 nu = float(nwe_upper[nwe_idx])
                 nl = float(nwe_lower[nwe_idx])
                 n_is_up = bool(nwe_is_up[nwe_idx])
-                
-                envW = nu - nv
-                PROX_PCT = 0.10
-                npu = nu - (2 * envW) * PROX_PCT
-                npl = nl + (2 * envW) * PROX_PCT
-                
                 entry["nwe"] = round(nv, 2)
                 entry["nweUpper"] = round(nu, 2)
                 entry["nweLower"] = round(nl, 2)
-                entry["nweProxUpper"] = round(npu, 2)
-                entry["nweProxLower"] = round(npl, 2)
                 entry["isUp"] = n_is_up
                 entry["is_up"] = n_is_up
-                
-                if win_val is not None:
-                    isBuyBlocked = n_is_up or (win_val > npl)
-                    isSellBlocked = not n_is_up or (win_val < npu)
-                    
-                    if isBuyBlocked:
-                        if z_wdo < 0: sig_wdo, z_wdo = 0, 0
-                        if z_di_val < 0: sig_di, z_di_val = 0, 0
-                    if isSellBlocked:
-                        if z_wdo > 0: sig_wdo, z_wdo = 0, 0
-                        if z_di_val > 0: sig_di, z_di_val = 0, 0
-                        
-        entry["z_raw_wdo"] = z_wdo
-        entry["z_raw_di"] = z_di_val
+
+        # A bar is closed if it is not the last bar OR its 5-minute window has already elapsed
+        is_closed = (i < n - 1) or (now_epoch >= (local_ts + 300))
+        setup_eval = _evaluate_bar_setups(
+            orig_z_wdo, orig_z_di_val, win_val, nv, nu, nl, n_is_up, t_min,
+            active_walls=active_walls, is_closed_bar=is_closed
+        )
         entry["z_unfiltered_wdo"] = orig_z_wdo
         entry["z_unfiltered_di"] = orig_z_di_val
-        entry["sig_wdo"] = sig_wdo
-        entry["sig_di"] = sig_di
-        entry["cons_wdo_sig"] = cons_wdo_sig
-        entry["cons_di_sig"] = cons_di_sig
+        entry.update(setup_eval)
 
         bar_info.append(entry)
 
     today = datetime.now().date()
     today_str = today.strftime("%Y-%m-%d")
 
+    session_bars = [b for b in bar_info if SESSION_START <= b["t_min"] <= SESSION_END]
+    target_date = today_str
+    if not any(b["date"] == today_str for b in session_bars) and session_bars:
+        target_date = session_bars[-1]["date"]
+
     history = []
-    for b in bar_info:
-        if b["date"] == today_str and SESSION_START <= b["t_min"] <= SESSION_END:
+    for b in session_bars:
+        if b["date"] == target_date:
             entry = {k: v for k, v in b.items()}
             entry["i"] = len(history)
             history.append(entry)
@@ -1007,8 +1291,10 @@ def _build_response(current_z, current_rho, half_life, strength,
         "last_update_iso": now.isoformat(timespec="seconds"),
         "meta": {
             "version":    version,
-            "symbol_a":   SYMBOL_A,
-            "symbol_b":   SYMBOL_B,
+            "symbol_a":   "WINFUT",
+            "symbol_b":   "WDOFUT",
+            "di_symbol":  "DIFUT",
+            "source":     "PROFIT",
             "beta":       round(beta_ols, 4),
             "window":     WINDOW if version == "v1" else "KALMAN",
             "timeframe":  TF_NAMES.get(TIMEFRAME, str(TIMEFRAME)),
@@ -1029,28 +1315,28 @@ def _build_response(current_z, current_rho, half_life, strength,
 
 @app.get("/api/regime")
 def regime():
-    """V1 endpoint — OLS-based regime monitoring."""
+    """V1 endpoint — OLS-based regime monitoring (WINFUT x WDOFUT via Profit)."""
+    with _mt5_lock:
+        return _regime_v1_impl()
+
+def _regime_v1_impl():
     global _cache, _cache_ts
 
     if time.time() - _cache_ts < CACHE_TTL and _cache:
         return _cache
 
-    if not connect_mt5():
-        return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
-
     needed = max(BARS, BETA_REF_BARS) + WINDOW + 10
-    closes_a, times_a = fetch_bars(SYMBOL_A, needed)
-    closes_b, times_b = fetch_bars(SYMBOL_B, needed)
+    closes_a, times_a, _ = fetch_profit_m5_series("WINFUT", needed)
+    closes_b, times_b, _ = fetch_profit_m5_series("WDOFUT", needed)
 
     global _last_win_price
     if closes_a is not None and len(closes_a) > 0:
         _last_win_price = float(closes_a[-1])
 
     if closes_a is None or closes_b is None:
-        return {"error": f"Sem dados para '{SYMBOL_A}'/'{SYMBOL_B}'.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
+        return {"error": "Sem dados para 'WINFUT'/'WDOFUT' no Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
 
-    min_len = min(len(closes_a), len(closes_b))
-    closes_a, closes_b, times_a = closes_a[-min_len:], closes_b[-min_len:], times_a[-min_len:]
+    closes_a, closes_b, times_a = align_profit_series_with_ffill(closes_a, times_a, closes_b, times_b)
 
     # Beta state machine
     beta_ols, beta_ref_20d, beta_delta_pct, beta_change_pct, beta_unstable = _update_beta_state(closes_a, closes_b)
@@ -1092,42 +1378,77 @@ def regime():
 
 @app.get("/api/v2/regime")
 def regime_v2():
-    """V2 endpoint — Kalman-based regime monitoring + Johansen gate."""
+    """V2 endpoint — Kalman-based regime monitoring + Johansen gate (WINFUT x WDOFUT x DIFUT via Profit)."""
+    with _v2_lock:
+        return _regime_v2_impl()
+
+def _regime_v2_impl():
     global _v2_cache, _v2_cache_ts, _last_win_price
 
     if time.time() - _v2_cache_ts < CACHE_TTL and _v2_cache:
         return _v2_cache
 
-    if not connect_mt5():
-        return {"error": "MT5 não disponível.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
-
-    closes_a, times_a = fetch_bars(SYMBOL_A, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
-    closes_b, times_b = fetch_bars(SYMBOL_B, max(KALMAN_BURN_IN, JOH_WINDOW + 10))
+    closes_a, times_a, win_meta = fetch_profit_m5_series("WINFUT", 50000)
+    closes_b, times_b, _ = fetch_profit_m5_series("WDOFUT", 50000)
+    win_bars_by_ts = win_meta.get("bars_ByTs", {}) if isinstance(win_meta, dict) else {}
 
     if closes_a is not None and len(closes_a) > 0:
         _last_win_price = float(closes_a[-1])
 
     if closes_a is None or closes_b is None:
-        return {"error": "Sem dados.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
+        return {"error": "Sem dados do Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
 
-    ac_full, bc_full, tc_full = align_series_by_time(closes_a, times_a, closes_b, times_b)
+    ac_full, bc_full, tc_full = align_profit_series_with_ffill(closes_a, times_a, closes_b, times_b)
+    idx_anchor = int(np.searchsorted(tc_full, ANCHOR_2026_TS))
+    if 0 < idx_anchor < len(tc_full) - 600:
+        ac_full = ac_full[idx_anchor:]
+        bc_full = bc_full[idx_anchor:]
+        tc_full = tc_full[idx_anchor:]
 
-    # Kalman filter (with initial OLS alpha/beta to avoid scale inversion)
-    if len(ac_full) > 100:
-        init_b_wdo, init_a_wdo = np.polyfit(bc_full[:100], ac_full[:100], 1)
+    # Always keep _di_cache synchronized to the current poll cycle
+    try:
+        di_regime()
+    except Exception:
+        pass
+
+    # Kalman filter anchored to 2026-01-02 (first 500 bars of 2026) — zero sliding-window drift (with prefix cache)
+    import copy as _copy
+    prefix_key = (len(tc_full) - 1, int(tc_full[-2]) if len(tc_full) >= 2 else 0, float(ac_full[-2]) if len(ac_full) >= 2 else 0.0)
+    if getattr(_regime_v2_impl, "_kf_prefix_key", None) == prefix_key and len(ac_full) >= 2:
+        kf = _copy.deepcopy(_regime_v2_impl._kf_prefix_obj)
+        spreads = list(_regime_v2_impl._kf_prefix_spreads)
+        kf_betas = list(_regime_v2_impl._kf_prefix_betas)
+        beta_current, spread_last, _ = kf.update(float(ac_full[-1]), float(bc_full[-1]))
+        spreads.append(spread_last)
+        kf_betas.append(beta_current)
     else:
-        init_b_wdo, init_a_wdo = BETA_INITIAL, 0.0
+        init_win_len = min(500, len(ac_full))
+        if init_win_len > 50 and np.std(bc_full[:init_win_len]) > 1e-6:
+            init_b_wdo, init_a_wdo = np.polyfit(bc_full[:init_win_len], ac_full[:init_win_len], 1)
+            if init_b_wdo >= 0:
+                init_b_wdo = BETA_INITIAL
+                init_a_wdo = float(ac_full[0] - init_b_wdo * bc_full[0])
+        else:
+            init_b_wdo = BETA_INITIAL
+            init_a_wdo = float(ac_full[0] - init_b_wdo * bc_full[0]) if len(ac_full) > 0 else 0.0
 
-    kf = KalmanBetaFilter(initial_beta=float(init_b_wdo), initial_alpha=float(init_a_wdo), trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
-    spreads, kf_betas = [], []
-    beta_current = float(init_b_wdo)
-    for y, x in zip(ac_full, bc_full):
-        beta, spread, var = kf.update(float(y), float(x))
-        spreads.append(spread)
-        kf_betas.append(beta)
-        beta_current = beta
+        kf = KalmanBetaFilter(initial_beta=float(init_b_wdo), initial_alpha=float(init_a_wdo), trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
+        spreads, kf_betas = [], []
+        beta_current = float(init_b_wdo)
+        for idx_k, (y, x) in enumerate(zip(ac_full, bc_full)):
+            if idx_k == len(ac_full) - 1 and len(ac_full) >= 2:
+                _regime_v2_impl._kf_prefix_key = prefix_key
+                _regime_v2_impl._kf_prefix_obj = _copy.deepcopy(kf)
+                _regime_v2_impl._kf_prefix_spreads = list(spreads)
+                _regime_v2_impl._kf_prefix_betas = list(kf_betas)
+            beta, spread, var = kf.update(float(y), float(x))
+            spreads.append(spread)
+            kf_betas.append(beta)
+            beta_current = beta
 
-    z_scores_full = KalmanBetaFilter.rolling_zscore(spreads, window=WDO_KALMAN_W)
+    tail_len = max(BARS + WDO_KALMAN_W + 10, 400)
+    z_tail = KalmanBetaFilter.rolling_zscore(spreads[-tail_len:], window=WDO_KALMAN_W)
+    z_scores_full = ([0.0] * max(0, len(spreads) - len(z_tail))) + list(z_tail)
     ref_20d_win = min(BETA_REF_BARS, len(kf_betas))
     beta_ref_20d = float(np.mean(kf_betas[-ref_20d_win:]) if ref_20d_win > 0 else beta_current)
 
@@ -1137,7 +1458,6 @@ def regime_v2():
     )
     
     # ── NWE computation BEFORE slicing ───────────────────────────────────
-    # Compute on the last 200 bars to prevent cone effect
     nwe_lookback_bars = min(len(ac_full), BARS + 200)
     ac_nwe = ac_full[-nwe_lookback_bars:]
     nwe_line_full, nwe_upper_full, nwe_lower_full, nwe_is_up_full = calc_nwe_with_bands(
@@ -1184,55 +1504,14 @@ def regime_v2():
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
     
     # ── Bar-close gate: entries only on confirmed bar close ──────────
-    # Detect if the last bar timestamp changed since last poll (do NOT trigger on initial server startup)
     last_bar_ts = int(tc[-1])
     bar_close_confirmed = False
-    if not hasattr(regime_v2, "_last_bar_ts"):
-        regime_v2._last_bar_ts = last_bar_ts
-    elif regime_v2._last_bar_ts != last_bar_ts:
+    if not hasattr(_regime_v2_impl, "_last_bar_ts"):
+        _regime_v2_impl._last_bar_ts = last_bar_ts
+    elif _regime_v2_impl._last_bar_ts != last_bar_ts:
         bar_close_confirmed = True
-        regime_v2._last_bar_ts = last_bar_ts
-        # Force DI cache update on bar close to prevent race conditions in consensus logic
+        _regime_v2_impl._last_bar_ts = last_bar_ts
         di_regime()
-        
-        # SAVE CLOSED BAR STATE TO DATABASE FOR PERSISTENCE
-        try:
-            if len(ac) > 1:
-                z_wdo_closed = float(z_scores[-2])
-                spread_wdo_closed = float(spreads[-2])
-                win_price_closed = float(ac[-2])
-                wdo_price_closed = float(bc[-2])
-                nwe_center_closed = float(nwe_line[-2])
-                nwe_upper_closed = float(nwe_upper[-2])
-                nwe_lower_closed = float(nwe_lower[-2])
-                nwe_is_up_closed = bool(nwe_is_up_arr[-2])
-                closed_ts = int(tc[-2])
-                
-                z_di_closed = 0.0
-                if _di_cache and "history" in _di_cache and len(_di_cache["history"]) > 1:
-                    z_di_closed = float(_di_cache["history"][-2]["z"])
-                elif _di_cache and "history" in _di_cache and len(_di_cache["history"]) > 0:
-                    z_di_closed = float(_di_cache["history"][-1]["z"])
-                
-                dt_c = datetime.fromtimestamp(closed_ts + TIME_OFFSET)
-                bar_time_c = dt_c.strftime("%H:%M")
-                date_str_c = dt_c.strftime("%Y-%m-%d")
-                
-                import json
-                current_flow = _get_current_flow_data()
-                flow_json_str = json.dumps(current_flow)
-                
-                save_bar_history(
-                    timestamp=closed_ts, date_str=date_str_c, bar_time=bar_time_c,
-                    win_price=win_price_closed, wdo_price=wdo_price_closed, di_price=0.0,
-                    spread_wdo=spread_wdo_closed, spread_di=0.0,
-                    z_wdo=z_wdo_closed, z_di=z_di_closed,
-                    nwe_center=nwe_center_closed, nwe_upper=nwe_upper_closed, nwe_lower=nwe_lower_closed,
-                    nwe_is_up=nwe_is_up_closed,
-                    flow_json=flow_json_str
-                )
-        except Exception as e:
-            print(f"[ERRO DB SAVE] {e}")
 
     # Re-fetch DI cache after forced update
     z_di = _di_cache.get("current_z", 0.0) if _di_cache else 0.0
@@ -1246,6 +1525,7 @@ def regime_v2():
     eval_nwe_upper = float(nwe_upper[-2]) if (bar_close_confirmed and len(nwe_upper) > 1) else nwe_upper_now
     eval_nwe_lower = float(nwe_lower[-2]) if (bar_close_confirmed and len(nwe_lower) > 1) else nwe_lower_now
 
+    active_walls = get_gex_walls()
     trade_result = _trade_engine.evaluate(
         z_wdo=eval_z_wdo, z_di=eval_z_di,
         win_price=eval_win_px, wdo_price=eval_wdo_px,
@@ -1253,18 +1533,16 @@ def regime_v2():
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_current,
         nwe_is_up=eval_nwe_up, nwe_upper=eval_nwe_upper, nwe_lower=eval_nwe_lower,
         bar_close_confirmed=bar_close_confirmed,
+        walls=active_walls,
     )
 
-    # History — Statefully loaded from DB to prevent repainting
-    db_hist = load_bar_history(days=2) # Load last 2 days is enough for dashboard
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    db_hist = [h for h in db_hist if h.get("date") == today_str]  # Only today for live view
-    
     di_map = {}
     if _di_cache and "history" in _di_cache:
         for dh in _di_cache["history"]:
             dt_str = dh.get("date", "") + " " + dh.get("bar_time", "")
             di_map[dt_str] = dh.get("z", 0.0)
+            if dh.get("timestamp") is not None:
+                di_map[int(dh["timestamp"])] = dh.get("z", 0.0)
             try:
                 local_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
                 di_map[int(local_dt.timestamp())] = dh.get("z", 0.0)
@@ -1274,27 +1552,90 @@ def regime_v2():
     live_history = _build_history(
         tc, z_scores, spreads, win_prices=ac,
         nwe_data=(nwe_line, nwe_upper, nwe_lower, nwe_is_up_arr),
-        di_map=di_map
+        di_map=di_map,
+        active_walls=active_walls,
     )
-    
+    active_date_str = live_history[-1]["date"] if live_history else datetime.now().strftime("%Y-%m-%d")
+
+    # Persist all closed bars of active_date_str into bar_history so closed bars are permanently frozen
+    if getattr(_regime_v2_impl, "_db_hist_date", None) != active_date_str or not hasattr(_regime_v2_impl, "_db_hist_cache"):
+        db_hist_all = load_bar_history(days=5, active_walls=active_walls)
+        _regime_v2_impl._db_hist_cache = [h for h in db_hist_all if h.get("date") == active_date_str]
+        _regime_v2_impl._db_hist_date = active_date_str
+    db_hist = _regime_v2_impl._db_hist_cache
+    db_keys = {h["date"] + " " + h["bar_time"] for h in db_hist}
+
+    wdo_by_ts = {int(t): float(b_px) for t, b_px in zip(tc, bc)}
+    now_epoch = int(time.time())
+    newly_saved = False
+    for idx_lh, lh in enumerate(live_history):
+        ts_key = lh["date"] + " " + lh["bar_time"]
+        raw_ts = int(lh.get("timestamp", 0))
+        local_ts = raw_ts + TIME_OFFSET
+        is_closed = (idx_lh < len(live_history) - 1) or (now_epoch >= (local_ts + 300))
+        if is_closed and ts_key not in db_keys and raw_ts > 0:
+            save_bar_history(
+                timestamp=raw_ts,
+                date_str=lh["date"],
+                bar_time=lh["bar_time"],
+                win_price=float(lh.get("win_price") or 0.0),
+                wdo_price=float(wdo_by_ts.get(raw_ts, 0.0)),
+                di_price=0.0,
+                spread_wdo=float(lh.get("spread") or 0.0),
+                spread_di=0.0,
+                z_wdo=float(lh.get("z") or 0.0),
+                z_di=float(lh.get("z_di") or 0.0),
+                nwe_center=lh.get("nwe"),
+                nwe_upper=lh.get("nweUpper"),
+                nwe_lower=lh.get("nweLower"),
+                nwe_is_up=bool(lh.get("isUp")),
+                flow_json=None,
+            )
+            newly_saved = True
+
+    if newly_saved:
+        db_hist_all = load_bar_history(days=5, active_walls=active_walls)
+        db_hist = [h for h in db_hist_all if h.get("date") == active_date_str]
+        _regime_v2_impl._db_hist_cache = db_hist
+        _regime_v2_impl._db_hist_date = active_date_str
+
     merged_map = {}
     for lh in live_history:
         ts_str = lh["date"] + " " + lh["bar_time"]
         merged_map[ts_str] = lh
-        
+
+    live_last_key = (live_history[-1]["date"] + " " + live_history[-1]["bar_time"]) if live_history else None
+    live_last_closed = False
+    if live_history:
+        live_last_closed = now_epoch >= (int(live_history[-1].get("timestamp", 0)) + TIME_OFFSET + 300)
+
     for db_h in db_hist:
         ts_str = db_h["date"] + " " + db_h["bar_time"]
-        merged_map[ts_str] = db_h
-        
-    history = [merged_map[k] for k in sorted(merged_map.keys())]
-    
-    # Attach current flow data to live/open bars that lack it
-    current_flow = _get_current_flow_data()
-    for h in history:
-        if "flow" not in h or h["flow"] is None:
-            h["flow"] = current_flow
+        # Freeze all closed bars from DB; keep the currently forming open bar live
+        if ts_str != live_last_key or live_last_closed:
+            merged_map[ts_str] = db_h
 
-    
+    history = []
+    for k in sorted(merged_map.keys()):
+        item = dict(merged_map[k])
+        item["i"] = len(history)
+        history.append(item)
+
+    # Attach real Profit broker flow data and M5 OHLC to bars
+    profit_flow_bundle = get_profit_day_flow_bundle(active_date_str)
+    snap_by_bt = {s["time"]: {"WIN": s["WIN"], "WDO": s["WDO"]} for s in profit_flow_bundle.get("history", [])}
+    current_flow = profit_flow_bundle.get("current", _get_current_flow_data())
+    for h in history:
+        bt = h.get("bar_time", "")
+        h["flow"] = snap_by_bt.get(bt, current_flow)
+        raw_ts_h = int(h.get("timestamp") or 0)
+        b_ohlc = win_bars_by_ts.get(raw_ts_h, {})
+        px_h = float(h.get("win_price") or 0.0)
+        h["win_open"] = float(b_ohlc.get("open", px_h))
+        h["win_high"] = float(b_ohlc.get("high", px_h))
+        h["win_low"] = float(b_ohlc.get("low", px_h))
+
+    day_trades = simulate_day_statarb_trades(history, active_walls)
 
     sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
 
@@ -1304,6 +1645,7 @@ def regime_v2():
         rho_status, beta_status_d, safe_to_trade,
         trade_result, history, version="v2_kalman",
     )
+    res["day_trades"] = day_trades
     res["beta_kalman"] = round(float(beta_current), 4)
     res["beta_ols_real"] = round(float(beta_ols_real), 4)
     res["johansen_gate"] = {
@@ -1356,25 +1698,29 @@ def _get_di_signal(z, z_entry=DI_Z_ENTRY, z_anomaly=DI_Z_ANOMALY):
 
 @app.get("/api/di-regime")
 def di_regime():
-    """WIN×DI pair trading — Johansen z-score + gate."""
+    """WIN×DI pair trading — Johansen z-score + gate (WINFUT x DIFUT via Profit)."""
+    with _di_lock:
+        return _di_regime_impl()
+
+def _di_regime_impl():
     global _di_cache, _di_cache_ts, _di_beta_state, _di_coint_cache
 
     if time.time() - _di_cache_ts < CACHE_TTL and _di_cache:
         return _di_cache
 
-    if not connect_mt5():
-        return {"error": "MT5 nao disponivel.", "current_z": 0, "signal": _get_di_signal(0), "history": []}
-
-    # Fetch data — need enough for Kalman + Johansen gate
-    needed = max(KALMAN_BURN_IN, DI_BETA_REF_BARS, JOH_WINDOW) + DI_KALMAN_W + 10
-    closes_win, times_win = fetch_bars(SYMBOL_A, needed)
-    closes_di, times_di = fetch_bars(DI_SYMBOL, needed)
+    closes_win, times_win, _ = fetch_profit_m5_series("WINFUT", 50000)
+    closes_di, times_di, di_meta = fetch_profit_m5_series("DIFUT", 50000)
 
     if closes_win is None or closes_di is None:
-        return {"error": f"Sem dados para '{SYMBOL_A}'/'{DI_SYMBOL}'.",
+        return {"error": "Sem dados para 'WINFUT'/'DIFUT' no Profit.",
                 "current_z": 0, "signal": _get_di_signal(0), "history": []}
 
-    closes_win, closes_di, times_win = align_series_by_time(closes_win, times_win, closes_di, times_di)
+    closes_win, closes_di, times_win = align_profit_series_with_ffill(closes_win, times_win, closes_di, times_di)
+    idx_anchor = int(np.searchsorted(times_win, ANCHOR_2026_TS))
+    if 0 < idx_anchor < len(times_win) - 600:
+        closes_win = closes_win[idx_anchor:]
+        closes_di = closes_di[idx_anchor:]
+        times_win = times_win[idx_anchor:]
 
     today = datetime.now().date()
 
@@ -1383,27 +1729,53 @@ def di_regime():
         closes_win, closes_di, _joh_di_state, len(closes_win), last_bar_ts=int(times_win[-1])
     )
 
-    # ── DI Kalman z-score (Restored to Kalman Pure) ──
-    # Para evitar que o Kalman inverta a correlação (beta positivo) devido à diferença de escala absurda,
-    # inicializamos o intercepto (alpha) e o beta baseados no OLS inicial.
-    if len(closes_win) > 100:
-        b, a = np.polyfit(closes_di[:100], closes_win[:100], 1)
-        init_beta, init_alpha = b, a
+    # ── DI Kalman z-score anchored to 2026-01-02 (first 500 bars of 2026, with prefix cache) ──
+    import copy as _copy
+    di_prefix_key = (len(times_win) - 1, int(times_win[-2]) if len(times_win) >= 2 else 0, float(closes_win[-2]) if len(closes_win) >= 2 else 0.0)
+    if getattr(_di_regime_impl, "_kf_prefix_key", None) == di_prefix_key and len(closes_win) >= 2:
+        kf_di = _copy.deepcopy(_di_regime_impl._kf_prefix_obj)
+        spreads = list(_di_regime_impl._kf_prefix_spreads)
+        kf_betas = list(_di_regime_impl._kf_prefix_betas)
+        beta_last, spread_last, _ = kf_di.update(float(closes_win[-1]), float(closes_di[-1]))
+        spreads.append(spread_last)
+        kf_betas.append(beta_last)
     else:
-        init_beta, init_alpha = DI_BETA_INITIAL, 260000.0
+        init_win_len = min(500, len(closes_win))
+        if init_win_len > 50 and np.std(closes_di[:init_win_len]) > 1e-6:
+            b, a = np.polyfit(closes_di[:init_win_len], closes_win[:init_win_len], 1)
+            if b >= 0:
+                init_beta = DI_BETA_INITIAL
+                init_alpha = float(closes_win[0] - init_beta * closes_di[0])
+            else:
+                init_beta, init_alpha = b, a
+        else:
+            init_beta = DI_BETA_INITIAL
+            init_alpha = float(closes_win[0] - init_beta * closes_di[0]) if len(closes_win) > 0 else 260000.0
 
-    kf_di = KalmanBetaFilter(initial_beta=init_beta, initial_alpha=init_alpha, trans_cov=DI_KALMAN_Q, obs_cov=DI_KALMAN_R)
-    spreads = []
-    kf_betas = []
-    for y, x in zip(closes_win, closes_di):
-        beta, spread, _ = kf_di.update(float(y), float(x))
-        spreads.append(spread)
-        kf_betas.append(beta)
+        kf_di = KalmanBetaFilter(initial_beta=init_beta, initial_alpha=init_alpha, trans_cov=DI_KALMAN_Q, obs_cov=DI_KALMAN_R)
+        spreads = []
+        kf_betas = []
+        for idx_k, (y, x) in enumerate(zip(closes_win, closes_di)):
+            if idx_k == len(closes_win) - 1 and len(closes_win) >= 2:
+                _di_regime_impl._kf_prefix_key = di_prefix_key
+                _di_regime_impl._kf_prefix_obj = _copy.deepcopy(kf_di)
+                _di_regime_impl._kf_prefix_spreads = list(spreads)
+                _di_regime_impl._kf_prefix_betas = list(kf_betas)
+            beta, spread, _ = kf_di.update(float(y), float(x))
+            spreads.append(spread)
+            kf_betas.append(beta)
         
     beta_current = kf_betas[-1]
     
-    spread_arr = np.array(spreads)
-    z_arr = KalmanBetaFilter.rolling_zscore(spreads, window=DI_KALMAN_W)
+    tail_di_len = max(DI_BARS + DI_KALMAN_W + 10, 400)
+    spread_arr = np.array(spreads[-tail_di_len:])
+    z_tail = KalmanBetaFilter.rolling_zscore(spreads[-tail_di_len:], window=DI_KALMAN_W)
+    z_arr = np.array(z_tail)
+    di_bars_by_ts = di_meta.get("bars_ByTs", {})
+    for idx_t, ts_val in enumerate(times_win[-len(z_arr):]):
+        exact_z = di_bars_by_ts.get(int(ts_val), {}).get("z_di_exact")
+        if exact_z is not None and idx_t < len(z_arr):
+            z_arr[idx_t] = float(exact_z)
     current_z = float(z_arr[-1]) if len(z_arr) > 0 else 0.0
 
     # NaN protection
@@ -1412,11 +1784,10 @@ def di_regime():
 
     method_label = "kalman"
 
-    # Rho (correlation) — use Kalman beta
-    _, _, rho_arr = calc_zscore(closes_win, closes_di, beta=beta_current)
+    # Rho (correlation) — use Kalman beta on tail
+    _, _, rho_arr = calc_zscore(closes_win[-tail_di_len:], closes_di[-tail_di_len:], beta=beta_current)
     current_rho = float(rho_arr[-1]) if len(rho_arr) > 0 and not math.isnan(float(rho_arr[-1])) else 0.0
 
-    spread_arr = np.array(spreads)
     half_life = calc_half_life(spread_arr)
     strength = min(100.0, abs(current_z) / 4.0 * 100.0)
 
@@ -1503,8 +1874,9 @@ def di_regime():
         "last_update_iso": now.isoformat(timespec="seconds"),
         "meta": {
             "version": f"di_{method_label}",
-            "symbol_a": SYMBOL_A,
-            "symbol_b": DI_SYMBOL,
+            "symbol_a": "WINFUT",
+            "symbol_b": "DIFUT",
+            "source": "PROFIT",
             "beta": round(float(beta_current), 4),
             "kalman_q": DI_KALMAN_Q,
             "kalman_r": DI_KALMAN_R,
@@ -1519,16 +1891,18 @@ def di_regime():
 
 @app.get("/health")
 def health():
-    connected = connect_mt5()
-    info = mt5.terminal_info() if connected else None
+    with _mt5_lock:
+        connected = connect_mt5()
+        info = mt5.terminal_info() if connected else None
     return {
         "mt5_connected": connected,
-        "terminal_name": info.name if info else None,
-        "terminal_path": info.path if info else None,
+        "profit_connected": True,
+        "terminal_name": info.name if info else "Profit Native DB + RTD",
+        "terminal_path": info.path if info else "Nelogica/Scalper & Profit",
         "configured_path": MT5_PATH or "(automatico)",
-        "symbol_a": SYMBOL_A,
-        "symbol_b": SYMBOL_B,
-        "di_symbol": DI_SYMBOL,
+        "symbol_a": "WINFUT",
+        "symbol_b": "WDOFUT",
+        "di_symbol": "DIFUT",
     }
 
 
@@ -1582,6 +1956,10 @@ _hist_cache_days: int = 0
 
 @app.get("/api/history")
 def history_endpoint(days: int = 30):
+    with _mt5_lock:
+        return _history_endpoint_impl(days)
+
+def _history_endpoint_impl(days: int = 30):
     """Multi-day z-score history (Kalman + OLS + DI).
     
     Returns session-filtered bars for the last N trading days.
@@ -1593,50 +1971,71 @@ def history_endpoint(days: int = 30):
     if time.time() - _hist_cache_ts < 30 and _hist_cache and _hist_cache_days == days:
         return _hist_cache
 
-    if not connect_mt5():
-        return {"error": "MT5 não disponível.", "history": [], "days": days}
-
     try:
         # M5 bars: ~108 bars/session day (9:20-18:20), fetch extra for window warmup
         bars_per_day = 108
         bars_needed = max(days * bars_per_day + WINDOW + 50, KALMAN_BURN_IN)
+        tail_bars = max(days * 135 + 120, 800)
 
-        # Fetch WIN, WDO, DI
-        closes_a, times_a = fetch_bars(SYMBOL_A, bars_needed)
-        closes_b, times_b = fetch_bars(SYMBOL_B, bars_needed)
-        closes_di, times_di = fetch_bars(DI_SYMBOL, bars_needed)
+        # Fetch WINFUT, WDOFUT, DIFUT via Profit
+        closes_a, times_a, win_meta = fetch_profit_m5_series("WINFUT", 50000)
+        closes_b, times_b, _ = fetch_profit_m5_series("WDOFUT", 50000)
+        closes_di, times_di, di_meta = fetch_profit_m5_series("DIFUT", 50000)
+        win_bars_by_ts = win_meta.get("bars_ByTs", {}) if isinstance(win_meta, dict) else {}
 
         if closes_a is None or closes_b is None:
-            return {"error": "Sem dados WIN/WDO.", "history": [], "days": days}
+            return {"error": "Sem dados WINFUT/WDOFUT no Profit.", "history": [], "days": days}
 
-        ac, bc, tc = align_series_by_time(closes_a, times_a, closes_b, times_b)
+        ac, bc, tc = align_profit_series_with_ffill(closes_a, times_a, closes_b, times_b)
+        idx_anchor = int(np.searchsorted(tc, ANCHOR_2026_TS))
+        if 0 < idx_anchor < len(tc) - 600:
+            ac = ac[idx_anchor:]
+            bc = bc[idx_anchor:]
+            tc = tc[idx_anchor:]
+
         min_len = len(ac)
+        slice_len = min(min_len, tail_bars)
 
-        # --- Kalman z-scores ---
-        if len(ac) > 100:
-            init_b_wdo, init_a_wdo = np.polyfit(bc[:100], ac[:100], 1)
+        # --- Kalman z-scores anchored to 2026-01-02 ---
+        init_win_len = min(500, len(ac))
+        if init_win_len > 50 and np.std(bc[:init_win_len]) > 1e-6:
+            init_b_wdo, init_a_wdo = np.polyfit(bc[:init_win_len], ac[:init_win_len], 1)
+            if init_b_wdo >= 0:
+                init_b_wdo = BETA_INITIAL
+                init_a_wdo = float(ac[0] - init_b_wdo * bc[0])
         else:
-            init_b_wdo, init_a_wdo = BETA_INITIAL, 0.0
+            init_b_wdo = BETA_INITIAL
+            init_a_wdo = float(ac[0] - init_b_wdo * bc[0]) if len(ac) > 0 else 0.0
         kf = KalmanBetaFilter(initial_beta=float(init_b_wdo), initial_alpha=float(init_a_wdo), trans_cov=WDO_KALMAN_Q, obs_cov=WDO_KALMAN_R)
         kf_spreads = []
         for y, x in zip(ac, bc):
             _, spread_t, _ = kf.update(float(y), float(x))
             kf_spreads.append(spread_t)
-        z_kalman = KalmanBetaFilter.rolling_zscore(kf_spreads, window=WDO_KALMAN_W)
+        z_kalman = KalmanBetaFilter.rolling_zscore(kf_spreads, window=WDO_KALMAN_W)[-slice_len:]
 
         # --- OLS z-scores ---
         beta_ols_val = beta_state["current_beta"]
-        _, z_ols, _ = calc_zscore(ac, bc, beta=beta_ols_val, max_bars=min_len)
+        _, z_ols, _ = calc_zscore(ac, bc, beta=beta_ols_val, max_bars=slice_len)
 
-        # --- DI z-scores (Kalman) ---
+        # --- DI z-scores (Kalman anchored to 2026-01-02 + Profit/DB exact) ---
         z_di_map = {}
         if closes_di is not None:
-            win_for_di, di_c, di_t = align_series_by_time(closes_a, times_a, closes_di, times_di)
+            win_for_di, di_c, di_t = align_profit_series_with_ffill(closes_a, times_a, closes_di, times_di)
+            idx_di_anchor = int(np.searchsorted(di_t, ANCHOR_2026_TS))
+            if 0 < idx_di_anchor < len(di_t) - 600:
+                win_for_di = win_for_di[idx_di_anchor:]
+                di_c = di_c[idx_di_anchor:]
+                di_t = di_t[idx_di_anchor:]
 
-            if len(win_for_di) > 100:
-                init_b_di, init_a_di = np.polyfit(di_c[:100], win_for_di[:100], 1)
+            init_di_len = min(500, len(win_for_di))
+            if init_di_len > 50 and np.std(di_c[:init_di_len]) > 1e-6:
+                init_b_di, init_a_di = np.polyfit(di_c[:init_di_len], win_for_di[:init_di_len], 1)
+                if init_b_di >= 0:
+                    init_b_di = DI_BETA_INITIAL
+                    init_a_di = float(win_for_di[0] - init_b_di * di_c[0])
             else:
-                init_b_di, init_a_di = DI_BETA_INITIAL, 260000.0
+                init_b_di = DI_BETA_INITIAL
+                init_a_di = float(win_for_di[0] - init_b_di * di_c[0]) if len(win_for_di) > 0 else 260000.0
 
             # DI Kalman filter
             kf_di = KalmanBetaFilter(
@@ -1650,28 +2049,45 @@ def history_endpoint(days: int = 30):
                 _, spread_t, _ = kf_di.update(float(y), float(x))
                 di_spreads.append(spread_t)
             z_di_arr = KalmanBetaFilter.rolling_zscore(di_spreads, window=DI_KALMAN_W)
+            di_bars_by_ts = di_meta.get("bars_ByTs", {})
 
-            for i, t in enumerate(di_t):
+            start_di_idx = max(0, len(di_t) - slice_len)
+            for i in range(start_di_idx, len(di_t)):
+                t = di_t[i]
+                exact_z = di_bars_by_ts.get(int(t), {}).get("z_di_exact")
+                val = round(float(exact_z if exact_z is not None else (z_di_arr[i] if i < len(z_di_arr) else 0.0)), 3)
                 local_ts = int(t) + TIME_OFFSET
                 dt_key = datetime.fromtimestamp(local_ts).strftime("%Y-%m-%d %H:%M")
-                val = round(float(z_di_arr[i]), 3) if i < len(z_di_arr) else 0.0
                 z_di_map[local_ts] = val
                 z_di_map[dt_key] = val
 
+        # Slice ac and tc to slice_len (with 100-bar warmup for NWE)
+        nwe_slice = min(len(ac), slice_len + 100)
+        ac_nwe = ac[-nwe_slice:]
+        ac = ac[-slice_len:]
+        tc = tc[-slice_len:]
+
         # --- NWE for history ---
-        # (NWE line, upper, lower, is_up)
         nwe_line, nwe_u, nwe_l, nwe_is_up = calc_nwe_with_bands(
-            ac, bandwidth=NWE_BANDWIDTH, lookback=NWE_LOOKBACK, mult_mae=NWE_MULT_MAE
+            ac_nwe, bandwidth=NWE_BANDWIDTH, lookback=NWE_LOOKBACK, mult_mae=NWE_MULT_MAE
         )
+        nwe_line = nwe_line[-slice_len:]
+        nwe_u = nwe_u[-slice_len:]
+        nwe_l = nwe_l[-slice_len:]
+        nwe_is_up = nwe_is_up[-slice_len:]
 
         # --- Build history with session filter ---
         n = len(z_kalman)
         ols_offset = len(z_ols) - n  # align arrays
         nwe_offset = len(nwe_line) - n
+        active_walls = get_gex_walls()
+        now_epoch = int(time.time())
 
         entries = []
+        last_valid_z_di = 0.0
         for i in range(n):
-            local_ts = int(tc[i + (len(tc) - n)]) + TIME_OFFSET
+            raw_ts = int(tc[i + (len(tc) - n)])
+            local_ts = raw_ts + TIME_OFFSET
             dt = datetime.fromtimestamp(local_ts)
             t_min = dt.hour * 60 + dt.minute
 
@@ -1684,39 +2100,52 @@ def history_endpoint(days: int = 30):
             z_di_val = z_di_map.get(dt_key) if z_di_map else None
             if z_di_val is None and z_di_map:
                 z_di_val = z_di_map.get(local_ts, None)
+            if z_di_val is None:
+                z_di_val = last_valid_z_di
+            else:
+                last_valid_z_di = float(z_di_val)
 
             win_idx = i + (len(tc) - n)
             win_val = float(ac[win_idx]) if 0 <= win_idx < len(ac) else 0.0
+            orig_z_wdo = round(float(z_kalman[i]), 3)
+            orig_z_di = round(float(z_di_val), 3)
 
+            b_ohlc = win_bars_by_ts.get(raw_ts, {})
             entry = {
+                "timestamp": raw_ts,
                 "date": dt.strftime("%Y-%m-%d"),
                 "bar_time": dt.strftime("%H:%M"),
                 "datetime": dt.strftime("%Y-%m-%d %H:%M"),
-                "z": round(float(z_kalman[i]), 3),
+                "z": orig_z_wdo,
                 "z_v1": z_ols_val,
-                "z_di": z_di_val,
+                "z_di": orig_z_di,
                 "win_price": win_val,
+                "win_open": float(b_ohlc.get("open", win_val)),
+                "win_high": float(b_ohlc.get("high", win_val)),
+                "win_low": float(b_ohlc.get("low", win_val)),
             }
             
+            nv = nu = nl = n_up = None
             nwe_idx = i + nwe_offset
             if 0 <= nwe_idx < len(nwe_line):
                 nv = float(nwe_line[nwe_idx])
                 nu = float(nwe_u[nwe_idx])
                 nl = float(nwe_l[nwe_idx])
                 n_up = bool(nwe_is_up[nwe_idx])
-                
-                envW = nu - nv
-                PROX_PCT = 0.10
-                npu = nu - (2 * envW) * PROX_PCT
-                npl = nl + (2 * envW) * PROX_PCT
-                
                 entry["nwe"] = round(nv, 2)
                 entry["nweUpper"] = round(nu, 2)
                 entry["nweLower"] = round(nl, 2)
-                entry["nweProxUpper"] = round(npu, 2)
-                entry["nweProxLower"] = round(npl, 2)
                 entry["isUp"] = n_up
                 entry["is_up"] = n_up
+
+            is_closed = (i < n - 1) or (now_epoch >= (local_ts + 300))
+            setup_eval = _evaluate_bar_setups(
+                orig_z_wdo, orig_z_di, win_val, nv, nu, nl, n_up, t_min,
+                active_walls=active_walls, is_closed_bar=is_closed
+            )
+            entry["z_unfiltered_wdo"] = orig_z_wdo
+            entry["z_unfiltered_di"] = orig_z_di
+            entry.update(setup_eval)
 
             entries.append(entry)
 
@@ -1983,116 +2412,91 @@ def calculate_flow_acceleration(efficiency=None, bars_list=None):
 
 @app.post("/api/restart")
 def restart_server(request: Request):
-    import signal
-    import threading
     client_host = request.client.host if request.client else ""
     if client_host not in ("127.0.0.1", "::1", "localhost"):
         return {"ok": False, "error": "Acesso permitido apenas via localhost."}
-    print("[INFO] Comando de reinicialização recebido pelo endpoint API. Encerrando processo com segurança...")
-    threading.Timer(0.5, lambda: signal.raise_signal(signal.SIGTERM)).start()
-    return {"ok": True, "message": "Reiniciando servidor via PM2..."}
+    print("[INFO] Comando de reinicialização recebido pelo endpoint API. Limpando caches e recarregando motores em tempo real...")
+    global _cache, _cache_ts, _v2_cache, _v2_cache_ts, _di_cache, _di_cache_ts
+    _cache = {}
+    _cache_ts = 0.0
+    _v2_cache = {}
+    _v2_cache_ts = 0.0
+    _di_cache = {}
+    _di_cache_ts = 0.0
+    try:
+        import importlib
+        import core.gex_live_dealer_engine
+        import core.profit_mt5_flow_engine
+        with _mt5_lock:
+            importlib.reload(core.gex_live_dealer_engine)
+            importlib.reload(core.profit_mt5_flow_engine)
+            from core.profit_mt5_flow_engine import flow_engine_singleton
+            flow_engine_singleton._last_update_ts = 0.0
+            if hasattr(flow_engine_singleton, "_historical_cache"):
+                flow_engine_singleton._historical_cache.clear()
+            flow_engine_singleton.update(force=True)
+    except Exception:
+        pass
+    return {"ok": True, "message": "Caches e motores reiniciados com sucesso!"}
 
 @app.get("/api/flow/realtime")
 def get_realtime_flow(
     w_fln: float = 0.20,
     w_pers: float = 0.40,
     w_conc: float = 0.30,
-    w_abs: float = 0.10
+    w_abs: float = 0.10,
+    date_str: str = None,
 ):
-    total_w = w_fln + w_pers + w_conc + w_abs
-    if total_w > 0:
-        w_fln = w_fln / total_w
-        w_pers = w_pers / total_w
-        w_conc = w_conc / total_w
-        w_abs = w_abs / total_w
-    else:
-        w_fln, w_pers, w_conc, w_abs = 0.20, 0.40, 0.30, 0.10
+    with _mt5_lock:
+        bundle = get_profit_day_flow_bundle(date_str)
+    return format_flow_score_for_frontend(
+        bundle,
+        w_fln=w_fln,
+        w_pers=w_pers,
+        w_conc=w_conc,
+        w_abs=w_abs,
+    )
 
-    dynamic_flow = []
-    for item in _realtime_factors_cache:
-        val = 100.0 * (w_fln * item["fln"] + w_pers * item["pers"] + w_conc * item["conc_dir"] + w_abs * item["abs_dir"])
-        val = max(-100.0, min(100.0, val))
-        
-        if val >= 40.0:
-            color = "#00e87a"
-        elif val <= -40.0:
-            color = "#ff3860"
-        else:
-            color = "#f5a623"
-            
-        dynamic_flow.append({
-            "time": item["time"],
-            "value": round(val, 2),
-            "color": color
-        })
-    return dynamic_flow
 
 @app.get("/api/flow/iaf-history")
 def get_iaf_history(date_str: str = None):
-    if not date_str:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-    try:
-        conn = sqlite3.connect("trades.db", timeout=5.0)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute("""
-            SELECT win_price, flow_json, timestamp, bar_time 
-            FROM bar_history 
-            WHERE date_str = ? 
-            ORDER BY timestamp ASC
-        """, (date_str,))
-        rows = c.fetchall()
-        conn.close()
-    except Exception as e:
-        print(f"[ERROR get_iaf_history] {e}")
-        return []
+    with _mt5_lock:
+        bundle = get_profit_day_flow_bundle(date_str)
+    return format_iaf_for_frontend(bundle)
 
-    if not rows:
-        return []
-
-    iaf_history = []
-    bars_list = []
-    for r in rows:
-        bars_list.append({
-            "win_price": r["win_price"],
-            "flow_json": r["flow_json"]
-        })
-        val_dict = calculate_flow_acceleration(bars_list=bars_list)
-        val = val_dict.get("WIN", 0.0)
-        if val >= 40.0:
-            color = "#00e87a"
-        elif val <= -40.0:
-            color = "#ff3860"
-        else:
-            color = "#f5a623"
-            
-        iaf_history.append({
-            "time": r["timestamp"],
-            "value": val,
-            "color": color,
-            "bar_time": r["bar_time"]
-        })
-    return iaf_history
 
 @app.get("/api/flow")
-def get_flow():
-    global _flow_api_cache, _flow_api_cache_ts
-    now_ts = time.time()
-    if now_ts - _flow_api_cache_ts < 1.0 and _flow_api_cache:
-        return _flow_api_cache
-    eff_data = calculate_directional_efficiency()
-    _flow_api_cache = {
+def get_flow(date_str: str = None):
+    with _mt5_lock:
+        bundle = get_profit_day_flow_bundle(date_str)
+    current_flow = bundle.get("current", _broker_flow)
+    # Garantir que cada corretora tenha id, net, avg, vol, buy, sell
+    formatted_flow = {"WIN": {}, "WDO": {}}
+    for sym in ("WIN", "WDO"):
+        sym_data = current_flow.get(sym, {})
+        for idx, b in enumerate(_broker_list):
+            b_obj = sym_data.get(b, {})
+            formatted_flow[sym][b] = {
+                "id": str(idx),
+                "net": int(b_obj.get("net", 0)),
+                "avg": float(b_obj.get("avg", 0.0)),
+                "vol": int(b_obj.get("vol", 0)),
+                "buy": int(b_obj.get("buy", 0)),
+                "sell": int(b_obj.get("sell", 0)),
+            }
+
+    return {
+        "date": bundle.get("date"),
+        "source": bundle.get("source", "PROFIT_NATIVE"),
         "brokers": _broker_list,
-        "flow": _broker_flow,
-        "history": _flow_history_bars,
-        "efficiency": eff_data,
-        "accelerator": calculate_flow_acceleration(efficiency=eff_data),
+        "flow": formatted_flow,
+        "history": bundle.get("history", []),
+        "efficiency": bundle.get("efficiency", {"WIN": {}}),
+        "accelerator": bundle.get("accelerator", {"WIN": 0.0}),
         "last_update": {
-            "WIN": datetime.fromtimestamp(_last_flow_update["WIN"]).strftime("%H:%M:%S") if _last_flow_update["WIN"] > 0 else "SIMULADO"
-        }
+            "WIN": f"PROFIT ({bundle.get('date', 'LIVE')})"
+        },
     }
-    _flow_api_cache_ts = now_ts
-    return _flow_api_cache
 
 @app.post("/api/flow/inject-history")
 async def inject_flow_history(request: Request):
@@ -2162,11 +2566,12 @@ def update_flow(
 @app.get("/api/compass/etapa1")
 @app.get("/api/compass/all")
 @app.get("/api/flow/microstructure")
-def get_compass_etapa1(date_str: str = None):
+def get_compass_etapa1(date_str: str = None, lite: bool = False):
     """Retorna o snapshot completo unificado das Etapas 1, 2 (Caminho A) e 3 (Caminho B) e sincroniza _broker_flow."""
     try:
         from core.profit_mt5_flow_engine import flow_engine_singleton
-        snap = flow_engine_singleton.update(date_str=date_str)
+        with _mt5_lock:
+            snap = flow_engine_singleton.update(date_str=date_str)
         win_b = snap.get("WIN", {}).get("brokers", {})
         if win_b:
             any_vol = False
@@ -2183,6 +2588,16 @@ def get_compass_etapa1(date_str: str = None):
                 _broker_flow["WIN"][brk]["vol"] = bdata.get("vol", 0)
             if any_vol:
                 _last_flow_update["WIN"] = time.time()
+        if lite and isinstance(snap, dict) and isinstance(snap.get("portfolio_4_sistematicas"), dict):
+            p4_full = snap["portfolio_4_sistematicas"]
+            live_days = p4_full.get("live_days", [])
+            lite_snap = dict(snap)
+            lite_p4 = dict(p4_full)
+            lite_p4["is_lite"] = True
+            lite_p4["days"] = live_days
+            lite_p4["all_11_comparison"] = []
+            lite_snap["portfolio_4_sistematicas"] = lite_p4
+            return lite_snap
         return snap
     except Exception as e:
         import traceback
@@ -2196,7 +2611,8 @@ def get_compass_etapa2(date_str: str = None):
     """Retorna a análise da Etapa 2 (Caminho A — Pressão de Hedge Dinâmico dos Dealers GEX cruzada com o Fluxo Profit/MT5)."""
     try:
         from core.profit_mt5_flow_engine import flow_engine_singleton
-        snap = flow_engine_singleton.update(date_str=date_str)
+        with _mt5_lock:
+            snap = flow_engine_singleton.update(date_str=date_str)
         return {
             "ok": snap.get("ok", True),
             "timestamp": snap.get("timestamp"),
@@ -2216,7 +2632,8 @@ def get_compass_etapa3():
     """Retorna a análise da Etapa 3 (Caminho B — Radar Ao Vivo da Cadeia de Opções BOVA11/IBOV, Fluxo Call vs Put e Skew IV)."""
     try:
         from core.options_live_radar_engine import options_radar_singleton
-        return options_radar_singleton.update()
+        with _mt5_lock:
+            return options_radar_singleton.update()
     except Exception as e:
         import traceback
         traceback.print_exc()

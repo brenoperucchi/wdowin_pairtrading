@@ -178,6 +178,7 @@ const FlowDeltaChart = forwardRef(({ history = [], flowData = null, classificati
         deltaSeries.setData(sortData(deltaData));
         smartSeries.setData(sortData(smartData));
         dummySeries.setData(sortData(dummyData));
+        try { chartRef.current.timeScale().fitContent(); } catch (e) {}
 
     }, [history, flowData, classifications, activeSymbol, flowMode]);
 

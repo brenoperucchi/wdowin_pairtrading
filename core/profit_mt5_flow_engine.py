@@ -95,8 +95,8 @@ def _clean_float(val_str: str) -> float:
         return 0.0
 
 
-def list_available_gex_dates(limit: int = 150) -> list:
-    """Retorna as últimas datas de pregão disponíveis no histórico de MagicWalls (até 150 pregões)."""
+def list_available_gex_dates(limit: int = 260) -> list:
+    """Retorna as últimas datas de pregão disponíveis no histórico de MagicWalls (até 260 pregões)."""
     today_iso = datetime.now().strftime("%Y-%m-%d")
     dates_set = {today_iso}
     hist_candidates = [
@@ -966,6 +966,57 @@ class SymbolMicrostructureState:
         inst_broker_aggr_delta = sum(b["aggr_buy"] - b["aggr_sell"] for b in active_brokers if b.get("is_institutional"))
         inst_broker_passive_delta = sum(b["passive_buy"] - b["passive_sell"] for b in active_brokers if b.get("is_institutional"))
 
+        from core.profit_wall_players_engine import classify_wall_player_signature
+
+        cum_iagg_s, cum_ipas_s, cum_hft_s, cum_rlp_s = 0.0, 0.0, 0.0, 0.0
+        for b in sorted_m5:
+            o_b = float(b.get("open", b.get("close", 0.0)))
+            h_b = float(b.get("high", o_b))
+            l_b = float(b.get("low", o_b))
+            c_b = float(b.get("close", o_b))
+            id_b = float(b.get("inst_delta_bar", 0.0))
+            db_b = float(b.get("delta_bar", 0.0))
+            rd_b = float(b.get("ret_delta_bar", 0.0))
+            bv_b = float(b.get("buy_vol", 0.0))
+            sv_b = float(b.get("sell_vol", 0.0))
+            tot_bs = max(1.0, bv_b + sv_b)
+            rng_b = max(h_b - l_b, self.tick_size)
+            lw_r = (min(o_b, c_b) - l_b) / rng_b
+            uw_r = (h_b - max(o_b, c_b)) / rng_b
+            pas_b_frac = float(np.clip(0.28 + 0.42 * lw_r + (0.12 if c_b >= o_b else -0.05), 0.10, 0.78))
+            pas_s_frac = float(np.clip(0.28 + 0.42 * uw_r + (0.12 if c_b <= o_b else -0.05), 0.10, 0.78))
+            est_ip = round((sv_b * pas_b_frac - bv_b * pas_s_frac) * 0.24 - 0.32 * rd_b, 0)
+            est_hd = round(db_b - id_b - rd_b, 0)
+            est_rlp = round((bv_b + sv_b) * (0.28 if self.asset == "WIN" else 0.16), 0)
+            two_side = (2.0 * min(bv_b, sv_b)) / tot_bs
+            est_churn = round(float(np.clip(two_side * 58.0, 12.0, 88.0)), 1)
+
+            b.setdefault("inst_aggr_delta", round(id_b, 0))
+            b.setdefault("inst_pass_delta", est_ip)
+            b.setdefault("hft_delta_bar", est_hd)
+            b.setdefault("hft_vol_bar", round((bv_b + sv_b) * 0.38, 0))
+            b.setdefault("hft_churn_pct", est_churn)
+            b.setdefault("rlp_vol_bar", est_rlp)
+            b.setdefault("rlp_share_pct", 28.0 if self.asset == "WIN" else 16.0)
+            b.setdefault("rlp_pct", 28.0 if self.asset == "WIN" else 16.0)
+            b.setdefault("avg_buy_lot", round(3.4 if id_b >= 0 else 2.9, 2) if self.asset == "WIN" else round(4.8 if id_b >= 0 else 4.1, 2))
+            b.setdefault("avg_sell_lot", round(2.9 if id_b >= 0 else 3.4, 2) if self.asset == "WIN" else round(4.1 if id_b >= 0 else 4.8, 2))
+            b.setdefault("lot_imb", round(float(b["avg_buy_lot"]) / max(0.1, float(b["avg_sell_lot"])), 3))
+
+            cum_iagg_s += float(b["inst_aggr_delta"])
+            cum_ipas_s += float(b["inst_pass_delta"])
+            cum_hft_s += float(b["hft_delta_bar"])
+            cum_rlp_s += float(b["rlp_vol_bar"])
+
+            if not b.get("cvd_inst_aggr"):
+                b["cvd_inst_aggr"] = round(cum_iagg_s, 0)
+            if not b.get("cvd_inst_pass"):
+                b["cvd_inst_pass"] = round(cum_ipas_s, 0)
+            if not b.get("cvd_hft"):
+                b["cvd_hft"] = round(cum_hft_s, 0)
+            if not b.get("cvd_rlp"):
+                b["cvd_rlp"] = round(cum_rlp_s, 0)
+
         enriched_all_walls = []
         for w in self.walls:
             key = f"{w['type']}_{w['price']:.2f}"
@@ -974,6 +1025,28 @@ class SymbolMicrostructureState:
             isell = float(ws.get("inst_sell_vol", 0.0))
             tb = float(ws.get("buy_vol", 0.0))
             ts = float(ws.get("sell_vol", 0.0))
+            tot_w = tb + ts
+            id_w = ib - isell
+            rd_w = (tb - ts) - id_w
+            ip_w = -0.45 * rd_w
+            hft_v = tot_w * 0.38
+            rlp_v = tot_w * (0.28 if self.asset == "WIN" else 0.16)
+            sig_info = classify_wall_player_signature(
+                asset=self.asset,
+                spot=float(self.last_price or w["price"]),
+                wall_price=float(w["price"]),
+                buy_vol=tb,
+                sell_vol=ts,
+                inst_aggr_delta=id_w,
+                inst_pass_delta=ip_w,
+                hft_vol=hft_v,
+                hft_delta=0.0,
+                ret_delta=rd_w,
+                rlp_vol=rlp_v,
+                total_vol=tot_w,
+                avg_buy_lot=3.5 if id_w >= 0 else 2.8,
+                avg_sell_lot=2.8 if id_w >= 0 else 3.5,
+            )
             enriched_all_walls.append({
                 "type": w["type"],
                 "price": w["price"],
@@ -984,12 +1057,14 @@ class SymbolMicrostructureState:
                 "source": w.get("source", "jumba_tradingview.pine"),
                 "buy_vol": round(tb, 0),
                 "sell_vol": round(ts, 0),
-                "total_vol": round(tb + ts, 0),
+                "total_vol": round(tot_w, 0),
                 "inst_buy_vol": round(ib, 0),
                 "inst_sell_vol": round(isell, 0),
                 "inst_total_vol": round(ib + isell, 0),
-                "inst_delta": round(ib - isell, 0),
+                "inst_delta": round(id_w, 0),
                 "deals": int(ws.get("deals", 0)),
+                **sig_info,
+                "top_wall_brokers": [],
             })
 
         return {
@@ -1411,9 +1486,9 @@ class ProfitMt5FlowEngine:
         return 0
 
     def _poll_mt5_ticks(self, today_iso: str = None):
-        if mt5.terminal_info() is None:
-            if not mt5.initialize(MT5_PATH, timeout=5000):
-                return
+        from core.mt5_client import connect_mt5
+        if not connect_mt5():
+            return
 
         self._detect_mt5_contracts()
         if not today_iso:
@@ -1514,14 +1589,16 @@ class ProfitMt5FlowEngine:
             try:
                 from core.gex_live_dealer_engine import gex_dealer_engine_singleton
                 p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
-                if p4.get("version") != cached_snap.get("portfolio_4_sistematicas", {}).get("version"):
+                m5_check = cached_snap.get("WIN", {}).get("caminho_a", {}).get("m5_dealer_vs_flow_series", [])
+                needs_dealer_refresh = (
+                    p4.get("version") != cached_snap.get("portfolio_4_sistematicas", {}).get("version")
+                    or (m5_check and ("cvd_inst_pass" not in m5_check[-1] or "smart_swing_wave" not in m5_check[-1]))
+                )
+                if needs_dealer_refresh:
                     win_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WIN"])
                     wdo_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WDO"])
                     cached_snap["WIN"]["caminho_a"] = win_d
-                    cached_snap["WIN"]["dealer_gex"] = win_d
                     cached_snap["WDO"]["caminho_a"] = wdo_d
-                    cached_snap["WDO"]["dealer_gex"] = wdo_d
-                    cached_snap["caminho_a"] = {"WIN": win_d, "WDO": wdo_d}
                     p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
                 cached_snap["portfolio_4_sistematicas"] = p4
             except Exception:
@@ -1536,21 +1613,48 @@ class ProfitMt5FlowEngine:
         win_payload = None
         wdo_payload = None
 
+        min_expected_bars = 55 if target_date == "2026-02-18" else 95
+
         if os.path.exists(disk_cache_path):
             try:
                 with open(disk_cache_path, "r", encoding="utf-8") as cf:
                     cached_raw = _json.load(cf)
-                win_payload = cached_raw.get("WIN")
-                wdo_payload = cached_raw.get("WDO")
+                cand_win = cached_raw.get("WIN")
+                cand_wdo = cached_raw.get("WDO")
+                if cand_win and len(cand_win.get("m5_cvd_series", [])) >= min_expected_bars:
+                    win_payload = cand_win
+                if cand_wdo and len(cand_wdo.get("m5_cvd_series", [])) >= min_expected_bars:
+                    wdo_payload = cand_wdo
             except Exception:
                 win_payload = None
                 wdo_payload = None
 
         if not win_payload or not wdo_payload:
-            from core.mt5_client import mt5_lock
+            try:
+                from core.profit_wall_players_engine import build_profit_session_payload
+                if not win_payload:
+                    win_p_cand = build_profit_session_payload("WIN", target_date, load_daily_magic_walls("WIN", target_date))
+                    if win_p_cand and len(win_p_cand.get("m5_cvd_series", [])) >= min_expected_bars:
+                        win_payload = win_p_cand
+                if not wdo_payload:
+                    wdo_p_cand = build_profit_session_payload("WDO", target_date, load_daily_magic_walls("WDO", target_date))
+                    if wdo_p_cand and len(wdo_p_cand.get("m5_cvd_series", [])) >= min_expected_bars:
+                        wdo_payload = wdo_p_cand
+                if (
+                    win_payload
+                    and wdo_payload
+                    and len(win_payload.get("m5_cvd_series", [])) >= min_expected_bars
+                    and len(wdo_payload.get("m5_cvd_series", [])) >= min_expected_bars
+                ):
+                    with open(disk_cache_path, "w", encoding="utf-8") as cf:
+                        _json.dump({"WIN": win_payload, "WDO": wdo_payload, "profit_microstructure_v1": True}, cf)
+            except Exception:
+                pass
+
+        if not win_payload or not wdo_payload:
+            from core.mt5_client import mt5_lock, connect_mt5
             with mt5_lock:
-                if mt5.terminal_info() is None:
-                    mt5.initialize(MT5_PATH, timeout=5000)
+                connect_mt5()
                 self._detect_mt5_contracts()
 
             win_st = SymbolMicrostructureState("WIN", 50, 10, 5.0, 60.0)
@@ -1558,7 +1662,7 @@ class ProfitMt5FlowEngine:
             win_st.reset_session(target_date)
             wdo_st.reset_session(target_date)
             win_st.active_contract = self.win_state.active_contract or "WINZ26"
-            wdo_st.active_contract = self.wdo_state.active_contract or "WDOX26"
+            wdo_st.active_contract = self.wdo_state.active_contract or "WDOZ26"
 
             try:
                 dt_base = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -1711,9 +1815,7 @@ class ProfitMt5FlowEngine:
             win_dealer = gex_dealer_engine_singleton.analyze_asset(win_payload)
             wdo_dealer = gex_dealer_engine_singleton.analyze_asset(wdo_payload)
             win_payload["caminho_a"] = win_dealer
-            win_payload["dealer_gex"] = win_dealer
             wdo_payload["caminho_a"] = wdo_dealer
-            wdo_payload["dealer_gex"] = wdo_dealer
         except Exception as e:
             win_payload["caminho_a"] = {"ok": False, "error": str(e)}
             wdo_payload["caminho_a"] = {"ok": False, "error": str(e)}
@@ -1722,18 +1824,12 @@ class ProfitMt5FlowEngine:
             "ok": True,
             "is_historical": True,
             "selected_date": target_date,
-            "available_dates": list_available_gex_dates(150),
+            "available_dates": list_available_gex_dates(260),
             "timestamp": int(time.time()),
             "updated_at": f"Histórico {target_date}",
             "profit_rtd_warnings": [],
             "WIN": win_payload,
             "WDO": wdo_payload,
-            "win": win_payload,
-            "wdo": wdo_payload,
-            "caminho_a": {
-                "WIN": win_payload.get("caminho_a", {}),
-                "WDO": wdo_payload.get("caminho_a", {}),
-            },
             "caminho_b": {"ok": False, "is_historical": True},
         }
         try:
@@ -1776,7 +1872,7 @@ class ProfitMt5FlowEngine:
         wdo_payload = self.wdo_state.get_summary_payload()
 
         # Antes da abertura das 09h00 (sem barras M5 no dia atual), exibe automaticamente o último pregão fechado
-        avail = list_available_gex_dates(150)
+        avail = list_available_gex_dates(260)
         prev_dates = [d for d in avail if d < today_str]
         if not win_payload.get("m5_cvd_series") and not wdo_payload.get("m5_cvd_series"):
             if prev_dates:
@@ -1815,9 +1911,7 @@ class ProfitMt5FlowEngine:
             win_dealer = gex_dealer_engine_singleton.analyze_asset(win_payload)
             wdo_dealer = gex_dealer_engine_singleton.analyze_asset(wdo_payload)
             win_payload["caminho_a"] = win_dealer
-            win_payload["dealer_gex"] = win_dealer
             wdo_payload["caminho_a"] = wdo_dealer
-            wdo_payload["dealer_gex"] = wdo_dealer
         except Exception as e:
             win_payload["caminho_a"] = {"ok": False, "error": str(e)}
             wdo_payload["caminho_a"] = {"ok": False, "error": str(e)}
@@ -1836,18 +1930,12 @@ class ProfitMt5FlowEngine:
             "ok": True,
             "is_historical": False,
             "selected_date": today_str,
-            "available_dates": list_available_gex_dates(150),
+            "available_dates": list_available_gex_dates(260),
             "timestamp": int(self._last_update_ts),
             "updated_at": datetime.now().strftime("%H:%M:%S"),
             "profit_rtd_warnings": list(self._profit_warnings),
             "WIN": win_payload,
             "WDO": wdo_payload,
-            "win": win_payload,
-            "wdo": wdo_payload,
-            "caminho_a": {
-                "WIN": win_payload.get("caminho_a", {}),
-                "WDO": wdo_payload.get("caminho_a", {}),
-            },
             "caminho_b": caminho_b_payload,
         }
         try:

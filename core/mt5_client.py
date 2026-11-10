@@ -53,71 +53,87 @@ beta_state = {
 # ─── MT5 connection ─────────────────────────────────────────────────────────
 
 def _is_mt5_visible_running(target_path: str) -> bool:
-    """Verifica se o terminal64.exe em target_path já está aberto com janela visível no Desktop."""
+    """Verifica se o terminal64.exe em target_path já está em execução no Windows (evita lançar instância invisível)."""
     if not target_path:
         return True
     try:
         import ctypes
         from ctypes import wintypes
         norm_target = os.path.normcase(os.path.normpath(target_path))
-        user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
+        TH32CS_SNAPPROCESS = 0x00000002
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        found = False
 
-        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-        def _enum_cb(hwnd, lparam):
-            nonlocal found
-            if not user32.IsWindowVisible(hwnd):
-                return True
-            pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if not pid.value:
-                return True
-            hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
-            if hproc:
-                try:
-                    buf = ctypes.create_unicode_buffer(1024)
-                    size = wintypes.DWORD(1024)
-                    if kernel32.QueryFullProcessImageNameW(hproc, 0, buf, ctypes.byref(size)):
-                        proc_path = os.path.normcase(os.path.normpath(buf.value))
-                        if proc_path == norm_target:
-                            found = True
-                            return False
-                finally:
-                    kernel32.CloseHandle(hproc)
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        hsnap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if hsnap == wintypes.HANDLE(-1).value:
             return True
-
-        user32.EnumWindows(_enum_cb, 0)
-        return found
+        try:
+            pe = PROCESSENTRY32W()
+            pe.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+            if not kernel32.Process32FirstW(hsnap, ctypes.byref(pe)):
+                return False
+            while True:
+                if pe.szExeFile.lower() == "terminal64.exe":
+                    hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pe.th32ProcessID)
+                    if hproc:
+                        try:
+                            buf = ctypes.create_unicode_buffer(1024)
+                            size = wintypes.DWORD(1024)
+                            if kernel32.QueryFullProcessImageNameW(hproc, 0, buf, ctypes.byref(size)):
+                                proc_path = os.path.normcase(os.path.normpath(buf.value))
+                                if proc_path == norm_target:
+                                    return True
+                        finally:
+                            kernel32.CloseHandle(hproc)
+                if not kernel32.Process32NextW(hsnap, ctypes.byref(pe)):
+                    break
+        finally:
+            kernel32.CloseHandle(hsnap)
+        return False
     except Exception:
         return True
 
 
 def connect_mt5() -> bool:
-    """Inicializa conexão com o MT5 especificado em MT5_PATH (apenas se já estiver aberto com janela visível)."""
+    """Inicializa conexão com o MT5 especificado em MT5_PATH (apenas se já estiver aberto)."""
     with mt5_lock:
         if mt5.terminal_info() is not None:
             return True
-        if MT5_PATH and not _is_mt5_visible_running(MT5_PATH):
-            # Evita que o Python em background lance um terminal64.exe invisível (MainWindowHandle=0)
-            # que trava a abertura do ícone do MetaTrader 5 pelo usuário.
-            return False
-        kwargs = {"timeout": 10000}
-        if MT5_PATH:
-            kwargs["path"] = MT5_PATH
-            print(f"[MT5] Conectando ao terminal: {MT5_PATH}")
-        if not mt5.initialize(**kwargs):
-            print(f"[MT5] Falha ao inicializar: {mt5.last_error()}")
-            return False
-        info = mt5.terminal_info()
-        print(f"[MT5] Conectado — {info.name} | path: {info.path}")
-        # Ensure B3 symbols are visible in Market Watch
-        from core.config import SYMBOL_A, SYMBOL_B, DI_SYMBOL
-        for sym in [SYMBOL_A, SYMBOL_B, DI_SYMBOL]:
-            mt5.symbol_select(sym, True)
-        print(f"[MT5] Symbols ativados: {SYMBOL_A}, {SYMBOL_B}, {DI_SYMBOL}")
-        return True
+        candidates = []
+        for cand in [
+            MT5_PATH,
+            "C:/Program Files/MetaTrader 5/terminal64.exe",
+            "C:/Program Files/MetaTrader 5 Terminal - milhao/terminal64.exe",
+            "C:/Program Files/MetaTrader 5 Terminal/terminal64.exe",
+        ]:
+            if cand and cand not in candidates:
+                candidates.append(cand)
+        for cand in candidates:
+            if not _is_mt5_visible_running(cand):
+                continue
+            print(f"[MT5] Conectando ao terminal: {cand}")
+            if mt5.initialize(path=cand, timeout=8000):
+                info = mt5.terminal_info()
+                print(f"[MT5] Conectado — {info.name} | path: {info.path}")
+                from core.config import SYMBOL_A, SYMBOL_B, DI_SYMBOL
+                for sym in [SYMBOL_A, SYMBOL_B, DI_SYMBOL, "WINZ26", "WDOZ26", "DI1F29", "DI1F28"]:
+                    mt5.symbol_select(sym, True)
+                return True
+        return False
 
 
 def fetch_bars(symbol: str, count: int):

@@ -41,6 +41,8 @@ def simulate_aligned_win_wdo_slot(
     replace_13_16_pa: bool = False,        # Opção A: substituir slots de baixo Ret/DD por setups PA Barra[1]
     front_run_pts: float = 20.0,
     cost_pts: float = 10.0,
+    sig_filter=None,                       # callable(date, b1_tmin, dir) -> bool (filtros de fluxo/janela do dashboard)
+    start_date: str = "2026-05-11",
 ):
     dates = df["session_date"].values
     opens = df["open"].values
@@ -66,7 +68,7 @@ def simulate_aligned_win_wdo_slot(
         b1_date = dates[b1_idx]
         today_str = dates[idx]
 
-        if today_str < "2026-05-11" or today_str not in gex_by_date or b1_date != today_str:
+        if today_str < start_date or today_str not in gex_by_date or b1_date != today_str:
             idx += 1
             continue
 
@@ -490,6 +492,9 @@ def simulate_aligned_win_wdo_slot(
                                 sig_type, sig_dir, sig_px, def_wall = "STOP", -1, round5(min(float(lvl) - 10.0, b1_l - 5.0)), float(lvl)
                                 tp_pts, sl_pts, s1_trig, be_trig_177k, be_lock_177k, tr_trig, tr_dist, max_hold = 1200.0, 380.0, 180.0, 250.0, 50.0, 480.0, 180.0, 120
                                 break
+
+        if sig_type is not None and sig_filter is not None and not sig_filter(b1_date, b1_tmin, sig_dir):
+            sig_type, sig_dir = None, 0
 
         if sig_type is None:
             idx += 1

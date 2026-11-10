@@ -1,9 +1,9 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST03_Scalper_Cambial_WDO.mq5
-//| EST-03 [Mantido Original] Arbitragem Cambial WIN+WDO Wall (Ret/DD 6.68)
+//| EST-03 [M15 Fakeout Trap Wall] WinRate 53.9% | Ret/DD 8.98x
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-03 [Mantido Original] Arbitragem Cambial WIN+WDO Wall (Ret/DD 6.68)"
+#property description "EST-03 [M15 Fakeout Trap Wall] WinRate 53.9% | Ret/DD 8.98x"
 #property version   "2.00"
 #property strict
 
@@ -15,6 +15,7 @@ input double              InpMaxDailyLoss  = 1000.0; // Perda Máxima Diária In
 input ulong               InpMagicNumber   = 88003; // Magic Number Base
 input bool                InpDrawLevels    = true;   // Desenhar MagicWalls no Gráfico
 input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)
+input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)
 
 CJumbaGexNweEngine g_engine;
 
@@ -26,6 +27,7 @@ int OnInit()
       false,false,false,false,false,false,false,false,
       false,false,false,false,false,false,false,false
    );
+   g_engine.SetUseFlowFilter(InpUseFlowFilter);
    return(INIT_SUCCEEDED);
   }
 

@@ -88,9 +88,9 @@ with open(master_path, "w", encoding="utf-8-sig") as f:
 indiv_specs = [
     (1,  "Jumba_EST01_Scalper_Hibrido_NY",       88001, "EST-01 [3-Pilares BE_Wall(25) + TP_MainWall] Scalper Hibrido NY (Ret/DD 6.90)"),
     (2,  "Jumba_EST02_Scalper_Hibrido_DiaTodo",  88002, "EST-02 [3-Pilares Limit_50%B1 + TP_MainWall] Scalper Dia Todo (Ret/DD 3.80)"),
-    (3,  "Jumba_EST03_Scalper_Cambial_WDO",      88003, "EST-03 [Mantido Original] Arbitragem Cambial WIN+WDO Wall (Ret/DD 6.68)"),
+    (3,  "Jumba_EST03_Scalper_Cambial_WDO",      88003, "EST-03 [M15 Fakeout Trap Wall] WinRate 53.9% | Ret/DD 8.98x"),
     (4,  "Jumba_EST04_Pullback_Reteste_Wall",    88004, "EST-04 [Matriz WDO Reteste 220p(off-5) + BE_2Stage(15) + TP_MidWall] (Ret/DD 4.88)"),
-    (5,  "Jumba_EST05_Pullback_Cluster_NWE",     88005, "EST-05 [3-Pilares Limit_ExtB1 + TP_MainWall] Pullback Cluster NWE (Ret/DD 6.57)"),
+    (5,  "Jumba_EST05_Pullback_Cluster_NWE",     88005, "EST-05 [M15 MidWall Pullback NWE] WinRate 37.0% | Ret/DD 6.46x"),
     (6,  "Jumba_EST06_Pullback_Limit_Slope",     88006, "EST-06 [3-Pilares Stop_B1 + BE_Wall(15) + TP_MainWall] Slope Wall (Ret/DD 5.99)"),
     (7,  "Jumba_EST07_Breakout_Momentum_NY",     88007, "EST-07 [3-Pilares BE_Wall(15) + TP_Original] Breakout Momentum NY (Ret/DD 6.91)"),
     (8,  "Jumba_EST08_Breakout_Rapido_Core",     88008, "EST-08 [3-Pilares TP_MainWall Real] Breakout Rapido Core (Ret/DD 5.40)"),
@@ -148,6 +148,13 @@ void OnTick()
 """
     with open(os.path.join(MT5_EXP_DIR, f"{fname}.mq5"), "w", encoding="utf-8-sig") as f:
         f.write(indiv_code)
+    with open(os.path.join(MT5_PROJ_DIR, "Experts", f"{fname}.mq5"), "w", encoding="utf-8-sig") as f:
+        f.write(indiv_code)
+
+# Copy all Experts from mt5/Experts to MT5_EXP_DIR so WDO and Monitor are synchronized
+for f in os.listdir(os.path.join(MT5_PROJ_DIR, "Experts")):
+    if f.endswith(".mq5"):
+        shutil.copy2(os.path.join(MT5_PROJ_DIR, "Experts", f), os.path.join(MT5_EXP_DIR, f))
 
 # 4. Copy to ALL MT5 Terminal Data Folders and Compile with metaeditor64.exe
 TERM_BASE = os.path.expandvars(r"%APPDATA%\MetaQuotes\Terminal")
@@ -174,6 +181,7 @@ if os.path.exists(wdo_core_path):
 
 METAEDITOR_CANDIDATES = [
     r"C:\Program Files\MetaTrader 5\metaeditor64.exe",
+    r"C:\Program Files\MetaTrader 5 Terminal\MetaEditor64.exe",
     r"C:\Program Files\MetaTrader 5 EXNESS\metaeditor64.exe",
     r"C:\Program Files\Tickmill MT5 Terminal\metaeditor64.exe",
 ]
@@ -194,6 +202,7 @@ for mq5 in mq5_files:
     ex5_src = src.replace(".mq5", ".ex5")
     if os.path.exists(ex5_dst):
         shutil.copy2(ex5_dst, ex5_src)
+        shutil.copy2(ex5_dst, os.path.join(MT5_PROJ_DIR, "Experts", os.path.basename(ex5_dst)))
         compiled_ok += 1
         print(f"[COMPILED OK] {os.path.basename(ex5_src)} ({os.path.getsize(ex5_src):,} bytes)")
     else:

@@ -1,19 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                 Jumba_Portfolio_Live_Monitor.mq5 |
 //|     Jumba Quant / Antigravity - Monitor de Operações & Histórico |
-//|     Acompanha 18 Robôs Validados (>=100 Tr + WF): WIN (11)+WDO(7)|
+//|     Acompanha 11 Robôs OOS+ Validados (Walls+NWE): WIN(8)+WDO(3) |
 //|     Guarda e Compara MaxDD (BT vs Live) e Loss Streak (BT vs Live)|
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "Monitor em Tempo Real e Historico dos 18 Robos (11 WIN + 7 WDO >= 100 Trades)."
+#property description "Monitor em Tempo Real e Historico dos 11 Robos OOS+ Validados (8 WIN + 3 WDO - Proposta B - Walls TP/SL/BE + NWE)."
 #property description "Compara Operacoes Abertas, PnL, MaxDD (BT vs Live) e Sequencia de Loss (BT vs Live)."
-#property version   "1.00"
+#property version   "3.00"
 #property strict
 
 enum ENUM_BT_DD_MODE
   {
    BT_DD_BY_TRADE = 0, // MaxDD BT Trade-a-Trade (Mais Conservador)
-   BT_DD_BY_DAY   = 1  // MaxDD BT Fechamento Diario (124 Pregões)
+   BT_DD_BY_DAY   = 1  // MaxDD BT Fechamento Diario (212 Pregões 2026)
   };
 
 enum ENUM_HIST_SOURCE
@@ -25,7 +25,7 @@ enum ENUM_HIST_SOURCE
 
 input ulong            InpWinBaseMagic     = 88000;            // Magic Base WIN (88001..88016)
 input ulong            InpWdoBaseMagic     = 89000;            // Magic Base WDO (89001..89016)
-input ENUM_BT_DD_MODE  InpBtDdReference    = BT_DD_BY_TRADE;   // Referência de MaxDD do Backtest
+input ENUM_BT_DD_MODE  InpBtDdReference    = BT_DD_BY_DAY;     // Referência de MaxDD do Backtest
 input ENUM_HIST_SOURCE InpHistorySource    = HIST_AUTO_HYBRID; // Fonte do Histórico de Trades Fechados
 input int              InpRefreshSeconds     = 2;                // Intervalo de Atualização (Segundos)
 input datetime         InpHistoryStartDate   = D'2025.01.01';    // Data Inicial do Histórico Live
@@ -37,11 +37,11 @@ input int             InpPanelX           = 12;             // Posição X do Pa
 input int             InpPanelY           = 24;             // Posição Y do Painel no Gráfico
 input int             InpFontSize         = 8;              // Tamanho da Fonte da Tabela
 
-#define TOTAL_MONITORED_ROBOTS 18
-#define IDX_SUMMARY_WIN        18
-#define IDX_SUMMARY_WDO        19
-#define IDX_SUMMARY_PORTFOLIO  20
-#define TOTAL_ROWS             21
+#define TOTAL_MONITORED_ROBOTS 11
+#define IDX_SUMMARY_WIN        11
+#define IDX_SUMMARY_WDO        12
+#define IDX_SUMMARY_PORTFOLIO  13
+#define TOTAL_ROWS             14
 
 struct SRobotMonitorRow
   {
@@ -127,32 +127,25 @@ void InitBenchmarks()
    datetime dt_orig = D'2025.01.01 00:00';
    datetime dt_nov  = D'2026.11.01 00:00'; // Data em que os novos modelos (>=100tr + WF + Rollover Fix) substituíram os slots antigos
 
-   // --- 11 ROBÔS WIN (Magic 88001..88016) ---
-   SetRowConfig(0,  "EST-01", "WIN_PA_PINBAR_WALL",      false, 1,  InpWinBaseMagic + 1,  dt_orig, 394, 43.7, 1.41, 3186.0, 256.0, 439.0, 8);
-   SetRowConfig(1,  "EST-02", "WIN_PA_OUTSIDE_MID",      false, 2,  InpWinBaseMagic + 2,  dt_orig, 179, 59.2, 1.41, 1474.0, 389.0, 430.0, 4);
-   SetRowConfig(2,  "EST-04", "WIN_PA_INSIDE_BREAK",     false, 4,  InpWinBaseMagic + 4,  dt_orig, 125, 49.6, 1.60, 1355.0, 264.0, 264.0, 6);
-   SetRowConfig(3,  "EST-06", "WIN_OF_ABSORPTION",       false, 6,  InpWinBaseMagic + 6,  dt_orig, 378, 46.6, 1.37, 3281.0, 503.0, 571.0, 9);
-   SetRowConfig(4,  "EST-07", "WIN_OF_CLIMAX_WALL",      false, 7,  InpWinBaseMagic + 7,  dt_orig, 257, 43.6, 1.51, 2737.0, 298.0, 365.0, 9);
-   SetRowConfig(5,  "EST-08", "WIN_OF_SPRING_UPTHRUST",  false, 8,  InpWinBaseMagic + 8,  dt_orig, 296, 64.9, 1.50, 2391.0, 414.0, 414.0, 5);
-   SetRowConfig(6,  "EST-12", "WIN_REG_TREND_WALL",      false, 12, InpWinBaseMagic + 12, dt_orig, 277, 64.6, 1.50, 2409.0, 462.0, 462.0, 4);
-   SetRowConfig(7,  "EST-13", "WIN_SG_SCALPER_3C",       false, 13, InpWinBaseMagic + 13, dt_nov,  116, 87.9, 2.90, 3353.0, 306.0, 306.0, 2);
-   SetRowConfig(8,  "EST-14", "WIN_SG_MOMENTUM_3C",      false, 14, InpWinBaseMagic + 14, dt_nov,  241, 82.6, 1.81, 4457.0, 538.0, 603.0, 4);
-   SetRowConfig(9,  "EST-15", "WIN_SG_Z30_REV_WALL",     false, 15, InpWinBaseMagic + 15, dt_nov,  278, 82.4, 1.76, 5005.0, 545.0, 586.0, 2);
-   SetRowConfig(10, "EST-16", "WIN_SG_SPRING_Z30_WALL",  false, 16, InpWinBaseMagic + 16, dt_nov,  199, 83.9, 2.17, 4781.0, 809.0, 809.0, 2);
+   // --- 8 ROBÔS WIN OOS+ VALIDADOS (Magic 88001, 88003, 88004, 88005, 88007, 88013..88015) · 212 Pregões 2026 ---
+   SetRowConfig(0,  "EST-01", "WIN_PA_PINBAR_WALL",      false, 1,  InpWinBaseMagic + 1,  dt_orig,  828, 32.4, 1.10,  1844.0,  891.0,  951.0, 24);
+   SetRowConfig(1,  "EST-03", "WIN_M15_FAKEOUT_TRAP",    false, 3,  InpWinBaseMagic + 3,  dt_nov,  1713, 53.5, 1.27,  7091.0, 1279.0, 1289.0, 12);
+   SetRowConfig(2,  "EST-04", "WIN_PB_WDO_ALIGNED",      false, 4,  InpWinBaseMagic + 4,  dt_orig,  364, 43.4, 1.30,  2149.0,  594.0,  694.0, 10);
+   SetRowConfig(3,  "EST-05", "WIN_M15_MIDWALL_PULLBACK",false, 5,  InpWinBaseMagic + 5,  dt_nov,   198, 42.4, 2.47,  2253.0,  204.0,  215.0,  9);
+   SetRowConfig(4,  "EST-07", "WIN_OF_CLIMAX_WALL",      false, 7,  InpWinBaseMagic + 7,  dt_orig,  554, 37.2, 1.17,  2127.0,  675.0,  742.0, 11);
+   SetRowConfig(5,  "EST-13", "WIN_SG_SCALPER_3C",       false, 13, InpWinBaseMagic + 13, dt_nov,   454, 63.0, 1.35,  4660.0,  791.0,  875.0,  4);
+   SetRowConfig(6,  "EST-14", "WIN_SG_MOMENTUM_3C",      false, 14, InpWinBaseMagic + 14, dt_nov,   504, 64.1, 1.35,  5334.0, 1052.0, 1155.0,  4);
+   SetRowConfig(7,  "EST-15", "WIN_SG_Z30_REV_WALL",     false, 15, InpWinBaseMagic + 15, dt_nov,   488, 63.3, 1.26,  3951.0, 1080.0, 1080.0,  5);
 
-   // --- 7 ROBÔS WDO (Magic 89002..89015) ---
-   SetRowConfig(11, "WDO-02", "WDO_PA_OUTSIDE_MID",      true,  2,  InpWdoBaseMagic + 2,  dt_orig, 242, 53.3, 1.31, 2570.0, 435.0, 595.0, 4);
-   SetRowConfig(12, "WDO-06", "WDO_OF_ABSORPTION",       true,  6,  InpWdoBaseMagic + 6,  dt_nov,  267, 51.3, 1.25, 2125.0, 900.0, 900.0, 6);
-   SetRowConfig(13, "WDO-07", "WDO_OF_CLIMAX_WALL",      true,  7,  InpWdoBaseMagic + 7,  dt_orig, 173, 53.2, 1.25, 1260.0, 455.0, 455.0, 5);
-   SetRowConfig(14, "WDO-09", "WDO_PB_WALL_PULLBACK",    true,  9,  InpWdoBaseMagic + 9,  dt_nov,  218, 49.5, 1.40, 2750.0, 555.0, 680.0, 8);
-   SetRowConfig(15, "WDO-10", "WDO_S2_MIDWALL_Z30",      true,  10, InpWdoBaseMagic + 10, dt_nov,  224, 52.7, 1.70, 2990.0, 295.0, 355.0, 5);
-   SetRowConfig(16, "WDO-11", "WDO_REG_PINNED_FADE",     true,  11, InpWdoBaseMagic + 11, dt_nov,  172, 76.2, 1.97, 4420.0, 705.0, 705.0, 3);
-   SetRowConfig(17, "WDO-15", "WDO_PA_MAINWALL_Z30_REV", true,  15, InpWdoBaseMagic + 15, dt_nov,  108, 52.8, 1.93, 2575.0, 265.0, 445.0, 5);
+   // --- 3 ROBÔS WDO OOS+ VALIDADOS (Magic 89001, 89005, 89007) · 212 Pregões 2026 ---
+   SetRowConfig(8,  "WDO-01", "WDO_PA_WALL_SCALPER_NY",  true,  1,  InpWdoBaseMagic + 1,  dt_nov,   705, 51.3, 1.17,  3940.0, 1325.0, 1330.0,  6);
+   SetRowConfig(9,  "WDO-05", "WDO_PA_CLUSTER_NWE",      true,  5,  InpWdoBaseMagic + 5,  dt_nov,   745, 61.9, 1.24,  5995.0,  880.0, 1170.0,  6);
+   SetRowConfig(10, "WDO-07", "WDO_OF_CLIMAX_WALL",      true,  7,  InpWdoBaseMagic + 7,  dt_orig,  475, 54.7, 1.26,  3685.0, 1225.0, 1255.0,  5);
 
-   // --- 3 LINHAS DE CONSOLIDAÇÃO (WIN, WDO, PORTFÓLIO TOTAL) ---
-   SetRowConfig(IDX_SUMMARY_WIN,       "WIN 11",   "SUBTOTAL INDICE (11 ROBOS)",  false, 99,  0, dt_orig, 2740, 61.9, 1.62, 34429.0, 1094.0, 1277.0, 12);
-   SetRowConfig(IDX_SUMMARY_WDO,       "WDO 07",   "SUBTOTAL DOLAR (07 ROBOS)",   true,  99,  0, dt_orig, 1404, 53.9, 1.44, 18690.0, 2015.0, 2135.0, 12);
-   SetRowConfig(IDX_SUMMARY_PORTFOLIO, "TOTAL 18", "PORTFOLIO GERAL (18 ROBOS)",  false, 100, 0, dt_orig, 4144, 59.2, 1.54, 53119.0, 1496.0, 1761.0, 14);
+   // --- 3 LINHAS DE CONSOLIDAÇÃO (WIN 08, WDO 03, PORTFÓLIO TOTAL 11 - PROPOSTA B) ---
+   SetRowConfig(IDX_SUMMARY_WIN,       "WIN 08",   "SUBTOTAL INDICE (08 ROBOS)",  false, 99,  0, dt_orig, 5103, 50.0, 1.27, 29409.0, 2848.0, 3090.0, 20);
+   SetRowConfig(IDX_SUMMARY_WDO,       "WDO 03",   "SUBTOTAL DOLAR (03 ROBOS)",   true,  99,  0, dt_orig, 1925, 56.3, 1.22, 13620.0, 3235.0, 3265.0,  6);
+   SetRowConfig(IDX_SUMMARY_PORTFOLIO, "TOTAL 11", "PORTFOLIO ELITE (11 ROBOS)",  false, 100, 0, dt_orig, 7028, 51.7, 1.25, 43029.0, 3384.0, 3852.0, 15);
   }
 
 //+------------------------------------------------------------------+
@@ -646,8 +639,8 @@ void RenderDashboardPanel()
    UpsertRect(g_prefix + "BG_MAIN", x0, y0, tbl_w, tbl_h, C'15,20,28', C'55,70,95');
    UpsertRect(g_prefix + "BG_HDR",  x0 + 2, y0 + 2, tbl_w - 4, hdr_h - 4, C'22,32,46', C'45,65,90');
 
-   string dd_mode_str = (InpBtDdReference == BT_DD_BY_DAY) ? "MaxDD Diario (124d)" : "MaxDD Trade-a-Trade (124d)";
-   string title = StringFormat("JUMBA QUANT MONITOR LIVE vs BACKTEST  |  18 ROBOS ATIVOS (>=100 TRADES & WALK-FORWARD)  |  Ref BT: %s  |  Atualizado: %s",
+   string dd_mode_str = (InpBtDdReference == BT_DD_BY_DAY) ? "MaxDD Diario (212d 2026)" : "MaxDD Trade-a-Trade (212d 2026)";
+   string title = StringFormat("JUMBA QUANT MONITOR LIVE vs BACKTEST  |  11 ROBOS OOS+ ELITE (8 WIN + 3 WDO · PROPOSTA B)  |  Ref BT: %s  |  Atualizado: %s",
                                dd_mode_str, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
    UpsertLabel(g_prefix + "LBL_TITLE", x0 + 10, y0 + 6, title, C'100,210,255', InpFontSize + 1);
 
@@ -818,8 +811,13 @@ datetime g_deals_exported_at    = 0;
 
 bool IsJumbaMagic(ulong magic)
   {
-   return (magic >= InpWinBaseMagic + 1 && magic <= InpWinBaseMagic + 16) ||
-          (magic >= InpWdoBaseMagic + 1 && magic <= InpWdoBaseMagic + 16);
+   if(FindRowByMagic(magic) >= 0)
+      return true;
+   if(magic >= InpWinBaseMagic + 1 && magic <= InpWinBaseMagic + 16)
+      return true;
+   if(magic >= InpWdoBaseMagic + 1 && magic <= InpWdoBaseMagic + 16)
+      return true;
+   return false;
   }
 
 void ExportLiveDealsHistory(bool force = false)
@@ -902,11 +900,12 @@ void RefreshMonitor()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   ObjectsDeleteAll(0, g_prefix);
    InitBenchmarks();
    LoadPersistentRecords();
    EventSetTimer(MathMax(1, InpRefreshSeconds));
    RefreshMonitor();
-   Print("[JUMBA MONITOR] Inicializado com sucesso para 18 Robos Validados (11 WIN + 7 WDO >= 100 Trades).");
+   Print("[JUMBA MONITOR] Inicializado com sucesso para 11 Robos OOS+ Validados (8 WIN + 3 WDO - Proposta B · Walls TP/SL/BE + NWE).");
    return(INIT_SUCCEEDED);
   }
 

@@ -14,6 +14,10 @@ import sqlite3
 from datetime import datetime
 from core.config import (
     Z_ENTRY, Z_ANOMALY, Z_ATTENTION,
+    DI_Z_ENTRY, DI_Z_ATTENTION,
+    CONS_WDO_ENTRY, CONS_DI_ENTRY, CONS_Z_ATTENTION, CONS_USE_NWE,
+    WALL_MIN_PTS, WALL_SL_BUFFER, WALL_TP_BUFFER, WALL_MAX_SL, WALL_MIN_RR,
+    COOLDOWN_BARS,
     BUY_SL, BUY_TP, BUY_BE_ACT, BUY_BE_LOCK,
     SELL_SL, SELL_TP, SELL_BE_ACT, SELL_BE_LOCK,
     WIN_CONTRACTS, WIN_PV,
@@ -23,12 +27,77 @@ from core.config import (
     NWE_BAND_MULT,
 )
 
+
 STRATEGIES = ["CONS_BASE", "WDO_NWE", "DI_NWE"]
+
+
+def calc_wall_tp_sl(direction: str, entry_px: float, walls: list,
+                    min_pts: float = WALL_MIN_PTS,
+                    sl_buf: float = WALL_SL_BUFFER,
+                    tp_buf: float = WALL_TP_BUFFER) -> tuple[float, float, float, float]:
+    """
+    Compute dynamic Take Profit (at next GEX Wall - tp_buf, >= min_pts)
+    and Stop Loss (hidden behind previous GEX Wall + sl_buf, >= min_pts).
+    Returns: (tp_price, sl_price, tp_pts, sl_pts)
+    """
+    wall_prices = []
+    if walls:
+        for w in walls:
+            if isinstance(w, dict) and w.get("price") is not None:
+                wall_prices.append(float(w["price"]))
+            elif isinstance(w, (int, float)):
+                wall_prices.append(float(w))
+        wall_prices = sorted(set(wall_prices))
+
+    is_buy = (direction == "BUY" or direction == 1)
+    if not wall_prices:
+        tp_pts = max(min_pts, 400.0)
+        sl_pts = max(min_pts, 200.0)
+        tp_px = (entry_px + tp_pts) if is_buy else (entry_px - tp_pts)
+        sl_px = (entry_px - sl_pts) if is_buy else (entry_px + sl_pts)
+        return round(tp_px, 0), round(sl_px, 0), round(tp_pts, 0), round(sl_pts, 0)
+
+    if is_buy:
+        down_walls = [w for w in wall_prices if w <= entry_px]
+        if down_walls:
+            prev_wall = down_walls[-1]
+            sl_pts = max(min_pts, (entry_px - prev_wall) + sl_buf)
+        else:
+            sl_pts = min_pts
+        sl_px = entry_px - sl_pts
+
+        up_walls = [w for w in wall_prices if (w - tp_buf) - entry_px >= min_pts]
+        if up_walls:
+            tp_px = up_walls[0] - tp_buf
+            tp_pts = tp_px - entry_px
+        else:
+            tp_pts = max(min_pts * 2.0, 400.0)
+            tp_px = entry_px + tp_pts
+    else:
+        up_walls = [w for w in wall_prices if w >= entry_px]
+        if up_walls:
+            prev_wall = up_walls[0]
+            sl_pts = max(min_pts, (prev_wall - entry_px) + sl_buf)
+        else:
+            sl_pts = min_pts
+        sl_px = entry_px + sl_pts
+
+        down_walls = [w for w in reversed(wall_prices) if entry_px - (w + tp_buf) >= min_pts]
+        if down_walls:
+            tp_px = down_walls[0] + tp_buf
+            tp_pts = entry_px - tp_px
+        else:
+            tp_pts = max(min_pts * 2.0, 400.0)
+            tp_px = entry_px - tp_pts
+
+    return round(tp_px, 0), round(sl_px, 0), round(tp_pts, 0), round(sl_pts, 0)
+
 
 
 class TradeEngine:
     def __init__(self, db_path: str = "trades.db"):
         self.db_path = db_path
+        self._last_close_ts = {s: 0.0 for s in STRATEGIES}
         self._init_db()
 
     def _connect(self):
@@ -64,11 +133,16 @@ class TradeEngine:
                 hmm_state TEXT
             )
         ''')
-        # Migration: add strategy column if missing
-        try:
-            c.execute("ALTER TABLE matador_ops ADD COLUMN strategy TEXT DEFAULT 'CONS_BASE'")
-        except sqlite3.OperationalError:
-            pass
+        # Migration: add strategy and wall tp/sl columns if missing
+        for col_sql in [
+            "ALTER TABLE matador_ops ADD COLUMN strategy TEXT DEFAULT 'CONS_BASE'",
+            "ALTER TABLE matador_ops ADD COLUMN tp_price REAL DEFAULT 0.0",
+            "ALTER TABLE matador_ops ADD COLUMN sl_price REAL DEFAULT 0.0",
+        ]:
+            try:
+                c.execute(col_sql)
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
         conn.close()
 
@@ -78,7 +152,7 @@ class TradeEngine:
         c = conn.cursor()
         c.execute(
             "SELECT id, direction, z_source, strategy, price_win_in, price_wdo_in, "
-            "max_pts_favor, be_active FROM matador_ops WHERE status='OPEN'"
+            "max_pts_favor, be_active, tp_price, sl_price FROM matador_ops WHERE status='OPEN'"
         )
         rows = c.fetchall()
         conn.close()
@@ -91,8 +165,10 @@ class TradeEngine:
                 "strategy": strat,
                 "price_win_in": row[4], "price_wdo_in": row[5],
                 "max_pts_favor": row[6], "be_active": bool(row[7]),
+                "tp_price": row[8] or 0.0, "sl_price": row[9] or 0.0,
             }
         return result
+
 
     def _in_session(self, hour, minute):
         t = hour * 60 + minute
@@ -113,7 +189,8 @@ class TradeEngine:
                  nwe_is_up: bool = True,
                  nwe_upper: float = 0.0,
                  nwe_lower: float = 0.0,
-                 bar_close_confirmed: bool = True) -> dict:
+                 bar_close_confirmed: bool = True,
+                 walls: list = None) -> dict:
         """
         Main evaluation loop. Called every poll (~2.5s).
         Evaluates all 3 strategies independently and returns combined result.
@@ -133,7 +210,7 @@ class TradeEngine:
             # only check exits — never open a second trade for the same setup
             if trade is not None:
                 results[strat] = self._check_exits(
-                    trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strat
+                    trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strat, walls=walls
                 )
                 continue
 
@@ -155,20 +232,26 @@ class TradeEngine:
                 results[strat] = self._result("WAIT", strat)
                 continue
 
+            # ── Cooldown check (4 M5 bars = 20 min after closing a trade) ──
+            if (datetime.now().timestamp() - self._last_close_ts.get(strat, 0.0)) < (COOLDOWN_BARS * 300):
+                results[strat] = self._result("WAIT", strat)
+                continue
+
             # ── Strategy-specific entry logic ──
             if strat == "CONS_BASE":
                 results[strat] = self._eval_consensus(
-                    z_wdo, z_di, win_price, wdo_price, rho, beta_value, hmm_state
+                    z_wdo, z_di, win_price, wdo_price, rho, beta_value, hmm_state,
+                    nwe_is_up=nwe_is_up, nwe_upper=nwe_upper, nwe_lower=nwe_lower, walls=walls
                 )
             elif strat == "WDO_NWE":
                 results[strat] = self._eval_wdo_nwe(
                     z_wdo, win_price, wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower
+                    nwe_is_up, nwe_upper, nwe_lower, walls=walls
                 )
             elif strat == "DI_NWE":
                 results[strat] = self._eval_di_nwe(
                     z_di, win_price, wdo_price, rho, beta_value, hmm_state,
-                    nwe_is_up, nwe_upper, nwe_lower
+                    nwe_is_up, nwe_upper, nwe_lower, walls=walls
                 )
 
         # Build combined response
@@ -176,23 +259,37 @@ class TradeEngine:
 
     # ── Strategy evaluators ─────────────────────────────────────────────────
 
-    def _eval_consensus(self, z_wdo, z_di, win_price, wdo_price, rho, beta, hmm):
-        """Consensus: requires BOTH z-scores to confirm."""
-        # BUY
-        if (z_wdo <= -Z_ENTRY and z_di <= -Z_ATTENTION) or \
-           (z_wdo <= -Z_ATTENTION and z_di <= -Z_ENTRY):
+    def _eval_consensus(self, z_wdo, z_di, win_price, wdo_price, rho, beta, hmm,
+                        nwe_is_up=True, nwe_upper=0.0, nwe_lower=0.0, walls=None):
+        """Consensus: asymmetric WDO (1.6) + DI (2.2) confirmation (att 1.2) + NWE proximity."""
+        sig_buy = (z_wdo <= -CONS_WDO_ENTRY and z_di <= -CONS_Z_ATTENTION) or \
+                  (z_di <= -CONS_DI_ENTRY and z_wdo <= -CONS_Z_ATTENTION)
+        sig_sell = (z_wdo >= CONS_WDO_ENTRY and z_di >= CONS_Z_ATTENTION) or \
+                   (z_di >= CONS_DI_ENTRY and z_wdo >= CONS_Z_ATTENTION)
+
+        if CONS_USE_NWE:
+            band_width = nwe_upper - nwe_lower if (nwe_upper > 0 and nwe_lower > 0) else 1.0
+            if band_width < 1e-10:
+                band_width = 1.0
+            if sig_buy:
+                if nwe_is_up or (nwe_lower > 0 and win_price > nwe_lower + band_width * 0.15):
+                    sig_buy = False
+            if sig_sell:
+                if (not nwe_is_up) or (nwe_upper > 0 and win_price < nwe_upper - band_width * 0.15):
+                    sig_sell = False
+
+        if sig_buy:
             return self._open_trade("BUY", "CONSENSO", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE")
-        # SELL
-        if (z_wdo >= Z_ENTRY and z_di >= Z_ATTENTION) or \
-           (z_wdo >= Z_ATTENTION and z_di >= Z_ENTRY):
+                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE", walls=walls)
+        if sig_sell:
             return self._open_trade("SELL", "CONSENSO", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE")
+                                    win_price, wdo_price, rho, beta, hmm, "CONS_BASE", walls=walls)
 
         return self._result("WAIT", "CONS_BASE")
 
+
     def _eval_wdo_nwe(self, z_wdo, win_price, wdo_price, rho, beta, hmm,
-                      nwe_is_up, nwe_upper, nwe_lower):
+                      nwe_is_up, nwe_upper, nwe_lower, walls=None):
         """WDO Isolado + NWE adaptive band multiplier filter."""
         sig_buy = z_wdo <= -Z_ENTRY
         sig_sell = z_wdo >= Z_ENTRY
@@ -218,18 +315,18 @@ class TradeEngine:
 
         if sig_buy:
             return self._open_trade("BUY", "WDO_KALMAN", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE", walls=walls)
         if sig_sell:
             return self._open_trade("SELL", "WDO_KALMAN", z_wdo,
-                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "WDO_NWE", walls=walls)
 
         return self._result("WAIT", "WDO_NWE")
 
     def _eval_di_nwe(self, z_di, win_price, wdo_price, rho, beta, hmm,
-                     nwe_is_up, nwe_upper, nwe_lower):
+                     nwe_is_up, nwe_upper, nwe_lower, walls=None):
         """DI Isolado + NWE adaptive band multiplier filter."""
-        sig_buy = z_di <= -Z_ENTRY
-        sig_sell = z_di >= Z_ENTRY
+        sig_buy = z_di <= -DI_Z_ENTRY
+        sig_sell = z_di >= DI_Z_ENTRY
 
         # NWE filter: contra-tendência + adaptive proximity
         band_width = nwe_upper - nwe_lower if (nwe_upper > 0 and nwe_lower > 0) else 0
@@ -252,10 +349,10 @@ class TradeEngine:
 
         if sig_buy:
             return self._open_trade("BUY", "DI_JOHANSEN", z_di,
-                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE", walls=walls)
         if sig_sell:
             return self._open_trade("SELL", "DI_JOHANSEN", z_di,
-                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE")
+                                    win_price, wdo_price, rho, beta, hmm, "DI_NWE", walls=walls)
 
         return self._result("WAIT", "DI_NWE")
 
@@ -268,16 +365,21 @@ class TradeEngine:
         }
 
     def _open_trade(self, direction, z_source, z_val,
-                     win_price, wdo_price, rho, beta, hmm_state, strategy):
+                     win_price, wdo_price, rho, beta, hmm_state, strategy, walls=None):
+        tp_px, sl_px, tp_pts, sl_pts = calc_wall_tp_sl(direction, win_price, walls)
+        # Validate Wall Risk:Reward and Max SL
+        if sl_pts > WALL_MAX_SL or (tp_pts / max(sl_pts, 1.0)) < WALL_MIN_RR:
+            return self._result("WAIT", strategy)
+
         conn = self._connect()
         c = conn.cursor()
         c.execute('''
             INSERT INTO matador_ops
             (timestamp_in, status, direction, z_in, z_source, strategy, rho_in, beta_in,
-             qty_win, price_win_in, price_wdo_in, hmm_state)
-            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             qty_win, price_win_in, price_wdo_in, hmm_state, tp_price, sl_price)
+            VALUES (?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (datetime.now().isoformat(), direction, z_val, z_source, strategy,
-              rho, beta, WIN_CONTRACTS, win_price, wdo_price, hmm_state))
+              rho, beta, WIN_CONTRACTS, win_price, wdo_price, hmm_state, tp_px, sl_px))
         conn.commit()
         trade_id = c.lastrowid
         conn.close()
@@ -287,18 +389,27 @@ class TradeEngine:
             "action": action, "strategy": strategy,
             "open_trade": {"id": trade_id, "direction": direction,
                            "z_source": z_source, "price_win_in": win_price,
+                           "tp_price": tp_px, "sl_price": sl_px,
+                           "tp_pts": tp_pts, "sl_pts": sl_pts,
                            "strategy": strategy},
             "exit_reason": None, "pnl": None,
         }
 
-    def _check_exits(self, trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strategy):
+    def _check_exits(self, trade, win_price, wdo_price, hour, minute, z_wdo, z_di, strategy, walls=None):
         is_buy = trade["direction"] == "BUY"
-        sl = BUY_SL if is_buy else SELL_SL
-        tp = BUY_TP if is_buy else SELL_TP
+        entry_px = trade["price_win_in"]
+        tp_px = trade.get("tp_price") or 0.0
+        sl_px = trade.get("sl_price") or 0.0
+
+        if tp_px > 0 and sl_px > 0:
+            tp = abs(tp_px - entry_px)
+            sl = abs(sl_px - entry_px)
+        else:
+            tp_px, sl_px, tp, sl = calc_wall_tp_sl(trade["direction"], entry_px, walls)
+
         be_act = BUY_BE_ACT if is_buy else SELL_BE_ACT
         be_lock = BUY_BE_LOCK if is_buy else SELL_BE_LOCK
 
-        entry_px = trade["price_win_in"]
         pts_favor = (win_price - entry_px) if is_buy else (entry_px - win_price)
 
         max_favor = trade["max_pts_favor"]
@@ -314,7 +425,7 @@ class TradeEngine:
             be_active = True
             self._update_field(trade["id"], "be_active", 1)
 
-        # Exit checks
+        # Exit checks (Wall TP, Wall SL >= 200 pts, Breakeven, and Mean Reversion >= 200 pts)
         reason = None
         if pts_favor >= tp:
             reason = "TARGET"
@@ -322,13 +433,23 @@ class TradeEngine:
             reason = "BE_STOP"
         elif not be_active and pts_favor <= -sl:
             reason = "STOP_LOSS"
+        elif pts_favor >= WALL_MIN_PTS:
+            # Z-Spread Mean Reversion exit once >= 200 pts profit is guaranteed
+            if strategy == "WDO_NWE" and ((is_buy and z_wdo >= 0.2) or (not is_buy and z_wdo <= -0.2)):
+                reason = "TARGET"
+            elif strategy == "DI_NWE" and ((is_buy and z_di >= 0.2) or (not is_buy and z_di <= -0.2)):
+                reason = "TARGET"
+            elif strategy == "CONS_BASE" and ((is_buy and z_wdo >= 0.0 and z_di >= 0.0) or (not is_buy and z_wdo <= 0.0 and z_di <= 0.0)):
+                reason = "TARGET"
 
         if self._is_force_close(hour, minute):
             reason = "FORCE_CLOSE"
 
+
         if reason:
             pnl = pts_favor * WIN_CONTRACTS * WIN_PV
             self._close_trade(trade["id"], reason, win_price, wdo_price, pnl)
+            self._last_close_ts[strategy] = datetime.now().timestamp()
             return {
                 "action": "CLOSE", "strategy": strategy,
                 "open_trade": None, "exit_reason": reason,

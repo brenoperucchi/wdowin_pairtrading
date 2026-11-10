@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                                     Jumba_GEX_MagicWalls_Ind.mq5 |
 //|   Indicador Visual das MagicWalls Diarias (WIN e WDO Automatico) |
 //+------------------------------------------------------------------+
@@ -14,6 +14,7 @@ input bool InpShowWallLabels = true; // Mostrar Rótulos e Preço no Eixo Direit
 
 double DummyBuf[];
 string g_last_date = "";
+long   g_last_daily_mtime = 0;
 
 struct SIndGexItem
   {
@@ -65,8 +66,9 @@ int OnInit()
    if(t_ref <= 0)
       t_ref = TimeLocal();
    string d_str = GetDateStr(t_ref);
-   DrawDailyWalls(d_str);
-   g_last_date = d_str;
+   string drawn = DrawDailyWalls(d_str);
+   if(drawn != "")
+      g_last_date = drawn;
    ChartRedraw(0);
    return(INIT_SUCCEEDED);
   }
@@ -112,13 +114,15 @@ void StyleWallObject(string name, string wtype, double price, int width, bool is
      }
   }
 
-void DrawDailyWalls(string target_date)
+string DrawDailyWalls(string target_date)
   {
    ObjectsDeleteAll(0, "JUMBA_IND_GEX_");
 
    bool is_wdo = IsWdoChart();
    string daily_csv = is_wdo ? "jumba_gex_wdo_daily.csv" : "jumba_gex_win_daily.csv";
    string hist_csv  = is_wdo ? "jumba_gex_wdo_history.csv" : "jumba_gex_win_history.csv";
+
+   g_last_daily_mtime = FileGetInteger(daily_csv, FILE_MODIFY_DATE, true);
 
    SIndGexItem items[];
    string all_dates[];
@@ -213,7 +217,7 @@ void DrawDailyWalls(string target_date)
 
    int total_dates = ArraySize(all_dates);
    if(total_dates == 0)
-      return;
+      return "";
 
    string last_date = all_dates[total_dates - 1];
    int idx = 0;
@@ -230,6 +234,7 @@ void DrawDailyWalls(string target_date)
       StyleWallObject(name, items[i].type, items[i].price, items[i].width, is_wdo, items[i].date);
      }
    ChartRedraw(0);
+   return last_date;
   }
 
 int OnCalculate(const int rates_total,
@@ -246,16 +251,20 @@ int OnCalculate(const int rates_total,
    if(rates_total < 1)
       return(0);
    string d_str = GetDateStr(time[rates_total - 1]);
+   long cur_mtime = g_last_daily_mtime;
    if(!MQLInfoInteger(MQL_TESTER))
      {
       string d_loc = GetDateStr(TimeLocal());
       if(d_loc > d_str)
          d_str = d_loc;
+      string daily_csv = IsWdoChart() ? "jumba_gex_wdo_daily.csv" : "jumba_gex_win_daily.csv";
+      cur_mtime = FileGetInteger(daily_csv, FILE_MODIFY_DATE, true);
      }
-   if(d_str != g_last_date)
+   if(d_str != g_last_date || cur_mtime != g_last_daily_mtime)
      {
-      DrawDailyWalls(d_str);
-      g_last_date = d_str;
+      string drawn = DrawDailyWalls(d_str);
+      if(drawn != "")
+         g_last_date = drawn;
      }
    return(rates_total);
   }

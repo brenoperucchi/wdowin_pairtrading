@@ -39,22 +39,38 @@ BETA_REF_WINDOW = 80
 BETA_DELTA_MAX = 25.0
 RHO_MIN = -0.40
 
-# ─── Setup Matador: Entry ────────────────────────────────────────────────────
-Z_ENTRY = 1.4          # Entry threshold
+# ─── Setup Matador: Entry & Wall Execution (Validated 2026 Full Year) ────────
+Z_ENTRY = 1.4          # Entry threshold (WDO_NWE)
 Z_ANOMALY = 4.0        # Anomaly threshold — don't trade
-Z_ATTENTION = 1.2      # Attention zone display only
+Z_ATTENTION = 1.2      # Attention zone & Consensus secondary threshold
 
-# ─── Setup Matador: BUY (V2 Kalman) ─────────────────────────────────────────
-BUY_SL = 300           # Stop loss in WIN points
-BUY_TP = 800           # Take profit in WIN points
-BUY_BE_ACT = 300       # Breakeven activation (pts in favor)
-BUY_BE_LOCK = 0        # Breakeven lock level (pts)
+# ─── Consensus (WDO + DI) Asymmetric Thresholds ──────────────────────────────
+CONS_WDO_ENTRY = 1.8   # Consensus primary trigger on WDO Z-Spread
+CONS_DI_ENTRY = 2.2    # Consensus primary trigger on DI Z-Spread
+CONS_Z_ATTENTION = 1.2 # Consensus secondary confirmation threshold
+CONS_USE_NWE = True    # Require NWE envelope filter on Consensus (Ret/DD=14.14..15.81)
 
-# ─── Setup Matador: SELL (V1 OLS) ───────────────────────────────────────────
+# ─── GEX Wall Dynamic TP / SL Rules ──────────────────────────────────────────
+WALL_MIN_PTS = 200.0   # Minimum TP and SL distance in WIN points
+WALL_SL_BUFFER = 30.0  # Points hidden behind the previous GEX Wall
+WALL_TP_BUFFER = 10.0  # Points before the next GEX Wall
+WALL_MAX_SL = 300.0    # Maximum Stop Loss distance in WIN points
+WALL_MIN_RR = 1.4      # Minimum Risk:Reward ratio (TP / SL >= 1.4)
+COOLDOWN_BARS = 4      # 4 M5 bars (20 min) cooldown after closing a trade
+
+# ─── Setup Matador: BUY (V2 Kalman + GEX Walls) ─────────────────────────────
+BUY_SL = 300           # Fallback / Max Stop loss in WIN points
+BUY_TP = 800           # Fallback Take profit in WIN points
+BUY_BE_ACT = 150       # Breakeven activation (150 pts in favor)
+BUY_BE_LOCK = 15       # Breakeven lock level (pts)
+
+# ─── Setup Matador: SELL (V1 OLS / V2 Kalman + GEX Walls) ───────────────────
 SELL_SL = 300
 SELL_TP = 800
-SELL_BE_ACT = 300
-SELL_BE_LOCK = 0
+SELL_BE_ACT = 150
+SELL_BE_LOCK = 15
+
+
 
 # ─── Sizing ─────────────────────────────────────────────────────────────────
 WIN_CONTRACTS = 2
@@ -76,13 +92,14 @@ TIME_OFFSET = 3 * 3600
 DI_SYMBOL = "DI1$N"            # Contrato contínuo DI futuro
 DI_KALMAN_Q = 1e-3             # Kalman trans_cov (adaptação rápida)
 DI_KALMAN_R = 1e1              # Kalman obs_cov (baixa suavização)
-DI_KALMAN_W = 60               # Z-score rolling window
+DI_KALMAN_W = 40               # Z-score rolling window (40 barras M5 validado em 212 pregões)
 DI_BETA_INITIAL = -10000.0     # Beta inicial WIN/DI (escala: WIN~135k, DI~13.5)
 DI_BARS = 250                  # Barras para buscar do MT5
 DI_BETA_REF_BARS = 2240        # Barras para beta referência 20d
-DI_Z_ENTRY = 1.4               # Threshold de entrada
+DI_Z_ENTRY = 2.2               # Threshold de entrada (validado 2026 + Phase 8/9)
 DI_Z_ANOMALY = 4.0             # Threshold de anomalia
-DI_Z_ATTENTION = 1.2           # Zona de atenção
+DI_Z_ATTENTION = 1.2           # Zona de atenção / confirmação Consenso
+
 
 # ─── Johansen Gate (cointegration validation only) ──────────────────────────
 JOH_WINDOW = 150               # Rolling window para teste de Johansen

@@ -77,16 +77,20 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
         });
         const diSeries = chart.addSeries(LineSeries, { color: "#8a6dff", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false, priceLineVisible: false });
 
-        // Reference lines
+        // Reference lines (Z=±2.2 DI Gatilho, Z=±1.4 WDO Gatilho, Z=±1.2 Consenso/Atenção, Z=±4.0 Anomalia)
         const lines = [
-            { price: 4, color: "#ff386044", style: LineStyle.Dashed, width: 1 },
-            { price: -4, color: "#ff386044", style: LineStyle.Dashed, width: 1 },
-            { price: 1.4, color: "#ff386088", style: LineStyle.Dotted, width: 1, title: "VENDA" },
-            { price: -1.4, color: "#00e87a88", style: LineStyle.Dotted, width: 1, title: "COMPRA" },
-            { price: 1.2, color: "#f5a62344", style: LineStyle.Dotted, width: 1 },
-            { price: -1.2, color: "#f5a62344", style: LineStyle.Dotted, width: 1 },
+            { price: 4, color: "#ff386044", style: LineStyle.Dashed, width: 1, title: "ANOM" },
+            { price: -4, color: "#ff386044", style: LineStyle.Dashed, width: 1, title: "ANOM" },
+            { price: 2.2, color: "#8a6dffaa", style: LineStyle.Dotted, width: 1, title: "DI +2.2" },
+            { price: -2.2, color: "#8a6dffaa", style: LineStyle.Dotted, width: 1, title: "DI -2.2" },
+            { price: 1.4, color: "#ff3860aa", style: LineStyle.Dotted, width: 1, title: "WDO +1.4" },
+            { price: -1.4, color: "#00e87aaa", style: LineStyle.Dotted, width: 1, title: "WDO -1.4" },
+            { price: 1.2, color: "#f5a62366", style: LineStyle.Dotted, width: 1, title: "CONS +1.2" },
+            { price: -1.2, color: "#f5a62366", style: LineStyle.Dotted, width: 1, title: "CONS -1.2" },
             { price: 0, color: "#3a5060", style: LineStyle.Solid, width: 1 },
         ];
+
+
         lines.forEach(l => {
             zSeries.createPriceLine({
                 price: l.price,
@@ -133,6 +137,7 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
 
         zSeries.setData(sortData(zData));
         if (useV2) diSeries.setData(sortData(diData));
+        try { chartRef.current.timeScale().fitContent(); } catch (e) {}
 
     }, [history, useV2]);
 
@@ -142,17 +147,19 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
                 display: "flex", alignItems: "center", gap: 16,
                 padding: "6px 12px 0px", paddingLeft: Y_AXIS_WIDTH,
             }}>
-                <span style={{ fontSize: 9, fontWeight: "bold", color: "#6f8a9c", letterSpacing: 2 }}>Z-SCORE</span>
+                <span style={{ fontSize: 9, fontWeight: "bold", color: "#6f8a9c", letterSpacing: 2 }}>Z-SPREAD KALMAN (WINFUT)</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <span style={{ display: "inline-block", width: 14, height: 2, background: "#c8a444", borderRadius: 1 }} />
-                    <span style={{ fontSize: 9, color: "#c8a444" }}>WDO</span>
+                    <span style={{ fontSize: 9, color: "#c8a444" }}>WDOFUT (±1.4)</span>
                 </span>
                 {useV2 && (
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         <span style={{ display: "inline-block", width: 14, height: 2, background: "#8a6dff", borderRadius: 1, borderTop: "1px dashed #8a6dff" }} />
-                        <span style={{ fontSize: 9, color: "#8a6dff" }}>DI</span>
+                        <span style={{ fontSize: 9, color: "#8a6dff" }}>DIFUT (±2.2 · CONS 1.6/2.2 c/ ±1.2)</span>
                     </span>
                 )}
+
+
             </div>
             <div ref={chartContainerRef} style={{ width: "100%", height: "200px", paddingLeft: Y_AXIS_WIDTH }} />
             {(!history || history.length === 0) && (

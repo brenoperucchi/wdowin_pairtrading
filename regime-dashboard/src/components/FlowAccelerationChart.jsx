@@ -151,6 +151,7 @@ const FlowAccelerationChart = forwardRef(({ history = [], smoothing = 3, onSmoot
         }
 
         iafSeries.setData(uniqueData);
+        try { chartRef.current.timeScale().fitContent(); } catch (e) {}
     }, [history, smoothing]);
 
     return (

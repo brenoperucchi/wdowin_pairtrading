@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                         Jumba_WDO_GEX_NWE_Portfolio_Master.mq5   |
 //|        Jumba Quantitative Trading - Portfolio Master 16 WDO$N    |
 //+------------------------------------------------------------------+
@@ -14,11 +14,11 @@ input double                   InpMaxDailyLossBRL  = 5000.0;                    
 input ENUM_JUMBA_WDO_EXEC_MODE InpExecMode         = WDO_EXEC_HEDGING_DIRECT_MAGIC;// Modo de Execucao
 input bool                     InpDrawGexLevels    = true;                         // Desenhar MagicWalls
 input bool                     InpShowHud          = true;                         // Mostrar Painel HUD
-input bool                     InpEnableWDO01      = false;
+input bool                     InpEnableWDO01      = true;
 input bool                     InpEnableWDO02      = true;
 input bool                     InpEnableWDO03      = true;
 input bool                     InpEnableWDO04      = true;
-input bool                     InpEnableWDO05      = false;
+input bool                     InpEnableWDO05      = true;
 input bool                     InpEnableWDO06      = true;
 input bool                     InpEnableWDO07      = true;
 input bool                     InpEnableWDO08      = true;

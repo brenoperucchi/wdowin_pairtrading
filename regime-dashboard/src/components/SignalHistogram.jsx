@@ -4,29 +4,17 @@ import { createChart, CandlestickSeries, LineStyle, CrosshairMode } from "lightw
 const CHART_MARGIN = { top: 0, right: 12, bottom: 0, left: 0 };
 const Y_AXIS_WIDTH = 38;
 
-const Z_ENT = 1.4;
+const Z_WDO_ENT = 1.4;
+const Z_DI_ENT = 2.2;
+const Z_CONS_WDO = 1.8;
+const Z_CONS_DI = 2.2;
 const Z_ATT = 1.2;
 
-function getBarColor(z) {
-    if (z == null || z === 0) return "#1e2a36";
-    if (z <= -Z_ENT) return "#00e87a";
-    if (z <= -Z_ATT) return "#00e87a88";
-    if (z >= Z_ENT)  return "#ff3860";
-    if (z >= Z_ATT)  return "#ff386088";
-    return "#1e2a36";
+function getSignalColor(sig) {
+    if (sig == null || sig === 0) return "#1e2a36";
+    return sig < 0 ? "#00e87a" : "#ff3860";
 }
 
-function getConsensusColor(zw, zd) {
-    const sb = (zw <= -Z_ENT && zd <= -Z_ATT) || (zd <= -Z_ENT && zw <= -Z_ATT);
-    const ss = (zw >= Z_ENT && zd >= Z_ATT) || (zd >= Z_ENT && zw >= Z_ATT);
-    if (sb) return "#00e87a";
-    if (ss) return "#ff3860";
-    const att_b = (zw <= -Z_ATT && zd <= -Z_ATT);
-    const att_s = (zw >= Z_ATT && zd >= Z_ATT);
-    if (att_b) return "#00e87a44";
-    if (att_s) return "#ff386044";
-    return "#1e2a36";
-}
 
 function timeStrToTimestamp(timeStr) {
     if (!timeStr) return 0;
@@ -53,15 +41,14 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
                 if (data[i].z != null) {
                     const wdo = data[i].sig_wdo ?? 0;
                     const di = data[i].sig_di ?? 0;
-                    const cWdo = data[i].cons_wdo_sig ?? 0;
-                    const cDi = data[i].cons_di_sig ?? 0;
+                    const cons = data[i].sig_cons ?? (
+                        (data[i].cons_wdo_sig && data[i].cons_di_sig && Math.sign(data[i].cons_wdo_sig) === Math.sign(data[i].cons_di_sig))
+                            ? data[i].cons_wdo_sig : 0
+                    );
                     
                     wdoColor = wdo < 0 ? "#00e87a" : wdo > 0 ? "#ff3860" : "#5a7a90";
                     diColor = di < 0 ? "#00e87a" : di > 0 ? "#ff3860" : "#5a7a90";
-                    
-                    const buyCount = [cWdo, cDi].filter(v => v < 0).length;
-                    const sellCount = [cWdo, cDi].filter(v => v > 0).length;
-                    consColor = buyCount >= 2 ? "#00e87a" : sellCount >= 2 ? "#ff3860" : "#5a7a90";
+                    consColor = cons < 0 ? "#00e87a" : cons > 0 ? "#ff3860" : "#5a7a90";
                     
                     break;
                 }
@@ -144,14 +131,16 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
             const t = timeStrToTimestamp(d.bar_time);
             if (t === 0) return;
 
-            const wdoZ = d.z_raw_wdo ?? d.z ?? 0;
-            const diZ = d.z_raw_di ?? d.z_di ?? 0;
-            const consWdo = d.z_unfiltered_wdo ?? d.z ?? 0;
-            const consDi = d.z_unfiltered_di ?? d.z_di ?? 0;
+            const sigWdo = d.sig_wdo ?? 0;
+            const sigDi = d.sig_di ?? 0;
+            const sigCons = d.sig_cons ?? (
+                (d.cons_wdo_sig && d.cons_di_sig && Math.sign(d.cons_wdo_sig) === Math.sign(d.cons_di_sig))
+                    ? d.cons_wdo_sig : 0
+            );
 
-            const wCol = getBarColor(wdoZ);
-            const dCol = getBarColor(diZ);
-            const cCol = getConsensusColor(consWdo, consDi);
+            const wCol = getSignalColor(sigWdo);
+            const dCol = getSignalColor(sigDi);
+            const cCol = getSignalColor(sigCons);
 
             // Use Candlestick data format to draw solid non-overlapping blocks
             wdoData.push({ time: t, open: 2.1, high: 2.9, low: 2.1, close: 2.9, color: wCol, borderColor: wCol, wickColor: wCol });
@@ -164,6 +153,7 @@ const SignalHistogram = forwardRef(({ data }, ref) => {
         wdoSeries.setData(sortData(wdoData));
         diSeries.setData(sortData(diData));
         consSeries.setData(sortData(consData));
+        try { chartRef.current.timeScale().fitContent(); } catch (e) {}
 
     }, [data]);
 

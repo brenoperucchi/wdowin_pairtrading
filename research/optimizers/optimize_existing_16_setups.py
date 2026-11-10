@@ -148,6 +148,8 @@ def simulate_single_est_slot(
     tp_mode: str = "TP_CURRENT",       # "TP_CURRENT", "TP_MIDWALL", "TP_MAIN_WALL", "TP_PARTIAL_WALLS"
     front_run_pts: float = 20.0,
     cost_pts: float = 10.0,
+    sig_filter=None,                   # callable(date, b1_tmin, dir) -> bool (filtros de fluxo/janela do dashboard)
+    start_date: str = "2026-05-11",
 ):
     """
     Executa a simulação fiel do slot `est_id` (1..16) de `Jumba_GEX_NWE_Core.mqh`.
@@ -176,7 +178,7 @@ def simulate_single_est_slot(
         b1_date = dates[b1_idx]
         today_str = dates[idx]
 
-        if today_str < "2026-05-11" or today_str not in gex_by_date or b1_date != today_str:
+        if today_str < start_date or today_str not in gex_by_date or b1_date != today_str:
             idx += 1
             continue
 
@@ -242,6 +244,9 @@ def simulate_single_est_slot(
 
         # --- EST-01 & EST-02 ---
         if est_id in (1, 2):
+            if est_id == 1 and bw50 < 475.8:
+                idx += 1
+                continue
             wm_rej = "NY_1000_1630" if est_id == 1 else "FULL_09_17"
             wm_lim = "NY_1000_1630" if est_id == 1 else "CORE_09_1615"
             l_off = 0.0 if est_id == 1 else 10.0
@@ -355,10 +360,10 @@ def simulate_single_est_slot(
             min_bd = 65.0 if est_id == 7 else 50.0
             if last_entry_bar_idx != b1_idx and window_ok(b1_tmin, wm_bo):
                 for lvl in m_levels_all:
-                    if b1_o <= lvl + 15.0 and b1_c > lvl + 12.0 and (b1_c - lvl) <= 90.0 and body1 >= min_bd and m_n50_s_1 >= 4.0 and b1_c < (m_n50_u_1 - bw50 * 0.15):
+                    if b1_o <= lvl + 15.0 and b1_c > lvl + 12.0 and (b1_c - lvl) <= 90.0 and body1 >= min_bd and m_n50_s_1 >= 4.0 and b1_c < (m_n50_u_1 - bw50 * 0.15) and (est_id != 7 or m_n30_s_1 > 0.0):
                         action_kind, sig_dir, trig_px, def_wall = "MKT", 1, new_bar_open, float(lvl)
                         break
-                    if b1_o >= lvl - 15.0 and b1_c < lvl - 12.0 and (lvl - b1_c) <= 90.0 and (-body1) >= min_bd and m_n50_s_1 <= -4.0 and b1_c > (m_n50_l_1 + bw50 * 0.15):
+                    if b1_o >= lvl - 15.0 and b1_c < lvl - 12.0 and (lvl - b1_c) <= 90.0 and (-body1) >= min_bd and m_n50_s_1 <= -4.0 and b1_c > (m_n50_l_1 + bw50 * 0.15) and (est_id != 7 or m_n30_s_1 < 0.0):
                         action_kind, sig_dir, trig_px, def_wall = "MKT", -1, new_bar_open, float(lvl)
                         break
                 if sig_dir != 0:
@@ -480,6 +485,9 @@ def simulate_single_est_slot(
                             break
                 if sig_dir != 0:
                     tp_pts, sl_pts, be_trig, be_lock, tr_trig, tr_dist, max_hold = 1500.0, 400.0, 260.0, 25.0, 500.0, 200.0, 120
+
+        if sig_dir != 0 and sig_filter is not None and not sig_filter(b1_date, b1_tmin, sig_dir):
+            sig_dir = 0
 
         if sig_dir == 0:
             idx += 1

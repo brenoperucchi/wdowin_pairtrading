@@ -2,58 +2,20 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-12)
+See: [`STATARB_2026_KNOWLEDGE.md`](../STATARB_2026_KNOWLEDGE.md) & [`.planning/PROJECT.md`](PROJECT.md) (updated 2026-11-09)
 
-**Core value:** Fornecer sinais de arbitragem estatística e análise de fluxo institucional (WIN) rápidos, precisivos e visualmente claros.
-**Current focus:** Phase 1: Indicador e Gráfico de Fluxo Sintético
+**Core value:** Painel analítico e operacional de Arbitragem Estatística (`WIN × WDO × DI`), Cockpit Intraday GEX (6 Estratégias Campeãs) e Raio-X de Fluxo Institucional de Corretoras em tempo real.
+**Current focus:** Operação e monitoramento em tempo real das 3 abas do Dashboard (`5174` e `5176`) + Backend (`8080`).
 
 ## Current Position
 
-Phase: 1 of 1 (Indicador e Gráfico de Fluxo Sintético)
-Plan: 1 of 1 in current phase
-Status: Ready to execute
-Last activity: 2026-06-12 — Plano de execução 01-01 criado e verificado.
+Status: **Em Produção Local (`5174`, `5176`, `8080`)**
+Last activity: **2026-11-09** — Consolidação da Aba 3 (`STAT_ARB`) com Caixas de Posição estilo TradingView em Candles M5, Painel de Acompanhamento Live Trade (`StatArbLiveTradePanel.jsx`), Backtest Auditado 2026 (`StatArbBacktest2026Panel.jsx`), correção do Stop atrás da Wall (`calc_wall_tp_sl`) e blindagem single-thread do MT5 (`_single_mt5_executor`).
 
-Progress: [░░░░░░░░░░] 0%
+## Key Decisions (Consolidated 2026-11-09)
 
-## Performance Metrics
-
-**Velocity:**
-- Total plans completed: 0
-- Average duration: 0 min
-- Total execution time: 0.0 hours
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1. Indicador e Gráfico de Fluxo Sintético | 0 | 0 | 0 min |
-
-**Recent Trend:**
-- Last 5 plans: None
-- Trend: Stable
-
-*Updated after each plan completion*
-
-## Accumulated Context
-
-### Decisions
-
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- [Phase 1]: Implementar o cálculo no Python backend com cache em memória de 5s ticks para histórico de 60 minutos.
-
-### Pending Todos
-
-- [implementar_fluxo_sintetico.md](file:///.planning/todos/pending/implementar_fluxo_sintetico.md) — Ver checklist completo.
-
-### Blockers/Concerns
-
-None yet.
-
-## Session Continuity
-
-Last session: 2026-06-12 08:35
-Stopped at: Inicialização do projeto GSD e definição da Phase 1.
-Resume file: None
+- **Manutenção do Sistema Atual de Saída (`BE +150/200p → +15p` + Alvo Wall/Z-Rev):** Entregou `+R$ 10.135` (`+25.338 pts`), Max DD `R$ 764` e `Ret/DD = 13,27x` nos 212 pregões de 2026 (488 trades).
+- **Stop Loss Sempre Atrás da Wall Anterior:** `calc_wall_tp_sl` posiciona o stop `30 pts` atrás da Wall anterior (mín. `200 pts`, máx. `300 pts`). Se a Wall exigir `> 300 pts`, o setup é abortado (nunca truncado para antes da Wall).
+- **Sinais Sem Repintura:** Barras M5 fechadas têm seus sinais (`sig_wdo`, `sig_di`, `sig_cons`) congelados no SQLite (`bar_history`).
+- **Isolamento de Abas:** Aba 1 exclusiva para Cockpit GEX + 6 Estratégias Campeãs (`LiveTradingCalendar.jsx`); Aba 3 exclusiva para Arbitragem `WIN × WDO × DI`.
+- **Blindagem MT5:** Toda comunicação com a DLL do MetaTrader 5 roda em thread única de SO (`_single_mt5_executor` + `core.mt5_client.mt5_lock`).

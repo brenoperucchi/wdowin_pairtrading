@@ -1,15 +1,46 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, memo } from "react";
 
 // Operações vêm do próprio dashboard: compassData.portfolio_4_sistematicas (/api/compass/etapa1)
-const STRATS = {
-    EST_01: { code: "EST-01", name: "WIN Rejeição" },
-    EST_07: { code: "EST-07", name: "WIN Rompimento" },
-    EST_13: { code: "EST-13", name: "WIN Next Wall" },
-    WDO_09: { code: "WDO-09", name: "WDO Pullback" },
-    WDO_11: { code: "WDO-11", name: "WDO Next Wall" },
-    WDO_S2: { code: "WDO-S2", name: "WDO Lunch" },
+const STRATS_MT5 = {
+    EST_01: { code: "EST-01", name: "WIN Rejeição Wall" },
+    EST_04: { code: "EST-04", name: "WIN Pullback WDO" },
+    EST_07: { code: "EST-07", name: "WIN Rompimento Wall" },
+    EST_13: { code: "EST-13", name: "WIN SmartGrid Longa (35% B1 · TP 360p)" },
+    EST_14: { code: "EST-14", name: "WIN SmartGrid Média (50% B1 · TP 280p)" },
+    EST_15: { code: "EST-15", name: "WIN SmartGrid Curta (55% B1 · TP 210p)" },
+    EST_16: { code: "EST-16", name: "WIN SmartGrid Spring" },
+    WIN_E2: { code: "WIN-E2", name: "WIN Wall Gasta" },
+    WDO_01: { code: "WDO-01", name: "WDO Scalper Curto NY (TP 6–8p)" },
+    WDO_02: { code: "WDO-02", name: "WDO Scalper Core" },
+    WDO_05: { code: "WDO-05", name: "WDO Cluster Limit Wall (TP 7–9.5p)" },
+    WDO_07: { code: "WDO-07", name: "WDO Absorção Longa Wall (TP 11p)" },
+    WDO_09: { code: "WDO-09", name: "WDO Cluster NWE" },
+    WDO_10: { code: "WDO-10", name: "WDO Lunch Reversão" },
+    WDO_11: { code: "WDO-01", name: "WDO Scalper Curto NY (TP 6–8p)" },
+    WDO_S2: { code: "WDO-01", name: "WDO Scalper Curto NY (TP 6–8p)" },
 };
-const COST_PER_CTR = { WIN: 2.0, WDO: 5.0 }; // custo estimado do projeto (R$/contrato)
+const STRATS_WALLS_FLOW = {
+    EST_14: { code: "🛡️ WIN-A1", name: "Vai Defender (Pullback Wall)" },
+    EST_04: { code: "🔄 WIN-B1", name: "Virou Sup/Res (Reteste)" },
+    EST_07: { code: "💥 WIN-C1", name: "Romperam Wall (Ignição)" },
+    WIN_E2: { code: "⚪ WIN-E2", name: "Wall Gasta (3º+ Toque)" },
+    WDO_07: { code: "🪤 WDO-B1", name: "Violinada / Absorção Wall" },
+    WDO_01: { code: "🛡️ WDO-A2", name: "Vai Defender Extrema NWE" },
+    WDO_10: { code: "🛡️ WDO-A2", name: "Vai Defender Extrema NWE" },
+    WDO_S2: { code: "🛡️ WDO-A2", name: "Vai Defender Extrema NWE" },
+};
+const MT5_TOP6_SET = new Set(["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"]);
+const WALLS_FLOW_6_SET = new Set(["EST_14", "EST_04", "EST_07", "WIN_E2", "WDO_07", "WDO_01", "WDO_10", "WDO_S2"]);
+const COST_PER_CTR = { WIN: 2.0, WDO: 5.0 }; // custo operacional B3 embutido (R$/contrato)
+
+function isWallsFlowLocalhost() {
+    if (typeof window === "undefined") return false;
+    const port = String(window.location.port || "");
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("mode") === "walls_flow") return true;
+    if (params.get("mode") === "mt5") return false;
+    return port === "5176";
+}
 
 const C = {
     bg: "#0c1218", card: "#111c24", cardHi: "#14222c", border: "#1c2e3a", dim: "#3a5060", txt: "#cdd8de",
@@ -65,17 +96,20 @@ function Toggle({ options, value, onChange }) {
     );
 }
 
-export default function LiveTradingCalendar({ portfolioData, onSelectDate }) {
+function LiveTradingCalendar({ portfolioData, onSelectDate }) {
     const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
     const [asset, setAsset] = useState("ALL");        // ALL | WIN | WDO
-    const [scope, setScope] = useState("LIVE");       // LIVE (só pregões live) | ALL (BT auditado + live)
-    const [pnlKey, setPnlKey] = useState("pnl");      // pnl (bruto) | pnl_est_cost (c/ custo estimado)
-    const [winCtr, setWinCtr] = useState(2);          // mesmo padrão do painel de portfólio (WIN 2 / WDO 1)
+    const [scope, setScope] = useState("ALL");        // LIVE (só pregões live) | ALL (BT auditado + live)
+    const [pnlKey, setPnlKey] = useState("pnl_est_cost"); // pnl_est_cost (líquido B3) | pnl (bruto)
+    const [winCtr, setWinCtr] = useState(1);
     const [wdoCtr, setWdoCtr] = useState(1);
     const [selDay, setSelDay] = useState(ymd(new Date()));
 
     const ok = Boolean(portfolioData?.ok && Array.isArray(portfolioData.days));
     const liveStart = portfolioData?.live_start_date || "";
+    const isWallsFlow = isWallsFlowLocalhost();
+    const ACTIVE_SET = isWallsFlow ? WALLS_FLOW_6_SET : MT5_TOP6_SET;
+    const STRATS = isWallsFlow ? STRATS_WALLS_FLOW : STRATS_MT5;
 
     // Normaliza as operações contabilizadas pelo dashboard (portfolio_4_sistematicas)
     const { allTrades, openTrades } = useMemo(() => {
@@ -84,25 +118,32 @@ export default function LiveTradingCalendar({ portfolioData, onSelectDate }) {
         portfolioData.days.forEach((d) => {
             const isLive = Boolean(d.is_live);
             const norm = (tr, i) => {
-                const lots = tr.asset === "WIN" ? winCtr : wdoCtr;
-                const gross = Number(tr.brl_1c || 0) * lots;
-                const meta = STRATS[tr.strategy_id] || { code: tr.strategy_id, name: tr.type || tr.strategy_id };
+                const mult = tr.asset === "WIN" ? winCtr : wdoCtr;
+                const baseLots = Number(tr.contracts || 1);
+                const lots = baseLots * mult;
+                const netBrl = Number(tr.brl_1c || 0) * mult;
+                const grossBrl = tr.brl_1c_nocost !== undefined
+                    ? Number(tr.brl_1c_nocost) * mult
+                    : netBrl + (COST_PER_CTR[tr.asset] || 0) * lots;
+                const meta = STRATS[tr.strategy_id] || STRATS_MT5[tr.strategy_id] || { code: tr.strategy_id, name: tr.type || tr.strategy_id };
                 return {
                     id: `${d.date}-${tr.strategy_id}-${tr.time}-${i}`,
+                    strategy_id: tr.strategy_id,
                     date: tr.date || d.date, is_live: isLive, robot: meta.code, name: meta.name, asset: tr.asset,
                     side: tr.direction === "COMPRA" ? 1 : -1, lots, t_in: tr.time, t_out: tr.exit_time,
                     px_in: tr.entry_price, px_out: tr.exit_price, pts: tr.pts, reason: tr.label || tr.status,
-                    pnl: gross, pnl_est_cost: gross - (COST_PER_CTR[tr.asset] || 0) * lots,
+                    pnl: grossBrl, pnl_est_cost: netBrl,
                 };
             };
-            (d.trades || []).forEach((tr, i) => closed.push(norm(tr, i)));
-            if (isLive) (d.open_trades || []).forEach((tr, i) => open.push(norm(tr, i)));
+            (d.trades || []).filter((tr) => tr.in_base !== false && ACTIVE_SET.has(tr.strategy_id)).forEach((tr, i) => closed.push(norm(tr, i)));
+            if (isLive) (d.open_trades || []).filter((tr) => ACTIVE_SET.has(tr.strategy_id)).forEach((tr, i) => open.push(norm(tr, i)));
         });
         return { allTrades: closed, openTrades: open };
-    }, [ok, portfolioData, winCtr, wdoCtr]);
+    }, [ok, portfolioData, winCtr, wdoCtr, isWallsFlow]);
 
     const trades = useMemo(() => allTrades.filter((t) =>
-        (asset === "ALL" || t.asset === asset) && (scope === "ALL" || t.is_live)
+        (asset === "ALL" || t.asset === asset)
+        && (scope === "ALL" || t.is_live)
     ), [allTrades, asset, scope]);
 
     const byDay = useMemo(() => {
@@ -155,7 +196,13 @@ export default function LiveTradingCalendar({ portfolioData, onSelectDate }) {
 
     const openPos = openTrades.filter((p) => asset === "ALL" || p.asset === asset);
 
-    const selTrades = useMemo(() => byDay[selDay] || [], [byDay, selDay]);
+    const effectiveSelDay = useMemo(() => {
+        if (byDay[selDay]?.length) return selDay;
+        const allDates = Object.keys(byDay).sort();
+        return allDates.length ? allDates[allDates.length - 1] : selDay;
+    }, [byDay, selDay]);
+
+    const selTrades = useMemo(() => byDay[effectiveSelDay] || [], [byDay, effectiveSelDay]);
     const selRobots = useMemo(() => {
         const m = {};
         for (const t of selTrades) (m[t.robot] ||= []).push(t);
@@ -180,17 +227,23 @@ export default function LiveTradingCalendar({ portfolioData, onSelectDate }) {
             {/* Cabeçalho */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10, borderBottom: `1px solid ${C.border}`, paddingBottom: 10, marginBottom: 12 }}>
                 <div>
-                    <div style={{ fontSize: 12, fontWeight: "bold", color: C.txt, letterSpacing: 2 }}>📅 CALENDÁRIO DO LIVE TRADING</div>
+                    <div style={{ fontSize: 12, fontWeight: "bold", color: C.txt, letterSpacing: 2 }}>
+                        {isWallsFlow
+                            ? "📅 CALENDÁRIO AUDITADO DAS 6 ESTRATÉGIAS DE FLUXO NAS WALLS (4 WIN + 2 WDO)"
+                            : "📅 CALENDÁRIO AUDITADO DOS 8 ROBÔS COM FILTRO DE FLUXO (5 WIN + 3 WDO · 5174)"}
+                    </div>
                     <div style={{ fontSize: 9, color: C.mute, marginTop: 3 }}>
-                        Resultado diário e robôs que operaram · mesmas operações do Portfólio das 6 Estratégias c/ Fluxo
+                        {isWallsFlow
+                            ? "Resultado diário e robôs que operaram · 6 Estratégias de Marcação das Walls (WIN-A1, WIN-B1, WIN-C1, WIN-E2, WDO-B1, WDO-A2 · líquido de custos B3)"
+                            : "Resultado diário e robôs que operaram · 8 Robôs Campeões c/ Filtro de Fluxo (EST_04, 07, 13, 14, 15 + WDO_01, 05, 07 · Ret/DD 25,03x · 11/11 M+ · líquido B3)"}
                         {liveStart && <> · 🟢 live desde {liveStart.split("-").reverse().join("/")}</>}
                         {!ok && <span style={{ color: C.red }}> · aguardando dados do /api/compass/etapa1</span>}
                     </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <Toggle options={[["ALL", "WIN+WDO"], ["WIN", "WIN"], ["WDO", "WDO"]]} value={asset} onChange={setAsset} />
-                    <Toggle options={[["LIVE", "SÓ LIVE"], ["ALL", "BT + LIVE"]]} value={scope} onChange={setScope} />
-                    <Toggle options={[["pnl", "BRUTO"], ["pnl_est_cost", "C/ CUSTO EST."]]} value={pnlKey} onChange={setPnlKey} />
+                    <Toggle options={[["ALL", "BT + LIVE"], ["LIVE", "SÓ LIVE"]]} value={scope} onChange={setScope} />
+                    <Toggle options={[["pnl_est_cost", "LÍQUIDO B3"], ["pnl", "BRUTO"]]} value={pnlKey} onChange={setPnlKey} />
                     {[["WIN", winCtr, setWinCtr, C.win], ["WDO", wdoCtr, setWdoCtr, C.wdo]].map(([lbl, v, setV, col]) => (
                         <label key={lbl} style={{ fontSize: 9, color: col, fontWeight: "bold", display: "flex", alignItems: "center", gap: 4 }}>
                             {lbl}
@@ -244,7 +297,7 @@ export default function LiveTradingCalendar({ portfolioData, onSelectDate }) {
                             const ts = byDay[k] || [];
                             const s = stats(ts, pnlKey);
                             const robots = new Set(ts.map((t) => t.robot));
-                            const isSel = k === selDay, isToday = k === todayStr;
+                            const isSel = k === effectiveSelDay, isToday = k === todayStr;
                             const isLiveDay = liveStart && k >= liveStart;
                             const tint = !inMonth || !s.n ? C.card : s.net > 0.001 ? "rgba(0,232,122,0.08)" : s.net < -0.001 ? "rgba(255,56,96,0.08)" : C.card;
                             return (
@@ -288,7 +341,7 @@ export default function LiveTradingCalendar({ portfolioData, onSelectDate }) {
                 <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                         <span style={{ fontSize: 10, fontWeight: "bold", color: C.txt, letterSpacing: 1 }}>
-                            ROBÔS QUE OPERARAM · {selDay.split("-").reverse().join("/")}
+                            ROBÔS QUE OPERARAM · {effectiveSelDay.split("-").reverse().join("/")}
                         </span>
                         <span style={{ fontSize: 11, fontWeight: "bold", color: pnlColor(stats(selTrades, pnlKey).net) }}>{brl(stats(selTrades, pnlKey).net, 2)}</span>
                     </div>
@@ -366,4 +419,6 @@ export default function LiveTradingCalendar({ portfolioData, onSelectDate }) {
         </div>
     );
 }
+
+export default memo(LiveTradingCalendar);
 

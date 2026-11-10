@@ -20,6 +20,7 @@ Física Operacional (Market Making de Opções):
 
 from datetime import datetime, timezone
 import os
+import glob
 import json
 import numpy as np
 
@@ -400,6 +401,7 @@ class GexLiveDealerEngine:
         # Enriquecer cada Wall próxima e todas as all_walls (incluindo MidWall) com GEX, Lotes de Hedge dos Makers e Defesa Institucional
         gex_by_price = {round(float(model.strikes[i]), 1): float(model.strike_gex[i]) for i in range(len(model.strikes))}
         all_walls_list = symbol_payload.get("all_walls", [])
+        m5_series = [pt for pt in symbol_payload.get("m5_cvd_series", []) if not pt.get("is_prev_day")]
 
         max_inst_wall_vol = max(
             [float(w.get("inst_total_vol", 0.0)) for w in all_walls_list if w.get("type") in ("Wall", "MidWall")]
@@ -408,6 +410,10 @@ class GexLiveDealerEngine:
         max_abs_gex = float(np.max(np.abs(model.strike_gex))) if len(model.strike_gex) > 0 else 1.0
         if max_abs_gex <= 0:
             max_abs_gex = 1.0
+
+        zone_rad = 2.5 if asset == "WDO" else 55.0
+        break_tol = 1.0 if asset == "WDO" else 25.0
+        bar_inst_th = 1000.0 if asset == "WDO" else 2500.0
 
         enriched_by_key = {}
         for w in all_walls_list:
@@ -433,13 +439,155 @@ class GexLiveDealerEngine:
             maker_lots = round(abs(wgex) / 1e9 * 45.0, 0) if asset == "WIN" else round(abs(wgex) / 1e6 * 1.2, 0)
             w["maker_hedge_lots"] = int(maker_lots)
 
-            is_res = wp > spot
             inst_b = float(w.get("inst_buy_vol", 0.0))
             inst_s = float(w.get("inst_sell_vol", 0.0))
             inst_tot = float(w.get("inst_total_vol", inst_b + inst_s))
-            def_lots = inst_s if is_res else inst_b
+            inst_d = float(w.get("inst_delta", inst_b - inst_s))
+
+            # Régua estatística de 3 Estágios calibrada nos 127 pregões históricos:
+            # WDO: P25 = 3.000 L (Moderado) | P50 = 8.000 L (Forte)
+            # WIN: P25 = 5.000 L (Moderado) | P50 = 12.000 L (Forte)
+            conviction_mod = 3000.0 if asset == "WDO" else 5000.0
+            conviction_strong = 8000.0 if asset == "WDO" else 12000.0
+            abs_d = abs(inst_d)
+
+            if inst_tot > 0 and abs_d >= conviction_mod:
+                # Estágio 2 & 3: Posição Institucional Montada (Verde se Comprado, Vermelho se Vendido)
+                # Mesmo se o preço furar temporariamente contra ("tomando calor"), preserva a cor da mão institucional
+                if inst_d > 0:
+                    smart_bias = "BUY"
+                    role = "SUP"
+                    def_lots = inst_b
+                else:
+                    smart_bias = "SELL"
+                    role = "RES"
+                    def_lots = inst_s
+                smart_stage = "FORTE" if abs_d >= conviction_strong else "MODERADO"
+            else:
+                # Estágio 1: Em Disputa / Sem Dono Definido (< 3kL WDO | < 5kL WIN) -> Neutro (Branco/Cinza do Pine)
+                smart_bias = "NEUTRAL"
+                role = "NEUTRAL"
+                smart_stage = "NEUTRO"
+                def_lots = max(inst_b, inst_s) if inst_tot > 0 else maker_lots
+
+            # Evolução Dinâmica da Wall ao longo dos candles de hoje (Múltiplas Marcações: Defendeu / Absorveu / Rompeu / Virou)
+            wall_events = []
+            touch_count = 0
+            broken_dir = 0
+            last_ev_idx = -4
+            if wtype in ("Wall", "MidWall") or is_mid:
+                for idx_m, pt in enumerate(m5_series):
+                    c = float(pt.get("close", 0.0))
+                    o = float(pt.get("open", c))
+                    h = float(pt.get("high", c))
+                    l = float(pt.get("low", c))
+                    if not (l - zone_rad <= wp <= h + zone_rad):
+                        continue
+                    touch_count += 1
+                    if idx_m < 1 or ((idx_m - last_ev_idx) < 3 and idx_m < len(m5_series) - 1):
+                        continue
+                    prev_slice = m5_series[max(0, idx_m - 3):idx_m]
+                    prev_avg = float(np.mean([float(x.get("close", c)) for x in prev_slice])) if prev_slice else c
+                    prev_side = 1 if prev_avg >= wp else -1
+                    rng = max(h - l, 0.5 if asset == "WDO" else 5.0)
+                    body_r = abs(c - o) / rng
+                    u_wick = (h - max(o, c)) / rng
+                    l_wick = (min(o, c) - l) / rng
+                    id_b = float(pt.get("inst_delta_bar", 0.0))
+                    rd_b = float(pt.get("ret_delta_bar", 0.0))
+                    cvd_now = float(pt.get("cvd_inst", 0.0))
+                    cvd_prev = float(m5_series[max(0, idx_m - 3)].get("cvd_inst", 0.0))
+                    flow_15m = cvd_now - cvd_prev
+
+                    if prev_side == 1:
+                        if c >= wp - break_tol:
+                            if l_wick >= 0.28 or (c > o and id_b > 0) or (id_b >= bar_inst_th * 0.6 and rd_b < 0):
+                                ev_type = "VIROU_SUP" if broken_dir == 1 else "DEFENDEU_COMPRA"
+                                ev_label = "🔄 Virou Sup" if broken_dir == 1 else "🛡️ Defendeu"
+                                wall_events.append({"time": pt.get("time"), "type": ev_type, "label": ev_label, "dir": 1})
+                                last_ev_idx = idx_m
+                        else:
+                            if id_b > 0 or (flow_15m > 0 and rd_b < 0):
+                                wall_events.append({"time": pt.get("time"), "type": "VIOLINADA_COMPRA", "label": "🪤 Absorveu", "dir": 1})
+                                last_ev_idx = idx_m
+                            elif body_r >= 0.50 and (id_b <= -bar_inst_th * 0.6 or flow_15m < 0):
+                                broken_dir = -1
+                                wall_events.append({"time": pt.get("time"), "type": "ROMPEU_BAIXA", "label": "💥 Rompeu", "dir": -1})
+                                last_ev_idx = idx_m
+                    else:
+                        if c <= wp + break_tol:
+                            if u_wick >= 0.28 or (c < o and id_b < 0) or (id_b <= -bar_inst_th * 0.6 and rd_b > 0):
+                                ev_type = "VIROU_RES" if broken_dir == -1 else "DEFENDEU_VENDA"
+                                ev_label = "🔄 Virou Res" if broken_dir == -1 else "🛡️ Defendeu"
+                                wall_events.append({"time": pt.get("time"), "type": ev_type, "label": ev_label, "dir": -1})
+                                last_ev_idx = idx_m
+                        else:
+                            if id_b < 0 or (flow_15m < 0 and rd_b > 0):
+                                wall_events.append({"time": pt.get("time"), "type": "VIOLINADA_VENDA", "label": "🪤 Absorveu", "dir": -1})
+                                last_ev_idx = idx_m
+                            elif body_r >= 0.50 and (id_b >= bar_inst_th * 0.6 or flow_15m > 0):
+                                broken_dir = 1
+                                wall_events.append({"time": pt.get("time"), "type": "ROMPEU_ALTA", "label": "💥 Rompeu", "dir": 1})
+                                last_ev_idx = idx_m
+
+            last_ev = wall_events[-1]["type"] if wall_events else ""
+            trap_max_dist = 3.5 if asset == "WDO" else 120.0
+            dist_from_wall = spot - wp
+            is_near_wall = abs(dist_from_wall) <= trap_max_dist
+            is_taking_heat = is_near_wall and (
+                (smart_bias == "BUY" and dist_from_wall < -break_tol)
+                or (smart_bias == "SELL" and dist_from_wall > break_tol)
+            )
+            # Se uma Wall Vendedora foi rompida para cima além da zona de violinada (>120 pts WIN / >3.5 pts WDO),
+            # ou uma Wall Compradora foi rompida para baixo além da zona de violinada, os lotes contrários foram estopados e ela virou de papel!
+            broke_up_confirmed = (dist_from_wall > trap_max_dist) and (smart_bias == "SELL" or (smart_bias == "NEUTRAL" and broken_dir == 1))
+            broke_dn_confirmed = (dist_from_wall < -trap_max_dist) and (smart_bias == "BUY" or (smart_bias == "NEUTRAL" and broken_dir == -1))
+
+            if touch_count >= 5 and smart_stage == "NEUTRO" and is_near_wall:
+                live_verdict = f"⚪ WALL GASTA ({touch_count}x)"
+            elif is_near_wall and (last_ev in ("VIOLINADA_COMPRA", "VIOLINADA_VENDA") or (is_taking_heat and smart_stage == "FORTE")):
+                live_verdict = "🪤 VIOLINADA (ABSORVENDO COMPRA)" if (smart_bias == "BUY" or last_ev == "VIOLINADA_COMPRA") else "🪤 VIOLINADA (ABSORVENDO VENDA)"
+            elif broke_up_confirmed:
+                live_verdict = "💥 ROMPERAM P/ ALTA (VIROU SUP)"
+                smart_bias = "BUY"
+                role = "SUP"
+            elif broke_dn_confirmed:
+                live_verdict = "💥 ROMPERAM P/ BAIXO (VIROU RES)"
+                smart_bias = "SELL"
+                role = "RES"
+            elif last_ev == "VIROU_SUP" and spot >= wp - break_tol:
+                live_verdict = "🔄 VIROU SUPORTE (DEFENDENDO)"
+                smart_bias = "BUY"
+                role = "SUP"
+            elif last_ev == "VIROU_RES" and spot <= wp + break_tol:
+                live_verdict = "🔄 VIROU RESISTÊNCIA (DEFENDENDO)"
+                smart_bias = "SELL"
+                role = "RES"
+            elif smart_bias == "BUY" or last_ev == "DEFENDEU_COMPRA":
+                live_verdict = "🛡️ VAI DEFENDER COMPRA"
+            elif smart_bias == "SELL" or last_ev == "DEFENDEU_VENDA":
+                live_verdict = "🛡️ VAI DEFENDER VENDA"
+            elif broken_dir == 1 and spot > wp + break_tol:
+                live_verdict = "💥 ROMPERAM P/ ALTA (VIROU SUP)"
+                smart_bias = "BUY"
+                role = "SUP"
+            elif broken_dir == -1 and spot < wp - break_tol:
+                live_verdict = "💥 ROMPERAM P/ BAIXO (VIROU RES)"
+                smart_bias = "SELL"
+                role = "RES"
+            else:
+                live_verdict = "⚪ SUPORTE EM DISPUTA" if spot >= wp else "⚪ RESIST. EM DISPUTA"
+
+            w["inst_delta"] = round(inst_d, 0)
+            w["smart_bias"] = smart_bias
+            w["smart_stage"] = smart_stage
+            w["role"] = role
             w["defense_lots"] = int(round(def_lots, 0))
             w["inst_total_vol"] = int(round(inst_tot, 0))
+            w["touch_count"] = touch_count
+            w["broken_dir"] = broken_dir
+            w["wall_events"] = wall_events
+            w["live_verdict"] = live_verdict
 
             # Score de Força da Wall/MidWall (0 a 100): 55% Defesa/Absorção Institucional Real + 45% Potência GEX / Hedge Makers
             inst_pct = min(100.0, (inst_tot / max(1.0, max_inst_wall_vol)) * 100.0)
@@ -472,8 +620,15 @@ class GexLiveDealerEngine:
                     w["maker_hedge_lots"] = int(ref_w.get("maker_hedge_lots", 0))
                     w["defense_lots"] = int(ref_w.get("defense_lots", 0))
                     w["inst_total_vol"] = int(ref_w.get("inst_total_vol", 0))
+                    w["inst_delta"] = int(ref_w.get("inst_delta", 0))
+                    w["smart_bias"] = ref_w.get("smart_bias", "NEUTRAL")
+                    w["role"] = ref_w.get("role", "SUP" if wp <= spot else "RES")
                     w["wall_power_pct"] = int(ref_w.get("wall_power_pct", 25))
                     w["wall_tier"] = ref_w.get("wall_tier", "MODERADA")
+                    w["touch_count"] = int(ref_w.get("touch_count", 0))
+                    w["broken_dir"] = int(ref_w.get("broken_dir", 0))
+                    w["wall_events"] = ref_w.get("wall_events", [])
+                    w["live_verdict"] = ref_w.get("live_verdict", "")
                 else:
                     wgex = gex_by_price.get(wp, 0.0)
                     if wgex == 0.0:
@@ -818,6 +973,10 @@ class GexLiveDealerEngine:
                 ema_dealer_score = 0.0
                 ema_magnet_pct = 0.0
                 ema_gex_px = round(c, 2)
+                cum_iagg = 0.0
+                cum_ipas = 0.0
+                cum_hft = 0.0
+                cum_rlp = 0.0
             if idx == first_today_idx and idx > 0:
                 ema_p_high = round(h, 2)
                 ema_p_low = round(l, 2)
@@ -827,6 +986,10 @@ class GexLiveDealerEngine:
                 ema_cvd_step = max(abs(inst_5m), 2500.0 if is_win else 500.0)
                 ema_hist = 0.0
                 cum_dealer_hedge = 0.0
+                cum_iagg = 0.0
+                cum_ipas = 0.0
+                cum_hft = 0.0
+                cum_rlp = 0.0
                 ema_dealer_score = 0.0
                 ema_magnet_pct = 0.0
                 ema_gex_px = round(c, 2)
@@ -1392,6 +1555,28 @@ class GexLiveDealerEngine:
                 if not is_prev_day_bar:
                     signals_log.append(sig_obj)
 
+            b_avg_bl = float(b.get("avg_buy_lot", 3.1 if is_win else 4.0) or (3.1 if is_win else 4.0))
+            b_avg_sl = float(b.get("avg_sell_lot", 3.1 if is_win else 4.0) or (3.1 if is_win else 4.0))
+            b_lot_imb = float(b.get("lot_imb") or (b_avg_bl / max(0.1, b_avg_sl)))
+            b_iagg = round(float(b.get("inst_aggr_delta", inst_5m)), 0)
+            b_ipas = round(float(b.get("inst_pass_delta", 0.0)), 0)
+            b_ret_d = round(float(b.get("ret_delta_bar", delta_5m - inst_5m)), 0)
+            b_hft_d = round(float(b.get("hft_delta_bar", delta_5m - b_iagg - b_ret_d)), 0)
+            b_hft_v = round(float(b.get("hft_vol_bar", (float(b.get("buy_vol", 0.0)) + float(b.get("sell_vol", 0.0))) * 0.35)), 0)
+            b_hft_ch = round(float(b.get("hft_churn_pct", 36.0)), 1)
+            b_rlp_v = round(float(b.get("rlp_vol_bar", 0.0)), 0)
+            b_rlp_sh = round(float(b.get("rlp_share_pct", b.get("rlp_pct", 0.0))), 1)
+
+            cum_iagg += b_iagg
+            cum_ipas += b_ipas
+            cum_hft += b_hft_d
+            cum_rlp += b_rlp_v
+
+            raw_cvd_iagg = b.get("cvd_inst_aggr")
+            raw_cvd_ipas = b.get("cvd_inst_pass")
+            raw_cvd_hft = b.get("cvd_hft")
+            raw_cvd_rlp = b.get("cvd_rlp")
+
             m5_enriched.append({
                 "timestamp": ts_raw,
                 "time": time_str,
@@ -1404,9 +1589,27 @@ class GexLiveDealerEngine:
                 "buy_vol": round(float(b.get("buy_vol", 0.0)), 0),
                 "sell_vol": round(float(b.get("sell_vol", 0.0)), 0),
                 "inst_delta_bar": round(inst_5m, 0),
+                "inst_aggr_delta": b_iagg,
+                "inst_pass_delta": b_ipas,
+                "ret_delta_bar": b_ret_d,
+                "hft_delta_bar": b_hft_d,
+                "hft_vol_bar": b_hft_v,
+                "hft_churn_pct": b_hft_ch,
+                "rlp_vol_bar": b_rlp_v,
+                "rlp_deals_bar": int(b.get("rlp_deals_bar", 0) or 0),
+                "rlp_share_pct": b_rlp_sh,
+                "rlp_pct": b_rlp_sh,
+                "avg_buy_lot": round(b_avg_bl, 2),
+                "avg_sell_lot": round(b_avg_sl, 2),
+                "lot_imb": round(b_lot_imb, 3),
                 "delta_bar": round(delta_5m, 0),
+                "cvd_total": round(float(b.get("cvd_total", cvd + float(b.get("cvd_retail", 0.0)))), 0),
                 "cvd_inst": cvd,
+                "cvd_inst_aggr": round(float(raw_cvd_iagg) if raw_cvd_iagg is not None else cum_iagg, 0),
+                "cvd_inst_pass": round(float(raw_cvd_ipas) if (raw_cvd_ipas is not None and float(raw_cvd_ipas) != 0.0) else cum_ipas, 0),
+                "cvd_hft": round(float(raw_cvd_hft) if (raw_cvd_hft is not None and float(raw_cvd_hft) != 0.0) else cum_hft, 0),
                 "cvd_retail": round(float(b["cvd_retail"]), 0),
+                "cvd_rlp": round(float(raw_cvd_rlp) if (raw_cvd_rlp is not None and float(raw_cvd_rlp) != 0.0) else cum_rlp, 0),
                 "dealer_hedge_bar": hf["dealer_hedge_contracts"],
                 "dealer_hedge_open": round(prev_cum_dealer, 0),
                 "cum_dealer_hedge": round(cum_dealer_hedge, 0),
@@ -1448,18 +1651,215 @@ class GexLiveDealerEngine:
         if curr_window is not None:
             flow_windows.append(curr_window)
 
+        # ── 2.5º PASSO: MATEMÁTICA DE FLUXO EFETIVO INDEPENDENTE DE CORRETORA (KYLE-WYCKOFF + PORTE + SMART WAVE) & DETECTOR DE DIVERGÊNCIA TOPO/FUNDO ──
+        n_enr = len(m5_enriched)
+        if n_enr > 0:
+            tick_sz_val = 5.0 if is_win else 0.5
+            cum_eff = 0.0
+            ema_eff_fast = 0.0
+            ema_eff_slow = 0.0
+            for i_e, eb in enumerate(m5_enriched):
+                if eb.get("is_prev_day", False) and i_e == 0:
+                    cum_eff = 0.0
+                if i_e == first_today_idx:
+                    cum_eff = 0.0
+                    ema_eff_fast = 0.0
+                    ema_eff_slow = 0.0
+                o_e, h_e, l_e, c_e = float(eb["open"]), float(eb["high"]), float(eb["low"]), float(eb["close"])
+                rng_e = max(h_e - l_e, tick_sz_val)
+                bv_e = float(eb.get("buy_vol", 0.0))
+                sv_e = float(eb.get("sell_vol", 0.0))
+                tv_e = max(1.0, bv_e + sv_e)
+                lw_e = max(0.0, min(o_e, c_e) - l_e)
+                uw_e = max(0.0, h_e - max(o_e, c_e))
+
+                # 1) Absorção Oculta na Pedra (Lei de Esforço vs. Resultado de Wyckoff / Kyle):
+                # Mede quantos lotes vendedores bateram e foram absorvidos/devolvidos acima da mínima vs. quantos lotes compradores foram absorvidos abaixo da máxima
+                abs_buy_w = sv_e * ((c_e - l_e) / rng_e) * (0.80 + 1.40 * (lw_e / rng_e))
+                abs_sell_w = bv_e * ((h_e - c_e) / rng_e) * (0.80 + 1.40 * (uw_e / rng_e))
+                phi_wyckoff = round(abs_buy_w - abs_sell_w, 0)
+
+                # 2) Assimetria de Porte / Ticket Médio (Urgência de Lote Grande, 100% independente da corretora que executou):
+                bl_e = float(eb.get("avg_buy_lot", 3.1 if is_win else 4.0))
+                sl_e = float(eb.get("avg_sell_lot", 3.1 if is_win else 4.0))
+                phi_porte = round(tv_e * ((bl_e - sl_e) / max(0.5, bl_e + sl_e)) * 2.2, 0)
+
+                # 3) Pressão Institucional + Defesa Passiva contra Armadilha de Varejo:
+                iagg_e = float(eb.get("inst_aggr_delta", eb.get("inst_delta_bar", 0.0)))
+                ipas_e = float(eb.get("inst_pass_delta", 0.0))
+                ret_e = float(eb.get("ret_delta_bar", 0.0))
+                phi_inst = round(0.55 * iagg_e + 1.15 * ipas_e - 0.85 * ret_e, 0)
+
+                # Força Efetiva da Barra (combinação física dos 3 motores):
+                bar_force = round(0.45 * phi_wyckoff + 0.25 * phi_porte + 0.30 * phi_inst, 0)
+                eb["wyckoff_abs_bar"] = phi_wyckoff
+                eb["lot_urgency_bar"] = phi_porte
+                eb["smart_inst_bar"] = phi_inst
+                eb["effective_force_bar"] = bar_force
+
+                f_prev1 = float(m5_enriched[i_e - 1]["effective_force_bar"]) if i_e > first_today_idx else bar_force
+                f_prev2 = float(m5_enriched[i_e - 2]["effective_force_bar"]) if i_e > first_today_idx + 1 else f_prev1
+                swing_impulse_3b = round(0.45 * bar_force + 0.35 * f_prev1 + 0.20 * f_prev2, 0)
+
+                cum_eff += bar_force
+                if i_e == first_today_idx:
+                    ema_eff_fast = cum_eff
+                    ema_eff_slow = cum_eff
+                else:
+                    ema_eff_fast = 0.50 * cum_eff + 0.50 * ema_eff_fast
+                    ema_eff_slow = (2.0 / 11.0) * cum_eff + (1.0 - 2.0 / 11.0) * ema_eff_slow
+
+                # Onda Estrutural de Swing (combina o impulso de 3 barras e o CVD Efetivo sem viés de tendência matinal):
+                detrended_cvd = ema_eff_fast - ema_eff_slow
+                smart_wave = round(0.55 * detrended_cvd + 0.45 * swing_impulse_3b, 0)
+                eb["smart_swing_wave"] = smart_wave
+                eb["swing_impulse_3b"] = swing_impulse_3b
+                eb["swing_divergence"] = None
+
+            # Detector Causal de Divergências de Topo e Fundo (Preço Faz Fundo Mais Baixo / Topo Mais Alto vs. Onda de Fluxo Faz Fundo Mais Alto / Topo Mais Baixo)
+            price_tol = 40.0 if is_win else 1.0
+            max_price_ext = 360.0 if is_win else 8.5
+            min_wave_diff = 1800.0 if is_win else 320.0
+            last_bull_div_idx = -12
+            last_bear_div_idx = -12
+            for i_e in range(max(first_today_idx + 4, 4), n_enr):
+                eb = m5_enriched[i_e]
+                if eb.get("is_prev_day", False):
+                    continue
+                l_i, h_i, c_i, o_i = float(eb["low"]), float(eb["high"]), float(eb["close"]), float(eb["open"])
+                rng_i = max(h_i - l_i, tick_sz_val)
+                w_i = float(eb["smart_swing_wave"])
+                near_wall_i = bool(eb.get("sup_w") or eb.get("res_w")) or any(
+                    abs(l_i - w["price"]) <= wall_radius or abs(h_i - w["price"]) <= wall_radius
+                    for w in walls_clean
+                )
+
+                # 1. DIVERGÊNCIA ALTISTA DE FUNDO (Preço: Fundo Mais Baixo / Duplo ↘ vs. Fluxo Efetivo: Fundo Mais Alto ↗)
+                is_local_low = (
+                    l_i <= min(float(m5_enriched[i_e - 1]["low"]), float(m5_enriched[i_e - 2]["low"]))
+                    and (i_e == n_enr - 1 or l_i <= float(m5_enriched[i_e + 1]["low"]) + tick_sz_val)
+                )
+                if is_local_low and ((c_i - l_i) / rng_i >= 0.40 or c_i >= o_i) and (
+                    float(eb["effective_force_bar"]) > 0 or float(eb["wyckoff_abs_bar"]) > 0 or w_i > 0
+                ):
+                    for k_p in range(i_e - 3, max(first_today_idx + 1, i_e - 16), -1):
+                        kb = m5_enriched[k_p]
+                        l_k = float(kb["low"])
+                        if l_k <= float(m5_enriched[k_p - 1]["low"]) and l_k <= float(m5_enriched[k_p + 1]["low"]):
+                            w_k = float(kb["smart_swing_wave"])
+                            sv_2b_i = float(eb["sell_vol"]) + float(m5_enriched[i_e - 1]["sell_vol"])
+                            sv_2b_k = float(kb["sell_vol"]) + float(m5_enriched[k_p - 1]["sell_vol"])
+                            sell_exhausted = sv_2b_i < 0.88 * sv_2b_k
+                            if (
+                                (l_k - max_price_ext) <= l_i <= (l_k + price_tol)
+                                and w_i > w_k + min_wave_diff
+                                and (w_k < 0 or float(eb["wyckoff_abs_bar"]) > 0 or sell_exhausted)
+                            ):
+                                dom_drv = (
+                                    "ABSORÇÃO NA PEDRA (WYCKOFF)"
+                                    if float(eb["wyckoff_abs_bar"]) >= max(float(eb["lot_urgency_bar"]), float(eb["smart_inst_bar"]))
+                                    else ("PORTE / LOTE GRANDE COMPRADOR" if float(eb["lot_urgency_bar"]) >= float(eb["smart_inst_bar"]) else "EXAUSTÃO VENDEDORA + PASSIVO")
+                                )
+                                div_obj = {
+                                    "type": "BULL_DIV",
+                                    "label": "🟢 DIV. COMPRA",
+                                    "prev_idx": k_p,
+                                    "prev_time": kb["time"],
+                                    "prev_price": round(l_k, 2),
+                                    "prev_wave": round(w_k, 0),
+                                    "curr_idx": i_e,
+                                    "curr_time": eb["time"],
+                                    "curr_price": round(l_i, 2),
+                                    "curr_wave": round(w_i, 0),
+                                    "near_wall": near_wall_i,
+                                    "sell_exhaust_pct": round((1.0 - sv_2b_i / max(1.0, sv_2b_k)) * 100.0, 0),
+                                    "driver": dom_drv,
+                                }
+                                if i_e - last_bull_div_idx <= 6 and last_bull_div_idx >= 0:
+                                    prev_div = m5_enriched[last_bull_div_idx].get("swing_divergence")
+                                    if prev_div and l_i <= prev_div["curr_price"]:
+                                        m5_enriched[last_bull_div_idx]["swing_divergence"] = None
+                                        eb["swing_divergence"] = div_obj
+                                        last_bull_div_idx = i_e
+                                else:
+                                    eb["swing_divergence"] = div_obj
+                                    last_bull_div_idx = i_e
+                                break
+
+                # 2. DIVERGÊNCIA BAIXISTA DE TOPO (Preço: Topo Mais Alto / Duplo ↗ vs. Fluxo Efetivo: Topo Mais Baixo ↘)
+                is_local_high = (
+                    h_i >= max(float(m5_enriched[i_e - 1]["high"]), float(m5_enriched[i_e - 2]["high"]))
+                    and (i_e == n_enr - 1 or h_i >= float(m5_enriched[i_e + 1]["high"]) - tick_sz_val)
+                )
+                if eb["swing_divergence"] is None and is_local_high and ((h_i - c_i) / rng_i >= 0.40 or c_i <= o_i) and (
+                    float(eb["effective_force_bar"]) < 0 or float(eb["wyckoff_abs_bar"]) < 0 or w_i < 0
+                ):
+                    for k_p in range(i_e - 3, max(first_today_idx + 1, i_e - 16), -1):
+                        kb = m5_enriched[k_p]
+                        h_k = float(kb["high"])
+                        if h_k >= float(m5_enriched[k_p - 1]["high"]) and h_k >= float(m5_enriched[k_p + 1]["high"]):
+                            w_k = float(kb["smart_swing_wave"])
+                            bv_2b_i = float(eb["buy_vol"]) + float(m5_enriched[i_e - 1]["buy_vol"])
+                            bv_2b_k = float(kb["buy_vol"]) + float(m5_enriched[k_p - 1]["buy_vol"])
+                            buy_exhausted = bv_2b_i < 0.88 * bv_2b_k
+                            if (
+                                (h_k - price_tol) <= h_i <= (h_k + max_price_ext)
+                                and w_i < w_k - min_wave_diff
+                                and (w_k > 0 or float(eb["wyckoff_abs_bar"]) < 0 or buy_exhausted)
+                            ):
+                                dom_drv = (
+                                    "ABSORÇÃO VENDEDORA (WYCKOFF)"
+                                    if abs(float(eb["wyckoff_abs_bar"])) >= max(abs(float(eb["lot_urgency_bar"])), abs(float(eb["smart_inst_bar"])))
+                                    else ("PORTE / LOTE GRANDE VENDEDOR" if abs(float(eb["lot_urgency_bar"])) >= abs(float(eb["smart_inst_bar"])) else "EXAUSTÃO COMPRADORA + PASSIVO")
+                                )
+                                div_obj = {
+                                    "type": "BEAR_DIV",
+                                    "label": "🔴 DIV. VENDA",
+                                    "prev_idx": k_p,
+                                    "prev_time": kb["time"],
+                                    "prev_price": round(h_k, 2),
+                                    "prev_wave": round(w_k, 0),
+                                    "curr_idx": i_e,
+                                    "curr_time": eb["time"],
+                                    "curr_price": round(h_i, 2),
+                                    "curr_wave": round(w_i, 0),
+                                    "near_wall": near_wall_i,
+                                    "buy_exhaust_pct": round((1.0 - bv_2b_i / max(1.0, bv_2b_k)) * 100.0, 0),
+                                    "driver": dom_drv,
+                                }
+                                if i_e - last_bear_div_idx <= 6 and last_bear_div_idx >= 0:
+                                    prev_div = m5_enriched[last_bear_div_idx].get("swing_divergence")
+                                    if prev_div and h_i >= prev_div["curr_price"]:
+                                        m5_enriched[last_bear_div_idx]["swing_divergence"] = None
+                                        eb["swing_divergence"] = div_obj
+                                        last_bear_div_idx = i_e
+                                else:
+                                    eb["swing_divergence"] = div_obj
+                                    last_bear_div_idx = i_e
+                                break
+
         # ── 3º PASSO: MODO CAMPEÃO 6 ESTRATÉGIAS C/ FILTRO DE FLUXO (WIN: EST_01 + EST_07 + EST_13 | WDO: WDO_09 + WDO_11 + WDO_S2) ──
         if use_champion_mode:
             today_closed_bars = [
-                (i, eb) for i, eb in enumerate(m5_enriched[:closed_end])
-                if not eb.get("is_prev_day", False) and eb.get("is_bar_closed", True)
+                (i, eb) for i, eb in enumerate(m5_enriched)
+                if not eb.get("is_prev_day", False)
             ]
             cached_bt_trades = self._get_portfolio_6_cached_trades(str(sess_date or ""), asset.upper())
             strat_short_names = {
                 "EST_01": "WIN Rejeição",
-                "EST_07": "WIN Rompimento",
+                "EST_04": "WIN-B1 Virou Sup/Res",
+                "EST_07": "WIN-C1 Romperam Wall",
                 "EST_13": "WIN Next Wall",
+                "EST_14": "WIN-A1 Vai Defender",
+                "EST_15": "WIN Grid Z30",
+                "EST_16": "WIN Spring",
+                "WIN_E2": "WIN-E2 Wall Gasta",
+                "WDO_01": "WDO-A1 Scalper NY",
+                "WDO_02": "WDO Scalper",
+                "WDO_05": "WDO Cluster NWE",
+                "WDO_07": "WDO-B1 Violinada",
                 "WDO_09": "WDO Pullback",
+                "WDO_10": "WDO-A2 Vai Defender",
                 "WDO_11": "WDO Next Wall",
                 "WDO_S2": "WDO Lunch",
             }
@@ -1487,7 +1887,12 @@ class GexLiveDealerEngine:
                     pts = float(tr.get("pts", 0.0))
                     epx = float(tr.get("entry_price") or eb["close"])
                     xpx = float(tr.get("exit_price") or (epx + s_dir * pts))
+                    w_ref_obj = eb.get("sup_w") if s_dir > 0 else eb.get("res_w")
+                    w_ref_px = float(w_ref_obj["price"]) if (w_ref_obj and w_ref_obj.get("price") is not None) else None
                     sl_px = float(tr.get("stop_price") or (epx - s_dir * (240.0 if is_win else 10.0)))
+                    if w_ref_px is not None:
+                        w_buf = 60.0 if is_win else 3.0
+                        sl_px = min(sl_px, w_ref_px - w_buf) if s_dir > 0 else max(sl_px, w_ref_px + w_buf)
                     tp_px = float(tr.get("tp_price") or (epx + s_dir * (350.0 if is_win else 15.0)))
                     lbl = str(tr.get("label", ""))
                     is_val = pts > 0
@@ -1526,6 +1931,7 @@ class GexLiveDealerEngine:
                         "mfe_30m": round(max(0.0, pts), 1),
                         "mae_30m": round(min(0.0, pts), 1),
                         "realized_pts": round(pts, 1),
+                        "brl_1c": round(float(tr.get("brl_1c", pts * (0.20 if is_win else 10.0))), 2),
                         "validation_status": val_st,
                         "validation_label": lbl,
                         "is_valid": is_val,
@@ -1536,309 +1942,28 @@ class GexLiveDealerEngine:
                     m5_enriched[b_idx]["signal"] = sig_obj
                 signals_log.sort(key=lambda s: s["bar_index"])
             elif is_win:
-                # Live / Out-of-cache WIN: Avalia EST_01 (6_COMBO_SMART), EST_07 (3_FLUXO_INST) e EST_13 (4_FLUXO_ABSORCAO)
-                signals_log = []
-                for eb in m5_enriched:
-                    eb["signal"] = None
-                busy_by_slot = {"EST_01": -1, "EST_07": -1, "EST_13": -1}
-                ops_by_slot = {"EST_01": 0, "EST_07": 0, "EST_13": 0}
-                for pos_k, (b_idx, eb) in enumerate(today_closed_bars):
-                    if pos_k < 2:
-                        continue
-                    t_str = eb["time"]
-                    c = float(eb["close"])
-                    o = float(eb["open"])
-                    h = float(eb["high"])
-                    l = float(eb["low"])
-                    rng = float(eb.get("rng", max(h - l, 5.0)))
-                    lower_wick = float(eb.get("lower_wick", min(o, c) - l))
-                    upper_wick = float(eb.get("upper_wick", h - max(o, c)))
-                    inst_5m = float(eb.get("inst_delta_bar", 0.0))
-                    delta_5m = float(eb.get("delta_bar", 0.0))
-                    pos_nwe = float(eb.get("nwe_pos_band", 0.0))
-                    slp_nwe = float(eb.get("nwe_slope", 0.0))
-                    w_dir = int(eb.get("window_dir", 0))
-                    f_hist = float(eb.get("flow_hist", 0.0))
-                    sup_w = eb.get("sup_w")
-                    res_w = eb.get("res_w")
-
-                    # Filtros do Dashboard para WIN
-                    b_abs = (inst_5m >= 0 or delta_5m >= 0 or lower_wick >= 0.22 * rng or c >= o) and (inst_5m >= -12000.0)
-                    s_abs = (inst_5m <= 0 or delta_5m <= 0 or upper_wick >= 0.22 * rng or c <= o) and (inst_5m <= 12000.0)
-                    b_combo = (w_dir == 1 or f_hist >= -14.0) and b_abs
-                    s_combo = (w_dir == -1 or f_hist <= 14.0) and s_abs
-                    b_inst = (inst_5m >= 0)
-                    s_inst = (inst_5m <= 0)
-
-                    cands = []
-                    # 1. EST_01: Scalper Híbrido NY (10:00–16:30) c/ 6_COMBO_SMART
-                    if "10:00" <= t_str <= "16:30" and b_idx > busy_by_slot["EST_01"] and ops_by_slot["EST_01"] < 4:
-                        if sup_w is not None and pos_nwe <= -0.35 and c > o and b_combo:
-                            cands.append(("EST_01", 1, 350.0, 240.0, 150.0, 25.0, 16, sup_w))
-                        elif res_w is not None and pos_nwe >= 0.35 and c < o and s_combo:
-                            cands.append(("EST_01", -1, 350.0, 240.0, 150.0, 25.0, 16, res_w))
-
-                    # 2. EST_07: Breakout Momentum NY (10:00–16:00) c/ 3_FLUXO_INST
-                    if "10:00" <= t_str <= "16:00" and b_idx > busy_by_slot["EST_07"] and ops_by_slot["EST_07"] < 3:
-                        if sup_w is not None and (c - o) >= 55.0 and slp_nwe >= 4.0 and b_inst:
-                            cands.append(("EST_07", 1, 500.0, 240.0, 150.0, 20.0, 16, sup_w))
-                        elif res_w is not None and (o - c) >= 55.0 and slp_nwe <= -4.0 and s_inst:
-                            cands.append(("EST_07", -1, 500.0, 240.0, 150.0, 20.0, 16, res_w))
-
-                    # 3. EST_13: SmartGrid CrossWDO+NextWall (09:05–16:15) c/ 4_FLUXO_ABSORCAO
-                    if "09:05" <= t_str <= "16:15" and b_idx > busy_by_slot["EST_13"] and ops_by_slot["EST_13"] < 3:
-                        if sup_w is not None and pos_nwe <= -0.15 and c > o and b_abs:
-                            cands.append(("EST_13", 1, 220.0, 320.0, 130.0, 20.0, 18, sup_w))
-                        elif res_w is not None and pos_nwe >= 0.15 and c < o and s_abs:
-                            cands.append(("EST_13", -1, 220.0, 320.0, 130.0, 20.0, 18, res_w))
-
-                    for sid, sig_dir, tr_tp, tr_sl, tr_be_trig, tr_be_lock, tr_max_b, nearest_w in cands:
-                        future_slice = today_closed_bars[pos_k + 1 : min(len(today_closed_bars), pos_k + 1 + tr_max_b)]
-                        be_armed = False
-                        be_armed_idx = None
-                        be_armed_time = None
-                        mfe_w, mae_w, realized_w = 0.0, 0.0, 0.0
-                        exit_reason = ""
-                        closed_trade = False
-                        win_exit_idx = future_slice[-1][0] if future_slice else b_idx
-                        for f_b_idx, fb in future_slice:
-                            fh, fl, fc = float(fb["high"]), float(fb["low"]), float(fb["close"])
-                            fav = (fh - c) if sig_dir > 0 else (c - fl)
-                            adv = (fl - c) if sig_dir > 0 else (c - fh)
-                            if fav > mfe_w:
-                                mfe_w = fav
-                            if adv < mae_w:
-                                mae_w = adv
-                            eff_sl = -tr_be_lock if be_armed else tr_sl
-                            if adv <= -eff_sl:
-                                realized_w = -eff_sl
-                                exit_reason = "BE" if eff_sl < 0 else "SL"
-                                closed_trade = True
-                                win_exit_idx = f_b_idx
-                                break
-                            elif fav >= tr_tp:
-                                realized_w = tr_tp
-                                exit_reason = "TP"
-                                closed_trade = True
-                                win_exit_idx = f_b_idx
-                                break
-                            if not be_armed and fav >= tr_be_trig:
-                                be_armed = True
-                                be_armed_idx = f_b_idx
-                                be_armed_time = fb.get("time", "")
-                        busy_by_slot[sid] = max(busy_by_slot[sid], win_exit_idx)
-                        ops_by_slot[sid] += 1
-                        if not closed_trade:
-                            if is_live_session and len(future_slice) < tr_max_b:
-                                val_status, val_label, is_valid, realized_w, exit_reason = "EM_ANDAMENTO", "⏳ EM ABERTO (Barra Fechada)", None, 0.0, "ABERTA"
-                            else:
-                                last_fc = float(future_slice[-1][1]["close"]) if future_slice else c
-                                realized_w = round(sig_dir * (last_fc - c), 1)
-                                is_valid = realized_w > 0
-                                exit_reason = "TEMPO"
-                                val_status = "VALIDO_FAVORAVEL" if is_valid else "INVALIDO_CONTRA"
-                                val_label = f"{'✅' if is_valid else '❌'} TEMPO ({realized_w:+.0f} pts)"
-                        else:
-                            is_valid = realized_w > 0
-                            val_status = "VALIDO_ALVO" if exit_reason == "TP" else ("VALIDO_FAVORAVEL" if exit_reason == "BE" else "INVALIDO_STOP")
-                            val_label = f"✅ ALVO (+{tr_tp:.0f} pts)" if exit_reason == "TP" else (f"✅ PROTEÇÃO BE (+{realized_w:.0f} pts)" if exit_reason == "BE" else f"❌ STOP (-{tr_sl:.0f} pts)")
-                        win_ex_eb = m5_enriched[min(len(m5_enriched) - 1, win_exit_idx)]
-                        win_ex_px = round(float(m5_enriched[-1]["close"]), 2) if val_status == "EM_ANDAMENTO" else round(c + sig_dir * realized_w, 2)
-                        short_nm = strat_short_names.get(sid, sid)
-                        win_sig_obj = {
-                            "id": f"{asset}_{t_str}_{sid}_{'BUY' if sig_dir > 0 else 'SELL'}",
-                            "strategy_id": sid,
-                            "strategy_short": short_nm,
-                            "bar_index": b_idx,
-                            "timestamp": eb["timestamp"],
-                            "time": t_str,
-                            "direction": "COMPRA" if sig_dir > 0 else "VENDA",
-                            "dir_num": sig_dir,
-                            "type": f"{short_nm} · {'COMPRA' if sig_dir > 0 else 'VENDA'}",
-                            "entry_price": round(c, 2),
-                            "exit_bar_index": win_exit_idx,
-                            "exit_time": win_ex_eb.get("time", t_str),
-                            "exit_price": win_ex_px,
-                            "exit_reason": exit_reason,
-                            "stop_price": round(c - sig_dir * tr_sl, 2),
-                            "tp_price": round(c + sig_dir * tr_tp, 2),
-                            "tp_tag": "TP",
-                            "be_triggered": bool(be_armed),
-                            "be_bar_index": be_armed_idx,
-                            "be_time": be_armed_time,
-                            "be_trigger_price": round(c + sig_dir * tr_be_trig, 2),
-                            "be_stop_price": round(c + sig_dir * tr_be_lock, 2),
-                            "wall_price": round(nearest_w["price"], 2) if nearest_w else None,
-                            "wall_type": nearest_w["type"] if nearest_w else short_nm,
-                            "inst_delta_5m": eb["inst_delta_bar"],
-                            "dealer_hedge_5m": eb["dealer_hedge_bar"],
-                            "reason": f"{short_nm} ({sid}) c/ Fluxo · {val_label}",
-                            "pnl_5m": round(realized_w, 1),
-                            "pnl_15m": round(realized_w, 1),
-                            "pnl_30m": round(realized_w, 1),
-                            "mfe_30m": round(mfe_w, 1),
-                            "mae_30m": round(mae_w, 1),
-                            "realized_pts": round(realized_w, 1),
-                            "validation_status": val_status,
-                            "validation_label": val_label,
-                            "is_valid": is_valid,
-                            "is_prev_day": False,
-                            "closed_bar_confirmed": True,
-                        }
-                        signals_log.append(win_sig_obj)
-                        m5_enriched[b_idx]["signal"] = win_sig_obj
-                signals_log.sort(key=lambda s: s["bar_index"])
+                signals_log = self._evaluate_live_mt5_win_strategies(
+                    sess_date=str(sess_date or ""),
+                    m5_enriched=m5_enriched,
+                    today_closed_bars=today_closed_bars,
+                    closes_all=closes_all,
+                    w_len=w_len,
+                    walls_clean=walls_clean,
+                    model=model,
+                    strat_short_names=strat_short_names,
+                    is_live_session=is_live_session,
+                )
             else:
-                # Live / Out-of-cache WDO: Avalia WDO_09 (1_JANELA_ASG), WDO_11 (4_FLUXO_ABSORCAO) e WDO_S2 (12:00-14:30 Reversão NWE c/ Fluxo)
-                signals_log = []
-                for eb in m5_enriched:
-                    eb["signal"] = None
-                busy_by_slot = {"WDO_09": -1, "WDO_11": -1, "WDO_S2": -1}
-                ops_by_slot = {"WDO_09": 0, "WDO_11": 0, "WDO_S2": 0}
-                last_s2_pos = -99
-                for pos_k, (b_idx, eb) in enumerate(today_closed_bars):
-                    if pos_k < 1:
-                        continue
-                    t_str = eb["time"]
-                    c = float(eb["close"])
-                    o = float(eb["open"])
-                    h = float(eb["high"])
-                    l = float(eb["low"])
-                    rng = float(eb.get("rng", max(h - l, 0.5)))
-                    lower_wick = float(eb.get("lower_wick", min(o, c) - l))
-                    upper_wick = float(eb.get("upper_wick", h - max(o, c)))
-                    inst_5m = float(eb.get("inst_delta_bar", 0.0))
-                    delta_5m = float(eb.get("delta_bar", 0.0))
-                    pos_nwe = float(eb.get("nwe_pos_band", 0.0))
-                    w_dir = int(eb.get("window_dir", 0))
-                    sup_w = eb.get("sup_w")
-                    res_w = eb.get("res_w")
-
-                    b_abs = (inst_5m >= 0 or delta_5m >= 0 or lower_wick >= 0.22 * rng or c >= o) and (inst_5m >= -800.0)
-                    s_abs = (inst_5m <= 0 or delta_5m <= 0 or upper_wick >= 0.22 * rng or c <= o) and (inst_5m <= 800.0)
-
-                    cands = []
-                    # 1. WDO_09: Cluster NWE30+50 Wall (NO_LUNCH) c/ 1_JANELA_ASG
-                    if ("09:05" <= t_str <= "12:15" or "13:30" <= t_str <= "16:15") and b_idx > busy_by_slot["WDO_09"] and ops_by_slot["WDO_09"] < 2:
-                        if sup_w is not None and pos_nwe <= -0.35 and w_dir == 1:
-                            cands.append(("WDO_09", 1, 14.0, 11.5, 6.5, 2.0, 16, sup_w))
-                        elif res_w is not None and pos_nwe >= 0.35 and w_dir == -1:
-                            cands.append(("WDO_09", -1, 14.0, 11.5, 6.5, 2.0, 16, res_w))
-
-                    # 2. WDO_11: SmartGrid GF+NextWall (09:05–16:15) c/ 4_FLUXO_ABSORCAO
-                    if "09:05" <= t_str <= "16:15" and b_idx > busy_by_slot["WDO_11"] and ops_by_slot["WDO_11"] < 2:
-                        if sup_w is not None and pos_nwe <= -0.20 and c > o and b_abs:
-                            cands.append(("WDO_11", 1, 12.0, 18.0, 6.0, 1.5, 20, sup_w))
-                        elif res_w is not None and pos_nwe >= 0.20 and c < o and s_abs:
-                            cands.append(("WDO_11", -1, 12.0, 18.0, 6.0, 1.5, 20, res_w))
-
-                    # 3. WDO_S2: Reversão Banda Extrema NWE (12:00–14:30) c/ Fluxo
-                    if ("12:00" <= t_str <= "14:30") and b_idx > busy_by_slot["WDO_S2"] and (pos_k - last_s2_pos) >= 3 and ops_by_slot["WDO_S2"] < 2:
-                        if pos_nwe <= -0.75 and c >= l + 0.50 * rng and (lower_wick >= 0.25 * rng or c > o) and (inst_5m > 0 or delta_5m < 0):
-                            candle_sl_d = min(10.0, round(max(1.5, (c - l) + 1.5), 2))
-                            cands.append(("WDO_S2", 1, 15.0, 10.0, 5.0, -candle_sl_d, 24, sup_w))
-                            last_s2_pos = pos_k
-                        elif pos_nwe >= 0.75 and c <= h - 0.50 * rng and (upper_wick >= 0.25 * rng or c < o) and (inst_5m < 0 or delta_5m > 0):
-                            candle_sl_d = min(10.0, round(max(1.5, (h - c) + 1.5), 2))
-                            cands.append(("WDO_S2", -1, 15.0, 10.0, 5.0, -candle_sl_d, 24, res_w))
-                            last_s2_pos = pos_k
-
-                    for sid, sig_dir, tr_tp, tr_sl, tr_be_trig, tr_be_lock, tr_max_b, nearest_w in cands:
-                        future_slice = today_closed_bars[pos_k + 1 : min(len(today_closed_bars), pos_k + 1 + tr_max_b)]
-                        be_armed = False
-                        be_armed_idx = None
-                        be_armed_time = None
-                        mfe_w, mae_w, realized_w = 0.0, 0.0, 0.0
-                        exit_reason = ""
-                        closed_trade = False
-                        wdo_exit_idx = future_slice[-1][0] if future_slice else b_idx
-                        for f_b_idx, fb in future_slice:
-                            fh, fl, fc = float(fb["high"]), float(fb["low"]), float(fb["close"])
-                            fav = (fh - c) if sig_dir > 0 else (c - fl)
-                            adv = (fl - c) if sig_dir > 0 else (c - fh)
-                            if fav > mfe_w:
-                                mfe_w = fav
-                            if adv < mae_w:
-                                mae_w = adv
-                            eff_sl = -tr_be_lock if be_armed else tr_sl
-                            if adv <= -eff_sl:
-                                realized_w = -eff_sl
-                                exit_reason = "BE" if eff_sl < 0 else "SL"
-                                closed_trade = True
-                                wdo_exit_idx = f_b_idx
-                                break
-                            elif fav >= tr_tp:
-                                realized_w = tr_tp
-                                exit_reason = "TP"
-                                closed_trade = True
-                                wdo_exit_idx = f_b_idx
-                                break
-                            if not be_armed and fav >= tr_be_trig:
-                                be_armed = True
-                                be_armed_idx = f_b_idx
-                                be_armed_time = fb.get("time", "")
-                        busy_by_slot[sid] = max(busy_by_slot[sid], wdo_exit_idx)
-                        ops_by_slot[sid] += 1
-                        if not closed_trade:
-                            if is_live_session and len(future_slice) < tr_max_b:
-                                val_status, val_label, is_valid, realized_w, exit_reason = "EM_ANDAMENTO", "⏳ EM ABERTO (Barra Fechada)", None, 0.0, "ABERTA"
-                            else:
-                                last_fc = float(future_slice[-1][1]["close"]) if future_slice else c
-                                realized_w = round(sig_dir * (last_fc - c), 1)
-                                is_valid = realized_w > 0
-                                exit_reason = "TEMPO"
-                                val_status = "VALIDO_FAVORAVEL" if is_valid else "INVALIDO_CONTRA"
-                                val_label = f"{'✅' if is_valid else '❌'} TEMPO ({realized_w:+.1f} pts)"
-                        else:
-                            is_valid = realized_w > 0
-                            val_status = "VALIDO_ALVO" if exit_reason == "TP" else ("VALIDO_FAVORAVEL" if exit_reason == "BE" else "INVALIDO_STOP")
-                            val_label = f"✅ ALVO (+{tr_tp:.1f} pts)" if exit_reason == "TP" else (f"✅ PROTEÇÃO BE (+{realized_w:.1f} pts)" if exit_reason == "BE" else f"❌ STOP ({realized_w:.1f} pts)")
-                        wdo_ex_eb = m5_enriched[min(len(m5_enriched) - 1, wdo_exit_idx)]
-                        wdo_ex_px = round(float(m5_enriched[-1]["close"]), 2) if val_status == "EM_ANDAMENTO" else round(c + sig_dir * realized_w, 2)
-                        short_nm = strat_short_names.get(sid, sid)
-                        wdo_sig_obj = {
-                            "id": f"{asset}_{t_str}_{sid}_{'BUY' if sig_dir > 0 else 'SELL'}",
-                            "strategy_id": sid,
-                            "strategy_short": short_nm,
-                            "bar_index": b_idx,
-                            "timestamp": eb["timestamp"],
-                            "time": t_str,
-                            "direction": "COMPRA" if sig_dir > 0 else "VENDA",
-                            "dir_num": sig_dir,
-                            "type": f"{short_nm} · {'COMPRA' if sig_dir > 0 else 'VENDA'}",
-                            "entry_price": round(c, 2),
-                            "exit_bar_index": wdo_exit_idx,
-                            "exit_time": wdo_ex_eb.get("time", t_str),
-                            "exit_price": wdo_ex_px,
-                            "exit_reason": exit_reason,
-                            "stop_price": round(c - sig_dir * tr_sl, 2),
-                            "tp_price": round(c + sig_dir * tr_tp, 2),
-                            "tp_tag": "TP",
-                            "be_triggered": bool(be_armed),
-                            "be_bar_index": be_armed_idx,
-                            "be_time": be_armed_time,
-                            "be_trigger_price": round(c + sig_dir * tr_be_trig, 2),
-                            "be_stop_price": round(c + sig_dir * tr_be_lock, 2),
-                            "wall_price": round(nearest_w["price"], 2) if nearest_w else None,
-                            "wall_type": nearest_w["type"] if nearest_w else short_nm,
-                            "inst_delta_5m": eb["inst_delta_bar"],
-                            "dealer_hedge_5m": eb["dealer_hedge_bar"],
-                            "reason": f"{short_nm} ({sid}) c/ Fluxo · {val_label}",
-                            "pnl_5m": round(realized_w, 1),
-                            "pnl_15m": round(realized_w, 1),
-                            "pnl_30m": round(realized_w, 1),
-                            "mfe_30m": round(mfe_w, 1),
-                            "mae_30m": round(mae_w, 1),
-                            "realized_pts": round(realized_w, 1),
-                            "validation_status": val_status,
-                            "validation_label": val_label,
-                            "is_valid": is_valid,
-                            "is_prev_day": False,
-                            "closed_bar_confirmed": True,
-                        }
-                        signals_log.append(wdo_sig_obj)
-                        m5_enriched[b_idx]["signal"] = wdo_sig_obj
-                signals_log.sort(key=lambda s: s["bar_index"])
+                signals_log = self._evaluate_live_mt5_wdo_strategies(
+                    sess_date=str(sess_date or ""),
+                    m5_enriched=m5_enriched,
+                    today_closed_bars=today_closed_bars,
+                    closes_all=closes_all,
+                    w_len=w_len,
+                    walls_clean=walls_clean,
+                    strat_short_names=strat_short_names,
+                    is_live_session=is_live_session,
+                )
 
         closed_sigs = [s for s in signals_log if s["is_valid"] is not None]
         valid_sigs = [s for s in closed_sigs if s["is_valid"] is True]
@@ -1879,6 +2004,1086 @@ class GexLiveDealerEngine:
             },
         }
 
+    @staticmethod
+    def _round_win5(px: float) -> float:
+        return round(float(px) / 5.0) * 5.0
+
+    @staticmethod
+    def _round_wdo05(px: float) -> float:
+        return round(float(px) * 2.0) / 2.0
+
+    @staticmethod
+    def _compute_mt5_nwe_series(closes: np.ndarray, lookback: int, bw: float, mult: float):
+        """Calcula o envelope NWE causal idêntico ao UpdateNWE do MQL5 (`Jumba_GEX_NWE_Core.mqh` / `Jumba_WDO_GEX_NWE_Core.mqh`)."""
+        n = len(closes)
+        center = np.zeros(n, dtype=float)
+        mae_raw = np.zeros(n, dtype=float)
+        if n == 0:
+            return center, center, center, mae_raw, center
+        w_full = np.exp(-np.arange(lookback, dtype=float) ** 2 / (2.0 * bw * bw))
+        for t in range(n):
+            l_idx = min(t, lookback - 1)
+            w_t = w_full[: l_idx + 1]
+            p_t = closes[t - l_idx : t + 1][::-1]
+            center[t] = float(np.dot(w_t, p_t) / np.sum(w_t))
+        errors = np.abs(closes - center)
+        for t in range(n):
+            l_idx = min(t, lookback - 1)
+            mae_raw[t] = float(np.mean(errors[t - l_idx : t + 1]))
+        upper = center + mae_raw * mult
+        lower = center - mae_raw * mult
+        slope = np.zeros(n, dtype=float)
+        if n > 1:
+            slope[1:] = center[1:] - center[:-1]
+        return center, upper, lower, mae_raw, slope
+
+    @staticmethod
+    def _find_nearest_wall_obj(walls_clean: list, price: float):
+        w_walls = [w for w in (walls_clean or []) if w.get("type") in ("Wall", "MidWall") and float(w.get("price", 0.0)) > 0]
+        if not w_walls:
+            return 999999.0, 0.0, None
+        best_w = min(w_walls, key=lambda w: abs(float(w["price"]) - float(price)))
+        best_px = float(best_w["price"])
+        return abs(best_px - float(price)), best_px, best_w
+
+    def _find_win_structural_targets(self, entry_px: float, dir_sig: int, walls_clean: list, front_run: float = 20.0):
+        """Idêntico a `FindStructuralTargets` em `Jumba_GEX_NWE_Core.mqh` (front-run 20p na MidWall/Wall)."""
+        rnd = self._round_win5
+        main_walls = sorted(float(w["price"]) for w in (walls_clean or []) if w.get("type") == "Wall" and float(w.get("price", 0.0)) > 0)
+        all_levels = sorted(set(float(w["price"]) for w in (walls_clean or []) if w.get("type") in ("Wall", "MidWall") and float(w.get("price", 0.0)) > 0))
+        near_main = far_main = near_mid = 0.0
+        if dir_sig == 1:
+            for lvl in main_walls:
+                if lvl >= entry_px + 100.0:
+                    if near_main == 0.0:
+                        near_main = lvl
+                    far_main = lvl
+            for lvl in all_levels:
+                if lvl >= entry_px + 80.0:
+                    near_mid = lvl
+                    break
+        else:
+            for lvl in reversed(main_walls):
+                if lvl <= entry_px - 100.0:
+                    if near_main == 0.0:
+                        near_main = lvl
+                    far_main = lvl
+            for lvl in reversed(all_levels):
+                if lvl <= entry_px - 80.0:
+                    near_mid = lvl
+                    break
+        if near_main == 0.0:
+            near_main = entry_px + dir_sig * 380.0
+        if far_main == 0.0:
+            far_main = entry_px + dir_sig * 700.0
+        if near_mid == 0.0:
+            near_mid = near_main
+        tp_mid = rnd(near_mid - dir_sig * front_run)
+        tp_main = rnd(near_main - dir_sig * front_run)
+        if dir_sig == 1:
+            tp_mid = max(entry_px + 100.0, min(entry_px + 950.0, tp_mid))
+            tp_main = max(entry_px + 120.0, min(entry_px + 950.0, tp_main))
+        else:
+            tp_mid = min(entry_px - 100.0, max(entry_px - 950.0, tp_mid))
+            tp_main = min(entry_px - 120.0, max(entry_px - 950.0, tp_main))
+        return tp_mid, tp_main
+
+    def _calc_wdo_structural_target_pts(
+        self,
+        entry_px: float,
+        dir_sig: int,
+        fallback_tp_pts: float,
+        walls_clean: list,
+        front_run: float = 0.5,
+        min_tp_pts: float = 6.0,
+    ) -> float:
+        """Idêntico a `CalcWdoTargetPts` em `Jumba_WDO_GEX_NWE_Core.mqh` (front-run 0.5p na MidWall/Wall)."""
+        rnd = self._round_wdo05
+        all_levels = sorted(set(float(w["price"]) for w in (walls_clean or []) if w.get("type") in ("Wall", "MidWall") and float(w.get("price", 0.0)) > 0))
+        if not all_levels:
+            return rnd(fallback_tp_pts)
+        best_dist = 999999.0
+        for lvl in all_levels:
+            d = (lvl - entry_px) if dir_sig == 1 else (entry_px - lvl)
+            if 3.0 <= d < best_dist:
+                best_dist = d
+        if best_dist < 99999.0:
+            cand = rnd(best_dist - front_run)
+            if cand >= min_tp_pts:
+                return rnd(min(fallback_tp_pts, cand))
+        return rnd(fallback_tp_pts)
+
+    def _reconcile_mt5_terminal_live_deals(
+        self,
+        sess_date: str,
+        asset: str,
+        today_closed_bars: list,
+        m5_enriched: list,
+        walls_clean: list,
+        strat_short_names: dict,
+        sim_signals: list,
+    ) -> list:
+        """
+        Reconcilia os sinais avaliados pelo motor MQL5 Python com as execuções reais gravadas
+        pelo robô MT5 em `Common\\Files\\jumba_live_deals_*.csv` e `jumba_*state*.csv` para `sess_date`.
+        """
+        is_win = asset.upper() == "WIN"
+        common_dir = os.path.join(
+            os.environ.get("APPDATA", r"C:\Users\ryzen\AppData\Roaming"),
+            "MetaQuotes", "Terminal", "Common", "Files",
+        )
+        if not os.path.isdir(common_dir) or not today_closed_bars:
+            return sim_signals
+
+        deals_files = sorted(glob.glob(os.path.join(common_dir, "jumba_live_deals_*.csv")))
+        if not deals_files:
+            return sim_signals
+
+        # Mapeia estado em tempo real dos slots abertos no MT5 (para SL/TP/Wall exatos de posições em andamento)
+        state_pattern = "jumba_state_*_WIN*.csv" if is_win else "jumba_wdo_state_*_WDO*.csv"
+        state_by_ticket = {}
+        state_by_slot = {}
+        for st_fp in sorted(glob.glob(os.path.join(common_dir, state_pattern))):
+            try:
+                base_nm = os.path.basename(st_fp).replace(".csv", "")
+                mg_str = base_nm.split("_")[-1]
+                mg_num = int(mg_str) if mg_str.isdigit() else 0
+                with open(st_fp, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = [ln.strip() for ln in f if ln.strip()]
+                if len(lines) < 2:
+                    continue
+                if lines[0].startswith(sess_date):
+                    # Formato posicional gravado por SaveStateToDisk nos EAs Jumba_GEX_NWE_Core / Jumba_WDO_GEX_NWE_Core
+                    for ln in lines[1:]:
+                        parts = ln.split(";")
+                        if len(parts) < 10:
+                            continue
+                        slot_idx = int(float(parts[0] or 0))
+                        sid_st = f"{'EST' if is_win else 'WDO'}_{(mg_num - (88000 if is_win else 89000)) if mg_num > 88000 else slot_idx:02d}"
+                        s_dir = int(float(parts[1] or 0))
+                        if s_dir != 0 or sid_st not in state_by_slot:
+                            state_by_slot[sid_st] = {
+                                "side": s_dir,
+                                "avg_px": float(parts[5] or 0.0),
+                                "sl_px": float(parts[6] or 0.0),
+                                "tp_px": float(parts[7] or 0.0),
+                                "mfe_pts": float(parts[8] or 0.0),
+                                "be_done": int(float(parts[9] or 0)),
+                                "def_wall": float(parts[38] if (is_win and len(parts) > 38) else (parts[41] if ((not is_win) and len(parts) > 41) else 0.0) or 0.0),
+                            }
+            except Exception:
+                continue
+
+        # Lê negócios reais executados pelo MT5 na data `sess_date` (aceita YYYY-MM-DD e YYYY.MM.DD)
+        sess_date_dot = sess_date.replace("-", ".")
+        pos_groups = {}
+        has_any_session_deal = False
+        for dfp in deals_files:
+            try:
+                with open(dfp, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = [ln.strip() for ln in f if ln.strip()]
+                if len(lines) < 2:
+                    continue
+                hdr = lines[0].split(";")
+                for ln in lines[1:]:
+                    parts = ln.split(";")
+                    if len(parts) < len(hdr):
+                        continue
+                    row = dict(zip(hdr, parts))
+                    t_full = str(row.get("time", ""))
+                    if not (t_full.startswith(sess_date) or t_full.startswith(sess_date_dot)):
+                        continue
+                    has_any_session_deal = True
+                    sym = str(row.get("symbol", "")).upper()
+                    if (is_win and not sym.startswith("WIN")) or ((not is_win) and not sym.startswith("WDO")):
+                        continue
+                    pid = int(float(row.get("position_id", 0) or 0))
+                    if pid <= 0:
+                        continue
+                    pos_groups.setdefault(pid, []).append(row)
+            except Exception:
+                continue
+
+        if not pos_groups:
+            return sim_signals
+
+        time_to_idx = {eb["time"]: i for i, eb in today_closed_bars}
+
+        def snap_time_to_bar_idx(hhmm: str) -> int:
+            if hhmm in time_to_idx:
+                return time_to_idx[hhmm]
+            try:
+                hm_min = int(hhmm[:2]) * 60 + int(hhmm[3:5])
+                m5_str = f"{hm_min // 60:02d}:{(hm_min % 60) - ((hm_min % 60) % 5):02d}"
+                if m5_str in time_to_idx:
+                    return time_to_idx[m5_str]
+                return min(
+                    today_closed_bars,
+                    key=lambda x: abs((int(x[1]["time"][:2]) * 60 + int(x[1]["time"][3:5])) - hm_min),
+                )[0]
+            except Exception:
+                return today_closed_bars[-1][0]
+
+        mt5_signals_by_sid = {}
+        for pid, rows in sorted(pos_groups.items(), key=lambda kv: kv[1][0].get("time", "")):
+            in_rows = [
+                r for r in rows
+                if str(r.get("entry", r.get("entry_type", ""))).strip().upper() in ("0", "IN", "DEAL_ENTRY_IN")
+            ]
+            out_rows = [
+                r for r in rows
+                if str(r.get("entry", r.get("entry_type", ""))).strip().upper() in ("1", "OUT", "DEAL_ENTRY_OUT", "3", "INOUT")
+            ]
+            if not in_rows:
+                continue
+            r_in = in_rows[0]
+            magic = int(float(r_in.get("magic", 0) or 0))
+            cmt = str(r_in.get("comment", "")).upper()
+            sid = ""
+            if is_win and 88001 <= magic <= 88016:
+                sid = f"EST_{magic - 88000:02d}"
+            elif (not is_win) and 89001 <= magic <= 89010:
+                sid = f"WDO_{magic - 89000:02d}"
+            else:
+                for k_id in strat_short_names:
+                    if k_id in cmt:
+                        sid = k_id
+                        break
+            if not sid:
+                continue
+
+            raw_dtype = str(r_in.get("type", r_in.get("deal_type", ""))).strip().upper()
+            sig_dir = 1 if raw_dtype in ("0", "BUY", "DEAL_TYPE_BUY") else -1
+            in_vol = sum(float(r.get("volume", 1.0) or 1.0) for r in in_rows)
+            ep = sum(float(r.get("price", 0.0)) * float(r.get("volume", 1.0) or 1.0) for r in in_rows) / max(1.0, in_vol)
+            t_in_hhmm = str(r_in.get("time", ""))[11:16]
+            b_idx = snap_time_to_bar_idx(t_in_hhmm)
+            eb = m5_enriched[b_idx]
+            t_str = eb["time"]
+
+            st_row = state_by_ticket.get(pid) or state_by_slot.get(sid) or {}
+            def_w_px = float(st_row.get("def_wall", 0.0) or 0.0)
+            _, near_px, near_w = self._find_nearest_wall_obj(walls_clean, def_w_px if def_w_px > 0 else ep)
+            if def_w_px <= 0 and near_px > 0:
+                def_w_px = near_px
+
+            # TP e SL estruturais idênticos ao robô MT5
+            if is_win:
+                tp_mid, tp_main = self._find_win_structural_targets(ep, sig_dir, walls_clean, 20.0)
+                tp_px = tp_main if sid == "EST_01" else tp_mid
+                if sid in ("EST_13", "EST_14", "EST_15"):
+                    tp_px = min(tp_mid, self._round_win5(ep + 280.0)) if sig_dir == 1 else max(tp_mid, self._round_win5(ep - 280.0))
+                sl_dist_default = 260.0 if sid == "EST_07" else (220.0 if sid == "EST_04" else 240.0)
+                sl_px = self._round_win5(ep - sig_dir * sl_dist_default)
+                if def_w_px > 0:
+                    sl_px = min(sl_px, self._round_win5(def_w_px - 60.0)) if sig_dir == 1 else max(sl_px, self._round_win5(def_w_px + 60.0))
+                be_trig = 150.0 if sid in ("EST_01", "EST_04", "EST_07") else 130.0
+                be_lock = 25.0 if sid == "EST_01" else (45.0 if sid == "EST_04" else (15.0 if sid == "EST_07" else 20.0))
+            else:
+                fb_tp = 11.0 if sid == "WDO_07" else (10.5 if sid == "WDO_05" else (9.5 if sid in ("WDO_02", "WDO_10") else 10.0))
+                tp_pts = self._calc_wdo_structural_target_pts(ep, sig_dir, fb_tp, walls_clean, 0.5, 6.0)
+                tp_px = self._round_wdo05(ep + sig_dir * tp_pts)
+                sl_pts_def = 11.5 if sid == "WDO_07" else (10.0 if sid == "WDO_05" else (8.5 if sid == "WDO_02" else 9.5))
+                sl_px = self._round_wdo05(ep - sig_dir * sl_pts_def)
+                if def_w_px > 0:
+                    sl_px = min(sl_px, self._round_wdo05(def_w_px - 3.0)) if sig_dir == 1 else max(sl_px, self._round_wdo05(def_w_px + 3.0))
+                be_trig = 6.0 if sid == "WDO_07" else (5.0 if sid in ("WDO_02", "WDO_10") else 5.5)
+                be_lock = 1.5
+
+            if pid in state_by_ticket:
+                st_tp = float(state_by_ticket[pid].get("tp_px", 0.0) or 0.0)
+                st_sl = float(state_by_ticket[pid].get("sl_px", 0.0) or 0.0)
+                if st_tp > 0:
+                    tp_px = st_tp
+                if st_sl > 0:
+                    if (sig_dir == 1 and st_sl < ep) or (sig_dir == -1 and st_sl > ep):
+                        sl_px = min(sl_px, st_sl) if sig_dir == 1 else max(sl_px, st_sl)
+
+            short_nm = strat_short_names.get(sid, sid)
+            mult_1c = 0.20 if is_win else 10.0
+            p_dec = ".0f" if is_win else ".1f"
+
+            if out_rows:
+                out_vol = sum(float(r.get("volume", 1.0) or 1.0) for r in out_rows)
+                xp = sum(float(r.get("price", 0.0)) * float(r.get("volume", 1.0) or 1.0) for r in out_rows) / max(1.0, out_vol)
+                t_out_hhmm = str(out_rows[-1].get("time", ""))[11:16]
+                ex_idx = max(b_idx, snap_time_to_bar_idx(t_out_hhmm))
+                ex_eb = m5_enriched[min(len(m5_enriched) - 1, ex_idx)]
+                realized_pts = round(sig_dir * (xp - ep), 1)
+                if realized_pts >= (150.0 if is_win else 6.0) or (realized_pts > 0 and abs(xp - tp_px) <= (20.0 if is_win else 1.0)):
+                    exit_reason = "TP"
+                    val_status = "VALIDO_ALVO"
+                    val_label = f"✅ ALVO WALL ({realized_pts:+{p_dec}} pts)"
+                    tp_px = xp
+                    be_armed = True
+                elif realized_pts >= 0 or abs(xp - ep) <= (45.0 if is_win else 3.0):
+                    exit_reason = "BE"
+                    val_status = "VALIDO_FAVORAVEL" if realized_pts >= 0 else "INVALIDO_CONTRA"
+                    val_label = f"🛡️ ESCUDO WALL ({realized_pts:+{p_dec}} pts)"
+                    be_armed = True
+                else:
+                    exit_reason = "SL"
+                    val_status = "INVALIDO_STOP"
+                    val_label = f"❌ STOP ({realized_pts:+{p_dec}} pts)"
+                    be_armed = False
+                is_valid = realized_pts > 0
+                mfe_val = max(0.0, realized_pts, be_trig if be_armed else 0.0)
+                mae_val = min(0.0, realized_pts)
+                be_stop_px = round(xp if exit_reason == "BE" else (ep + sig_dir * be_lock), 2)
+            else:
+                ex_idx = today_closed_bars[-1][0]
+                ex_eb = m5_enriched[-1]
+                xp = round(float(ex_eb["close"]), 2)
+                realized_pts = round(sig_dir * (xp - ep), 1)
+                exit_reason = "ABERTA"
+                val_status = "EM_ANDAMENTO"
+                val_label = f"⏳ EM ABERTO ({realized_pts:+{p_dec}} pts)"
+                is_valid = None
+                be_armed = bool(int(float(st_row.get("be_done", 0) or 0)))
+                mfe_val = max(0.0, float(st_row.get("mfe_pts", 0.0) or 0.0), realized_pts)
+                mae_val = min(0.0, realized_pts)
+                be_stop_px = round(float(st_row.get("sl_px", ep + sig_dir * be_lock) or (ep + sig_dir * be_lock)), 2)
+
+            sig_obj = {
+                "id": f"{asset}_{t_str}_{sid}_{'BUY' if sig_dir > 0 else 'SELL'}",
+                "strategy_id": sid,
+                "strategy_short": short_nm,
+                "bar_index": b_idx,
+                "timestamp": eb["timestamp"],
+                "time": t_str,
+                "direction": "COMPRA" if sig_dir > 0 else "VENDA",
+                "dir_num": sig_dir,
+                "type": f"{short_nm} · {'COMPRA' if sig_dir > 0 else 'VENDA'}",
+                "entry_price": round(ep, 2),
+                "exit_bar_index": ex_idx,
+                "exit_time": ex_eb.get("time", t_str),
+                "exit_price": round(xp, 2),
+                "exit_reason": exit_reason,
+                "stop_price": round(sl_px, 2),
+                "tp_price": round(tp_px, 2),
+                "tp_tag": "TP",
+                "be_triggered": bool(be_armed),
+                "be_bar_index": min(ex_idx, b_idx + 1) if be_armed else None,
+                "be_time": m5_enriched[min(ex_idx, b_idx + 1)].get("time", t_str) if be_armed else None,
+                "be_trigger_price": round(ep + sig_dir * be_trig, 2),
+                "be_stop_price": be_stop_px,
+                "wall_price": round(def_w_px, 2) if def_w_px > 0 else (round(near_w["price"], 2) if near_w else None),
+                "wall_type": near_w["type"] if near_w else short_nm,
+                "inst_delta_5m": eb["inst_delta_bar"],
+                "dealer_hedge_5m": eb["dealer_hedge_bar"],
+                "reason": f"{short_nm} ({sid}) MT5 Real · {val_label}",
+                "pnl_5m": round(realized_pts, 1),
+                "pnl_15m": round(realized_pts, 1),
+                "pnl_30m": round(realized_pts, 1),
+                "mfe_30m": round(mfe_val, 1),
+                "mae_30m": round(mae_val, 1),
+                "realized_pts": round(realized_pts, 1),
+                "brl_1c": round(realized_pts * mult_1c, 2),
+                "validation_status": val_status,
+                "validation_label": val_label,
+                "is_valid": is_valid,
+                "is_prev_day": False,
+                "closed_bar_confirmed": True,
+            }
+            existing_list = mt5_signals_by_sid.setdefault(sid, [])
+            if not any(ex["bar_index"] == b_idx and ex["dir_num"] == sig_dir for ex in existing_list):
+                existing_list.append(sig_obj)
+
+        # Quando o terminal MT5 está ativo na sessão (`has_any_session_deal`), usa as ordens reais do MT5
+        # para os slots gerenciados pelo EA (EST_01..16 / WDO_01..10) e preserva as estratégias exclusivas do Dashboard (ex: WIN_E2)
+        if has_any_session_deal:
+            merged = [
+                s for s in sim_signals
+                if (not s["strategy_id"].startswith("EST_") and not s["strategy_id"].startswith("WDO_"))
+                and s["strategy_id"] not in mt5_signals_by_sid
+            ]
+        else:
+            merged = [s for s in sim_signals if s["strategy_id"] not in mt5_signals_by_sid]
+        for s_list in mt5_signals_by_sid.values():
+            merged.extend(s_list)
+        merged.sort(key=lambda s: (s["bar_index"], s["strategy_id"]))
+        for eb in m5_enriched:
+            eb["signal"] = None
+        for s in merged:
+            if 0 <= s["bar_index"] < len(m5_enriched):
+                m5_enriched[s["bar_index"]]["signal"] = s
+        return merged
+
+    def _evaluate_live_mt5_win_strategies(
+        self,
+        sess_date: str,
+        m5_enriched: list,
+        today_closed_bars: list,
+        closes_all: np.ndarray,
+        w_len: int,
+        walls_clean: list,
+        model: AssetGexCurveModel,
+        strat_short_names: dict,
+        is_live_session: bool,
+    ) -> list:
+        """
+        Avalia as estratégias WIN (`EST_01`, `EST_04`, `EST_07`, `EST_13`, `EST_14`, `EST_15`, `WIN_E2`)
+        seguindo 100% as fórmulas exatas do robô MQL5 (`Jumba_GEX_NWE_Core.mqh` + `sg_sim.py` + `optimize_existing_16_setups.py`):
+          - Duplo envelope causal NWE50(50, bw=5.0, mult=2.0) e NWE30(30, bw=3.0, mult=1.6)
+          - Entradas Limit (`mid_b1` p/ EST_13/14/15/WIN_E2 c/ filtro `new_open >= mid_b1` | `lvl ∓ 5` p/ EST_04)
+            e Market na abertura da barra seguinte (`new_bar_open` p/ EST_01 e EST_07)
+          - Alvos estruturais `TP_MIDWALL` / `TP_MAIN_WALL` (front-run 20p) e `BE_WALL_SHIELD` / `BE_WALL_2STAGE`
+        """
+        signals_log = []
+        for eb in m5_enriched:
+            eb["signal"] = None
+        if len(today_closed_bars) < 3:
+            return signals_log
+
+        closes_m5 = np.array([float(eb["close"]) for eb in m5_enriched], dtype=float)
+        n50_c, n50_u, n50_l, _, n50_s = self._compute_mt5_nwe_series(closes_m5, 50, 5.0, 2.0)
+        n30_c, n30_u, n30_l, _, n30_s = self._compute_mt5_nwe_series(closes_m5, 30, 3.0, 1.6)
+
+        rnd = self._round_win5
+        gflip = float(getattr(model, "gamma_flip", 0.0) or 0.0)
+        slot_ids = ("EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WIN_E2")
+        busy_by_slot = {s: -1 for s in slot_ids}
+        ops_by_slot = {s: 0 for s in slot_ids}
+        wall_touch_counts = {}
+
+        # Contabiliza o 1º e 2º bares do dia nas walls
+        for init_k in range(min(2, len(today_closed_bars))):
+            _, eb0 = today_closed_bars[init_k]
+            h0, l0 = float(eb0["high"]), float(eb0["low"])
+            for w_it in walls_clean:
+                if w_it.get("type") in ("Wall", "MidWall"):
+                    wp_k = round(float(w_it["price"]), 1)
+                    if (l0 - 70.0) <= wp_k <= (h0 + 70.0):
+                        wall_touch_counts[wp_k] = wall_touch_counts.get(wp_k, 0) + 1
+
+        for pos_k in range(2, len(today_closed_bars)):
+            cur_b_idx, cur_eb = today_closed_bars[pos_k]
+            b1_idx, b1 = today_closed_bars[pos_k - 1]
+            b2_idx, b2 = today_closed_bars[pos_k - 2]
+
+            t1_str = b1["time"]
+            tm1 = int(t1_str[:2]) * 60 + int(t1_str[3:5])
+            o1, h1, l1, c1 = float(b1["open"]), float(b1["high"]), float(b1["low"]), float(b1["close"])
+            o2, h2, l2, c2 = float(b2["open"]), float(b2["high"]), float(b2["low"]), float(b2["close"])
+            new_open = float(cur_eb["open"])
+
+            for w_it in walls_clean:
+                if w_it.get("type") in ("Wall", "MidWall"):
+                    wp_k = round(float(w_it["price"]), 1)
+                    if (l1 - 70.0) <= wp_k <= (h1 + 70.0):
+                        wall_touch_counts[wp_k] = wall_touch_counts.get(wp_k, 0) + 1
+
+            rng1 = max(h1 - l1, 5.0)
+            body1 = abs(c1 - o1)
+            up_w1 = h1 - max(o1, c1)
+            dn_w1 = min(o1, c1) - l1
+
+            bw50_1 = max(n50_u[b1_idx] - n50_l[b1_idx], 10.0)
+            pos50_1 = (c1 - n50_l[b1_idx]) / bw50_1
+            s50_1 = float(n50_s[b1_idx])
+            bw50_2 = max(n50_u[b2_idx] - n50_l[b2_idx], 10.0)
+            pos50_2 = (c2 - n50_l[b2_idx]) / bw50_2
+
+            bw30_1 = max(n30_u[b1_idx] - n30_l[b1_idx], 10.0)
+            pos30_1 = (c1 - n30_l[b1_idx]) / bw30_1
+            s30_1 = float(n30_s[b1_idx])
+            z30_1 = (c1 - n30_c[b1_idx]) / max(10.0, 0.5 * bw30_1)
+
+            dc1, lc1, wc1 = self._find_nearest_wall_obj(walls_clean, c1)
+            dl1, ll1, wl1 = self._find_nearest_wall_obj(walls_clean, l1)
+            dh1, lh1, wh1 = self._find_nearest_wall_obj(walls_clean, h1)
+
+            inst_5m = float(b1.get("inst_delta_bar", 0.0))
+            inst_15m = sum(float(today_closed_bars[k_p][1].get("inst_delta_bar", 0.0)) for k_p in range(max(0, pos_k - 3), pos_k))
+            ia5 = float(b1.get("inst_aggr_delta", inst_5m))
+            ia15 = sum(float(today_closed_bars[k_p][1].get("inst_aggr_delta", today_closed_bars[k_p][1].get("inst_delta_bar", 0.0))) for k_p in range(max(0, pos_k - 3), pos_k))
+            ip5 = float(b1.get("inst_pass_delta", 0.0))
+            ip10 = sum(float(today_closed_bars[k_p][1].get("inst_pass_delta", 0.0)) for k_p in range(max(0, pos_k - 2), pos_k))
+            ip15 = sum(float(today_closed_bars[k_p][1].get("inst_pass_delta", 0.0)) for k_p in range(max(0, pos_k - 3), pos_k))
+            r5 = float(b1.get("ret_delta_bar", 0.0))
+            r15 = sum(float(today_closed_bars[k_p][1].get("ret_delta_bar", 0.0)) for k_p in range(max(0, pos_k - 3), pos_k))
+            hft5 = float(b1.get("hft_delta_bar", 0.0))
+            nr5 = ia5 + ip5 + hft5
+            nr15 = ia15 + ip15
+            c_prev2 = float(today_closed_bars[max(0, pos_k - 3)][1].get("close", o1))
+            c_prev3 = float(today_closed_bars[max(0, pos_k - 4)][1].get("close", c_prev2))
+            dp1 = c1 - o1
+            dp2 = c1 - c_prev2
+            dp3 = c1 - c_prev3
+            lot_imb = float(b1.get("lot_imb", 1.0))
+            wdir1 = int(b1.get("window_dir", 1))
+            fhist1 = float(b1.get("flow_hist", 0.0))
+            hslope1 = fhist1 - float(b2.get("flow_hist", 0.0))
+            delta_5m = float(b1.get("delta_bar", 0.0))
+            b_abs = (inst_5m >= 0 or delta_5m >= 0 or dn_w1 >= 0.25 * rng1 or c1 >= o1) and (inst_5m >= -12000.0)
+            s_abs = (inst_5m <= 0 or delta_5m <= 0 or up_w1 >= 0.25 * rng1 or c1 <= o1) and (inst_5m <= 12000.0)
+
+            b_w = wdir1 == 1
+            s_w = wdir1 == -1
+            b_ws = (wdir1 == 1) or (fhist1 >= -14.0) or (hslope1 >= 0.0)
+            s_ws = (wdir1 == -1) or (fhist1 <= 14.0) or (hslope1 <= 0.0)
+            b_abs = (inst_5m >= 0 or delta_5m >= 0 or dn_w1 >= 0.22 * rng1 or c1 >= o1) and (inst_5m >= -12000.0)
+            s_abs = (inst_5m <= 0 or delta_5m <= 0 or up_w1 >= 0.22 * rng1 or c1 <= o1) and (inst_5m <= 12000.0)
+
+            sweep_crash = (ia5 < -4200.0) and (lot_imb < 0.88) and (ip5 <= 0.0)
+            sweep_surge = (ia5 > 4200.0) and (lot_imb > 1.14) and (ip5 >= 0.0)
+
+            # 8_PROFIT_SWEEP
+            b_sweep = ((ia5 >= 0.0) or (ia15 >= 0.0) or (lot_imb >= 1.02) or (b_ws and b_abs)) and (ia5 >= -5500.0) and (lot_imb >= 0.88)
+            s_sweep = ((ia5 <= 0.0) or (ia15 <= 0.0) or (lot_imb <= 0.98) or (s_ws and s_abs)) and (ia5 <= 5500.0) and (lot_imb <= 1.14)
+
+            # 9_PROFIT_INST_RET & 13_NR_PRICE_ABS_DIV (WIN_E2, EST_01, EST_15)
+            b9 = ((inst_5m >= 0.0) or (inst_15m >= 0.0) or (ip5 > 0.0 and r5 < 0.0) or (lot_imb >= 1.04)) and not (ia5 < -9000.0 and lot_imb < 0.82)
+            s9 = ((inst_5m <= 0.0) or (inst_15m <= 0.0) or (ip5 < 0.0 and r5 > 0.0) or (lot_imb <= 0.96)) and not (ia5 > 9000.0 and lot_imb > 1.22)
+            b13 = b9 and not (r5 > 500.0 and ip5 < -300.0 and ia5 <= 0) and not (ia5 < -2000.0 and ip5 <= 0 and inst_15m < -2500.0)
+            s13 = s9 and not (r5 < -500.0 and ip5 > 300.0 and ia5 >= 0) and not (ia5 > 2000.0 and ip5 >= 0 and inst_15m > 2500.0)
+            b14 = b_sweep and b13
+            s14 = s_sweep and s13
+
+            # 11_PROFIT_WALL_SHIELD (EST_13)
+            b_shield = b_ws and b9
+            s_shield = s_ws and s9
+
+            # 12_NR_WALL_TRAP_DIV (EST_14)
+            b12 = (((r5 < 0 or r15 < 0) and (ip5 >= 0 or ia5 > 0 or nr15 > 0)) or ((inst_5m > 0 and inst_15m > 0) and lot_imb >= 1.02) or (dn_w1 >= 0.28 * rng1 and (ip5 > 0 or ia5 >= 0))) and (not sweep_crash) and b_ws
+            s12 = (((r5 > 0 or r15 > 0) and (ip5 <= 0 or ia5 < 0 or nr15 < 0)) or ((inst_5m < 0 and inst_15m < 0) and lot_imb <= 0.98) or (up_w1 >= 0.28 * rng1 and (ip5 < 0 or ia5 <= 0))) and (not sweep_surge) and s_ws
+
+            # 15_NR_IGNITION_DIV (EST_04)
+            b15 = b13 and not (dp3 > 150.0 and nr15 < -1200.0) and (lot_imb >= 0.89 or ip5 > 0)
+            s15 = s13 and not (dp3 < -150.0 and nr15 > 1200.0) and (lot_imb <= 1.12 or ip5 < 0)
+
+            # 16_NR_DIV_ABS_OR_AGGR (EST_07)
+            b16 = (((dp1 <= 0 or dp2 <= 0) and (ip5 > 0 or ip10 > 0 or nr5 > 0)) or (r5 < 0 and (ip5 >= 0 or ia5 > 0 or inst_15m > 0)) or (ia5 > 0 and inst_15m > 0 and lot_imb >= 1.03 and r5 <= ia5)) and (ia5 >= -3000.0)
+            s16 = (((dp1 >= 0 or dp2 >= 0) and (ip5 < 0 or ip10 < 0 or nr5 < 0)) or (r5 > 0 and (ip5 <= 0 or ia5 < 0 or inst_15m < 0)) or (ia5 < 0 and inst_15m < 0 and lot_imb <= 0.97 and r5 >= ia5)) and (ia5 <= 3000.0)
+
+            mid_b1 = rnd(0.5 * (h1 + l1))
+            # (sid, sig_dir, order_type, limit_px, valid_bars, tp_cap, sl_pts, be_trig, be_lock, wall_buf, max_b, def_w_obj)
+            cands = []
+
+            # 1) EST_01: Rejeição/Pinbar na Wall (MQL5 `EvalEst01_PinbarRejeicaoWall` + 14_NR_BREAKOUT_SQUEEZE)
+            if 545 <= tm1 <= 990 and cur_b_idx > busy_by_slot["EST_01"] and ops_by_slot["EST_01"] < 2 and bw50_1 >= 475.8 and dc1 <= 70.0 and abs(s50_1) <= 18.0:
+                if ((pos50_1 <= 0.18 and dn_w1 >= 0.30 * rng1 and c1 >= l1 + 0.55 * rng1) or (pos50_2 <= 0.20 and c2 < o2 and c1 > o1 and c1 > 0.5 * (h2 + l2))) and b14:
+                    cands.append(("EST_01", 1, "MKT", new_open, 1, 950.0, 240.0, 150.0, 25.0, 25.0, 16, wc1))
+                elif ((pos50_1 >= 0.82 and up_w1 >= 0.30 * rng1 and c1 <= h1 - 0.55 * rng1) or (pos50_2 >= 0.80 and c2 > o2 and c1 < o1 and c1 < 0.5 * (h2 + l2))) and s14:
+                    cands.append(("EST_01", -1, "MKT", new_open, 1, 950.0, 240.0, 150.0, 25.0, 25.0, 16, wc1))
+
+            # 2) EST_04: Pullback Tendência na Wall (MQL5 `EvalEst04_PullbackTendencia`: Limit na Wall `lc1 ∓ 5` + 15_NR_IGNITION_DIV)
+            if 600 <= tm1 <= 990 and cur_b_idx > busy_by_slot["EST_04"] and ops_by_slot["EST_04"] < 2 and wc1 is not None:
+                if s50_1 >= 8.0 and 0.45 <= pos50_1 <= 0.85 and pos30_1 <= 0.65 and abs(l1 - lc1) <= 60.0 and c1 > lc1 and b15:
+                    cands.append(("EST_04", 1, "LIM", rnd(lc1 - 5.0), 1, 950.0, 220.0, 150.0, 45.0, 15.0, 16, wc1))
+                elif s50_1 <= -8.0 and 0.15 <= pos50_1 <= 0.55 and pos30_1 >= 0.35 and abs(h1 - lc1) <= 60.0 and c1 < lc1 and s15:
+                    cands.append(("EST_04", -1, "LIM", rnd(lc1 + 5.0), 1, 950.0, 220.0, 150.0, 45.0, 15.0, 16, wc1))
+
+            # 3) EST_07: Ignição/Rompimento Wall (MQL5 `EvalEst07_IgnicaoBreakoutWall`: Market em `new_open`, `dc1 <= 95` + 16_NR_DIV_ABS_OR_AGGR)
+            if 545 <= tm1 <= 960 and cur_b_idx > busy_by_slot["EST_07"] and ops_by_slot["EST_07"] < 2 and dc1 <= 95.0 and wc1 is not None:
+                if o1 <= lc1 + 20.0 and c1 > lc1 + 20.0 and body1 >= 100.0 and s50_1 >= 6.0 and s30_1 > 0.0 and 0.45 <= pos50_1 <= 0.88 and b16:
+                    cands.append(("EST_07", 1, "MKT", new_open, 1, 950.0, 260.0, 150.0, 15.0, 15.0, 16, wc1))
+                elif o1 >= lc1 - 20.0 and c1 < lc1 - 20.0 and body1 >= 100.0 and s50_1 <= -6.0 and s30_1 < 0.0 and 0.12 <= pos50_1 <= 0.55 and s16:
+                    cands.append(("EST_07", -1, "MKT", new_open, 1, 950.0, 260.0, 150.0, 15.0, 15.0, 16, wc1))
+
+            # 4) EST_13: SmartGrid Longa Descontada na Wall (MQL5 `EvalEst13`: Limit em `35%` da barra `b1`, TP 360p, BE 145p + 11_PROFIT_WALL_SHIELD)
+            if 545 <= tm1 <= 975 and cur_b_idx > busy_by_slot["EST_13"] and ops_by_slot["EST_13"] < 5 and bw50_1 >= 475.8 and dc1 <= 80.0 and abs(s50_1) <= 22.0 and wc1 is not None:
+                if pos50_1 <= 0.45 and z30_1 <= -0.65 and c1 > o1 and b_shield:
+                    cands.append(("EST_13", 1, "LIM", rnd(l1 + 0.35 * rng1), 2, 360.0, 240.0, 145.0, 20.0, 20.0, 18, wc1))
+                elif pos50_1 >= 0.55 and z30_1 >= 0.65 and c1 < o1 and s_shield:
+                    cands.append(("EST_13", -1, "LIM", rnd(h1 - 0.35 * rng1), 2, 360.0, 240.0, 145.0, 20.0, 20.0, 18, wc1))
+
+            # 5) EST_14: SmartGrid Intermediária Defesa de Pavio na Wall (MQL5 `EvalEst14`: Limit em `50%` da barra `mid_b1`, TP 280p, BE 130p + 12_NR_WALL_TRAP_DIV)
+            if 545 <= tm1 <= 1005 and cur_b_idx > busy_by_slot["EST_14"] and ops_by_slot["EST_14"] < 3:
+                if dl1 <= 75.0 and c1 > ll1 - 15.0 and dn_w1 >= 25.0 and pos50_1 <= 0.48 and c1 >= o1 and b12:
+                    cands.append(("EST_14", 1, "LIM", mid_b1, 2, 280.0, 240.0, 130.0, 20.0, 20.0, 18, wl1))
+                elif dh1 <= 75.0 and c1 < lh1 + 15.0 and up_w1 >= 25.0 and pos50_1 >= 0.52 and c1 <= o1 and s12:
+                    cands.append(("EST_14", -1, "LIM", mid_b1, 2, 280.0, 240.0, 130.0, 20.0, 20.0, 18, wh1))
+
+            # 6) EST_15: SmartGrid Curta / Caixa Rápido Z30 Reversal Wall (MQL5 `EvalEst15`: Limit em `55%` da barra `b1`, TP 210p, BE 110p + 14_NR_BREAKOUT_SQUEEZE)
+            if 555 <= tm1 <= 975 and cur_b_idx > busy_by_slot["EST_15"] and ops_by_slot["EST_15"] < 3 and dc1 <= 110.0 and wc1 is not None:
+                if z30_1 <= -0.60 and pos50_1 <= 0.70 and c1 > o1 and (n50_c[b1_idx] - c1) >= 70.0 and b14:
+                    cands.append(("EST_15", 1, "LIM", rnd(l1 + 0.55 * rng1), 2, 210.0, 240.0, 110.0, 20.0, 20.0, 18, wc1))
+                elif z30_1 >= 0.60 and pos50_1 >= 0.30 and c1 < o1 and (c1 - n50_c[b1_idx]) >= 70.0 and s14:
+                    cands.append(("EST_15", -1, "LIM", rnd(h1 - 0.55 * rng1), 2, 210.0, 240.0, 110.0, 20.0, 20.0, 18, wc1))
+
+            # 7) WIN_E2: Wall Gasta 3º+ Toque + NR_WALL_DIV + 13_NR_PRICE_ABS_DIV
+            if 545 <= tm1 <= 990 and cur_b_idx > busy_by_slot["WIN_E2"] and ops_by_slot["WIN_E2"] < 2 and dc1 <= 85.0 and wc1 is not None:
+                touches_wc1 = wall_touch_counts.get(round(lc1, 1), 0)
+                nr_wall_div_b = (not (ip5 < -500.0 and r5 > 400.0)) and (ia5 > 0 or inst_15m > 0 or r5 <= 0 or lot_imb >= 1.0)
+                nr_wall_div_s = (not (ip5 > 500.0 and r5 < -400.0)) and (ia5 < 0 or inst_15m < 0 or r5 >= 0 or lot_imb <= 1.0)
+                if touches_wc1 >= 3 and c1 > lc1 and c1 > o1 and s50_1 > 0.0 and s30_1 > 0.0 and 0.35 <= pos50_1 <= 0.80 and nr_wall_div_b and b13:
+                    cands.append(("WIN_E2", 1, "LIM", mid_b1, 2, 260.0, 230.0, 130.0, 15.0, 20.0, 18, wc1))
+                elif touches_wc1 >= 3 and c1 < lc1 and c1 < o1 and s50_1 < 0.0 and s30_1 < 0.0 and 0.20 <= pos50_1 <= 0.65 and nr_wall_div_s and s13:
+                    cands.append(("WIN_E2", -1, "LIM", mid_b1, 2, 260.0, 230.0, 130.0, 15.0, 20.0, 18, wc1))
+
+            for sid, sig_dir, ord_type, ord_px, val_bars, tp_cap, sl_pts, be_trig, be_lock, w_buf, max_b, nearest_w in cands:
+                # Filtro de abertura idêntico ao MT5: ordem Limit de compra exige new_open >= ord_px; venda exige new_open <= ord_px
+                if ord_type == "LIM":
+                    if (sig_dir == 1 and new_open < ord_px) or (sig_dir == -1 and new_open > ord_px):
+                        continue
+                    filled, fill_pos_k, ep = False, pos_k, ord_px
+                    for v_idx in range(val_bars):
+                        if pos_k + v_idx >= len(today_closed_bars):
+                            break
+                        _, vb = today_closed_bars[pos_k + v_idx]
+                        if (sig_dir == 1 and float(vb["low"]) <= ord_px) or (sig_dir == -1 and float(vb["high"]) >= ord_px):
+                            filled, fill_pos_k, ep = True, pos_k + v_idx, ord_px
+                            break
+                    if not filled:
+                        continue
+                else:
+                    fill_pos_k = pos_k
+                    ep = rnd(new_open)
+
+                entry_b_idx, entry_eb = today_closed_bars[fill_pos_k]
+                entry_t_str = entry_eb["time"]
+
+                tp_mid, tp_main = self._find_win_structural_targets(ep, sig_dir, walls_clean, 20.0)
+                tp_struct = tp_main if sid == "EST_01" else tp_mid
+                tp_px = min(tp_struct, rnd(ep + tp_cap)) if sig_dir == 1 else max(tp_struct, rnd(ep - tp_cap))
+                tr_tp = round(abs(tp_px - ep), 1)
+
+                w_px_ref = float(nearest_w["price"]) if (nearest_w and nearest_w.get("price") is not None) else 0.0
+                sl_px = rnd(ep - sig_dir * sl_pts)
+                if w_px_ref > 0:
+                    sl_px = min(sl_px, rnd(w_px_ref - 60.0)) if sig_dir == 1 else max(sl_px, rnd(w_px_ref + 60.0))
+                tr_sl = round(abs(ep - sl_px), 1)
+
+                sim_slice = today_closed_bars[fill_pos_k : min(len(today_closed_bars), fill_pos_k + max_b)]
+                be_armed = False
+                be_armed_idx = None
+                be_armed_time = None
+                curr_sl_px = sl_px
+                mfe_w, mae_w, realized_w = 0.0, 0.0, 0.0
+                exit_reason = ""
+                closed_trade = False
+                win_exit_idx = sim_slice[-1][0] if sim_slice else entry_b_idx
+
+                for s_pos, (f_b_idx, fb) in enumerate(sim_slice):
+                    fh, fl, fc = float(fb["high"]), float(fb["low"]), float(fb["close"])
+                    fav = (fh - ep) if sig_dir > 0 else (ep - fl)
+                    adv = (fl - ep) if sig_dir > 0 else (ep - fh)
+                    if fav > mfe_w:
+                        mfe_w = fav
+                    if adv < mae_w:
+                        mae_w = adv
+                    # Na barra de preenchimento de ordem Limit, avalia TP/SL a partir do preço de entrada
+                    if (sig_dir == 1 and fl <= curr_sl_px and (s_pos > 0 or ord_type == "MKT")) or (
+                        sig_dir == -1 and fh >= curr_sl_px and (s_pos > 0 or ord_type == "MKT")
+                    ):
+                        realized_w = round(sig_dir * (curr_sl_px - ep), 1)
+                        exit_reason = "BE" if be_armed else "SL"
+                        closed_trade = True
+                        win_exit_idx = f_b_idx
+                        break
+                    if (sig_dir == 1 and fh >= tp_px) or (sig_dir == -1 and fl <= tp_px):
+                        realized_w = tr_tp
+                        exit_reason = "TP"
+                        closed_trade = True
+                        win_exit_idx = f_b_idx
+                        break
+                    if not be_armed and mfe_w >= be_trig:
+                        if w_px_ref > 0:
+                            w_cand = rnd(w_px_ref - sig_dir * w_buf)
+                            max_lock = rnd(ep + sig_dir * be_lock)
+                            cand_sl = min(w_cand, max_lock) if sig_dir == 1 else max(w_cand, max_lock)
+                            min_imp = rnd(ep - sig_dir * 85.0)
+                            cand_sl = max(cand_sl, min_imp) if sig_dir == 1 else min(cand_sl, min_imp)
+                        else:
+                            cand_sl = rnd(ep + sig_dir * be_lock)
+                        if (sig_dir == 1 and cand_sl > curr_sl_px) or (sig_dir == -1 and cand_sl < curr_sl_px):
+                            curr_sl_px = cand_sl
+                            be_armed = True
+                            be_armed_idx = f_b_idx
+                            be_armed_time = fb.get("time", "")
+
+                busy_by_slot[sid] = max(busy_by_slot[sid], win_exit_idx)
+                ops_by_slot[sid] += 1
+                if not closed_trade:
+                    if is_live_session and len(sim_slice) < max_b:
+                        live_unr = round(sig_dir * (float(m5_enriched[-1]["close"]) - ep), 1)
+                        val_status, val_label, is_valid, realized_w, exit_reason = (
+                            "EM_ANDAMENTO", f"⏳ EM ABERTO ({live_unr:+.0f} pts)", None, live_unr, "ABERTA"
+                        )
+                    else:
+                        last_fc = float(sim_slice[-1][1]["close"]) if sim_slice else ep
+                        realized_w = round(sig_dir * (last_fc - ep), 1)
+                        is_valid = realized_w > 0
+                        exit_reason = "TEMPO"
+                        val_status = "VALIDO_FAVORAVEL" if is_valid else "INVALIDO_CONTRA"
+                        val_label = f"{'✅' if is_valid else '❌'} TEMPO ({realized_w:+.0f} pts)"
+                else:
+                    is_valid = realized_w > 0
+                    val_status = "VALIDO_ALVO" if exit_reason == "TP" else ("VALIDO_FAVORAVEL" if exit_reason == "BE" else "INVALIDO_STOP")
+                    val_label = (
+                        f"✅ ALVO WALL (+{tr_tp:.0f} pts)"
+                        if exit_reason == "TP"
+                        else (f"🛡️ ESCUDO WALL ({realized_w:+.0f} pts)" if exit_reason == "BE" else f"❌ STOP ({realized_w:+.0f} pts)")
+                    )
+
+                win_ex_eb = m5_enriched[min(len(m5_enriched) - 1, win_exit_idx)]
+                win_ex_px = round(float(m5_enriched[-1]["close"]), 2) if val_status == "EM_ANDAMENTO" else round(ep + sig_dir * realized_w, 2)
+                short_nm = strat_short_names.get(sid, sid)
+                win_sig_obj = {
+                    "id": f"WIN_{entry_t_str}_{sid}_{'BUY' if sig_dir > 0 else 'SELL'}",
+                    "strategy_id": sid,
+                    "strategy_short": short_nm,
+                    "bar_index": entry_b_idx,
+                    "timestamp": entry_eb["timestamp"],
+                    "time": entry_t_str,
+                    "direction": "COMPRA" if sig_dir > 0 else "VENDA",
+                    "dir_num": sig_dir,
+                    "type": f"{short_nm} · {'COMPRA' if sig_dir > 0 else 'VENDA'}",
+                    "entry_price": round(ep, 2),
+                    "exit_bar_index": win_exit_idx,
+                    "exit_time": win_ex_eb.get("time", entry_t_str),
+                    "exit_price": win_ex_px,
+                    "exit_reason": exit_reason,
+                    "stop_price": round(sl_px, 2),
+                    "tp_price": round(tp_px, 2),
+                    "tp_tag": "TP",
+                    "be_triggered": bool(be_armed),
+                    "be_bar_index": be_armed_idx,
+                    "be_time": be_armed_time,
+                    "be_trigger_price": round(ep + sig_dir * be_trig, 2),
+                    "be_stop_price": round(curr_sl_px if be_armed else (ep + sig_dir * be_lock), 2),
+                    "wall_price": round(w_px_ref, 2) if w_px_ref > 0 else None,
+                    "wall_type": nearest_w["type"] if nearest_w else short_nm,
+                    "inst_delta_5m": entry_eb["inst_delta_bar"],
+                    "dealer_hedge_5m": entry_eb["dealer_hedge_bar"],
+                    "reason": f"{short_nm} ({sid}) c/ Fluxo · {val_label}",
+                    "pnl_5m": round(realized_w, 1),
+                    "pnl_15m": round(realized_w, 1),
+                    "pnl_30m": round(realized_w, 1),
+                    "mfe_30m": round(mfe_w, 1),
+                    "mae_30m": round(mae_w, 1),
+                    "realized_pts": round(realized_w, 1),
+                    "brl_1c": round(realized_w * 0.20, 2),
+                    "validation_status": val_status,
+                    "validation_label": val_label,
+                    "is_valid": is_valid,
+                    "is_prev_day": False,
+                    "closed_bar_confirmed": True,
+                }
+                signals_log.append(win_sig_obj)
+                m5_enriched[entry_b_idx]["signal"] = win_sig_obj
+
+        signals_log.sort(key=lambda s: s["bar_index"])
+        return self._reconcile_mt5_terminal_live_deals(
+            sess_date=sess_date,
+            asset="WIN",
+            today_closed_bars=today_closed_bars,
+            m5_enriched=m5_enriched,
+            walls_clean=walls_clean,
+            strat_short_names=strat_short_names,
+            sim_signals=signals_log,
+        )
+
+    def _evaluate_live_mt5_wdo_strategies(
+        self,
+        sess_date: str,
+        m5_enriched: list,
+        today_closed_bars: list,
+        closes_all: np.ndarray,
+        w_len: int,
+        walls_clean: list,
+        strat_short_names: dict,
+        is_live_session: bool,
+    ) -> list:
+        """
+        Avalia as estratégias WDO (`WDO_01`, `WDO_02`, `WDO_05`, `WDO_07`, `WDO_10`)
+        seguindo 100% as fórmulas exatas do robô MQL5 (`Jumba_WDO_GEX_NWE_Core.mqh` + `wdo_mt5_sim.py`):
+          - Duplo envelope causal NWE50(50, bw=5.0, mult=2.0) e NWE30(30, bw=3.0, mult=1.6)
+          - Direção FADE correta no micro-rompimento da Wall NY (`WDO_01` Part A, `WDO_05` Part A, `WDO_07`)
+          - Entradas Limit (`round05(b1.low+0.5)` / `round05(b1.high-0.5)` p/ `WDO_02` Part B e `WDO_05`)
+            e Market na abertura da barra seguinte (`new_bar_open` p/ `WDO_01`, `WDO_02` Part A, `WDO_07`, `WDO_10`)
+          - Alvos `TP_MIDWALL` (`CalcWdoTargetPts`) e `BE_WALL_SHIELD`
+        """
+        signals_log = []
+        for eb in m5_enriched:
+            eb["signal"] = None
+        if len(today_closed_bars) < 3:
+            return signals_log
+
+        closes_m5 = np.array([float(eb["close"]) for eb in m5_enriched], dtype=float)
+        n50_c, n50_u, n50_l, _, n50_s = self._compute_mt5_nwe_series(closes_m5, 50, 5.0, 2.0)
+        n30_c, n30_u, n30_l, _, n30_s = self._compute_mt5_nwe_series(closes_m5, 30, 3.0, 1.6)
+
+        rnd = self._round_wdo05
+        slot_ids = ("WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_10")
+        busy_by_slot = {s: -1 for s in slot_ids}
+        ops_by_slot = {s: 0 for s in slot_ids}
+
+        for pos_k in range(2, len(today_closed_bars)):
+            cur_b_idx, cur_eb = today_closed_bars[pos_k]
+            b1_idx, b1 = today_closed_bars[pos_k - 1]
+            b2_idx, b2 = today_closed_bars[pos_k - 2]
+
+            t1_str = b1["time"]
+            tm1 = int(t1_str[:2]) * 60 + int(t1_str[3:5])
+            o1, h1, l1, c1 = float(b1["open"]), float(b1["high"]), float(b1["low"]), float(b1["close"])
+            o2, h2, l2, c2 = float(b2["open"]), float(b2["high"]), float(b2["low"]), float(b2["close"])
+            new_open = float(cur_eb["open"])
+
+            rng1 = max(h1 - l1, 0.5)
+            body1 = abs(c1 - o1)
+            up_w1 = h1 - max(o1, c1)
+            dn_w1 = min(o1, c1) - l1
+
+            bw50_1 = max(n50_u[b1_idx] - n50_l[b1_idx], 0.5)
+            pos50_1 = (c1 - n50_l[b1_idx]) / bw50_1
+            s50_1 = float(n50_s[b1_idx])
+            bw50_2 = max(n50_u[b2_idx] - n50_l[b2_idx], 0.5)
+            pos50_2 = (c2 - n50_l[b2_idx]) / bw50_2
+
+            bw30_1 = max(n30_u[b1_idx] - n30_l[b1_idx], 0.5)
+            pos30_1 = (c1 - n30_l[b1_idx]) / bw30_1
+            z30_1 = (c1 - n30_c[b1_idx]) / max(0.5, 0.5 * bw30_1)
+
+            dc1, lc1, wc1 = self._find_nearest_wall_obj(walls_clean, c1)
+
+            inst_5m = float(b1.get("inst_delta_bar", 0.0))
+            inst_15m = sum(float(today_closed_bars[k_p][1].get("inst_delta_bar", 0.0)) for k_p in range(max(0, pos_k - 3), pos_k))
+            ia5 = float(b1.get("inst_aggr_delta", inst_5m))
+            ia15 = sum(float(today_closed_bars[k_p][1].get("inst_aggr_delta", today_closed_bars[k_p][1].get("inst_delta_bar", 0.0))) for k_p in range(max(0, pos_k - 3), pos_k))
+            ip5 = float(b1.get("inst_pass_delta", 0.0))
+            ip15 = sum(float(today_closed_bars[k_p][1].get("inst_pass_delta", 0.0)) for k_p in range(max(0, pos_k - 3), pos_k))
+            r5 = float(b1.get("ret_delta_bar", 0.0))
+            r15 = sum(float(today_closed_bars[k_p][1].get("ret_delta_bar", 0.0)) for k_p in range(max(0, pos_k - 3), pos_k))
+            nr15 = ia15 + ip15
+            c_prev3 = float(today_closed_bars[max(0, pos_k - 4)][1].get("close", o2))
+            dp3 = c1 - c_prev3
+            lot_imb = float(b1.get("lot_imb", 1.0))
+            wdir1 = int(b1.get("window_dir", 1))
+            fhist1 = float(b1.get("flow_hist", 0.0))
+            hslope1 = fhist1 - float(b2.get("flow_hist", 0.0))
+            delta_5m = float(b1.get("delta_bar", 0.0))
+
+            b_ws = (wdir1 == 1) or (fhist1 >= -14.0) or (hslope1 >= 0.0)
+            s_ws = (wdir1 == -1) or (fhist1 <= 14.0) or (hslope1 <= 0.0)
+            b_abs = (inst_5m >= 0 or delta_5m >= 0 or dn_w1 >= 0.22 * rng1 or c1 >= o1) and (inst_5m >= -800.0)
+            s_abs = (inst_5m <= 0 or delta_5m <= 0 or up_w1 >= 0.22 * rng1 or c1 <= o1) and (inst_5m <= 800.0)
+            b6_combo = b_ws and b_abs
+            s6_combo = s_ws and s_abs
+
+            # 3_FLUXO_INST
+            b_inst = (inst_5m >= 0.0) or (inst_15m >= 0.0)
+            s_inst = (inst_5m <= 0.0) or (inst_15m <= 0.0)
+
+            # 9_PROFIT_INST_RET & 13_NR_PRICE_ABS_DIV (WDO_01, WDO_05)
+            b_inst_ret = (b_inst or (ip5 > 0.0 and r5 < 0.0) or (lot_imb >= 1.04)) and not (ia5 < -650.0 and lot_imb < 0.82)
+            s_inst_ret = (s_inst or (ip5 < 0.0 and r5 > 0.0) or (lot_imb <= 0.96)) and not (ia5 > 650.0 and lot_imb > 1.22)
+            b13_wdo = b_inst_ret and not (r5 > 70.0 and ip5 < -45.0 and ia5 <= 0) and not (ia5 < -250.0 and ip5 <= 0 and inst_15m < -300.0)
+            s13_wdo = s_inst_ret and not (r5 < -70.0 and ip5 > 45.0 and ia5 >= 0) and not (ia5 > 250.0 and ip5 >= 0 and inst_15m > 300.0)
+
+            # 12_NR_WALL_TRAP_DIV (WDO_07)
+            sweep_crash_d = (ia5 < -480.0) and (lot_imb < 0.88) and (ip5 <= 0.0)
+            sweep_surge_d = (ia5 > 480.0) and (lot_imb > 1.14) and (ip5 >= 0.0)
+            b12_wdo = (((r5 < 0 or r15 < 0) and (ip5 >= 0 or ia5 > 0 or nr15 > 0)) or ((inst_5m > 0 and inst_15m > 0) and lot_imb >= 1.02) or (dn_w1 >= 0.28 * rng1 and (ip5 > 0 or ia5 >= 0))) and (not sweep_crash_d) and b_ws
+            s12_wdo = (((r5 > 0 or r15 > 0) and (ip5 <= 0 or ia5 < 0 or nr15 < 0)) or ((inst_5m < 0 and inst_15m < 0) and lot_imb <= 0.98) or (up_w1 >= 0.28 * rng1 and (ip5 < 0 or ia5 <= 0))) and (not sweep_surge_d) and s_ws
+
+            # 17_NR_SQUEEZE_CLEAN (WDO_02)
+            b17_wdo = (b_inst or (ip5 > 0 and r5 < 0) or (lot_imb >= 1.03)) and not (r5 > 60.0 and (ip5 < -40.0 or ia5 < 0)) and not (dp3 > 3.0 and nr15 < -120.0) and not (ia5 < -250.0 and lot_imb < 0.92)
+            s17_wdo = (s_inst or (ip5 < 0 and r5 > 0) or (lot_imb <= 0.97)) and not (r5 < -60.0 and (ip5 > 40.0 or ia5 > 0)) and not (dp3 < -3.0 and nr15 > 120.0) and not (ia5 > 250.0 and lot_imb > 1.08)
+
+            # (sid, sig_dir, order_type, ord_px, fb_tp, sl_pts, be_trig, be_lock, w_buf, max_b, def_w_obj)
+            cands = []
+
+            # 1) WDO_01: Scalper Híbrido Wall NY (MQL5 `EvalWdo01_ScalperHibridoNY` + 13_NR_PRICE_ABS_DIV)
+            if 600 <= tm1 <= 970 and cur_b_idx > busy_by_slot["WDO_01"] and ops_by_slot["WDO_01"] < 3 and dc1 <= 2.5 and wc1 is not None:
+                if o1 <= lc1 + 0.5 and c1 > lc1 + 0.5 and (c1 - lc1) <= 4.5 and body1 >= 2.0 and s50_1 >= 0.15 and 0.45 <= pos50_1 <= 0.88 and s13_wdo:
+                    cands.append(("WDO_01", -1, "MKT", new_open, 10.0, 9.5, 5.5, 1.5, 1.0, 18, wc1))
+                elif o1 >= lc1 - 0.5 and c1 < lc1 - 0.5 and (lc1 - c1) <= 4.5 and body1 >= 2.0 and s50_1 <= -0.15 and 0.12 <= pos50_1 <= 0.55 and b13_wdo:
+                    cands.append(("WDO_01", 1, "MKT", new_open, 10.0, 9.5, 5.5, 1.5, 1.0, 18, wc1))
+                elif pos50_2 <= 0.22 and c2 < o2 and c1 > o1 and c1 > 0.5 * (h2 + l2) and abs(s50_1) <= 0.45 and b13_wdo:
+                    cands.append(("WDO_01", 1, "MKT", new_open, 10.0, 9.5, 5.5, 1.5, 1.0, 18, wc1))
+                elif pos50_2 >= 0.78 and c2 > o2 and c1 < o1 and c1 < 0.5 * (h2 + l2) and abs(s50_1) <= 0.45 and s13_wdo:
+                    cands.append(("WDO_01", -1, "MKT", new_open, 10.0, 9.5, 5.5, 1.5, 1.0, 18, wc1))
+
+            # 2) WDO_02: Scalper Híbrido Core (MQL5 `EvalWdo02_ScalperHibridoCore` + 17_NR_SQUEEZE_CLEAN)
+            if 545 <= tm1 <= 980 and cur_b_idx > busy_by_slot["WDO_02"] and ops_by_slot["WDO_02"] < 2 and bw50_1 >= 7.15 and dc1 <= 2.0 and wc1 is not None:
+                if s50_1 >= 0.12 and 0.42 <= pos50_1 <= 0.82 and pos30_1 <= 0.65 and abs(l1 - lc1) <= 2.0 and c1 > lc1 and c1 > o1 and b17_wdo:
+                    cands.append(("WDO_02", 1, "MKT", new_open, 9.5, 8.5, 5.0, 1.5, 1.0, 16, wc1))
+                elif s50_1 <= -0.12 and 0.18 <= pos50_1 <= 0.58 and pos30_1 >= 0.35 and abs(h1 - lc1) <= 2.0 and c1 < lc1 and c1 < o1 and s17_wdo:
+                    cands.append(("WDO_02", -1, "MKT", new_open, 9.5, 8.5, 5.0, 1.5, 1.0, 16, wc1))
+                elif pos50_1 <= 0.20 and dn_w1 >= 0.32 * rng1 and c1 >= l1 + 0.55 * rng1 and abs(s50_1) <= 0.45 and b17_wdo:
+                    cands.append(("WDO_02", 1, "LIM", rnd(l1 + 0.5), 9.5, 8.5, 5.0, 1.5, 1.0, 16, wc1))
+                elif pos50_1 >= 0.80 and up_w1 >= 0.32 * rng1 and c1 <= h1 - 0.55 * rng1 and abs(s50_1) <= 0.45 and s17_wdo:
+                    cands.append(("WDO_02", -1, "LIM", rnd(h1 - 0.5), 9.5, 8.5, 5.0, 1.5, 1.0, 16, wc1))
+
+            # 3) WDO_05: Cluster NWE30+50 Wall (MQL5 `EvalWdo05_ClusterNweWall` + 13_NR_PRICE_ABS_DIV)
+            if 550 <= tm1 <= 975 and cur_b_idx > busy_by_slot["WDO_05"] and ops_by_slot["WDO_05"] < 3 and wc1 is not None:
+                if dc1 <= 4.5 and o1 <= lc1 + 0.5 and c1 > lc1 + 0.5 and (c1 - lc1) <= 4.5 and body1 >= 2.0 and s50_1 >= 0.15 and 0.45 <= pos50_1 <= 0.88 and s13_wdo:
+                    cands.append(("WDO_05", -1, "LIM", rnd(h1 - 0.5), 10.5, 10.0, 5.5, 1.5, 1.0, 18, wc1))
+                elif dc1 <= 4.5 and o1 >= lc1 - 0.5 and c1 < lc1 - 0.5 and (lc1 - c1) <= 4.5 and body1 >= 2.0 and s50_1 <= -0.15 and 0.12 <= pos50_1 <= 0.55 and b13_wdo:
+                    cands.append(("WDO_05", 1, "LIM", rnd(l1 + 0.5), 10.5, 10.0, 5.5, 1.5, 1.0, 18, wc1))
+                elif dc1 <= 2.5 and abs(n50_l[b1_idx] - n30_l[b1_idx]) <= 3.0 and pos50_1 <= 0.22 and pos30_1 <= 0.22 and c1 >= l1 + 0.50 * rng1 and s50_1 >= -0.45 and b13_wdo:
+                    cands.append(("WDO_05", 1, "LIM", rnd(l1 + 0.5), 10.5, 10.0, 5.5, 1.5, 1.0, 18, wc1))
+                elif dc1 <= 2.5 and abs(n50_u[b1_idx] - n30_u[b1_idx]) <= 3.0 and pos50_1 >= 0.78 and pos30_1 >= 0.78 and c1 <= h1 - 0.50 * rng1 and s50_1 <= 0.45 and s13_wdo:
+                    cands.append(("WDO_05", -1, "LIM", rnd(h1 - 0.5), 10.5, 10.0, 5.5, 1.5, 1.0, 18, wc1))
+
+            # 4) WDO_07: Absorção Mkt Wall NY (MQL5 `EvalWdo07_AbsorcaoWallNY` + 12_NR_WALL_TRAP_DIV)
+            if 600 <= tm1 <= 960 and cur_b_idx > busy_by_slot["WDO_07"] and ops_by_slot["WDO_07"] < 3 and dc1 <= 4.5 and wc1 is not None:
+                if o1 <= lc1 + 0.5 and c1 > lc1 + 0.5 and (c1 - lc1) <= 4.5 and body1 >= 2.0 and s50_1 >= 0.15 and 0.45 <= pos50_1 <= 0.88 and s12_wdo:
+                    cands.append(("WDO_07", -1, "MKT", new_open, 11.0, 11.5, 6.0, 1.5, 1.0, 16, wc1))
+                elif o1 >= lc1 - 0.5 and c1 < lc1 - 0.5 and (lc1 - c1) <= 4.5 and body1 >= 2.0 and s50_1 <= -0.15 and 0.12 <= pos50_1 <= 0.55 and b12_wdo:
+                    cands.append(("WDO_07", 1, "MKT", new_open, 11.0, 11.5, 6.0, 1.5, 1.0, 16, wc1))
+
+            # 5) WDO_10: Lunch Reversão NWE (MQL5 `EvalWdo10_LunchReversaoNwe` + 6_COMBO_SMART)
+            if 710 <= tm1 <= 870 and cur_b_idx > busy_by_slot["WDO_10"] and ops_by_slot["WDO_10"] < 1 and bw50_1 >= 7.15 and dc1 <= 2.5 and wc1 is not None:
+                if pos50_1 <= 0.25 and z30_1 <= -0.75 and abs(s50_1) <= 0.35 and c1 >= l1 + 0.50 * rng1 and b6_combo:
+                    cands.append(("WDO_10", 1, "MKT", new_open, 9.5, 9.5, 5.0, 1.5, 1.5, 14, wc1))
+                elif pos50_1 >= 0.75 and z30_1 >= 0.75 and abs(s50_1) <= 0.35 and c1 <= h1 - 0.50 * rng1 and s6_combo:
+                    cands.append(("WDO_10", -1, "MKT", new_open, 9.5, 9.5, 5.0, 1.5, 1.5, 14, wc1))
+
+            for sid, sig_dir, ord_type, ord_px, fb_tp, sl_pts, be_trig, be_lock, w_buf, max_b, nearest_w in cands:
+                if ord_type == "LIM":
+                    if (sig_dir == 1 and new_open < ord_px) or (sig_dir == -1 and new_open > ord_px):
+                        continue
+                    if (sig_dir == 1 and float(cur_eb["low"]) > ord_px) or (sig_dir == -1 and float(cur_eb["high"]) < ord_px):
+                        continue
+                    ep = rnd(ord_px)
+                else:
+                    ep = rnd(new_open)
+
+                entry_b_idx = cur_b_idx
+                entry_eb = cur_eb
+                entry_t_str = entry_eb["time"]
+
+                tr_tp = self._calc_wdo_structural_target_pts(ep, sig_dir, fb_tp, walls_clean, 0.5, 6.0)
+                tp_px = rnd(ep + sig_dir * tr_tp)
+
+                w_px_ref = float(nearest_w["price"]) if (nearest_w and nearest_w.get("price") is not None) else 0.0
+                sl_px = rnd(ep - sig_dir * sl_pts)
+                if w_px_ref > 0:
+                    sl_px = min(sl_px, rnd(w_px_ref - 3.0)) if sig_dir == 1 else max(sl_px, rnd(w_px_ref + 3.0))
+                tr_sl = round(abs(ep - sl_px), 1)
+
+                sim_slice = today_closed_bars[pos_k : min(len(today_closed_bars), pos_k + max_b)]
+                be_armed = False
+                be_armed_idx = None
+                be_armed_time = None
+                curr_sl_px = sl_px
+                mfe_w, mae_w, realized_w = 0.0, 0.0, 0.0
+                exit_reason = ""
+                closed_trade = False
+                wdo_exit_idx = sim_slice[-1][0] if sim_slice else entry_b_idx
+
+                for s_pos, (f_b_idx, fb) in enumerate(sim_slice):
+                    fh, fl, fc = float(fb["high"]), float(fb["low"]), float(fb["close"])
+                    fav = (fh - ep) if sig_dir > 0 else (ep - fl)
+                    adv = (fl - ep) if sig_dir > 0 else (ep - fh)
+                    if fav > mfe_w:
+                        mfe_w = fav
+                    if adv < mae_w:
+                        mae_w = adv
+                    if (sig_dir == 1 and fl <= curr_sl_px and (s_pos > 0 or ord_type == "MKT")) or (
+                        sig_dir == -1 and fh >= curr_sl_px and (s_pos > 0 or ord_type == "MKT")
+                    ):
+                        realized_w = round(sig_dir * (curr_sl_px - ep), 1)
+                        exit_reason = "BE" if be_armed else "SL"
+                        closed_trade = True
+                        wdo_exit_idx = f_b_idx
+                        break
+                    if (sig_dir == 1 and fh >= tp_px) or (sig_dir == -1 and fl <= tp_px):
+                        realized_w = tr_tp
+                        exit_reason = "TP"
+                        closed_trade = True
+                        wdo_exit_idx = f_b_idx
+                        break
+                    if not be_armed and mfe_w >= be_trig:
+                        if w_px_ref > 0:
+                            w_cand = rnd(w_px_ref - sig_dir * w_buf)
+                            max_lock = rnd(ep + sig_dir * be_lock)
+                            cand_sl = min(w_cand, max_lock) if sig_dir == 1 else max(w_cand, max_lock)
+                            min_imp = rnd(ep - sig_dir * 3.0)
+                            cand_sl = max(cand_sl, min_imp) if sig_dir == 1 else min(cand_sl, min_imp)
+                        else:
+                            cand_sl = rnd(ep + sig_dir * be_lock)
+                        if (sig_dir == 1 and cand_sl > curr_sl_px) or (sig_dir == -1 and cand_sl < curr_sl_px):
+                            curr_sl_px = cand_sl
+                            be_armed = True
+                            be_armed_idx = f_b_idx
+                            be_armed_time = fb.get("time", "")
+
+                busy_by_slot[sid] = max(busy_by_slot[sid], wdo_exit_idx)
+                ops_by_slot[sid] += 1
+                if not closed_trade:
+                    if is_live_session and len(sim_slice) < max_b:
+                        live_unr = round(sig_dir * (float(m5_enriched[-1]["close"]) - ep), 1)
+                        val_status, val_label, is_valid, realized_w, exit_reason = (
+                            "EM_ANDAMENTO", f"⏳ EM ABERTO ({live_unr:+.1f} pts)", None, live_unr, "ABERTA"
+                        )
+                    else:
+                        last_fc = float(sim_slice[-1][1]["close"]) if sim_slice else ep
+                        realized_w = round(sig_dir * (last_fc - ep), 1)
+                        is_valid = realized_w > 0
+                        exit_reason = "TEMPO"
+                        val_status = "VALIDO_FAVORAVEL" if is_valid else "INVALIDO_CONTRA"
+                        val_label = f"{'✅' if is_valid else '❌'} TEMPO ({realized_w:+.1f} pts)"
+                else:
+                    is_valid = realized_w > 0
+                    val_status = "VALIDO_ALVO" if exit_reason == "TP" else ("VALIDO_FAVORAVEL" if exit_reason == "BE" else "INVALIDO_STOP")
+                    val_label = (
+                        f"✅ ALVO WALL (+{tr_tp:.1f} pts)"
+                        if exit_reason == "TP"
+                        else (f"🛡️ ESCUDO WALL ({realized_w:+.1f} pts)" if exit_reason == "BE" else f"❌ STOP ({realized_w:+.1f} pts)")
+                    )
+
+                wdo_ex_eb = m5_enriched[min(len(m5_enriched) - 1, wdo_exit_idx)]
+                wdo_ex_px = round(float(m5_enriched[-1]["close"]), 2) if val_status == "EM_ANDAMENTO" else round(ep + sig_dir * realized_w, 2)
+                short_nm = strat_short_names.get(sid, sid)
+                wdo_sig_obj = {
+                    "id": f"WDO_{entry_t_str}_{sid}_{'BUY' if sig_dir > 0 else 'SELL'}",
+                    "strategy_id": sid,
+                    "strategy_short": short_nm,
+                    "bar_index": entry_b_idx,
+                    "timestamp": entry_eb["timestamp"],
+                    "time": entry_t_str,
+                    "direction": "COMPRA" if sig_dir > 0 else "VENDA",
+                    "dir_num": sig_dir,
+                    "type": f"{short_nm} · {'COMPRA' if sig_dir > 0 else 'VENDA'}",
+                    "entry_price": round(ep, 2),
+                    "exit_bar_index": wdo_exit_idx,
+                    "exit_time": wdo_ex_eb.get("time", entry_t_str),
+                    "exit_price": wdo_ex_px,
+                    "exit_reason": exit_reason,
+                    "stop_price": round(sl_px, 2),
+                    "tp_price": round(tp_px, 2),
+                    "tp_tag": "TP",
+                    "be_triggered": bool(be_armed),
+                    "be_bar_index": be_armed_idx,
+                    "be_time": be_armed_time,
+                    "be_trigger_price": round(ep + sig_dir * be_trig, 2),
+                    "be_stop_price": round(curr_sl_px if be_armed else (ep + sig_dir * be_lock), 2),
+                    "wall_price": round(w_px_ref, 2) if w_px_ref > 0 else None,
+                    "wall_type": nearest_w["type"] if nearest_w else short_nm,
+                    "inst_delta_5m": entry_eb["inst_delta_bar"],
+                    "dealer_hedge_5m": entry_eb["dealer_hedge_bar"],
+                    "reason": f"{short_nm} ({sid}) c/ Fluxo · {val_label}",
+                    "pnl_5m": round(realized_w, 1),
+                    "pnl_15m": round(realized_w, 1),
+                    "pnl_30m": round(realized_w, 1),
+                    "mfe_30m": round(mfe_w, 1),
+                    "mae_30m": round(mae_w, 1),
+                    "realized_pts": round(realized_w, 1),
+                    "brl_1c": round(realized_w * 10.0, 2),
+                    "validation_status": val_status,
+                    "validation_label": val_label,
+                    "is_valid": is_valid,
+                    "is_prev_day": False,
+                    "closed_bar_confirmed": True,
+                }
+                signals_log.append(wdo_sig_obj)
+                m5_enriched[entry_b_idx]["signal"] = wdo_sig_obj
+
+        signals_log.sort(key=lambda s: s["bar_index"])
+        return self._reconcile_mt5_terminal_live_deals(
+            sess_date=sess_date,
+            asset="WDO",
+            today_closed_bars=today_closed_bars,
+            m5_enriched=m5_enriched,
+            walls_clean=walls_clean,
+            strat_short_names=strat_short_names,
+            sim_signals=signals_log,
+        )
+
     def _build_asg_hud(
         self,
         asset: str,
@@ -1906,11 +3111,8 @@ class GexLiveDealerEngine:
         is_win = asset.upper() == "WIN"
         step_default = 150.0 if is_win else 5.0
 
-        # Usa a última barra FECHADA quando em pregão ao vivo para não oscilar o comando intra-barra
-        if is_live_session and len(m5_enriched) >= 2:
-            last_bar = m5_enriched[-2]
-        else:
-            last_bar = m5_enriched[-1] if m5_enriched else {}
+        # Usa a barra atual em tempo real para refletir imediatamente a leitura do fluxo minuto a minuto
+        last_bar = m5_enriched[-1] if m5_enriched else {}
         win_dir = int(last_bar.get("window_dir", 0))
         hist_val = float(last_bar.get("flow_hist", 0.0))
         p_up = float(last_bar.get("price_upper_trava", spot + step_default * 0.5))
@@ -2048,17 +3250,19 @@ class GexLiveDealerEngine:
                     with open(cache_path, "r", encoding="utf-8") as f:
                         raw = json.load(f)
                     summary_1c = raw.get("summary_1c", {})
-                    strat_ids = ["EST_01", "EST_07", "EST_13", "WDO_09", "WDO_11", "WDO_S2"]
+                    strat_ids = [
+                        "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2",
+                        "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2",
+                    ]
                     stats_acc = {
                         k: {"wins": 0, "ops": 0, "gross_win_1c": 0.0, "gross_loss_1c": 0.0}
                         for k in strat_ids
                     }
                     compact_days = []
                     raw_days = raw.get("days", [])
-                    total_days = len(raw_days)
-                    for idx_d, d in enumerate(raw_days):
+                    for d in raw_days:
                         d_date = str(d.get("date", ""))
-                        d_trades = d.get("trades", []) or []
+                        d_trades = [t for t in (d.get("trades", []) or []) if t.get("in_base", True)]
                         self._portfolio_6_trades_by_date[d_date] = d_trades
                         for t in d_trades:
                             sid = t.get("strategy_id")
@@ -2070,43 +3274,43 @@ class GexLiveDealerEngine:
                                     stats_acc[sid]["gross_win_1c"] += brl
                                 elif brl < 0:
                                     stats_acc[sid]["gross_loss_1c"] += abs(brl)
-                        dc = {
-                            "date": d_date,
-                            "month": d.get("month", d_date[:7]),
-                            "is_live": False,
-                            "EST_01_pts": float(d.get("EST_01_pts", 0.0)),
-                            "EST_07_pts": float(d.get("EST_07_pts", 0.0)),
-                            "EST_13_pts": float(d.get("EST_13_pts", 0.0)),
-                            "WDO_09_pts": float(d.get("WDO_09_pts", 0.0)),
-                            "WDO_11_pts": float(d.get("WDO_11_pts", 0.0)),
-                            "WDO_S2_pts": float(d.get("WDO_S2_pts", 0.0)),
-                            "EST_01_ops": int(d.get("EST_01_ops", 0)),
-                            "EST_07_ops": int(d.get("EST_07_ops", 0)),
-                            "EST_13_ops": int(d.get("EST_13_ops", 0)),
-                            "WDO_09_ops": int(d.get("WDO_09_ops", 0)),
-                            "WDO_11_ops": int(d.get("WDO_11_ops", 0)),
-                            "WDO_S2_ops": int(d.get("WDO_S2_ops", 0)),
-                            "WIN_S1_pts": float(d.get("WIN_S1_pts", 0.0)),
-                            "WIN_S2_pts": float(d.get("WIN_S2_pts", 0.0)),
-                            "WDO_S1_pts": float(d.get("WDO_S1_pts", 0.0)),
-                            "WIN_S1_ops": int(d.get("WIN_S1_ops", 0)),
-                            "WIN_S2_ops": int(d.get("WIN_S2_ops", 0)),
-                            "WDO_S1_ops": int(d.get("WDO_S1_ops", 0)),
-                            "trades": d_trades,
-                        }
+                        dc = dict(d)
+                        dc["date"] = d_date
+                        dc["month"] = d.get("month", d_date[:7])
+                        dc["is_live"] = False
+                        slim_trades = []
+                        for tr in (d.get("trades", []) or []):
+                            slim_trades.append({
+                                "date": tr.get("date", d_date),
+                                "time": tr.get("time", ""),
+                                "exit_time": tr.get("exit_time", ""),
+                                "asset": tr.get("asset", ""),
+                                "strategy_id": tr.get("strategy_id", ""),
+                                "direction": tr.get("direction", ""),
+                                "entry_price": tr.get("entry_price", 0),
+                                "exit_price": tr.get("exit_price", 0),
+                                "pts": tr.get("pts", 0),
+                                "brl_1c": tr.get("brl_1c", 0),
+                                "contracts": tr.get("contracts", 1),
+                                "label": tr.get("label", ""),
+                                "status": tr.get("status", "FECHADA"),
+                                "in_base": tr.get("in_base", True),
+                            })
+                        dc["trades"] = slim_trades
                         compact_days.append(dc)
 
                     for k, st in stats_acc.items():
-                        if k in summary_1c:
+                        if k in summary_1c and st["ops"] > 0:
                             summary_1c[k]["wins"] = st["wins"]
                             summary_1c[k]["gross_win_1c"] = round(st["gross_win_1c"], 2)
                             summary_1c[k]["gross_loss_1c"] = round(st["gross_loss_1c"], 2)
 
                     self._portfolio_4_base = {
-                        "version": raw.get("version", "2.0-6strats-flow"),
-                        "start_date": raw.get("start_date", "2026-05-07"),
-                        "last_bt_date": raw.get("last_bt_date", "2026-10-30"),
+                        "version": raw.get("version", "4.0_11_STRATEGIES_NWE_WALLS_FLOW"),
+                        "start_date": raw.get("start_date", "2026-05-11"),
+                        "last_bt_date": raw.get("last_bt_date", "2026-11-04"),
                         "total_bt_sessions": raw.get("total_bt_sessions", len(compact_days)),
+                        "all_11_comparison": raw.get("all_11_comparison", []),
                         "summary_1c": summary_1c,
                         "bt_days": compact_days,
                     }
@@ -2123,7 +3327,7 @@ class GexLiveDealerEngine:
         asset_up = str(asset or "").upper()
         return [t for t in day_trades if str(t.get("asset", "")).upper() == asset_up]
 
-    def build_portfolio_4_sistematicas_payload(self, snap: dict) -> dict:
+    def build_portfolio_4_sistematicas_payload(self, snap: dict, lite: bool = False) -> dict:
         """
         Retorna a série histórica auditada (desde 07/05/2026) das 6 estratégias
         (EST_01, EST_07, EST_13, WDO_09, WDO_11, WDO_S2) + Portfólio Combinado, anexando dinamicamente
@@ -2152,7 +3356,10 @@ class GexLiveDealerEngine:
         latest_sess_date = str(avail_dates[0]) if avail_dates else last_bt_date
         sel_date = str(snap.get("selected_date") or latest_sess_date)
         is_hist = bool(snap.get("is_historical", False))
-        strat_ids = ("EST_01", "EST_07", "EST_13", "WDO_09", "WDO_11", "WDO_S2")
+        strat_ids = (
+            "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2",
+            "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2",
+        )
 
         # Limpa registros legados (pré-6 estratégias ou <= last_bt_date)
         for k_old in list(self._live_days_map.keys()):
@@ -2165,27 +3372,12 @@ class GexLiveDealerEngine:
                 "date": sel_date,
                 "month": sel_date[:7],
                 "is_live": True,
-                "EST_01_pts": 0.0,
-                "EST_07_pts": 0.0,
-                "EST_13_pts": 0.0,
-                "WDO_09_pts": 0.0,
-                "WDO_11_pts": 0.0,
-                "WDO_S2_pts": 0.0,
-                "EST_01_ops": 0,
-                "EST_07_ops": 0,
-                "EST_13_ops": 0,
-                "WDO_09_ops": 0,
-                "WDO_11_ops": 0,
-                "WDO_S2_ops": 0,
-                "WIN_S1_pts": 0.0,
-                "WIN_S2_pts": 0.0,
-                "WDO_S1_pts": 0.0,
-                "WIN_S1_ops": 0,
-                "WIN_S2_ops": 0,
-                "WDO_S1_ops": 0,
                 "trades": [],
                 "open_trades": [],
             }
+            for sid_k in strat_ids:
+                day_rec[f"{sid_k}_pts"] = 0.0
+                day_rec[f"{sid_k}_ops"] = 0
             for asset_k, mult_1c in [("WIN", 0.20), ("WDO", 10.0)]:
                 sigs = snap.get(asset_k, {}).get("caminho_a", {}).get("signals_log", []) or []
                 for s in reversed(sigs):
@@ -2250,10 +3442,11 @@ class GexLiveDealerEngine:
             if d > last_bt_date
         ]
 
-        days_out = list(self._portfolio_4_base["bt_days"])
+        days_out = [] if lite else list(self._portfolio_4_base["bt_days"])
 
         return {
             "ok": True,
+            "is_lite": bool(lite),
             "version": self._portfolio_4_base["version"],
             "start_date": self._portfolio_4_base["start_date"],
             "last_bt_date": last_bt_date,
@@ -2262,6 +3455,7 @@ class GexLiveDealerEngine:
             "total_live_sessions": len(live_days_sorted),
             "selected_date": sel_date,
             "is_historical_view": is_hist,
+            "all_11_comparison": [] if lite else self._portfolio_4_base.get("all_11_comparison", []),
             "summary_1c": self._portfolio_4_base["summary_1c"],
             "days": days_out + live_days_sorted,
             "live_days": live_days_sorted,

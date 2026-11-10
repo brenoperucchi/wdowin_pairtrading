@@ -3,17 +3,15 @@ import { ref, onValue, get } from "firebase/database";
 import { db } from "./firebase";
 import ZScoreChart from "./components/ZScoreChart";
 import RegimeHealthPanel from "./components/RegimeHealthPanel";
-import PerformancePanel from "./components/PerformancePanel";
-import TradingGuide from "./components/TradingGuide";
 import SignalHistogram from "./components/SignalHistogram";
 import IndexChart from "./components/IndexChart";
 import SetupMatadorPanel from "./components/SetupMatadorPanel";
 import BrokerFlowPanel from "./components/BrokerFlowPanel";
 import FlowDeltaChart from "./components/FlowDeltaChart";
-import FlowScoreChart from "./components/FlowScoreChart";
-import FlowAccelerationChart from "./components/FlowAccelerationChart";
 import IntradayCompassPanel from "./components/IntradayCompassPanel";
 import LiveTradingCalendar from "./components/LiveTradingCalendar";
+import StatArbBacktest2026Panel from "./components/StatArbBacktest2026Panel";
+import StatArbLiveTradePanel from "./components/StatArbLiveTradePanel";
 
 const STRAT_LABELS = {
     CONS_BASE: { label: "CONS", color: "#00d4ff" },
@@ -100,12 +98,20 @@ function getSignal(z) {
 // Limite máximo de barras no histórico completo para evitar OOM
 const MAX_FULL_HISTORY = 3000;
 
+function TopbarClock() {
+    const [clock, setClock] = useState(() => new Date().toLocaleTimeString("pt-BR"));
+    useEffect(() => {
+        const t = setInterval(() => setClock(new Date().toLocaleTimeString("pt-BR")), 1000);
+        return () => clearInterval(t);
+    }, []);
+    return <span style={{ fontSize: 13, color: "#c8a444", minWidth: 70, textAlign: "right" }}>{clock}</span>;
+}
+
 export default function App() {
 
     const [data, setData] = useState(null);
     const [history, setHistory] = useState(() => genFallback());
-    const [clock, setClock] = useState("");
-    const [blink, setBlink] = useState(true);
+    const blink = true;
     const [status, setStatus] = useState("connecting");
     const [error, setError] = useState(null);
     const [perf, setPerf] = useState(null);
@@ -136,6 +142,10 @@ export default function App() {
     const [showSetup, setShowSetup] = useState(false);
     const [workspaceTab, setWorkspaceTab] = useState("COCKPIT"); // "COCKPIT" | "RAIO_X" | "STAT_ARB"
     const [compassData, setCompassData] = useState(null);
+    const btDaysRef = useRef(null);
+    const btComparisonRef = useRef([]);
+    const cachedPortfolioRef = useRef(null);
+    const cachedPortfolioSigRef = useRef("");
     const [gexWalls, setGexWalls] = useState([]);
     const [weights, setWeights] = useState({
         "XP": 1,
@@ -204,21 +214,10 @@ export default function App() {
     }, []);
 
 
-    // Relógio
-    useEffect(() => {
-        const t = setInterval(() => setClock(new Date().toLocaleTimeString("pt-BR")), 1000);
-        return () => clearInterval(t);
-    }, []);
-
-    // Blink
-    useEffect(() => {
-        const t = setInterval(() => setBlink(b => !b), 700);
-        return () => clearInterval(t);
-    }, []);
-
     // Polling da API (Local) ou Listener (Firebase Produção)
     useEffect(() => {
         let active = true;
+        let pollInFlight = false;
 
         if (import.meta.env.PROD && !isViewingHistory) {
             // Em produÃ§Ã£o (Firebase Hosting), ouvir o Realtime Database
@@ -232,9 +231,6 @@ export default function App() {
                         setStatus("fallback");
                     } else {
                         setData(val.regime);
-                        // FIXED: Firebase dashboard now no longer contains a massive 30-day history array.
-                        // Instead we use val.regime.history which has the current day's bars, 
-                        // exactly like localhost endpoint behavior.
                         setHistory(val.regime?.history || []);
                         if (val.performance && !val.performance.error) setPerf(val.performance);
                         if (val.di_regime && !val.di_regime.error) setDiData(val.di_regime);
@@ -261,12 +257,16 @@ export default function App() {
         } else {
             // Em localhost ou modo histórico, fazer polling da API
             async function poll() {
+                if (pollInFlight) return;
+                pollInFlight = true;
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), 8000);
                 try {
                     const currentApiUrl = API_URL;
                     const [res, resPerf, resDi] = await Promise.all([
-                        fetch(currentApiUrl).catch(() => null),
-                        fetch(API_PERF_URL).catch(() => null),
-                        fetch(API_DI_URL).catch(() => null),
+                        fetch(currentApiUrl, { signal: ctrl.signal }).catch(() => null),
+                        fetch(API_PERF_URL, { signal: ctrl.signal }).catch(() => null),
+                        fetch(API_DI_URL, { signal: ctrl.signal }).catch(() => null),
                     ]);
                     if (!res || !res.ok) throw new Error(`HTTP ${res?.status}`);
                     const json = await res.json();
@@ -295,6 +295,9 @@ export default function App() {
                     if (!active) return;
                     setStatus("fallback");
                     setError("Servidor Python não encontrado em localhost:8080. Mostrando dados simulados.");
+                } finally {
+                    clearTimeout(timer);
+                    pollInFlight = false;
                 }
             }
             poll();
@@ -303,14 +306,22 @@ export default function App() {
         }
     }, [selectedDate, isViewingHistory]);
 
-    // Polling rápido do fluxo (apenas local e quando na aba STAT_ARB)
+    // Polling do fluxo de corretoras do Profit (aba RAIO_X, tanto live quanto data histórica selecionada)
     useEffect(() => {
-        if (import.meta.env.PROD || isViewingHistory || workspaceTab !== "STAT_ARB") return;
+        if (import.meta.env.PROD || workspaceTab !== "RAIO_X") return;
         
         let active = true;
+        let flowInFlight = false;
         async function pollFlow() {
+            if (flowInFlight) return;
+            flowInFlight = true;
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 7000);
             try {
-                const res = await fetch(API_FLOW_URL);
+                const url = isViewingHistory
+                    ? `${API_FLOW_URL}?date_str=${encodeURIComponent(selectedDate)}`
+                    : API_FLOW_URL;
+                const res = await fetch(url, { signal: ctrl.signal });
                 if (res.ok) {
                     const json = await res.json();
                     if (active && json && !json.error) {
@@ -319,97 +330,76 @@ export default function App() {
                 }
             } catch (e) {
                 // Silencioso para não poluir o console
+            } finally {
+                clearTimeout(timer);
+                flowInFlight = false;
             }
         }
         pollFlow();
-        const t = setInterval(pollFlow, 1500); // atualiza a cada 1.5s
-        return () => { active = false; clearInterval(t); };
-    }, [isViewingHistory, workspaceTab]);
+        if (!isViewingHistory) {
+            const t = setInterval(pollFlow, 2500);
+            return () => { active = false; clearInterval(t); };
+        }
+        return () => { active = false; };
+    }, [isViewingHistory, selectedDate, workspaceTab]);
 
     useEffect(() => {
         if (import.meta.env.PROD) return;
         let active = true;
+        let compassInFlight = false;
         async function pollCompass() {
+            if (compassInFlight) return;
+            compassInFlight = true;
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 8000);
             try {
-                const url = selectedDate
-                    ? `${API_COMPASS_URL}?date_str=${encodeURIComponent(selectedDate)}`
-                    : API_COMPASS_URL;
-                const res = await fetch(url);
+                const hasBtCache = Array.isArray(btDaysRef.current) && btDaysRef.current.length > 0;
+                const params = new URLSearchParams();
+                if (selectedDate) params.set("date_str", selectedDate);
+                if (hasBtCache) params.set("lite", "1");
+                const qs = params.toString();
+                const url = qs ? `${API_COMPASS_URL}?${qs}` : API_COMPASS_URL;
+                const res = await fetch(url, { signal: ctrl.signal });
                 if (res.ok) {
                     const json = await res.json();
                     if (active && json && json.ok) {
+                        const p4 = json.portfolio_4_sistematicas;
+                        if (p4 && Array.isArray(p4.days)) {
+                            if (!p4.is_lite) {
+                                btDaysRef.current = p4.days.filter(d => !d.is_live);
+                                btComparisonRef.current = p4.all_11_comparison || [];
+                            } else if (btDaysRef.current) {
+                                p4.days = [...btDaysRef.current, ...(p4.live_days || [])];
+                                p4.all_11_comparison = btComparisonRef.current;
+                            }
+                            const liveSig = JSON.stringify({
+                                v: p4.version,
+                                bt: btDaysRef.current ? btDaysRef.current.length : 0,
+                                ld: p4.live_days || [],
+                            });
+                            if (liveSig === cachedPortfolioSigRef.current && cachedPortfolioRef.current) {
+                                json.portfolio_4_sistematicas = cachedPortfolioRef.current;
+                            } else {
+                                cachedPortfolioSigRef.current = liveSig;
+                                cachedPortfolioRef.current = p4;
+                            }
+                        }
                         setCompassData(json);
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+            } finally {
+                clearTimeout(timer);
+                compassInFlight = false;
+            }
         }
         pollCompass();
         if (!selectedDate) {
-            const t = setInterval(pollCompass, 1800);
+            const t = setInterval(pollCompass, 2500);
             return () => { active = false; clearInterval(t); };
         }
         return () => { active = false; };
     }, [selectedDate]);
-
-    // Polling do indicador sintético de fluxo em tempo real (apenas local e live)
-    useEffect(() => {
-        if (import.meta.env.PROD || isViewingHistory || workspaceTab !== "STAT_ARB") return;
-        
-        let active = true;
-        async function pollRealtimeFlow() {
-            try {
-                const url = `${API_FLOW_REALTIME_URL}?w_fln=${flowWeights.fln / 100}&w_pers=${flowWeights.pers / 100}&w_conc=${flowWeights.conc / 100}&w_abs=${flowWeights.abs / 100}`;
-                const res = await fetch(url);
-                if (res.ok) {
-                    const json = await res.json();
-                    if (active && json && Array.isArray(json)) {
-                        const aligned = json.map(pt => ({
-                            ...pt,
-                            time: alignTimestampTo2025(pt.time)
-                        }));
-                        setRealtimeFlowData(aligned);
-                    }
-                }
-            } catch (e) {
-                // Silencioso
-            }
-        }
-        pollRealtimeFlow();
-        const t = setInterval(pollRealtimeFlow, 2500); // 2.5s update frequency
-        return () => { active = false; clearInterval(t); };
-    }, [isViewingHistory, flowWeights, workspaceTab]);
-
-    // Fetch IAF history (both live and historical date, local only)
-    useEffect(() => {
-        if (import.meta.env.PROD) return;
-        let active = true;
-        async function fetchIafHistory() {
-            try {
-                const url = isViewingHistory 
-                    ? `http://localhost:8080/api/flow/iaf-history?date_str=${selectedDate}`
-                    : `http://localhost:8080/api/flow/iaf-history`;
-                const res = await fetch(url);
-                if (res.ok) {
-                    const json = await res.json();
-                    if (active && json && Array.isArray(json)) {
-                        const aligned = json.map(pt => ({
-                            ...pt,
-                            time: alignTimestampTo2025(pt.time)
-                        }));
-                        setRealtimeIafData(aligned);
-                    }
-                }
-            } catch (e) {
-                // Silencioso
-            }
-        }
-        fetchIafHistory();
-        if (!isViewingHistory) {
-            const t = setInterval(fetchIafHistory, 5000);
-            return () => { active = false; clearInterval(t); };
-        }
-        return () => { active = false; };
-    }, [selectedDate, isViewingHistory]);
 
     // Simulação quando offline
     useEffect(() => {
@@ -503,7 +493,7 @@ export default function App() {
     const currentZ = data ? data.current_z : (history.length > 0 ? history[history.length - 1].z : 0);
     const currentRho = data ? data.current_rho : -0.67;
     const sig = data ? data.signal : getSignal(currentZ);
-    const meta = data ? data.meta : { symbol_a: "WIN$N", symbol_b: "WDO$N", beta: -22.5, window: 40, timeframe: "M5" };
+    const meta = data ? data.meta : { symbol_a: "WINFUT", symbol_b: "WDOFUT", di_symbol: "DIFUT", source: "PROFIT", beta: -22.5, window: 40, timeframe: "M5" };
     const betaOls = data ? data.beta_ols : -22.5;
     const betaChangePct = data ? data.beta_change_pct : 0;
     const betaUnstable = data ? data.beta_unstable : false;
@@ -595,125 +585,15 @@ export default function App() {
         return unique;
     }, [mergedSignals]);
 
-    // Group/downsample the 5-second realtimeFlowData to 5-minute bars matching paddedSignals
-    const flowScore5mData = useMemo(() => {
-        if (!paddedSignals || paddedSignals.length === 0) return [];
-        
-        // 1. Group and average intra-bar ticks
-        const rawBars = paddedSignals.map(s => {
-            if (!s.bar_time) return null;
-            const t = timeStrToTimestamp(s.bar_time);
-            if (t === 0) return null;
-            
-            // If this is a future empty bar (no price or z-score data), plot whitespace to align timescales
-            if (s.win_price == null && s.z == null && s.z_raw_wdo == null) {
-                return { time: t, value: null, isPlaceholder: true };
-            }
-            
-            // Find ticks in realtimeFlowData that fall into the 5-minute range: [t, t + 300)
-            const ticksInBar = realtimeFlowData.filter(pt => pt.time >= t && pt.time < t + 300);
-            
-            let value = null;
-            
-            if (ticksInBar.length > 0) {
-                // Compute the average of all ticks in this 5-minute interval
-                const sum = ticksInBar.reduce((acc, pt) => acc + pt.value, 0);
-                value = sum / ticksInBar.length;
-            } else {
-                // Fallback: find the last available tick before t
-                const ticksBefore = realtimeFlowData.filter(pt => pt.time < t);
-                if (ticksBefore.length > 0) {
-                    value = ticksBefore[ticksBefore.length - 1].value;
-                }
-            }
-            
-            return {
-                time: t,
-                value: value,
-                isPlaceholder: false
-            };
-        }).filter(Boolean);
-
-        // 2. Apply Simple Moving Average (SMA) smoothing
-        return rawBars.map((bar, idx) => {
-            if (bar.isPlaceholder || bar.value === null) {
-                return { time: bar.time };
-            }
-            
-            if (flowSmoothing <= 1) {
-                // No SMA smoothing, just classify color based on raw average
-                const val = bar.value;
-                let color = "#f5a623"; // Yellow
-                if (val >= 40.0) color = "#00e87a"; // Green
-                else if (val <= -40.0) color = "#ff3860"; // Red
-                
-                return {
-                    time: bar.time,
-                    value: parseFloat(val.toFixed(2)),
-                    color: color
-                };
-            }
-            
-            // Calculate SMA of period flowSmoothing
-            let sum = 0;
-            let count = 0;
-            for (let i = Math.max(0, idx - (flowSmoothing - 1)); i <= idx; i++) {
-                if (rawBars[i] && rawBars[i].value !== null && !rawBars[i].isPlaceholder) {
-                    sum += rawBars[i].value;
-                    count++;
-                }
-            }
-            
-            const avgVal = count > 0 ? sum / count : bar.value;
-            
-            let color = "#f5a623"; // Yellow
-            if (avgVal >= 40.0) color = "#00e87a"; // Green
-            else if (avgVal <= -40.0) color = "#ff3860"; // Red
-            
-            return {
-                time: bar.time,
-                value: parseFloat(avgVal.toFixed(2)),
-                color: color
-            };
-        });
-    }, [paddedSignals, realtimeFlowData, flowSmoothing]);
-
-    // Align IAF history data to paddedSignals timeline
-    const iafChartData = useMemo(() => {
-        if (!paddedSignals || paddedSignals.length === 0) return [];
-        return paddedSignals.map(s => {
-            if (!s.bar_time) return null;
-            const t = timeStrToTimestamp(s.bar_time);
-            if (t === 0) return null;
-            
-            if (s.win_price == null && s.z == null && s.z_raw_wdo == null) {
-                return { time: t, value: null, isPlaceholder: true };
-            }
-            
-            const matched = realtimeIafData.find(pt => pt.time === t || pt.bar_time === s.bar_time);
-            return {
-                time: t,
-                value: matched ? matched.value : null,
-                isPlaceholder: false
-            };
-        }).filter(Boolean);
-    }, [paddedSignals, realtimeIafData]);
-
-    // Sync Time Scales & Crosshairs
+    // Sync Time Scales & Crosshairs (ZScoreChart, SignalHistogram, IndexChart)
     useEffect(() => {
         const zChart = zScoreChartRef.current?.getChart();
         const hChart = histogramChartRef.current?.getChart();
         const iChart = indexChartRef.current?.getChart();
-        const fChart = flowDeltaChartRef.current?.getChart();
-        const fsChart = flowScoreChartRef.current?.getChart();
-        const faChart = flowAccelerationChartRef.current?.getChart();
 
         const zSeries = zScoreChartRef.current?.getMainSeries?.();
         const hSeries = histogramChartRef.current?.getMainSeries?.();
         const iSeries = indexChartRef.current?.getMainSeries?.();
-        const fSeries = flowDeltaChartRef.current?.getMainSeries?.();
-        const fsSeries = flowScoreChartRef.current?.getMainSeries?.();
-        const faSeries = flowAccelerationChartRef.current?.getMainSeries?.();
 
         if (!zChart || !hChart || !iChart) return;
 
@@ -722,20 +602,15 @@ export default function App() {
             { chart: hChart, series: hSeries },
             { chart: iChart, series: iSeries }
         ];
-        if (fChart) charts.push({ chart: fChart, series: fSeries });
-        if (fsChart) charts.push({ chart: fsChart, series: fsSeries });
-        if (faChart) charts.push({ chart: faChart, series: faSeries });
 
         // TIME SCALE SYNC
         let isSyncingTime = false;
 
-        // Logical range handler for all 5-minute charts
         function getLogicalSyncHandler(sourceChart) {
             return (logicalRange) => {
                 if (!logicalRange || isSyncingTime) return;
+                if (logicalRange.from < -5 && paddedSignals && paddedSignals.length > 10) return;
                 isSyncingTime = true;
-                
-                // Sync logical range among all charts
                 charts.forEach(c => {
                     if (c.chart !== sourceChart) {
                         try {
@@ -743,47 +618,33 @@ export default function App() {
                         } catch (e) {}
                     }
                 });
-                
                 isSyncingTime = false;
             };
+        }
+
+        if (paddedSignals && paddedSignals.length > 0) {
+            isSyncingTime = true;
+            const fullRange = { from: 0, to: Math.max(10, paddedSignals.length - 1) };
+            charts.forEach(c => {
+                try {
+                    c.chart.timeScale().fitContent();
+                    c.chart.timeScale().setVisibleLogicalRange(fullRange);
+                } catch (e) {}
+            });
+            isSyncingTime = false;
         }
 
         const zTimeHandler = getLogicalSyncHandler(zChart);
         const hTimeHandler = getLogicalSyncHandler(hChart);
         const iTimeHandler = getLogicalSyncHandler(iChart);
-        const fTimeHandler = fChart ? getLogicalSyncHandler(fChart) : null;
-        const fsTimeHandler = fsChart ? getLogicalSyncHandler(fsChart) : null;
-        const faTimeHandler = faChart ? getLogicalSyncHandler(faChart) : null;
 
         zChart.timeScale().subscribeVisibleLogicalRangeChange(zTimeHandler);
         hChart.timeScale().subscribeVisibleLogicalRangeChange(hTimeHandler);
         iChart.timeScale().subscribeVisibleLogicalRangeChange(iTimeHandler);
-        if (fChart && fTimeHandler) fChart.timeScale().subscribeVisibleLogicalRangeChange(fTimeHandler);
-        if (fsChart && fsTimeHandler) fsChart.timeScale().subscribeVisibleLogicalRangeChange(fsTimeHandler);
-        if (faChart && faTimeHandler) faChart.timeScale().subscribeVisibleLogicalRangeChange(faTimeHandler);
 
-        // MAP DATA FOR CROSSHAIR PRICES
-
-        function findFlowSnapshotForTime(flowHistory, targetTime) {
-            if (!flowHistory || flowHistory.length === 0) return null;
-            let bestSnap = null;
-            for (let i = flowHistory.length - 1; i >= 0; i--) {
-                const snap = flowHistory[i];
-                if (snap.time <= targetTime) {
-                    bestSnap = snap;
-                    break;
-                }
-            }
-            return bestSnap || flowHistory[0];
-        }
-
-        const symbol = meta?.symbol_a ? (meta.symbol_a.includes("WDO") ? "WDO" : "WIN") : "WIN";
         const timeToZPrice = new Map();
         const timeToIPrice = new Map();
         const timeToHPrice = new Map();
-        const timeToFPrice = new Map();
-        const timeToFsPrice = new Map();
-        const timeToFaPrice = new Map();
 
         paddedSignals.forEach(s => {
             if (!s.bar_time) return;
@@ -792,49 +653,7 @@ export default function App() {
             timeToZPrice.set(t, s.z_raw_wdo ?? s.z ?? 0);
             timeToIPrice.set(t, s.win_price ?? 0);
             timeToHPrice.set(t, 3);
-
-            const snap = findFlowSnapshotForTime(flowData?.history, s.bar_time);
-            if (snap) {
-                const snapFlow = snap[symbol] || {};
-                let followedSum = 0;
-                Object.keys(snapFlow).forEach(b => {
-                    const brokerVal = snapFlow[b];
-                    let val = 0;
-                    if (brokerVal !== undefined && brokerVal !== null) {
-                        if (typeof brokerVal === 'object') {
-                            const net = brokerVal.net || 0;
-                            const buy = brokerVal.buy || 0;
-                            const sell = brokerVal.sell || 0;
-                            if (flowMode === 'agg') val = buy - sell;
-                            else if (flowMode === 'abs') val = net - (buy - sell);
-                            else val = net;
-                        } else {
-                            if (flowMode === 'agg') val = brokerVal;
-                            else if (flowMode === 'abs') val = 0;
-                            else val = brokerVal;
-                        }
-                    }
-                    const cls = classifications[b] || "none";
-                    if (cls === "smart") followedSum -= val;
-                    else if (cls === "dummy") followedSum += val;
-                });
-                timeToFPrice.set(t, followedSum);
-            } else {
-                timeToFPrice.set(t, 0);
-            }
         });
-
-        if (flowScore5mData && flowScore5mData.length > 0) {
-            flowScore5mData.forEach(pt => {
-                timeToFsPrice.set(pt.time, pt.value);
-            });
-        }
-
-        if (iafChartData && iafChartData.length > 0) {
-            iafChartData.forEach(pt => {
-                timeToFaPrice.set(pt.time, pt.value);
-            });
-        }
 
         function getClosestTimestampForSeries(map, t) {
             if (map.size === 0) return t;
@@ -877,15 +696,6 @@ export default function App() {
                             } else if (c.chart === hChart) {
                                 targetTime = getClosestTimestampForSeries(timeToHPrice, t);
                                 price = timeToHPrice.get(targetTime) ?? 3;
-                            } else if (c.chart === fChart) {
-                                targetTime = getClosestTimestampForSeries(timeToFPrice, t);
-                                price = timeToFPrice.get(targetTime) ?? 0;
-                            } else if (c.chart === fsChart) {
-                                targetTime = getClosestTimestampForSeries(timeToFsPrice, t);
-                                price = timeToFsPrice.get(targetTime) ?? 0;
-                            } else if (c.chart === faChart) {
-                                targetTime = getClosestTimestampForSeries(timeToFaPrice, t);
-                                price = timeToFaPrice.get(targetTime) ?? 0;
                             }
                             
                             try {
@@ -901,33 +711,21 @@ export default function App() {
         const zCrosshairHandler = getCrosshairHandler(zChart);
         const hCrosshairHandler = getCrosshairHandler(hChart);
         const iCrosshairHandler = getCrosshairHandler(iChart);
-        const fCrosshairHandler = fChart ? getCrosshairHandler(fChart) : null;
-        const fsCrosshairHandler = fsChart ? getCrosshairHandler(fsChart) : null;
-        const faCrosshairHandler = faChart ? getCrosshairHandler(faChart) : null;
 
         zChart.subscribeCrosshairMove(zCrosshairHandler);
         hChart.subscribeCrosshairMove(hCrosshairHandler);
         iChart.subscribeCrosshairMove(iCrosshairHandler);
-        if (fChart && fCrosshairHandler) fChart.subscribeCrosshairMove(fCrosshairHandler);
-        if (fsChart && fsCrosshairHandler) fsChart.subscribeCrosshairMove(fsCrosshairHandler);
-        if (faChart && faCrosshairHandler) faChart.subscribeCrosshairMove(faCrosshairHandler);
 
         return () => {
             zChart.timeScale().unsubscribeVisibleLogicalRangeChange(zTimeHandler);
             hChart.timeScale().unsubscribeVisibleLogicalRangeChange(hTimeHandler);
             iChart.timeScale().unsubscribeVisibleLogicalRangeChange(iTimeHandler);
-            if (fChart && fTimeHandler) fChart.timeScale().unsubscribeVisibleLogicalRangeChange(fTimeHandler);
-            if (fsChart && fsTimeHandler) fsChart.timeScale().unsubscribeVisibleLogicalRangeChange(fsTimeHandler);
-            if (faChart && faTimeHandler) faChart.timeScale().unsubscribeVisibleLogicalRangeChange(faTimeHandler);
 
             zChart.unsubscribeCrosshairMove(zCrosshairHandler);
             hChart.unsubscribeCrosshairMove(hCrosshairHandler);
             iChart.unsubscribeCrosshairMove(iCrosshairHandler);
-            if (fChart && fCrosshairHandler) fChart.unsubscribeCrosshairMove(fCrosshairHandler);
-            if (fsChart && fsCrosshairHandler) fsChart.unsubscribeCrosshairMove(fsCrosshairHandler);
-            if (faChart && faCrosshairHandler) faChart.unsubscribeCrosshairMove(faCrosshairHandler);
         };
-    }, [paddedSignals, flowData, flowScore5mData, iafChartData, weights, classifications, meta, flowMode, workspaceTab, isViewingHistory]); // Re-bind when data, weights, or classifications update
+    }, [paddedSignals, meta, workspaceTab, isViewingHistory]);
 
     // Alerta Sonoro — reutiliza um único AudioContext para evitar memory leak
     useEffect(() => {
@@ -1140,10 +938,10 @@ export default function App() {
                             fontSize: 9, letterSpacing: 2,
                             color: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060"
                         }}>
-                            {isViewingHistory ? "HISTÓRICO" : status === "live" ? "MT5 LIVE" : status === "fallback" ? "SIMULADO" : "CONECTANDO"}
+                            {isViewingHistory ? "HISTÓRICO PROFIT" : status === "live" ? "PROFIT LIVE" : status === "fallback" ? "SIMULADO" : "CONECTANDO"}
                         </span>
                     </div>
-                    <span style={{ fontSize: 13, color: "#c8a444", minWidth: 70, textAlign: "right" }}>{clock}</span>
+                    <TopbarClock />
                 </div>
             </div>
 
@@ -1182,9 +980,9 @@ export default function App() {
             }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {[
-                        { id: "COCKPIT", label: "⚡ 1. COCKPIT FLUXO REAL & A.S.G (BATEU O OLHO: COMPRA OU VENDA)", accent: "#00e87a" },
+                        { id: "COCKPIT", label: "⚡ 1. COCKPIT MAGIC WALLS E FLUXO", accent: "#00e87a" },
                         { id: "RAIO_X", label: "🔬 2. RAIO-X DE DADOS (CORRETORAS PROFIT & GRADE OPÇÕES)", accent: "#00d4ff" },
-                        { id: "STAT_ARB", label: "📐 3. STAT-ARB & Z-SCORE (GRÁFICOS WIN × WDO × DI)", accent: "#c8a444" },
+                        { id: "STAT_ARB", label: "📐 3. STAT-ARB & Z-SCORE (PROFIT: WINFUT × WDOFUT × DIFUT)", accent: "#c8a444" },
                     ].map(tab => {
                         const active = workspaceTab === tab.id;
                         return (
@@ -1232,6 +1030,32 @@ export default function App() {
                         selectedDate={selectedDate}
                         onSelectDate={setSelectedDate}
                     />
+                )}
+
+                {workspaceTab === "RAIO_X" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        <div style={{ border: "1px solid #1a2530", borderRadius: 8, overflow: "hidden", background: "#0c1218" }}>
+                            <FlowDeltaChart
+                                ref={flowDeltaChartRef}
+                                history={paddedSignals}
+                                flowData={flowData}
+                                classifications={classifications}
+                                activeSymbol={meta?.symbol_a}
+                                flowMode={flowMode}
+                                hideXAxis={false}
+                            />
+                        </div>
+                        <BrokerFlowPanel
+                            flowData={flowData}
+                            dbHistory={paddedSignals}
+                            weights={weights}
+                            setWeights={setWeights}
+                            classifications={classifications}
+                            setClassifications={setClassifications}
+                            flowMode={flowMode}
+                            setFlowMode={setFlowMode}
+                        />
+                    </div>
                 )}
 
                 {/* History mode banner (Stat-Arb) */}
@@ -1292,7 +1116,8 @@ export default function App() {
                             border: "1px solid #1a2530", borderBottom: "none",
                         }}>
                             {/* WDO section */}
-                            <span style={{ fontSize: 8, color: "#c8a444", fontWeight: "bold", letterSpacing: 2 }}>WDO</span>
+                            <span style={{ fontSize: 8, color: "#00e87a", fontWeight: "bold", background: "rgba(0,232,122,0.12)", border: "1px solid rgba(0,232,122,0.3)", padding: "1px 5px", borderRadius: 3, letterSpacing: 1 }}>PROFIT · WINFUT</span>
+                            <span style={{ fontSize: 8, color: "#c8a444", fontWeight: "bold", letterSpacing: 2 }}>WDOFUT</span>
                             <Pill label="Z" value={zWdo} color={zColor(zWdo)} />
                             {betaH && <Pill label="β" value={betaH.delta_pct} color={betaH.color} badge={betaH.status} />}
                             <Dot gate={johWdoGate} label="JOH" />
@@ -1300,7 +1125,7 @@ export default function App() {
                             <span style={{ display: "inline-block", width: 1, height: 12, background: "#1c2e3a", margin: "0 4px" }} />
 
                             {/* DI section */}
-                            <span style={{ fontSize: 8, color: "#8a6dff", fontWeight: "bold", letterSpacing: 2 }}>DI</span>
+                            <span style={{ fontSize: 8, color: "#8a6dff", fontWeight: "bold", letterSpacing: 2 }}>DIFUT</span>
                             <Pill label="Z" value={zDi} color={zColor(zDi)} />
                             {diBetaH && <Pill label="β" value={diBetaH.delta_pct} color={diBetaH.color} badge={diBetaH.status} />}
                             {diRhoH && <Pill label="ρ" value={diRhoH.value} color={diRhoH.color} badge={diRhoH.status} />}
@@ -1309,7 +1134,7 @@ export default function App() {
                     );
                 })()}
 
-                {/* Z-Score Chart + Signal Histogram (grouped) */}
+                {/* Z-Score Chart + Signal Histogram + WINFUT Price/NWE Chart (grouped) */}
                 <div style={{ marginTop: 0 }}>
                     <ZScoreChart
                         ref={zScoreChartRef}
@@ -1320,50 +1145,35 @@ export default function App() {
                         hideXAxis={true}
                     />
                     <SignalHistogram ref={histogramChartRef} data={paddedSignals} />
-                    <IndexChart ref={indexChartRef} history={paddedSignals} walls={gexWalls} hideXAxis={true} />
-                    <FlowDeltaChart
-                        ref={flowDeltaChartRef}
+                    <IndexChart
+                        ref={indexChartRef}
                         history={paddedSignals}
-                        flowData={flowData}
-                        classifications={classifications}
-                        activeSymbol={meta?.symbol_a}
-                        flowMode={flowMode}
-                    />
-                    <FlowScoreChart
-                        ref={flowScoreChartRef}
-                        history={flowScore5mData}
-                        smoothing={flowSmoothing}
-                        onSmoothingChange={setFlowSmoothing}
-                        weights={flowWeights}
-                        onWeightsChange={setFlowWeights}
-                        hideXAxis={true}
-                    />
-                    <FlowAccelerationChart
-                        ref={flowAccelerationChartRef}
-                        history={iafChartData}
-                        smoothing={iafSmoothing}
-                        onSmoothingChange={setIafSmoothing}
+                        walls={gexWalls}
+                        tradeEngine={data?.trade_engine}
+                        dayTrades={data?.day_trades}
+                        isViewingHistory={isViewingHistory}
+                        hideXAxis={false}
                     />
                 </div>
 
-                {/* Order Flow / RTD Broker Monitor */}
-                <BrokerFlowPanel
-                    flowData={flowData}
-                    dbHistory={paddedSignals}
-                    weights={weights}
-                    setWeights={setWeights}
-                    classifications={classifications}
-                    setClassifications={setClassifications}
-                    flowMode={flowMode}
-                    setFlowMode={setFlowMode}
+                <StatArbLiveTradePanel
+                    history={paddedSignals}
+                    walls={gexWalls}
+                    dayTrades={data?.day_trades}
+                    selectedDate={selectedDate}
+                    isViewingHistory={isViewingHistory}
+                    onSelectDate={(d) => {
+                        setSelectedDate(d);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
                 />
 
-                {perf && <PerformancePanel perf={perf} />}
-
-
-
-
-
+                <StatArbBacktest2026Panel
+                    onSelectDate={(d) => {
+                        setSelectedDate(d);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                />
 
                 {/* Alert Banner */}
                 {!safeToTrade && isActive && (
@@ -1379,17 +1189,16 @@ export default function App() {
                         </div>
                     </div>
                 )}
-
-                {/* Trading Guide */}
-                <TradingGuide />
                 </>
                 )}
 
-                {/* Calendário do Live Trading (mesmas operações do Portfólio das 6 Estratégias) */}
-                <LiveTradingCalendar
-                    portfolioData={compassData?.portfolio_4_sistematicas}
-                    onSelectDate={setSelectedDate}
-                />
+                {/* Calendário do Live Trading (exclusivo da Aba 1 - Cockpit das 6 Estratégias Campeãs) */}
+                {workspaceTab === "COCKPIT" && (
+                    <LiveTradingCalendar
+                        portfolioData={compassData?.portfolio_4_sistematicas}
+                        onSelectDate={setSelectedDate}
+                    />
+                )}
             </div>
 
             {/* ── Footer ──────────────────────────────────────────────────────────── */}

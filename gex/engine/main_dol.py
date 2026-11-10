@@ -89,10 +89,9 @@ def _get_synced_m5_price(symbol, target_ts=None):
             for b in reversed(rates):
                 if b[0] == target_ts:
                     return float(b[4]), b[0]
-        latest_date = datetime.datetime.fromtimestamp(rates[-1][0], datetime.timezone.utc).date()
         for b in reversed(rates):
             dt = datetime.datetime.fromtimestamp(b[0], datetime.timezone.utc)
-            if dt.date() == latest_date and dt.hour == 16 and dt.minute == 55:
+            if dt.hour == 16 and dt.minute == 55:
                 return float(b[4]), b[0]
         return float(rates[-1][4]), rates[-1][0]
 

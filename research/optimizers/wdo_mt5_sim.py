@@ -236,11 +236,17 @@ def simulate_wdo_core_slot(
     start_date: str = "2026-05-11",
     end_date: str = "2026-11-04",
     cost_pts: float = 0.0,
+    sig_filter=None,
 ):
     """
     Simula fielmente o slot `slot_id` (1..16) de `Jumba_WDO_GEX_NWE_Core.mqh`.
     Retorna lista de trades fechados com timestamps, preços, lotes, razão e PnL (com e sem custo).
+
+    `sig_filter(date, b1_tmin, dir) -> bool` (opcional): filtro de fluxo/janela do dashboard
+    aplicado na barra de sinal b1. Só bloqueia entradas novas (não afeta gestão de posição).
     """
+    # [ativo, data_b1, tmin_b1] durante a avaliação de sinais da barra
+    _gate = [False, "", 0]
     dates = df["session_date"].values
     ts_arr = df["t"].values
     unix_ts = df["unix_ts"].values
@@ -362,6 +368,8 @@ def simulate_wdo_core_slot(
         nonlocal be_trig, be_lock, tr_trig, tr_dist, max_hold_bars, pyr_trig, pyr_lock
         nonlocal def_wall, be_mode, wall_shield_buf, step2_dist, step3_dist, lot1, lot2, lot3
         nonlocal tp_avg_pts, max_sl_pts, pend_dir, pend_bars_left, broker_order_active
+        if _gate[0] and sig_filter is not None and not sig_filter(_gate[1], _gate[2], _dir):
+            return
         p05 = round05(_entry_p)
         d_pos = _dir
         lots = 1
@@ -411,6 +419,8 @@ def simulate_wdo_core_slot(
         nonlocal step2_dist, step3_dist, lot1, lot2, lot3, tp_avg_pts, max_sl_pts
         nonlocal be_trig, be_lock, tr_trig, tr_dist, max_hold_bars, pyr_trig
         nonlocal def_wall, be_mode, wall_shield_buf, pend_dir, pend_bars_left, broker_order_active
+        if _gate[0] and sig_filter is not None and not sig_filter(_gate[1], _gate[2], _dir):
+            return
         p05 = round05(_entry_p)
         d_pos = _dir
         lots = _l1
@@ -464,6 +474,8 @@ def simulate_wdo_core_slot(
         nonlocal be_trig, be_lock, tr_trig, tr_dist, max_hold_bars
         nonlocal pend_def_wall, pend_be_mode, pend_wall_buf, pend_bars_left, broker_order_active
         nonlocal last_entry_bar_time, last_trade_date
+        if _gate[0] and sig_filter is not None and not sig_filter(_gate[1], _gate[2], _dir):
+            return
         p05 = round05(_price)
         if _ptype == 1 and _dir == 1 and _new_bar_open < p05:
             return
@@ -525,6 +537,8 @@ def simulate_wdo_core_slot(
             "leg_stage": int(leg_stage),
             "avg_px": float(avg_price),
             "exit_px": float(exit_px),
+            "sl_last": float(curr_sl),
+            "tp_px": float(curr_tp),
             "raw_pts": float(raw_pts * lots),
             "pnl_pts": float(net_pts_lot * lots),
             "pnl_brl_nocost": float(pnl_raw_brl),
@@ -647,6 +661,7 @@ def simulate_wdo_core_slot(
                         close_virtual_slot(new_bar_open, "TIME_STOP", ts_arr[idx], today_str)
 
             # 3. Avaliação de sinais de entrada (apenas se b1_date == today_str)
+            _gate[0], _gate[1], _gate[2] = True, str(b1_date), int(b1_tmin)
             if b1_date == today_str and d_pos == 0 and pend_dir == 0:
                 d_l, lvl_s = find_nearest_level(m_levels_all, b1_l)
                 d_h, lvl_r = find_nearest_level(m_levels_all, b1_h)
@@ -671,45 +686,46 @@ def simulate_wdo_core_slot(
                     if last_entry_bar_time != b1_time and window_ok(b1_tmin, "NY_1000_1630"):
                         for lvl in m_levels_all:
                             if b1_o <= lvl + 0.5 and b1_c > lvl + 0.5 and (b1_c - lvl) <= 4.5 and body1 >= 2.0 and m_n50_s_1 >= 0.15 and b1_c < (m_n50_u_1 - bw50 * 0.10):
-                                tp_calc = calc_wdo_target_pts(new_bar_open, -1, 1, 18.0, m_levels_walls, m_levels_all)
+                                tp_calc = min(8.0, max(6.0, calc_wdo_target_pts(new_bar_open, -1, 1, 18.0, m_levels_walls, m_levels_all)))
                                 open_virtual_single(-1, new_bar_open, new_bar_time, tp_calc, 11.0, 6.5, 1.5, 11.0, 4.5, 15, False, 0.0, 1.0, float(lvl), 1, 1.0)
                                 last_entry_bar_time = b1_time
                                 ent1 = True
                                 break
                             if b1_o >= lvl - 0.5 and b1_c < lvl - 0.5 and (lvl - b1_c) <= 4.5 and (-body1) >= 2.0 and m_n50_s_1 <= -0.15 and b1_c > (m_n50_l_1 + bw50 * 0.10):
-                                tp_calc = calc_wdo_target_pts(new_bar_open, 1, 1, 18.0, m_levels_walls, m_levels_all)
+                                tp_calc = min(8.0, max(6.0, calc_wdo_target_pts(new_bar_open, 1, 1, 18.0, m_levels_walls, m_levels_all)))
                                 open_virtual_single(1, new_bar_open, new_bar_time, tp_calc, 11.0, 6.5, 1.5, 11.0, 4.5, 15, False, 0.0, 1.0, float(lvl), 1, 1.0)
                                 last_entry_bar_time = b1_time
                                 ent1 = True
                                 break
                     if not ent1 and window_ok(new_tmin, "NY_1000_1630"):
                         if pos50 >= 0.65 and d_h <= 3.5 and b1_c < lvl_r and (m_gamma_flip <= 0.0 or b1_c > m_gamma_flip):
-                            tp_calc = calc_wdo_target_pts(lvl_r, -1, 1, 24.0, m_levels_walls, m_levels_all)
+                            tp_calc = min(8.0, max(6.0, calc_wdo_target_pts(lvl_r, -1, 1, 24.0, m_levels_walls, m_levels_all)))
                             arm_pending_order(-1, 1, lvl_r, new_bar_time, new_bar_open, tp_calc, 13.5, 7.5, 1.5, 14.0, 5.5, 16, lvl_r, 1, 1.0, 1, today_str)
                         elif pos50 <= 0.35 and d_l <= 3.5 and b1_c > lvl_s and (m_gamma_flip <= 0.0 or b1_c < m_gamma_flip):
-                            tp_calc = calc_wdo_target_pts(lvl_s, 1, 1, 24.0, m_levels_walls, m_levels_all)
+                            tp_calc = min(8.0, max(6.0, calc_wdo_target_pts(lvl_s, 1, 1, 24.0, m_levels_walls, m_levels_all)))
                             arm_pending_order(1, 1, lvl_s, new_bar_time, new_bar_open, tp_calc, 13.5, 7.5, 1.5, 14.0, 5.5, 16, lvl_s, 1, 1.0, 1, today_str)
 
                 elif slot_id == 2:
-                    sig2 = 0
-                    wall2, sl2, be2, trt2, trd2, mh2 = 0.0, 13.5, 7.5, 14.5, 5.5, 16
-                    if last_entry_bar_time != b1_time and window_ok(b1_tmin, "CORE_09_1615"):
-                        for lvl in m_levels_all:
-                            if b1_o <= lvl + 0.5 and b1_c > lvl + 0.5 and (b1_c - lvl) <= 4.5 and body1 >= 2.0 and m_n50_s_1 >= 0.15 and b1_c < (m_n50_u_1 - bw50 * 0.10) and (m_gamma_flip <= 0.0 or b1_c > m_gamma_flip - 2.0):
-                                sig2, wall2, sl2, be2, trt2, trd2, mh2 = -1, float(lvl), 11.0, 6.5, 11.0, 4.5, 15
-                                break
-                            if b1_o >= lvl - 0.5 and b1_c < lvl - 0.5 and (lvl - b1_c) <= 4.5 and (-body1) >= 2.0 and m_n50_s_1 <= -0.15 and b1_c > (m_n50_l_1 + bw50 * 0.10) and (m_gamma_flip <= 0.0 or b1_c < m_gamma_flip + 2.0):
-                                sig2, wall2, sl2, be2, trt2, trd2, mh2 = 1, float(lvl), 11.0, 6.5, 11.0, 4.5, 15
-                                break
-                    if sig2 == 0 and window_ok(new_tmin, "CORE_09_1615"):
-                        if pos50 >= 0.64 and d_h <= 3.5 and b1_c < (lvl_r - 0.5) and (m_gamma_flip <= 0.0 or b1_c > m_gamma_flip):
-                            sig2, wall2 = -1, lvl_r
-                        elif pos50 <= 0.36 and d_l <= 3.5 and b1_c > (lvl_s + 0.5) and (m_gamma_flip <= 0.0 or b1_c < m_gamma_flip):
-                            sig2, wall2 = 1, lvl_s
-                    if sig2 != 0:
-                        p2_lim = round05(b1_l + 0.5) if sig2 == 1 else round05(b1_h - 0.5)
-                        tp_calc = calc_wdo_target_pts(p2_lim, sig2, 1, 25.0, m_levels_walls, m_levels_all)
-                        arm_pending_order(sig2, 1, p2_lim, new_bar_time, new_bar_open, tp_calc, sl2, be2, 1.5, trt2, trd2, mh2, wall2, 2, 1.0, 1, today_str)
+                    if bw50 >= 7.15:
+                        sig2 = 0
+                        wall2, sl2, be2, trt2, trd2, mh2 = 0.0, 13.5, 7.5, 14.5, 5.5, 16
+                        if last_entry_bar_time != b1_time and window_ok(b1_tmin, "CORE_09_1615"):
+                            for lvl in m_levels_all:
+                                if b1_o <= lvl + 0.5 and b1_c > lvl + 0.5 and (b1_c - lvl) <= 4.5 and body1 >= 2.0 and m_n50_s_1 >= 0.15 and b1_c < (m_n50_u_1 - bw50 * 0.10) and (m_gamma_flip <= 0.0 or b1_c > m_gamma_flip - 2.0):
+                                    sig2, wall2, sl2, be2, trt2, trd2, mh2 = -1, float(lvl), 11.0, 6.5, 11.0, 4.5, 15
+                                    break
+                                if b1_o >= lvl - 0.5 and b1_c < lvl - 0.5 and (lvl - b1_c) <= 4.5 and (-body1) >= 2.0 and m_n50_s_1 <= -0.15 and b1_c > (m_n50_l_1 + bw50 * 0.10) and (m_gamma_flip <= 0.0 or b1_c < m_gamma_flip + 2.0):
+                                    sig2, wall2, sl2, be2, trt2, trd2, mh2 = 1, float(lvl), 11.0, 6.5, 11.0, 4.5, 15
+                                    break
+                        if sig2 == 0 and window_ok(new_tmin, "CORE_09_1615"):
+                            if pos50 >= 0.64 and d_h <= 3.5 and b1_c < (lvl_r - 0.5) and (m_gamma_flip <= 0.0 or b1_c > m_gamma_flip):
+                                sig2, wall2 = -1, lvl_r
+                            elif pos50 <= 0.36 and d_l <= 3.5 and b1_c > (lvl_s + 0.5) and (m_gamma_flip <= 0.0 or b1_c < m_gamma_flip):
+                                sig2, wall2 = 1, lvl_s
+                        if sig2 != 0:
+                            p2_lim = round05(b1_l + 0.5) if sig2 == 1 else round05(b1_h - 0.5)
+                            tp_calc = calc_wdo_target_pts(p2_lim, sig2, 1, 25.0, m_levels_walls, m_levels_all)
+                            arm_pending_order(sig2, 1, p2_lim, new_bar_time, new_bar_open, tp_calc, sl2, be2, 1.5, trt2, trd2, mh2, wall2, 1, 1.0, 1, today_str)
 
                 elif slot_id == 3:
                     if window_ok(b1_tmin, "CORE_09_1615") and len(m_levels_walls) > 0:
@@ -749,7 +765,7 @@ def simulate_wdo_core_slot(
                             sig5, wall5 = 1, lvl_s
                     if sig5 != 0:
                         p5_lim = round05(b1_l + 0.5) if sig5 == 1 else round05(b1_h - 0.5)
-                        tp_calc = calc_wdo_target_pts(p5_lim, sig5, 1, 24.0, m_levels_walls, m_levels_all)
+                        tp_calc = min(9.5, max(7.0, calc_wdo_target_pts(p5_lim, sig5, 1, 24.0, m_levels_walls, m_levels_all)))
                         arm_pending_order(sig5, 1, p5_lim, new_bar_time, new_bar_open, tp_calc, sl5, be5, 1.5, trt5, trd5, 16, wall5, 0, 0.0, 1, today_str)
 
                 elif slot_id == 6:
@@ -791,7 +807,7 @@ def simulate_wdo_core_slot(
                             arm_pending_order(sig8, 1, mid_b1, new_bar_time, new_bar_open, tp_calc, 11.5, 6.5, 1.5, 13.5, 5.0, 16, wall8, 2, 1.5, 2, today_str)
 
                 elif slot_id == 9:
-                    if trades_today < 2 and window_ok(b1_tmin, "NO_LUNCH"):
+                    if trades_today < 2 and window_ok(b1_tmin, "NO_LUNCH") and bw50 >= 7.15:
                         sig9, wall9 = 0, 0.0
                         if d_l <= 5.0 and pos30 <= 0.32 and pos50 <= 0.35 and (m_gamma_flip <= 0.0 or b1_c < m_gamma_flip + 5.0):
                             sig9, wall9 = 1, lvl_s
@@ -799,11 +815,12 @@ def simulate_wdo_core_slot(
                             sig9, wall9 = -1, lvl_r
                         if sig9 != 0:
                             p9_lim = round05(wall9 + 0.5) if sig9 == 1 else round05(wall9 - 0.5)
+                            sl9 = max(7.0, min(15.0, round05(abs(p9_lim - wall9) + 2.0)))
                             tp_calc = calc_wdo_target_pts(p9_lim, sig9, 1, 22.0, m_levels_walls, m_levels_all)
-                            arm_pending_order(sig9, 1, p9_lim, new_bar_time, new_bar_open, tp_calc, 11.5, 6.5, 1.5, 13.5, 5.0, 16, wall9, 2, 1.5, 2, today_str)
+                            arm_pending_order(sig9, 1, p9_lim, new_bar_time, new_bar_open, tp_calc, sl9, 6.5, 1.5, 13.5, 5.0, 16, wall9, 2, 1.5, 2, today_str)
 
                 elif slot_id == 10:
-                    if trades_today < 3 and 720 <= b1_tmin <= 870:
+                    if trades_today < 3 and 720 <= b1_tmin <= 870 and bw50 >= 7.15:
                         if last_entry_bar_time == 0 or (b1_time - last_entry_bar_time) >= 900:
                             mae30_10 = max(1.2, (m_n30_u_1 - m_n30_c_1) / 1.6)
                             pos_nwe30_10 = (b1_c - m_n30_c_1) / mae30_10
@@ -811,10 +828,12 @@ def simulate_wdo_core_slot(
                             lw10 = min(b1_o, b1_c) - b1_l
                             uw10 = b1_h - max(b1_o, b1_c)
                             if pos_nwe30_10 <= -0.75 and b1_c >= (b1_l + 0.50 * rng10) and (lw10 >= 0.25 * rng10 or b1_c > b1_o):
-                                open_virtual_single(1, new_bar_open, new_bar_time, 16.0, 10.0, 5.5, 1.0, 0.0, 0.0, 24, False, 0.0, 1.0, b1_l, 1, 1.5)
+                                tp_calc = calc_wdo_target_pts(new_bar_open, 1, 1, 16.0, m_levels_walls, m_levels_all)
+                                open_virtual_single(1, new_bar_open, new_bar_time, tp_calc, 10.0, 5.5, 1.0, 0.0, 0.0, 24, False, 0.0, 1.0, b1_l, 1, 1.5)
                                 last_entry_bar_time = b1_time
                             elif pos_nwe30_10 >= 0.75 and b1_c <= (b1_h - 0.50 * rng10) and (uw10 >= 0.25 * rng10 or b1_c < b1_o):
-                                open_virtual_single(-1, new_bar_open, new_bar_time, 16.0, 10.0, 5.5, 1.0, 0.0, 0.0, 24, False, 0.0, 1.0, b1_h, 1, 1.5)
+                                tp_calc = calc_wdo_target_pts(new_bar_open, -1, 1, 16.0, m_levels_walls, m_levels_all)
+                                open_virtual_single(-1, new_bar_open, new_bar_time, tp_calc, 10.0, 5.5, 1.0, 0.0, 0.0, 24, False, 0.0, 1.0, b1_h, 1, 1.5)
                                 last_entry_bar_time = b1_time
 
                 elif slot_id == 11:
@@ -904,6 +923,7 @@ def simulate_wdo_core_slot(
         # =====================================================================
         # OnTickProcess durante a barra M5 `idx` (OHLC da barra `idx`)
         # =====================================================================
+        _gate[0] = False
         # 1. Ordem pendente ativa na corretora para esta barra
         if d_pos == 0 and pend_dir != 0 and broker_order_active and pend_bar_time == new_bar_time:
             triggered = False

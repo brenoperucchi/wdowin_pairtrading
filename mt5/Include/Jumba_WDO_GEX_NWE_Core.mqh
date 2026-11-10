@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                                     Jumba_WDO_GEX_NWE_Core.mqh   |
 //|        Jumba Quantitative Trading - Suite 16 Robôs WDO$N (B3)    |
 //|   Motor Core M5/M1: GEX MagicWalls + NWE + GammaFlip + WIN Arb   |
@@ -130,6 +130,16 @@ private:
    double            m_rsi7_1,  m_rsi7_2;
    double            m_win_ret3_1, m_win_z_1;
 
+   // Filtro de Fluxo Institucional Nativo (CopyTicksRange - 100% Independente de Python)
+   bool              m_use_flow_filter;
+   bool              m_flow_gate_active;
+   MqlRates          m_flow_gate_b1;
+   datetime          m_flow_cache_bar_time;
+   bool              m_flow_cache_has_ticks;
+   double            m_flow_cache_inst_5m;
+   double            m_flow_cache_inst_15m;
+   double            m_flow_cache_delta_5m;
+
 public:
                      CJumbaWdoGexNweEngine()
      {
@@ -152,6 +162,109 @@ public:
       m_gamma_flip = 0.0;
       m_max_gamma = 0.0;
       m_min_gamma = 0.0;
+      m_use_flow_filter = false;
+      m_flow_gate_active = false;
+      m_flow_cache_bar_time = 0;
+      m_flow_cache_has_ticks = false;
+      m_flow_cache_inst_5m = 0.0;
+      m_flow_cache_inst_15m = 0.0;
+      m_flow_cache_delta_5m = 0.0;
+     }
+
+   void              SetUseFlowFilter(bool use_flow)
+     {
+      m_use_flow_filter = use_flow;
+      if(!MQLInfoInteger(MQL_TESTER))
+         RenderHudComment();
+     }
+
+   bool              PassNativeFlowFilter(int k, int sig_dir, const MqlRates &b1)
+     {
+      if(!m_use_flow_filter)
+         return true;
+      // WDO-05 e WDO-02 operam com 0_BASE_MT5 (Puro Walls + NWE) mesmo no modo com filtro
+      if(k == 5 || k == 2)
+         return true;
+
+      if(m_flow_cache_bar_time != b1.time)
+        {
+         m_flow_cache_bar_time  = b1.time;
+         m_flow_cache_has_ticks = false;
+         m_flow_cache_inst_5m   = 0.0;
+         m_flow_cache_inst_15m  = 0.0;
+         m_flow_cache_delta_5m  = 0.0;
+
+         ulong t0_15m_ms = (ulong)(b1.time - 600) * 1000ULL;
+         ulong t0_5m_ms  = (ulong)(b1.time) * 1000ULL;
+         ulong t1_ms     = (ulong)(b1.time + 300) * 1000ULL - 1ULL;
+
+         MqlTick ticks[];
+         int n_ticks = CopyTicksRange(_Symbol, ticks, COPY_TICKS_ALL, t0_15m_ms, t1_ms);
+         if(n_ticks > 0)
+           {
+            int n_buy_f = 0, n_sell_f = 0;
+            for(int i=0; i<n_ticks; i++)
+              {
+               if((ticks[i].flags & TICK_FLAG_BUY) != 0)  n_buy_f++;
+               if((ticks[i].flags & TICK_FLAG_SELL) != 0) n_sell_f++;
+              }
+            bool has_dual_flags = (n_buy_f > (int)(0.05 * n_ticks)) && (n_sell_f > (int)(0.05 * n_ticks));
+            int valid_cnt = 0;
+            double last_px = 0.0;
+            int last_side = 1;
+            for(int i=0; i<n_ticks; i++)
+              {
+               if(ticks[i].volume == 0 || ticks[i].last <= 0.0)
+                  continue;
+               int side = 0;
+               if(has_dual_flags)
+                 {
+                  bool is_b = ((ticks[i].flags & TICK_FLAG_BUY) != 0);
+                  bool is_s = ((ticks[i].flags & TICK_FLAG_SELL) != 0);
+                  if(is_b == is_s)
+                     continue;
+                  side = is_b ? 1 : -1;
+                 }
+               else
+                 {
+                  if(last_px > 0.0)
+                    {
+                     if(ticks[i].last > last_px)      last_side = 1;
+                     else if(ticks[i].last < last_px) last_side = -1;
+                    }
+                  last_px = ticks[i].last;
+                  side = last_side;
+                 }
+               valid_cnt++;
+               double vol = (double)ticks[i].volume;
+               double signed_vol = (side == 1) ? vol : -vol;
+               bool is_inst = (vol >= 20.0); // Lote Institucional WDO >= 20 contratos
+               if(is_inst)
+                  m_flow_cache_inst_15m += signed_vol;
+               if((ulong)ticks[i].time_msc >= t0_5m_ms)
+                 {
+                  m_flow_cache_delta_5m += signed_vol;
+                  if(is_inst)
+                     m_flow_cache_inst_5m += signed_vol;
+                 }
+              }
+            if(valid_cnt > 0)
+               m_flow_cache_has_ticks = true;
+           }
+        }
+
+      if(!m_flow_cache_has_ticks)
+         return true; // Fallback seguro caso a corretora não tenha ticks da barra
+
+      // 3_FLUXO_INST (Padrão Campeão WDO: WDO-01, WDO-07)
+      bool b3 = (m_flow_cache_inst_5m >= 0.0) || (m_flow_cache_inst_15m >= 0.0);
+      bool s3 = (m_flow_cache_inst_5m <= 0.0) || (m_flow_cache_inst_15m <= 0.0);
+      bool ok = (sig_dir == 1) ? b3 : s3;
+
+      if(!ok && !MQLInfoInteger(MQL_OPTIMIZATION))
+         PrintFormat("[JUMBA %s] Sinal Dir=%d BLOQUEADO pelo Filtro de Fluxo Institucional Nativo (Inst5m=%.0f | Inst15m=%.0f)",
+                     m_slots[k].name, sig_dir, m_flow_cache_inst_5m, m_flow_cache_inst_15m);
+      return ok;
      }
 
    void              Init(long base_magic, double lot_mult, double max_daily_loss_brl,
@@ -181,11 +294,11 @@ public:
       string names[17] =
         {
          "",
-         "WDO-01 [DESATIVADO WF] Clone WDO-07",
+         "WDO-01 [3Pil Scalper NY] Wall",
          "WDO-02 [3Pil LimB1+2St+MidW] CORE",
          "WDO-03 [DESATIVADO <100tr] Arb WIN+WDO",
          "WDO-04 [DESATIVADO <100tr] MainW GammaFlip",
-         "WDO-05 [DESATIVADO WF] Clone WDO-02",
+         "WDO-05 [3Pil Cluster NWE] MidWall",
          "WDO-06 [WF BrenoWick+MainW+Lim50%B1] Abs",
          "WDO-07 [3Pil BE_Wall+MidW] Absorcao NY",
          "WDO-08 [DESATIVADO <100tr] Abs MainW CORE",
@@ -201,8 +314,8 @@ public:
 
       bool en[17];
       en[0]=false;
-      en[1]=false; en[2]=e2;    en[3]=false; en[4]=false;
-      en[5]=false; en[6]=e6;    en[7]=e7;    en[8]=false;
+      en[1]=e1;    en[2]=e2;    en[3]=false; en[4]=false;
+      en[5]=e5;    en[6]=e6;    en[7]=e7;    en[8]=false;
       en[9]=e9;    en[10]=e10;   en[11]=e11;   en[12]=false;
       en[13]=false; en[14]=false; en[15]=e15;  en[16]=false;
 
@@ -682,8 +795,12 @@ public:
 
    bool              LoadDailyGexWalls(string target_date)
      {
-      if(target_date == m_loaded_date)
+      static long s_last_wdo_daily_mtime = 0;
+      long cur_wdo_mtime = MQLInfoInteger(MQL_TESTER) ? 0 : FileGetInteger("jumba_gex_wdo_daily.csv", FILE_MODIFY_DATE, true);
+      bool is_same_day_reload = (target_date == m_loaded_date);
+      if(target_date == m_loaded_date && (MQLInfoInteger(MQL_TESTER) || cur_wdo_mtime == s_last_wdo_daily_mtime))
          return (ArraySize(m_levels_all) > 0);
+      s_last_wdo_daily_mtime = cur_wdo_mtime;
 
       ArrayResize(m_gex_raw, 0);
       ArrayResize(m_levels_all, 0);
@@ -831,10 +948,13 @@ public:
             m_loaded_date = actual_loaded_date;
         }
 
-      for(int k=1; k<=16; k++)
+      if(!is_same_day_reload)
         {
-         m_slots[k].closed_pnl_today_brl = 0.0;
-         m_slots[k].trades_today = 0;
+         for(int k=1; k<=16; k++)
+           {
+            m_slots[k].closed_pnl_today_brl = 0.0;
+            m_slots[k].trades_today = 0;
+           }
         }
 
       if(m_draw_levels && !MQLInfoInteger(MQL_OPTIMIZATION))
@@ -893,7 +1013,7 @@ public:
    void              DrawLevelsOnChart()
      {
       ObjectsDeleteAll(0, "JUMBA_WDO_GEX_");
-      if(!MQLInfoInteger(MQL_TESTER) && ObjectFind(0, "JUMBA_IND_GEX_HLINE_0") >= 0)
+      if(!MQLInfoInteger(MQL_TESTER) && (ObjectFind(0, "JUMBA_IND_GEX_HLINE_0") >= 0 || ObjectFind(0, "JUMBA_IND_GEX_HLINE_Wall_0") >= 0 || ObjectFind(0, "JUMBA_IND_GEX_HLINE_MidWall_0") >= 0))
          return;
       for(int i=0; i<ArraySize(m_gex_raw); i++)
         {
@@ -938,11 +1058,12 @@ public:
      {
       if(!m_show_hud)
          return;
-      string hud = "==========================================================\n";
+      string hud = "\n==========================================================\n";
       hud += StringFormat(" JUMBA QUANT WDO GEX + NWE [MIX CAMPEAO] | Data: %s | Fonte: %s\n", m_loaded_date, m_gex_source);
       hud += StringFormat(" Levels: %d (Walls: %d) | GammaFlip: %.1f | NWE50 Slope: %.2f | RSI7: %.1f\n",
                           ArraySize(m_levels_all), ArraySize(m_levels_walls), m_gamma_flip, m_n50_s_1, m_rsi7_1);
-      hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx\n", GetTotalDailyPnLBRL(), m_lot_mult);
+      hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx | Filtro Fluxo: %s\n",
+                          GetTotalDailyPnLBRL(), m_lot_mult, (m_use_flow_filter ? "ATIVO (CopyTicks)" : "OFF (Puro OHLC)"));
       hud += "----------------------------------------------------------\n";
       for(int k=1; k<=16; k++)
         {
@@ -1239,6 +1360,8 @@ public:
                                        double pyr_trig=0.0, double pyr_lock=1.0,
                                        double def_wall=0.0, int be_mode=0, double wall_buf=0.0)
      {
+      if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
       double p05 = Round05(entry_p);
       m_slots[k].dir = dir;
       m_slots[k].lots = 1;
@@ -1289,6 +1412,8 @@ public:
                                      double step2, double step3, int l1, int l2, int l3,
                                      double tp_avg, double max_sl, double be_trig, double be_lock=1.5, int max_hold=26)
      {
+      if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
       double p05 = Round05(entry_p);
       m_slots[k].dir = dir;
       m_slots[k].lots = l1;
@@ -1922,6 +2047,23 @@ public:
                  }
               }
 
+            if(!MQLInfoInteger(MQL_TESTER) && !m_slots[k].be_active && m_slots[k].be_trig > 0.0)
+              {
+               double fav_intrabar = (d == 1) ? (last_px - m_slots[k].avg_price) : (m_slots[k].avg_price - last_px);
+               if(fav_intrabar > m_slots[k].max_fav_pts)
+                  m_slots[k].max_fav_pts = fav_intrabar;
+               if(m_slots[k].max_fav_pts >= m_slots[k].be_trig)
+                 {
+                  double cand_sl_be = CalcWdoStage1StopPrice(k);
+                  if((d == 1 && last_px > cand_sl_be + 0.5) || (d == -1 && last_px < cand_sl_be - 0.5))
+                    {
+                     m_slots[k].curr_sl = (d == 1) ? MathMax(m_slots[k].curr_sl, cand_sl_be) : MathMin(m_slots[k].curr_sl, cand_sl_be);
+                     m_slots[k].be_active = true;
+                     SaveVirtualStateToDisk();
+                    }
+                 }
+              }
+
             if(m_exec_mode == WDO_EXEC_NETTING_VIRTUAL_SYNC)
               {
                if(d == 1)
@@ -1939,6 +2081,17 @@ public:
         }
 
       SyncRealPositionsWithVirtualSlots();
+
+      if(!MQLInfoInteger(MQL_TESTER))
+        {
+         static datetime s_last_m1_hud = 0;
+         datetime m1_now = iTime(_Symbol, PERIOD_M1, 0);
+         if(m1_now > 0 && m1_now != s_last_m1_hud)
+           {
+            s_last_m1_hud = m1_now;
+            RenderHudComment();
+           }
+        }
      }
 
    //+------------------------------------------------------------------+
@@ -2119,10 +2272,13 @@ public:
       double mid_b1 = Round05(0.5 * (b1.high + b1.low));
       double tp_calc = 0.0;
 
+      m_flow_gate_b1     = b1;
+      m_flow_gate_active = true;
+
       // =====================================================================
-      // WDO-01: 3-Pilares (Scalper Híbrido NY + BE_Wall(1.0) + TP_MidWall) | Ret/DD = 4.25
+      // WDO-01: 3-Pilares (Scalper Híbrido NY + BE_Wall(1.0) + TP_MidWall) | Ret/DD = 4.48
       // =====================================================================
-      if(false && m_slots[1].enabled && m_slots[1].dir == 0 && m_slots[1].pend_dir == 0)
+      if(m_slots[1].enabled && m_slots[1].dir == 0 && m_slots[1].pend_dir == 0)
         {
          bool ent1 = false;
          if(m_slots[1].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "NY_1000_1630"))
@@ -2132,7 +2288,7 @@ public:
                double lvl = m_levels_all[i];
                if(b1.open <= lvl + 0.5 && b1.close > lvl + 0.5 && (b1.close - lvl) <= 4.5 && body1 >= 2.0 && m_n50_s_1 >= 0.15 && b1.close < (m_n50_u_1 - bw50 * 0.10))
                  {
-                  tp_calc = CalcWdoTargetPts(new_bar_open, -1, 1, 18.0);
+                  tp_calc = MathMin(8.0, MathMax(6.0, CalcWdoTargetPts(new_bar_open, -1, 1, 18.0)));
                   OpenVirtualSingle(1, -1, new_bar_open, new_bar_time, tp_calc, 11.0, 6.5, 1.5, 11.0, 4.5, 15, false, 0.0, 1.0, lvl, 1, 1.0);
                   m_slots[1].last_entry_bar_time = b1.time;
                   ent1 = true;
@@ -2140,7 +2296,7 @@ public:
                  }
                if(b1.open >= lvl - 0.5 && b1.close < lvl - 0.5 && (lvl - b1.close) <= 4.5 && (-body1) >= 2.0 && m_n50_s_1 <= -0.15 && b1.close > (m_n50_l_1 + bw50 * 0.10))
                  {
-                  tp_calc = CalcWdoTargetPts(new_bar_open, 1, 1, 18.0);
+                  tp_calc = MathMin(8.0, MathMax(6.0, CalcWdoTargetPts(new_bar_open, 1, 1, 18.0)));
                   OpenVirtualSingle(1, 1, new_bar_open, new_bar_time, tp_calc, 11.0, 6.5, 1.5, 11.0, 4.5, 15, false, 0.0, 1.0, lvl, 1, 1.0);
                   m_slots[1].last_entry_bar_time = b1.time;
                   ent1 = true;
@@ -2152,12 +2308,12 @@ public:
            {
             if(pos50 >= 0.65 && d_h <= 3.5 && b1.close < lvl_r && (m_gamma_flip <= 0.0 || b1.close > m_gamma_flip))
               {
-               tp_calc = CalcWdoTargetPts(lvl_r, -1, 1, 24.0);
+               tp_calc = MathMin(8.0, MathMax(6.0, CalcWdoTargetPts(lvl_r, -1, 1, 24.0)));
                ArmPendingOrder(1, -1, 1, lvl_r, new_bar_time, new_bar_open, tp_calc, 13.5, 7.5, 1.5, 14.0, 5.5, 16, lvl_r, 1, 1.0, 1);
               }
             else if(pos50 <= 0.35 && d_l <= 3.5 && b1.close > lvl_s && (m_gamma_flip <= 0.0 || b1.close < m_gamma_flip))
               {
-               tp_calc = CalcWdoTargetPts(lvl_s, 1, 1, 24.0);
+               tp_calc = MathMin(8.0, MathMax(6.0, CalcWdoTargetPts(lvl_s, 1, 1, 24.0)));
                ArmPendingOrder(1, 1, 1, lvl_s, new_bar_time, new_bar_open, tp_calc, 13.5, 7.5, 1.5, 14.0, 5.5, 16, lvl_s, 1, 1.0, 1);
               }
            }
@@ -2233,9 +2389,9 @@ public:
         }
 
       // =====================================================================
-      // WDO-05: 3-Pilares (Cluster NWE30+NWE50+Wall + Limit_ExtB1 + TP_MidWall) | Ret/DD = 3.78
+      // WDO-05: 3-Pilares (Cluster NWE30+NWE50+Wall + Limit_ExtB1 + TP_MidWall) | Ret/DD = 6.27
       // =====================================================================
-      if(false && m_slots[5].enabled && m_slots[5].dir == 0 && m_slots[5].pend_dir == 0)
+      if(m_slots[5].enabled && m_slots[5].dir == 0 && m_slots[5].pend_dir == 0)
         {
          int sig5 = 0;
          double wall5 = 0.0, sl5 = 13.5, be5 = 7.5, trt5 = 14.0, trd5 = 5.5;
@@ -2260,7 +2416,7 @@ public:
          if(sig5 != 0)
            {
             double p5_lim = (sig5 == 1) ? Round05(b1.low + 0.5) : Round05(b1.high - 0.5);
-            tp_calc = CalcWdoTargetPts(p5_lim, sig5, 1, 24.0);
+            tp_calc = MathMin(9.5, MathMax(7.0, CalcWdoTargetPts(p5_lim, sig5, 1, 24.0)));
             ArmPendingOrder(5, sig5, 1, p5_lim, new_bar_time, new_bar_open, tp_calc, sl5, be5, 1.5, trt5, trd5, 16, wall5, 0, 0.0, 1);
            }
         }
@@ -2522,6 +2678,8 @@ public:
            }
         }
 
+      m_flow_gate_active = false;
+
       if(!MQLInfoInteger(MQL_OPTIMIZATION))
         {
          SaveVirtualStateToDisk();
@@ -2534,6 +2692,8 @@ public:
                                      double tr_trig, double tr_dist, int max_hold=16,
                                      double def_wall=0.0, int be_mode=0, double wall_buf=0.0, int valid_bars=1)
      {
+      if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
       double p05 = Round05(price);
 
       if(ptype == 1 && dir == 1 && new_bar_open < p05)

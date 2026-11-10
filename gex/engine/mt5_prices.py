@@ -520,26 +520,30 @@ def get_mt5_prices(max_retries=6, retry_delay=5):
     return f_win, s_ibov, win_bar_time
 
 
-def init_mt5_robust(path=None, max_attempts=3):
+def init_mt5_robust(path=None, max_attempts=2):
     """
     Inicializa conexão com o MetaTrader 5 aplicando retries e priorizando o terminal com dados B3 (XP).
     """
     candidate_paths = [
-        "C:/Program Files/MetaTrader 5 Terminal/terminal64.exe",
-        "C:/Program Files/MetaTrader 5/terminal64.exe"
+        "C:/Program Files/MetaTrader 5/terminal64.exe",
+        "C:/Program Files/MetaTrader 5 Terminal/terminal64.exe"
     ]
-    if path and path not in candidate_paths:
+    if path:
+        if path in candidate_paths:
+            candidate_paths.remove(path)
         candidate_paths.insert(0, path)
         
     for p in candidate_paths:
         if not os.path.exists(p):
             continue
-        for attempt in range(1, max_attempts + 1):
-            if mt5.initialize(p):
+        try:
+            if mt5.initialize(p, timeout=3000):
                 info = mt5.terminal_info()
                 if info and info.connected:
                     return True
-            time.sleep(0.3)
+                mt5.shutdown()
+        except Exception:
+            pass
             
     for attempt in range(1, max_attempts + 1):
         if mt5.initialize():

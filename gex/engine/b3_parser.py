@@ -5,9 +5,22 @@ import re
 import pandas as pd
 
 
+def _extract_file_date_key(filepath):
+    """
+    Extrai a data (YYYY, MM, DD) do nome do arquivo 'Posições em aberto-DD-MM-YYYY.csv'
+    para garantir ordenação cronológica real da sessão B3 (e não apenas mtime de disco).
+    """
+    base = os.path.basename(filepath)
+    m = re.search(r"(\d{2})-(\d{2})-(\d{4})", base)
+    if m:
+        d, mo, y = m.groups()
+        return (int(y), int(mo), int(d), os.path.getmtime(filepath))
+    return (0, 0, 0, os.path.getmtime(filepath))
+
+
 def _get_oi_candidates():
     """
-    Retorna a lista de arquivos de Posicoes em Aberto ordenados por data de modificacao (mais recente primeiro).
+    Retorna a lista de arquivos de Posicoes em Aberto ordenados pela data do arquivo (mais recente primeiro).
     """
     gex_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_dir = os.path.join(gex_dir, 'data')
@@ -25,7 +38,7 @@ def _get_oi_candidates():
             
     # Elimina duplicatas de caminhos
     candidates = list(set(candidates))
-    candidates.sort(key=os.path.getmtime, reverse=True)
+    candidates.sort(key=_extract_file_date_key, reverse=True)
     return candidates
 
 
@@ -80,6 +93,15 @@ def _parse_single_csv(file_path):
         'U': (9, 'PUT'), 'V': (10, 'PUT'), 'W': (11, 'PUT'), 'X': (12, 'PUT')
     }
     
+    # Extrai o ano e mes de referencia do proprio arquivo se disponivel no nome
+    ref_year = datetime.datetime.now().year
+    ref_month = datetime.datetime.now().month
+    match_file_date = re.search(r"(\d{2})-(\d{2})-(\d{4})", os.path.basename(file_path))
+    if match_file_date:
+        _, m_str, y_str = match_file_date.groups()
+        ref_year = int(y_str)
+        ref_month = int(m_str)
+
     for _, row in pos.iterrows():
         ticker = str(row.iloc[0]).strip()
         segment = str(row.iloc[4]).strip()
@@ -101,8 +123,8 @@ def _parse_single_csv(file_path):
             strike = int(strike_code) * 10000
             
         month_num, opt_type = month_codes[month_code]
-        year = datetime.datetime.now().year
-        if month_num < datetime.datetime.now().month:
+        year = ref_year
+        if month_num < ref_month:
             year += 1
             
         expiry_date = _get_ibov_expiration(year, month_num)

@@ -562,8 +562,9 @@ class OptionsLiveRadarEngine:
         return series[-60:]
 
     def update(self, win_price: float = 0.0) -> dict:
-        if mt5.terminal_info() is None:
-            mt5.initialize(MT5_PATH, timeout=5000)
+        from core.mt5_client import connect_mt5
+        if not connect_mt5():
+            pass
 
         today_iso = datetime.now().strftime("%Y-%m-%d")
         if self.session_date != today_iso:

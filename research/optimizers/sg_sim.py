@@ -72,11 +72,12 @@ def open_pos(s, k, lv_all, t, fill):
     d = s["pend"]
     p5 = s["pend_px"]
     s2 = next_wall_behind(p5, d, lv_all)
+    be_trig_val = float(s.get("pend_be_trig", 130.0))
     s.update(
         dir=d, p1=p5, avg=p5, lots=1, leg=1,
         sl=r5(p5 - d * (s2 + 175.0)), tp=r5(p5 + d * s["pend_tp"]),
         mfe=0.0, be_active=False, intrabar=True, bars=0,
-        be_trig=130.0, be_lock=20.0, be_mode=1, buf=20.0,
+        be_trig=be_trig_val, be_lock=20.0, be_mode=1, buf=20.0,
         max_hold=18, step2=s2, pend=0,
         fills=[(fill, 1)], t_in=t, t_leg2=None,
     )
@@ -85,16 +86,19 @@ def open_pos(s, k, lv_all, t, fill):
 def close_pos(s, k, px, t, why, trades, cost_pts: float = 0.0):
     d = s["dir"]
     brl = sum(((px - f) * d - cost_pts) * q for f, q in s["fills"]) * 0.20
+    brl_nocost = sum(((px - f) * d) * q for f, q in s["fills"]) * 0.20
+    pts = sum(((px - f) * d - cost_pts) * q for f, q in s["fills"])
     trades.append(dict(
         k=k, side=d, t_in=s["t_in"], t_out=t,
-        px_in=s["fills"][0][0], px_out=px,
-        lots=s["lots"], why=why, brl=brl, leg2=s["t_leg2"],
+        px_in=s["fills"][0][0], avg_px=s["avg"], px_out=px,
+        sl=s["sl"], tp=s["tp"],
+        lots=s["lots"], why=why, pts=pts, brl=brl, brl_nocost=brl_nocost, leg2=s["t_leg2"],
     ))
     s["dir"] = 0
     s["trades_today"] += 1
 
 
-def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0):
+def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_filter=None):
     m5, m1, wdo, gex = load_m5_m1_wdo_gex()
     C = m5["close"].values
     n50 = disc.compute_nwe_series(C, lookback=50, bw=5.0, mult=2.0)
@@ -174,13 +178,14 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0):
             gf_b = gf <= 0 or c1 < gf + 400.0
             gf_s = gf <= 0 or c1 > gf - 400.0
             wz1 = wz[b1]
+            s50 = n50[4][b1]
             for k in slots:
                 s = S[k]
                 if s["dir"] != 0 or s["pend"] != 0:
                     continue
                 sig = 0
                 wall = 0.0
-                if k == 13 and s["trades_today"] < 5 and 545 <= b1_tmin <= 975:
+                if k == 13 and s["trades_today"] < 5 and 545 <= b1_tmin <= 975 and bw50 >= 475.8:
                     if d_l <= 80 and pos50 <= 0.45 and wz1 <= 0.35 and c1 > lvl_s and c1 > o1:
                         sig, wall = 1, lvl_s
                     elif d_h <= 80 and pos50 >= 0.55 and wz1 >= -0.35 and c1 < lvl_r and c1 < o1:
@@ -191,26 +196,41 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0):
                     elif d_h <= 75 and uw >= 25 and pos50 >= 0.52 and c1 <= o1 and c1 < lvl_r + 15:
                         sig, wall = -1, lvl_r
                 elif k == 15 and s["trades_today"] < 3 and 555 <= b1_tmin <= 975:
-                    if d_l <= 110 and (z30c <= -0.60 or z30l <= -0.80) and rev_b and c1 > lvl_s - 20 and gf_b:
+                    if d_l <= 110 and (z30c <= -0.60 or z30l <= -0.80) and rev_b and c1 > lvl_s - 20 and gf_b and pos50 <= 0.70:
                         sig, wall = 1, lvl_s
-                    elif d_h <= 110 and (z30c >= 0.60 or z30h >= 0.80) and rev_s and c1 < lvl_r + 20 and gf_s:
+                    elif d_h <= 110 and (z30c >= 0.60 or z30h >= 0.80) and rev_s and c1 < lvl_r + 20 and gf_s and pos50 >= 0.30:
                         sig, wall = -1, lvl_r
                 elif k == 16 and s["trades_today"] < 3 and 555 <= b1_tmin <= 975:
-                    if l1 <= lvl_s + 20 and c1 >= lvl_s and d_l <= 105 and (z30l <= -0.45 or pos30 <= 0.30) and c1 > o1 and gf_b:
+                    if l1 <= lvl_s + 20 and c1 >= lvl_s and d_l <= 105 and (z30l <= -0.45 or pos30 <= 0.30) and c1 > o1 and gf_b and s50 > 0.0:
                         sig, wall = 1, lvl_s
-                    elif h1 >= lvl_r - 20 and c1 <= lvl_r and d_h <= 105 and (z30h >= 0.45 or pos30 >= 0.70) and c1 < o1 and gf_s:
+                    elif h1 >= lvl_r - 20 and c1 <= lvl_r and d_h <= 105 and (z30h >= 0.45 or pos30 >= 0.70) and c1 < o1 and gf_s and s50 < 0.0:
                         sig, wall = -1, lvl_r
                 if sig == 0:
                     continue
-                s2 = next_wall_behind(mid_b1, sig, lv_all)
-                tp_mid, raw_mid = structural_mid(mid_b1, sig, lv_all)
-                tp_pts = min(220.0, max(140.0, abs(tp_mid - mid_b1)))
-                p5 = r5(mid_b1)
+                if sig_filter is not None and not sig_filter(day, b1_tmin, sig):
+                    continue  # filtro de fluxo/janela do dashboard na barra de sinal b1
+                # Escalonamento Curto / Médio / Longo de Entrada e Saída (idêntico a Jumba_GEX_NWE_Core.mqh)
+                if k == 13:
+                    ent_px = r5(l1 + 0.35 * rng1) if sig == 1 else r5(h1 - 0.35 * rng1)
+                    tp_cap, tp_min, be_trig_val = 360.0, 160.0, 145.0
+                elif k == 15:
+                    ent_px = r5(l1 + 0.55 * rng1) if sig == 1 else r5(h1 - 0.55 * rng1)
+                    tp_cap, tp_min, be_trig_val = 210.0, 130.0, 110.0
+                elif k == 14:
+                    ent_px = mid_b1
+                    tp_cap, tp_min, be_trig_val = 280.0, 140.0, 130.0
+                else:
+                    ent_px = mid_b1
+                    tp_cap, tp_min, be_trig_val = 220.0, 140.0, 130.0
+                s2 = next_wall_behind(ent_px, sig, lv_all)
+                tp_mid, raw_mid = structural_mid(ent_px, sig, lv_all)
+                tp_pts = min(tp_cap, max(tp_min, abs(tp_mid - ent_px)))
+                p5 = r5(ent_px)
                 if (sig == 1 and new_open < p5) or (sig == -1 and new_open > p5):
                     continue  # filtro de abertura
                 s.update(
                     pend=sig, pend_px=p5, pend_ord=(p5 + 5.0 if sig == 1 else p5),
-                    pend_left=2, pend_tp=tp_pts, pend_sl=s2 + 175.0,
+                    pend_left=2, pend_tp=tp_pts, pend_sl=s2 + 175.0, pend_be_trig=be_trig_val,
                     def_wall=wall, raw_mid=raw_mid, pend_bar=t_new,
                 )
                 # executa já na abertura se o preço já está no nível (ask<=ord p/ compra, bid>=ord p/ venda)

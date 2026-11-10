@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                                          Jumba_GEX_NWE_Core.mqh |
 //|        Motor Institucional GEX MagicWalls + NWE para MT5 (WIN$N) |
 //|   Suporta: 16 Estratégias Auditadas, Virtual Position Manager    |
@@ -117,6 +117,7 @@ private:
    SGexLevel         m_gex_raw[];
    double            m_levels_all[];
    double            m_levels_walls[];
+   double            m_levels_mid_walls[];
    double            m_gamma_flip;
    double            m_max_gamma;
    double            m_min_gamma;
@@ -135,6 +136,16 @@ private:
    double            m_wdo_ret3_1, m_wdo_z_1;
    double            m_day_high_morning, m_day_low_morning;
    string            m_morning_date;
+
+   // Filtro de Fluxo Institucional Nativo (CopyTicksRange - 100% Independente de Python)
+   bool              m_use_flow_filter;
+   bool              m_flow_gate_active;
+   MqlRates          m_flow_gate_b1;
+   datetime          m_flow_cache_bar_time;
+   bool              m_flow_cache_has_ticks;
+   double            m_flow_cache_inst_5m;
+   double            m_flow_cache_inst_15m;
+   double            m_flow_cache_delta_5m;
 
    SVirtualSlot      m_slots[17]; // Index 1..16
 
@@ -164,6 +175,112 @@ public:
       m_day_high_morning = 0.0;
       m_day_low_morning = 9999999.0;
       m_morning_date = "";
+      m_use_flow_filter = false;
+      m_flow_gate_active = false;
+      m_flow_cache_bar_time = 0;
+      m_flow_cache_has_ticks = false;
+      m_flow_cache_inst_5m = 0.0;
+      m_flow_cache_inst_15m = 0.0;
+      m_flow_cache_delta_5m = 0.0;
+     }
+
+   void              SetUseFlowFilter(bool use_flow)
+     {
+      m_use_flow_filter = use_flow;
+      if(!MQLInfoInteger(MQL_TESTER))
+         RenderHudComment();
+     }
+
+   bool              PassNativeFlowFilter(int k, int sig_dir, const MqlRates &b1)
+     {
+      if(!m_use_flow_filter)
+         return true;
+
+      if(m_flow_cache_bar_time != b1.time)
+        {
+         m_flow_cache_bar_time  = b1.time;
+         m_flow_cache_has_ticks = false;
+         m_flow_cache_inst_5m   = 0.0;
+         m_flow_cache_inst_15m  = 0.0;
+         m_flow_cache_delta_5m  = 0.0;
+
+         ulong t0_15m_ms = (ulong)(b1.time - 600) * 1000ULL;
+         ulong t0_5m_ms  = (ulong)(b1.time) * 1000ULL;
+         ulong t1_ms     = (ulong)(b1.time + 300) * 1000ULL - 1ULL;
+
+         MqlTick ticks[];
+         int n_ticks = CopyTicksRange(_Symbol, ticks, COPY_TICKS_ALL, t0_15m_ms, t1_ms);
+         if(n_ticks > 0)
+           {
+            int n_buy_f = 0, n_sell_f = 0;
+            for(int i=0; i<n_ticks; i++)
+              {
+               if((ticks[i].flags & TICK_FLAG_BUY) != 0)  n_buy_f++;
+               if((ticks[i].flags & TICK_FLAG_SELL) != 0) n_sell_f++;
+              }
+            bool has_dual_flags = (n_buy_f > (int)(0.05 * n_ticks)) && (n_sell_f > (int)(0.05 * n_ticks));
+            int valid_cnt = 0;
+            double last_px = 0.0;
+            int last_side = 1;
+            for(int i=0; i<n_ticks; i++)
+              {
+               if(ticks[i].volume == 0 || ticks[i].last <= 0.0)
+                  continue;
+               int side = 0;
+               if(has_dual_flags)
+                 {
+                  bool is_b = ((ticks[i].flags & TICK_FLAG_BUY) != 0);
+                  bool is_s = ((ticks[i].flags & TICK_FLAG_SELL) != 0);
+                  if(is_b == is_s)
+                     continue;
+                  side = is_b ? 1 : -1;
+                 }
+               else
+                 {
+                  if(last_px > 0.0)
+                    {
+                     if(ticks[i].last > last_px)      last_side = 1;
+                     else if(ticks[i].last < last_px) last_side = -1;
+                    }
+                  last_px = ticks[i].last;
+                  side = last_side;
+                 }
+               valid_cnt++;
+               double vol = (double)ticks[i].volume;
+               double signed_vol = (side == 1) ? vol : -vol;
+               bool is_inst = (vol >= 50.0); // Lote Institucional WIN >= 50 contratos
+               if(is_inst)
+                  m_flow_cache_inst_15m += signed_vol;
+               if((ulong)ticks[i].time_msc >= t0_5m_ms)
+                 {
+                  m_flow_cache_delta_5m += signed_vol;
+                  if(is_inst)
+                     m_flow_cache_inst_5m += signed_vol;
+                 }
+              }
+            if(valid_cnt > 0)
+               m_flow_cache_has_ticks = true;
+           }
+        }
+
+      if(!m_flow_cache_has_ticks)
+         return true; // Fallback seguro caso a corretora não tenha ticks da barra
+
+      // 4_FLUXO_ABSORCAO (Padrão Campeão WIN: EST-04, EST-07, EST-13, EST-14, EST-15)
+      double rng      = MathMax(b1.high - b1.low, 5.0);
+      double lwick    = MathMin(b1.open, b1.close) - b1.low;
+      double uwick    = b1.high - MathMax(b1.open, b1.close);
+      bool   abs_buy  = (lwick >= 0.22 * rng) || (b1.close >= b1.open);
+      bool   abs_sell = (uwick >= 0.22 * rng) || (b1.close <= b1.open);
+
+      bool b4 = ((m_flow_cache_inst_5m >= 0.0) || (m_flow_cache_delta_5m >= 0.0) || abs_buy) && (m_flow_cache_inst_5m >= -12000.0);
+      bool s4 = ((m_flow_cache_inst_5m <= 0.0) || (m_flow_cache_delta_5m <= 0.0) || abs_sell) && (m_flow_cache_inst_5m <= 12000.0);
+      bool ok = (sig_dir == 1) ? b4 : s4;
+
+      if(!ok && !MQLInfoInteger(MQL_OPTIMIZATION))
+         PrintFormat("[JUMBA %s] Sinal Dir=%d BLOQUEADO pelo Filtro de Fluxo Nativo (Inst5m=%.0f | Delta5m=%.0f | Inst15m=%.0f)",
+                     m_slots[k].name, sig_dir, m_flow_cache_inst_5m, m_flow_cache_delta_5m, m_flow_cache_inst_15m);
+      return ok;
      }
 
    void              Init(ulong base_magic, ENUM_EXECUTION_MODE exec_mode, double lot_mult, double max_daily_loss_brl, bool draw_levels, string wdo_sym="WDO$N")
@@ -190,9 +307,9 @@ public:
          "",
          "EST-01 [3Pil BE_Wall25+MainW] Scalper NY",
          "EST-02 [3Pil Lim50%B1+MainW] Scalper Full",
-         "EST-03 [DESATIVADO WF] Clone EST-01",
+         "EST-03 [M15 Fakeout Trap Wall] Ret/DD 8.98x",
          "EST-04 [WDO Reteste220+BE2Stg+MidW] Limit",
-         "EST-05 [DESATIVADO WF] Cluster NWE",
+         "EST-05 [M15 MidWall Pullback NWE] Ret/DD 6.46x",
          "EST-06 [3Pil StopB1+BE_W15+MainW] Slope",
          "EST-07 [3Pil BE_Wall15] Breakout Mom NY",
          "EST-08 [3Pil TP_MainW] Breakout Core",
@@ -278,9 +395,8 @@ public:
          m_slots[13].enabled = e13; m_slots[14].enabled = e14;
          m_slots[15].enabled = e15; m_slots[16].enabled = e16;
         }
-      // Auditoria Walk-Forward + Minimo 100 Trades (Nov/2026): Desativa slots <100tr ou reprovados (3, 5, 9, 10, 11); EST-13..16 sao SmartGrids >=100tr aprovados!
-      m_slots[3].enabled  = false;
-      m_slots[5].enabled  = false;
+      // Auditoria Walk-Forward + Minimo 100 Trades (Nov/2026): EST-03 (M15 Trap Ret/DD 8.98) e EST-05 (M15 MidWall Ret/DD 6.46) APROVADOS!
+      // Apenas slots <100tr ou redundantes permanecem desativados (9, 10, 11).
       m_slots[9].enabled  = false;
       m_slots[10].enabled = false;
       m_slots[11].enabled = false;
@@ -314,10 +430,18 @@ public:
       if(!MQLInfoInteger(MQL_TESTER))
         {
          SymbolSelect("WINZ26", true);
-         if(StringFind(_Symbol, "$") >= 0)
-            ChartSetSymbolPeriod(0, "WINZ26", PERIOD_M5);
-         else if(_Period != PERIOD_M5)
-            ChartSetSymbolPeriod(0, _Symbol, PERIOD_M5);
+         if(m_single_id == 3 || m_single_id == 5)
+           {
+            if(_Period != PERIOD_M15)
+               ChartSetSymbolPeriod(0, _Symbol, PERIOD_M15);
+           }
+         else
+           {
+            if(StringFind(_Symbol, "$") >= 0)
+               ChartSetSymbolPeriod(0, "WINZ26", PERIOD_M5);
+            else if(_Period != PERIOD_M5)
+               ChartSetSymbolPeriod(0, _Symbol, PERIOD_M5);
+           }
          SymbolSelect(_Symbol, true);
          SymbolSelect(m_wdo_symbol, true);
          SymbolSelect("WDOX26", true);
@@ -754,12 +878,16 @@ public:
    //+------------------------------------------------------------------+
    bool              LoadDailyGexWalls(string target_date)
      {
-      if(target_date == m_loaded_date)
+      static long s_last_win_daily_mtime = 0;
+      long cur_win_mtime = MQLInfoInteger(MQL_TESTER) ? 0 : FileGetInteger("jumba_gex_win_daily.csv", FILE_MODIFY_DATE, true);
+      if(target_date == m_loaded_date && (MQLInfoInteger(MQL_TESTER) || cur_win_mtime == s_last_win_daily_mtime))
          return (ArraySize(m_levels_all) > 0);
+      s_last_win_daily_mtime = cur_win_mtime;
 
       ArrayResize(m_gex_raw, 0);
       ArrayResize(m_levels_all, 0);
       ArrayResize(m_levels_walls, 0);
+      ArrayResize(m_levels_mid_walls, 0);
       m_gamma_flip = 0.0;
       m_max_gamma = 0.0;
       m_min_gamma = 0.0;
@@ -881,6 +1009,10 @@ public:
            }
          else if(t == "MidWall" || t == "mid_wall")
            {
+            int nm = ArraySize(m_levels_mid_walls);
+            ArrayResize(m_levels_mid_walls, nm + 1);
+            m_levels_mid_walls[nm] = p;
+
             int na = ArraySize(m_levels_all);
             ArrayResize(m_levels_all, na + 1);
             m_levels_all[na] = p;
@@ -895,6 +1027,7 @@ public:
 
       ArraySort(m_levels_all);
       ArraySort(m_levels_walls);
+      ArraySort(m_levels_mid_walls);
       // Evita travar m_loaded_date = target_date as 07h00 antes do pipeline gex_daily gerar o CSV do dia
       if(MQLInfoInteger(MQL_TESTER) || actual_loaded_date == target_date)
          m_loaded_date = target_date;
@@ -966,7 +1099,7 @@ public:
      {
       ObjectsDeleteAll(0, "JUMBA_GEX_");
       // Se o indicador visual Jumba_GEX_MagicWalls_Ind já está desenhando as linhas HLINE no gráfico ao vivo, evita duplicar objetos
-      if(!MQLInfoInteger(MQL_TESTER) && ObjectFind(0, "JUMBA_IND_GEX_HLINE_0") >= 0)
+      if(!MQLInfoInteger(MQL_TESTER) && (ObjectFind(0, "JUMBA_IND_GEX_HLINE_0") >= 0 || ObjectFind(0, "JUMBA_IND_GEX_HLINE_Wall_0") >= 0 || ObjectFind(0, "JUMBA_IND_GEX_HLINE_MidWall_0") >= 0))
          return;
       for(int i=0; i<ArraySize(m_gex_raw); i++)
         {
@@ -1314,6 +1447,70 @@ public:
       return tp_orig_pts;
      }
 
+   //+------------------------------------------------------------------+
+   //| Busca Alvo Estrutural em M15 (primeiro nível além de min_tp_dist)|
+   //+------------------------------------------------------------------+
+   double            FindM15Target(double entry_px, int side, double min_tp_dist, double front_run)
+     {
+      int n_all = ArraySize(m_levels_all);
+      if(side == 1)
+        {
+         for(int i=0; i<n_all; i++)
+           {
+            if(m_levels_all[i] >= entry_px + min_tp_dist)
+               return Round5(m_levels_all[i] - front_run);
+           }
+        }
+      else
+        {
+         for(int i=n_all-1; i>=0; i--)
+           {
+            if(m_levels_all[i] <= entry_px - min_tp_dist)
+               return Round5(m_levels_all[i] + front_run);
+           }
+        }
+      return 0.0;
+     }
+
+   //+------------------------------------------------------------------+
+   //| Busca Stop Defensivo em M15 (nível estrutural com buffer)        |
+   //+------------------------------------------------------------------+
+   double            FindM15Stop(double entry_px, int side, double candidate_wall, double wall_buf)
+     {
+      int n_all = ArraySize(m_levels_all);
+      double def_w = candidate_wall;
+      if(side == 1)
+        {
+         for(int i=n_all-1; i>=0; i--)
+           {
+            if(m_levels_all[i] <= entry_px)
+              {
+               def_w = m_levels_all[i];
+               break;
+              }
+           }
+         double sl_tgt = Round5(def_w - wall_buf);
+         if(sl_tgt >= entry_px)
+            sl_tgt = Round5(entry_px - 100.0);
+         return sl_tgt;
+        }
+      else
+        {
+         for(int i=0; i<n_all; i++)
+           {
+            if(m_levels_all[i] >= entry_px)
+              {
+               def_w = m_levels_all[i];
+               break;
+              }
+           }
+         double sl_tgt = Round5(def_w + wall_buf);
+         if(sl_tgt <= entry_px)
+            sl_tgt = Round5(entry_px + 100.0);
+         return sl_tgt;
+        }
+     }
+
    double            CalcStage1StopPrice(int k)
      {
       int d = m_slots[k].dir;
@@ -1412,6 +1609,8 @@ public:
                                        int init_lots=1, double def_wall=0.0, int be_mode=0, double wall_buf=0.0,
                                        double raw_mid_lvl=0.0, double tp1_px=0.0, bool partial_mode=false)
      {
+      if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
       double p5 = Round5(entry_p);
       m_slots[k].dir = dir;
       m_slots[k].lots = MathMax(1, init_lots);
@@ -1464,6 +1663,8 @@ public:
                                      double step2, double step3, int l1, int l2, int l3,
                                      double tp_avg, double max_sl, double be_avg_trig, double be_avg_lock=25.0, int max_hold=28)
      {
+      if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
       double p5 = Round5(entry_p);
       m_slots[k].dir = dir;
       m_slots[k].lots = l1;
@@ -1844,8 +2045,9 @@ public:
          RenderHudComment();
         }
 
+      ENUM_TIMEFRAMES eval_tf = (m_single_id == 3 || m_single_id == 5) ? PERIOD_M15 : PERIOD_M5;
       MqlRates r_curr[];
-      if(CopyRates(_Symbol, PERIOD_M5, 0, 2, r_curr) < 2)
+      if(CopyRates(_Symbol, eval_tf, 0, 2, r_curr) < 2)
          return;
 
       datetime curr_bar_time = r_curr[1].time;
@@ -2051,6 +2253,24 @@ public:
                  }
               }
 
+            // Break-Even Intrabar / 1m Imediato em Live/Demo (e para M15 no Tester)
+            if((!MQLInfoInteger(MQL_TESTER) || k == 3 || k == 5) && !m_slots[k].be_active && m_slots[k].be_trig > 0.0)
+              {
+               double fav_intrabar = (d == 1) ? (last_px - m_slots[k].avg_price) : (m_slots[k].avg_price - last_px);
+               if(fav_intrabar > m_slots[k].max_fav_pts)
+                  m_slots[k].max_fav_pts = fav_intrabar;
+               if(m_slots[k].max_fav_pts >= m_slots[k].be_trig)
+                 {
+                  double cand_sl_be = CalcStage1StopPrice(k);
+                  if((d == 1 && last_px > cand_sl_be + 5.0) || (d == -1 && last_px < cand_sl_be - 5.0))
+                    {
+                     m_slots[k].curr_sl = (d == 1) ? MathMax(m_slots[k].curr_sl, cand_sl_be) : MathMin(m_slots[k].curr_sl, cand_sl_be);
+                     m_slots[k].be_active = true;
+                     SaveVirtualStateToDisk();
+                    }
+                 }
+              }
+
             // Verifica Saída Parcial de 50% na MidWall (ex: EST-16 NOVO-3 com 2 lotes)
             if(m_slots[k].partial_mode && !m_slots[k].partial_done && m_slots[k].lots >= 2 && m_slots[k].tp1_px > 0.0)
               {
@@ -2076,6 +2296,17 @@ public:
         }
 
       SyncRealPositionsWithVirtualSlots();
+
+      if(!MQLInfoInteger(MQL_TESTER))
+        {
+         static datetime s_last_m1_hud = 0;
+         datetime m1_now = iTime(_Symbol, PERIOD_M1, 0);
+         if(m1_now > 0 && m1_now != s_last_m1_hud)
+           {
+            s_last_m1_hud = m1_now;
+            RenderHudComment();
+           }
+        }
      }
 
    //+------------------------------------------------------------------+
@@ -2083,13 +2314,14 @@ public:
    //+------------------------------------------------------------------+
    void              OnNewM5Bar(datetime new_bar_time, string today_str)
      {
+      ENUM_TIMEFRAMES bar_tf = (m_single_id == 3 || m_single_id == 5) ? PERIOD_M15 : PERIOD_M5;
       MqlRates rates[];
-      int copied = CopyRates(_Symbol, PERIOD_M5, 1, 110, rates);
+      int copied = CopyRates(_Symbol, bar_tf, 1, 110, rates);
       if(copied < 60 || ArraySize(m_levels_all) == 0)
          return;
 
       MqlRates r0[];
-      double new_bar_open = (CopyRates(_Symbol, PERIOD_M5, 0, 1, r0) >= 1) ? r0[0].open : rates[copied - 1].close;
+      double new_bar_open = (CopyRates(_Symbol, bar_tf, 0, 1, r0) >= 1) ? r0[0].open : rates[copied - 1].close;
 
       // Barra que acabou de fechar é rates[copied-1], e a anterior a ela é rates[copied-2]
       MqlRates b1 = rates[copied - 1];
@@ -2301,6 +2533,9 @@ public:
       bool c_sell = (b1.close < b1.open && (b1.high - b1.close) >= 0.5 * rng1);
       double raw_mid, tp1_px, tp_calc;
 
+      m_flow_gate_b1     = b1;
+      m_flow_gate_active = true;
+
       // =====================================================================
       // EST-01: 3-Pilares (Sinal Original NY + BE_Wall_Shield(25) + TP_MainWall) | Ret/DD = 6.90
       // =====================================================================
@@ -2391,38 +2626,52 @@ public:
         }
 
       // =====================================================================
-      // EST-03: MANTIDO ORIGINAL (Arbitragem Cambial Confluência WIN+WDO na Wall) | Ret/DD = 6.68
+      // EST-03: WIN_M15_FAKEOUT_TRAP (Falso Rompimento Wall M15 + Trap 40p + Market)
+      // 976 Trades | WR = 53.9% | Net = +R$4.813 | MaxDD = R$536 | Ret/DD = 8.98x
       // =====================================================================
-      if(false && m_slots[3].enabled && m_slots[3].dir == 0 && m_slots[3].pend_dir == 0)
+      if(m_slots[3].enabled && m_slots[3].dir == 0 && m_slots[3].pend_dir == 0)
         {
-         bool ent3 = false;
-         if(m_slots[3].last_entry_bar_time != b1.time && WindowOk(b1_tmin, "CORE_09_1615"))
+         MqlRates r15[];
+         int cp15 = CopyRates(_Symbol, PERIOD_M15, 1, 60, r15);
+         if(cp15 >= 35 && ArraySize(m_levels_all) > 0)
            {
-            for(int i=0; i<ArraySize(m_levels_all); i++)
+            MqlRates b1_15 = r15[cp15 - 1];
+            int b1_15_tmin = TimeMinutes(b1_15.time);
+            if(m_slots[3].last_entry_bar_time != b1_15.time && b1_15_tmin >= 540 && b1_15_tmin <= 990 && new_tmin >= 555 && new_tmin <= 1005)
               {
-               double lvl = m_levels_all[i];
-               if(b1.open <= lvl + 12.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 85.0 && body1 >= 50.0 && m_n50_s_1 >= 4.0 && b1.close < (m_n50_u_1 - bw50 * 0.15) && (m_wdo_ret3_1 <= 2.0 || m_wdo_z_1 <= 0.0))
+               double d_l15, closest_l;
+               FindNearestLevel(m_levels_all, b1_15.low, d_l15, closest_l);
+               double d_h15, closest_h;
+               FindNearestLevel(m_levels_all, b1_15.high, d_h15, closest_h);
+
+               int sig3 = 0;
+               double cand_w3 = 0.0;
+               if(b1_15.low <= closest_l - 40.0 && b1_15.close > closest_l + 10.0)
+                 { sig3 = 1; cand_w3 = closest_l; }
+               else if(b1_15.high >= closest_h + 40.0 && b1_15.close < closest_h - 10.0)
+                 { sig3 = -1; cand_w3 = closest_h; }
+
+               if(sig3 != 0)
                  {
-                  OpenVirtualSingle(3, 1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
-                  m_slots[3].last_entry_bar_time = b1.time;
-                  ent3 = true;
-                  break;
-                 }
-               if(b1.open >= lvl - 12.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 85.0 && (-body1) >= 50.0 && m_n50_s_1 <= -4.0 && b1.close > (m_n50_l_1 + bw50 * 0.15) && (m_wdo_ret3_1 >= -2.0 || m_wdo_z_1 >= 0.0))
-                 {
-                  OpenVirtualSingle(3, -1, new_bar_open, new_bar_time, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16, false);
-                  m_slots[3].last_entry_bar_time = b1.time;
-                  ent3 = true;
-                  break;
+                  double ep3 = new_bar_open;
+                  double tp_tgt3 = FindM15Target(ep3, sig3, 220.0, 20.0);
+                  double sl_tgt3 = FindM15Stop(ep3, sig3, cand_w3, 30.0);
+                  if(tp_tgt3 > 0.0)
+                    {
+                     double risk3   = MathAbs(ep3 - sl_tgt3);
+                     double reward3 = MathAbs(tp_tgt3 - ep3);
+                     if(risk3 > 0.0 && reward3 >= risk3 * 0.70 && risk3 <= 400.0)
+                       {
+                        double tp_pts3 = reward3;
+                        double sl_pts3 = risk3;
+                        double be_trig3 = Round5(0.50 * tp_pts3);
+                        double be_lock3 = 25.0;
+                        OpenVirtualSingle(3, sig3, ep3, new_bar_time, tp_pts3, sl_pts3, be_trig3, be_lock3, 0.0, 0.0, 32, false, 1, cand_w3, 0, 30.0);
+                        m_slots[3].last_entry_bar_time = b1_15.time;
+                       }
+                    }
                  }
               }
-           }
-         if(!ent3 && WindowOk(new_tmin, "FULL_09_17"))
-           {
-            if(m_n50_s_1 >= 8.0 && (m_wdo_ret3_1 <= 2.0 || m_wdo_z_1 <= 0.2) && d_l <= 55.0 && b1.close > lvl_s && b1.close <= (m_n50_c_1 + bw50 * 0.20))
-               ArmPendingOrder(3, 1, 1, lvl_s, new_bar_time, new_bar_open, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
-            else if(m_n50_s_1 <= -8.0 && (m_wdo_ret3_1 >= -2.0 || m_wdo_z_1 >= -0.2) && d_h <= 55.0 && b1.close < lvl_r && b1.close >= (m_n50_c_1 - bw50 * 0.20))
-               ArmPendingOrder(3, -1, 1, lvl_r, new_bar_time, new_bar_open, 550.0, 240.0, 150.0, 20.0, 300.0, 110.0, 16);
            }
         }
 
@@ -2458,35 +2707,58 @@ public:
         }
 
       // =====================================================================
-      // EST-05: 3-Pilares (Cluster NWE30+50 + Limit Extremo Barra[1] + TP_MainWall) | Ret/DD = 6.57
+      // EST-05: WIN_M15_MIDWALL_PULLBACK (Pullback em MidWall M15 + Slope NWE30 + Market)
+      // 108 Trades | WR = 37.0% | PF = 2.46 | Net = +R$1.317 | MaxDD = R$204 | Ret/DD = 6.46x
       // =====================================================================
-      if(false && m_slots[5].enabled && m_slots[5].dir == 0 && m_slots[5].pend_dir == 0)
+      if(m_slots[5].enabled && m_slots[5].dir == 0 && m_slots[5].pend_dir == 0)
         {
-         int sig5 = 0;
-         double wall5 = 0.0;
-         if(WindowOk(b1_tmin, "CORE_09_1615"))
+         MqlRates r15[];
+         int cp15 = CopyRates(_Symbol, PERIOD_M15, 1, 60, r15);
+         if(cp15 >= 35 && ArraySize(m_levels_mid_walls) > 0)
            {
-            for(int i=0; i<ArraySize(m_levels_all); i++)
+            MqlRates b1_15 = r15[cp15 - 1];
+            int b1_15_tmin = TimeMinutes(b1_15.time);
+            if(m_slots[5].last_entry_bar_time != b1_15.time && b1_15_tmin >= 540 && b1_15_tmin <= 990 && new_tmin >= 555 && new_tmin <= 1005)
               {
-               double lvl = m_levels_all[i];
-               if(b1.open <= lvl + 12.0 && b1.close > lvl + 12.0 && (b1.close - lvl) <= 90.0 && body1 >= 45.0 && m_n30_s_1 >= 5.0 && m_n50_s_1 >= 4.0 && b1.close < (m_n30_u_1 - bw30 * 0.15))
-                 { sig5 = 1; wall5 = lvl; break; }
-               if(b1.open >= lvl - 12.0 && b1.close < lvl - 12.0 && (lvl - b1.close) <= 90.0 && (-body1) >= 45.0 && m_n30_s_1 <= -5.0 && m_n50_s_1 <= -4.0 && b1.close > (m_n30_l_1 + bw30 * 0.15))
-                 { sig5 = -1; wall5 = lvl; break; }
+               // Calcula NWE(30, 4.0, 1.8) no M15
+               double c15_1, u15_1, l15_1, s15_1, c15_2, u15_2, l15_2, s15_2;
+               ComputeCausalNWE(r15, cp15, 30, 4.0, 1.8, c15_1, u15_1, l15_1, s15_1, c15_2, u15_2, l15_2, s15_2);
+               double bw15 = u15_1 - l15_1;
+
+               double d_mid, closest_mid;
+               FindNearestLevel(m_levels_mid_walls, b1_15.close, d_mid, closest_mid);
+
+               int sig5 = 0;
+               double cand_w5 = 0.0;
+               if(d_mid <= 45.0 && bw15 >= 300.0)
+                 {
+                  if(s15_1 >= 4.0 && b1_15.close >= closest_mid)
+                    { sig5 = 1; cand_w5 = closest_mid; }
+                  else if(s15_1 <= -4.0 && b1_15.close <= closest_mid)
+                    { sig5 = -1; cand_w5 = closest_mid; }
+                 }
+
+               if(sig5 != 0)
+                 {
+                  double ep5 = new_bar_open;
+                  double tp_tgt5 = FindM15Target(ep5, sig5, 250.0, 20.0);
+                  double sl_tgt5 = FindM15Stop(ep5, sig5, cand_w5, 35.0);
+                  if(tp_tgt5 > 0.0)
+                    {
+                     double risk5   = MathAbs(ep5 - sl_tgt5);
+                     double reward5 = MathAbs(tp_tgt5 - ep5);
+                     if(risk5 > 0.0 && reward5 >= risk5 * 0.70 && risk5 <= 400.0)
+                       {
+                        double tp_pts5 = reward5;
+                        double sl_pts5 = risk5;
+                        double be_trig5 = Round5(0.50 * tp_pts5);
+                        double be_lock5 = 25.0;
+                        OpenVirtualSingle(5, sig5, ep5, new_bar_time, tp_pts5, sl_pts5, be_trig5, be_lock5, 0.0, 0.0, 32, false, 1, cand_w5, 0, 35.0);
+                        m_slots[5].last_entry_bar_time = b1_15.time;
+                       }
+                    }
+                 }
               }
-           }
-         if(sig5 == 0 && WindowOk(new_tmin, "CORE_09_1615"))
-           {
-            if(m_n30_s_1 >= 6.0 && m_n50_s_1 >= 6.0 && b1.close <= (m_n30_c_1 + bw30 * 0.20) && d_l <= 50.0 && b1.close > lvl_s)
-              { sig5 = 1; wall5 = lvl_s; }
-            else if(m_n30_s_1 <= -6.0 && m_n50_s_1 <= -6.0 && b1.close >= (m_n30_c_1 - bw30 * 0.20) && d_h <= 50.0 && b1.close < lvl_r)
-              { sig5 = -1; wall5 = lvl_r; }
-           }
-         if(sig5 != 0)
-           {
-            double p5_lim = (sig5 == 1) ? Round5(b1.low + 5.0) : Round5(b1.high - 5.0);
-            tp_calc = CalcTargetPts(p5_lim, sig5, 2, 500.0, raw_mid, tp1_px);
-            ArmPendingOrder(5, sig5, 1, p5_lim, new_bar_time, new_bar_open, tp_calc, 240.0, 150.0, 20.0, 300.0, 110.0, 16, 1, wall5, 0, 0.0, raw_mid, tp1_px, false, 1, false);
            }
         }
 
@@ -2712,7 +2984,7 @@ public:
       // EST-13: SMART GRID ANCORADO EM WALLS (Cross WDO_Z + Wall + Limit 50%B1(2b) + Perna 2 na NextWall 1+2L)
       // 116 Trades | Ret/DD = 10.65 | IS_PF = 3.19 | OOS_PF = 2.61 | WallRank = 1/11 (+R$1.686)
       // =====================================================================
-      if(m_slots[13].enabled && m_slots[13].dir == 0 && m_slots[13].pend_dir == 0 && m_slots[13].trades_today < 5 && b1_tmin >= 545 && b1_tmin <= 975)
+      if(m_slots[13].enabled && m_slots[13].dir == 0 && m_slots[13].pend_dir == 0 && m_slots[13].trades_today < 5 && b1_tmin >= 545 && b1_tmin <= 975 && bw50 >= 475.8)
         {
          int sig13 = 0;
          double wall13 = 0.0;
@@ -2722,9 +2994,10 @@ public:
            { sig13 = -1; wall13 = lvl_r; }
          if(sig13 != 0)
            {
-            double s2_13 = FindNextWallBehind(mid_b1, sig13, 140.0, 280.0, 190.0);
-            tp_calc = MathMin(220.0, CalcTargetPts(mid_b1, sig13, 1, 220.0, raw_mid, tp1_px));
-            ArmPendingOrder(13, sig13, 1, mid_b1, new_bar_time, new_bar_open, tp_calc, s2_13 + 175.0, 130.0, 20.0, 0.0, 0.0, 18, 1, wall13, 1, 20.0, raw_mid, tp1_px, false, 2, false);
+            double ent13_px = (sig13 == 1) ? Round5(b1.low + 0.35 * rng1) : Round5(b1.high - 0.35 * rng1);
+            double s2_13 = FindNextWallBehind(ent13_px, sig13, 140.0, 280.0, 190.0);
+            tp_calc = MathMin(360.0, MathMax(160.0, CalcTargetPts(ent13_px, sig13, 1, 360.0, raw_mid, tp1_px)));
+            ArmPendingOrder(13, sig13, 1, ent13_px, new_bar_time, new_bar_open, tp_calc, s2_13 + 175.0, 145.0, 20.0, 0.0, 0.0, 18, 1, wall13, 1, 20.0, raw_mid, tp1_px, false, 2, false);
            }
         }
 
@@ -2745,7 +3018,7 @@ public:
          if(sig14 != 0)
            {
             double s2_14 = FindNextWallBehind(mid_b1, sig14, 140.0, 280.0, 190.0);
-            tp_calc = MathMin(220.0, CalcTargetPts(mid_b1, sig14, 1, 220.0, raw_mid, tp1_px));
+            tp_calc = MathMin(280.0, MathMax(140.0, CalcTargetPts(mid_b1, sig14, 1, 280.0, raw_mid, tp1_px)));
             ArmPendingOrder(14, sig14, 1, mid_b1, new_bar_time, new_bar_open, tp_calc, s2_14 + 175.0, 130.0, 20.0, 0.0, 0.0, 18, 1, wall14, 1, 20.0, raw_mid, tp1_px, false, 2, false);
            }
         }
@@ -2769,15 +3042,16 @@ public:
         {
          int sig15 = 0;
          double wall15 = 0.0;
-         if(d_l <= 110.0 && (z30_c_w <= -0.60 || z30_l_w <= -0.80) && rev_b_w && b1.close > (lvl_s - 20.0) && gf_b_w)
+         if(d_l <= 110.0 && (z30_c_w <= -0.60 || z30_l_w <= -0.80) && rev_b_w && b1.close > (lvl_s - 20.0) && gf_b_w && pos50 <= 0.70)
            { sig15 = 1; wall15 = lvl_s; }
-         else if(d_h <= 110.0 && (z30_c_w >= 0.60 || z30_h_w >= 0.80) && rev_s_w && b1.close < (lvl_r + 20.0) && gf_s_w)
+         else if(d_h <= 110.0 && (z30_c_w >= 0.60 || z30_h_w >= 0.80) && rev_s_w && b1.close < (lvl_r + 20.0) && gf_s_w && pos50 >= 0.30)
            { sig15 = -1; wall15 = lvl_r; }
          if(sig15 != 0)
            {
-            double s2_15 = FindNextWallBehind(mid_b1, sig15, 140.0, 280.0, 190.0);
-            tp_calc = MathMin(220.0, CalcTargetPts(mid_b1, sig15, 1, 220.0, raw_mid, tp1_px));
-            ArmPendingOrder(15, sig15, 1, mid_b1, new_bar_time, new_bar_open, tp_calc, s2_15 + 175.0, 130.0, 20.0, 0.0, 0.0, 18, 1, wall15, 1, 20.0, raw_mid, tp1_px, false, 2, false);
+            double ent15_px = (sig15 == 1) ? Round5(b1.low + 0.55 * rng1) : Round5(b1.high - 0.55 * rng1);
+            double s2_15 = FindNextWallBehind(ent15_px, sig15, 140.0, 280.0, 190.0);
+            tp_calc = MathMin(210.0, MathMax(130.0, CalcTargetPts(ent15_px, sig15, 1, 210.0, raw_mid, tp1_px)));
+            ArmPendingOrder(15, sig15, 1, ent15_px, new_bar_time, new_bar_open, tp_calc, s2_15 + 175.0, 110.0, 20.0, 0.0, 0.0, 18, 1, wall15, 1, 20.0, raw_mid, tp1_px, false, 2, false);
            }
         }
 
@@ -2801,6 +3075,8 @@ public:
            }
         }
 
+      m_flow_gate_active = false;
+
       if(!MQLInfoInteger(MQL_OPTIMIZATION))
         {
          SaveVirtualStateToDisk();
@@ -2815,6 +3091,8 @@ public:
                                      double raw_mid_lvl=0.0, double tp1_px=0.0, bool partial_mode=false,
                                      int valid_bars=1, bool rolling_stop=false)
      {
+      if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
       double p5 = Round5(price);
 
       // Filtro de Abertura da Nova Barra (não arma Limit se abriu com gap além do preço, nem Stop se abriu além do Stop)
@@ -2893,11 +3171,12 @@ public:
 
    void              RenderHudComment()
      {
-      string hud = "==========================================================\n";
+      string hud = "\n==========================================================\n";
       hud += StringFormat(" JUMBA QUANT GEX + NWE [MIX CAMPEAO] | Data: %s | Fonte: %s\n", m_loaded_date, m_gex_source);
       hud += StringFormat(" Levels: %d (Walls: %d) | GammaFlip: %.0f | NWE50 Slope: %.1f | RSI7: %.1f\n",
                           ArraySize(m_levels_all), ArraySize(m_levels_walls), m_gamma_flip, m_n50_s_1, m_rsi7_1);
-      hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx\n", GetTotalDailyPnLBRL(), m_lot_mult);
+      hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx | Filtro Fluxo: %s\n",
+                          GetTotalDailyPnLBRL(), m_lot_mult, (m_use_flow_filter ? "ATIVO (CopyTicks)" : "OFF (Puro OHLC)"));
       hud += "----------------------------------------------------------\n";
       for(int k=1; k<=16; k++)
         {

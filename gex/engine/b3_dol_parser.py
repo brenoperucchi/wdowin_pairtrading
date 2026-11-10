@@ -4,6 +4,19 @@ import os
 import re
 import pandas as pd
 
+def _extract_file_date_key(filepath):
+    """
+    Extrai a data (YYYY, MM, DD) do nome do arquivo 'Posições em aberto-DD-MM-YYYY.csv'
+    para garantir ordenação cronológica real da sessão B3 (e não apenas mtime de disco).
+    """
+    base = os.path.basename(filepath)
+    m = re.search(r"(\d{2})-(\d{2})-(\d{4})", base)
+    if m:
+        d, mo, y = m.groups()
+        return (int(y), int(mo), int(d), os.path.getmtime(filepath))
+    return (0, 0, 0, os.path.getmtime(filepath))
+
+
 def _find_latest_oi_file():
     """
     Procura o arquivo de Posições em Aberto mais recente na pasta gex/data ou raiz.
@@ -25,7 +38,7 @@ def _find_latest_oi_file():
     if not candidates:
         return None
         
-    candidates.sort(key=os.path.getmtime, reverse=True)
+    candidates.sort(key=_extract_file_date_key, reverse=True)
     return candidates[0]
 
 def _get_dol_expiration(year, month):

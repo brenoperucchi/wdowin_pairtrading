@@ -61,8 +61,9 @@ def calc_zscore(
     spread = closes_a - beta * closes_b
 
     n = len(spread)
+    start_i = max(w, n - tail) if tail is not None else w
     z = np.zeros(n)
-    for i in range(w, n):
+    for i in range(start_i, n):
         win = spread[i - w:i]
         mu = win.mean()
         sd = win.std() or 1e-6
@@ -70,7 +71,7 @@ def calc_zscore(
 
     # Correlação rolling de Pearson (janela = w)
     rho_arr = np.zeros(n)
-    for i in range(w, n):
+    for i in range(start_i, n):
         wa = closes_a[i - w:i]
         wb = closes_b[i - w:i]
         if wa.std() > 0 and wb.std() > 0:
@@ -160,22 +161,25 @@ def calc_nwe_with_bands(prices: np.ndarray, bandwidth: int = 8,
     nwe = np.zeros(n)
     mae = np.zeros(n)
 
-    for t in range(n):
-        lb = min(t, lookback)
-        if lb == 0:
-            nwe[t] = prices[t]
-            continue
-        i_arr = np.arange(lb + 1)
-        w = np.exp(-(i_arr * i_arr) / (2 * bandwidth * bandwidth))
-        p_slice = prices[t - lb : t + 1][::-1]
-        nwe[t] = np.sum(p_slice * w) / np.sum(w)
+    i_full = np.arange(lookback + 1)
+    w_full = np.exp(-(i_full * i_full) / (2 * bandwidth * bandwidth))
+    w_sum_full = float(np.sum(w_full))
 
     for t in range(n):
+        if t >= lookback:
+            p_slice = prices[t - lookback : t + 1][::-1]
+            nwe[t] = float(np.dot(p_slice, w_full)) / w_sum_full
+        elif t == 0:
+            nwe[t] = prices[t]
+        else:
+            w = w_full[: t + 1]
+            p_slice = prices[: t + 1][::-1]
+            nwe[t] = float(np.dot(p_slice, w)) / float(np.sum(w))
+
+    for t in range(1, n):
         lb = min(t, lookback)
-        if lb == 0:
-            continue
         err = np.abs(prices[t - lb : t + 1] - nwe[t - lb : t + 1])
-        mae[t] = np.mean(err) * mult_mae
+        mae[t] = float(np.mean(err)) * mult_mae
 
     upper = nwe + mae
     lower = nwe - mae

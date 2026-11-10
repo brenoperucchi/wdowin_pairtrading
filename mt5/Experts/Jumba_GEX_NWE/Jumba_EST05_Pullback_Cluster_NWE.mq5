@@ -1,9 +1,9 @@
 ﻿//+------------------------------------------------------------------+
 //| Jumba_EST05_Pullback_Cluster_NWE.mq5
-//| EST-05 [3-Pilares Limit_ExtB1 + TP_MainWall] Pullback Cluster NWE (Ret/DD 6.57)
+//| EST-05 [M15 MidWall Pullback NWE] WinRate 37.0% | Ret/DD 6.46x
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-05 [3-Pilares Limit_ExtB1 + TP_MainWall] Pullback Cluster NWE (Ret/DD 6.57)"
+#property description "EST-05 [M15 MidWall Pullback NWE] WinRate 37.0% | Ret/DD 6.46x"
 #property version   "2.00"
 #property strict
 
@@ -15,6 +15,7 @@ input double              InpMaxDailyLoss  = 1000.0; // Perda Máxima Diária In
 input ulong               InpMagicNumber   = 88005; // Magic Number Base
 input bool                InpDrawLevels    = true;   // Desenhar MagicWalls no Gráfico
 input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)
+input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)
 
 CJumbaGexNweEngine g_engine;
 
@@ -26,6 +27,7 @@ int OnInit()
       false,false,false,false,false,false,false,false,
       false,false,false,false,false,false,false,false
    );
+   g_engine.SetUseFlowFilter(InpUseFlowFilter);
    return(INIT_SUCCEEDED);
   }
 

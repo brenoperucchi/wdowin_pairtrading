@@ -154,6 +154,7 @@ const FlowScoreChart = forwardRef(({ history = [], smoothing = 3, onSmoothingCha
             .filter((v, i, arr) => i === 0 || v.time > arr[i - 1].time);
 
         flowSeries.setData(sortedData);
+        try { chartRef.current.timeScale().fitContent(); } catch (e) {}
 
     }, [history]);
 
