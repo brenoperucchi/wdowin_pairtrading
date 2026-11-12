@@ -26,7 +26,7 @@ function fmtDateFull(dStr) {
     return `${d}/${m}/${y}`;
 }
 
-const WALLS_FLOW_6_IDS = ["WIN_DIV_WALL", "WDO_DIV_WALL"];
+const WALLS_FLOW_6_IDS = ["WIN_DIV_WALL", "WDO_DIV_WALL", "ESP_DIV_V22_WIN"];
 const WALLS_FLOW_6_SET = new Set(WALLS_FLOW_6_IDS);
 const MT5_TOP6_IDS = ["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"];
 const MT5_TOP6_SET = new Set(MT5_TOP6_IDS);
@@ -115,10 +115,32 @@ function FluxoRealAsgChart({
     const [yZoomFactor, setYZoomFactor] = useState(1.0); // >1 abre mais o eixo Y para ver mais Walls do Pine
     const isWallsHost = isWallsFlowLocalhost();
     const [showMidleWalls, setShowMidleWalls] = useState(true);
-    const [showNweLine, setShowNweLine] = useState(() => (isWallsFlowLocalhost() && symKey === "WIN")); // NWE30 ligada por padrão no WIN da 5176 (mostra TP1 Dinâmico)
+    const [showNweLine, setShowNweLine] = useState(() => {
+        // 5176: Canal Gauss (NWE100) ligado por padrão nos dois ativos (lembra a escolha do usuário)
+        if (!isWallsFlowLocalhost()) return false;
+        try { return window.localStorage.getItem("canal_gauss_5176") !== "0"; } catch (e) { return true; }
+    });
+    // 5176 (12/11/2026, versão final): desenha só a NWE100 (L=100, bw 8, mult 3) = "Canal Gauss"
+    const nweKind = "100";
+    const toggleCanalGauss = () => {
+        setShowNweLine(v => {
+            try { window.localStorage.setItem("canal_gauss_5176", v ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
+            return !v;
+        });
+    };
     const [showWindowFlips, setShowWindowFlips] = useState(false); // Linhas verticais de virada de fluxo (toggle)
     const [showWallBattleLabels, setShowWallBattleLabels] = useState(false); // Escrita nos candles opcional (desativada na 5176)
     const [showSwingDivLines, setShowSwingDivLines] = useState(true); // Linhas de Divergência Topo/Fundo (F1->F2 / T1->T2) sincronizadas Preço x Fluxo
+    // Divergências no gráfico (12/11/2026, versão final): só o motor oficial V3.2 (core/div_engines_view.py), o mesmo
+    // que gera os trades do Sniper e do Especialista. "NENHUMA" = gráfico limpo (botão liga/desliga).
+    const [divEngine, setDivEngine] = useState(() => {
+        try {
+            return window.localStorage.getItem("div_v32_5176") === "0" ? "NENHUMA" : "v3.2";
+        } catch (e) {
+            return "v3.2";
+        }
+    });
+    const [engineDivs, setEngineDivs] = useState({ key: "", list: [], status: "idle" });
     const [wallColorMode, setWallColorMode] = useState("POLARIDADE"); // "POLARIDADE" (Smart Money) | "PINE" (#ffffff)
     const [candleColorMode, setCandleColorMode] = useState("TRADICIONAL"); // "TRADICIONAL" (padrão) | "JANELA" (fluxo Smart Money)
     const [flowSubMode, setFlowSubMode] = useState(() => (isWallsFlowLocalhost() ? "SWING_DIVERGENCIA" : "JANELA_ASG"));
@@ -165,6 +187,43 @@ function FluxoRealAsgChart({
     const useM1Active = chartTf === "M1" && Array.isArray(m1AssetData?.m1_series) && m1AssetData.m1_series.length > 0;
     const rawSeries = useM1Active ? m1AssetData.m1_series : m5RawSeries;
     const flowWindows = useM1Active ? (m1AssetData.flow_windows || []) : m5FlowWindows;
+
+    // ── Divergências dos motores V2.1 / V3.1 sobre as barras M5 do pregão exibido (backend roda o motor da pesquisa) ──
+    const engineBars = (m5RawSeries || []).filter(pt => pt && !pt.is_prev_day && pt.time);
+    const lastEngineBar = engineBars[engineBars.length - 1] || {};
+    const engineReqKey = (isWallsHost && ["v2.1", "v2.2", "v3.1", "v3.2"].includes(divEngine))
+        ? `${divEngine}|${symKey}|${sessionDate}|${engineBars.length}|${lastEngineBar.time}|${lastEngineBar.close}|${lastEngineBar.smart_swing_wave}|${(allWalls || []).length}`
+        : "";
+    useEffect(() => {
+        if (!engineReqKey) return undefined;
+        let cancelled = false;
+        setEngineDivs(prev => ({ ...prev, status: "loading" }));
+        fetch("http://localhost:8080/api/compass/divergencias_motor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                asset: symKey === "WDO" ? "WDO" : "WIN",
+                engine: divEngine,
+                bars: engineBars.map(pt => ({
+                    time: String(pt.time).slice(0, 5), open: Number(pt.open), high: Number(pt.high),
+                    low: Number(pt.low), close: Number(pt.close), wave: Number(pt.smart_swing_wave || 0),
+                })),
+                walls: (allWalls || []).map(w => ({ type: w.type, price: Number(w.price) })),
+            }),
+        })
+            .then(r => r.json())
+            .then(d => {
+                if (cancelled) return;
+                setEngineDivs({ key: engineReqKey, list: (d && d.ok && Array.isArray(d.divergences)) ? d.divergences : [], status: d && d.ok ? "ok" : "erro" });
+            })
+            .catch(() => { if (!cancelled) setEngineDivs({ key: engineReqKey, list: [], status: "erro" }); });
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [engineReqKey]);
+    const chooseDivEngine = (v) => {
+        setDivEngine(v);
+        try { window.localStorage.setItem("div_v32_5176", v === "NENHUMA" ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
+    };
 
     useEffect(() => {
         const svgEl = svgRef.current;
@@ -223,10 +282,13 @@ function FluxoRealAsgChart({
         };
     }, [rawSeries?.length]);
 
-    const getNweLine = (pt) => Number(isWallsHost ? (pt?.nwe30_line ?? pt?.nwe_line ?? 0) : (pt?.nwe_line ?? 0));
-    const getNweUpper = (pt) => Number(isWallsHost ? (pt?.nwe30_upper ?? pt?.nwe_upper ?? 0) : (pt?.nwe_upper ?? 0));
-    const getNweLower = (pt) => Number(isWallsHost ? (pt?.nwe30_lower ?? pt?.nwe_lower ?? 0) : (pt?.nwe_lower ?? 0));
-    const getNweIsUp = (pt) => (isWallsHost ? (pt?.nwe30_is_up ?? pt?.nwe_is_up) : pt?.nwe_is_up);
+    // Canal Gauss = NWE100 na 5176; se o campo não vier no payload, cai na NWE30
+    const nweKey = isWallsHost ? `nwe${nweKind}` : null;
+    const nweLbl = isWallsHost ? "Canal Gauss" : "NWE";
+    const getNweLine = (pt) => Number(isWallsHost ? ((nweKey ? pt?.[`${nweKey}_line`] : undefined) ?? pt?.nwe30_line ?? pt?.nwe_line ?? 0) : (pt?.nwe_line ?? 0));
+    const getNweUpper = (pt) => Number(isWallsHost ? ((nweKey ? pt?.[`${nweKey}_upper`] : undefined) ?? pt?.nwe30_upper ?? pt?.nwe_upper ?? 0) : (pt?.nwe_upper ?? 0));
+    const getNweLower = (pt) => Number(isWallsHost ? ((nweKey ? pt?.[`${nweKey}_lower`] : undefined) ?? pt?.nwe30_lower ?? pt?.nwe_lower ?? 0) : (pt?.nwe_lower ?? 0));
+    const getNweIsUp = (pt) => (isWallsHost ? ((nweKey ? pt?.[`${nweKey}_is_up`] : undefined) ?? pt?.nwe30_is_up ?? pt?.nwe_is_up) : pt?.nwe_is_up);
 
     const dec = symKey === "WDO" ? 1 : 0;
 
@@ -854,6 +916,41 @@ function FluxoRealAsgChart({
         }
     }
 
+    // ── Camada escolhida no seletor "Divergências": V2.1 / V3.1 (motores da pesquisa) ou Nenhuma (gráfico limpo) ──
+    if (isWallsFlowLocalhost() && divEngine !== "ATUAL") {
+        subPanelBars.forEach((sb) => {
+            if (sb.swingDiv) {
+                sb.swingDiv = undefined;
+                if (sb.divType === "BULL_DIV" || sb.divType === "BEAR_DIV") {
+                    sb.divType = null;
+                    sb.divColor = "#7f96a8";
+                    sb.divLabel = "⚪ Monitorando Fluxo na Wall";
+                }
+            }
+        });
+        swingDivergences.length = 0;
+        if (["v2.1", "v2.2", "v3.1", "v3.2"].includes(divEngine) && !useM1Active && engineDivs.key === engineReqKey) {
+            const idxByTime = {};
+            series.forEach((pt, ix) => { if (pt && !pt.is_prev_day && pt.time) idxByTime[String(pt.time).slice(0, 5)] = ix; });
+            engineDivs.list.forEach((d) => {
+                const pi = idxByTime[d.f1_time];
+                const ci = idxByTime[d.f2_time];
+                if (pi === undefined || ci === undefined) return;
+                const trigTxt = d.trigger_time ? `gatilho Opção C ${d.trigger_time} (${d.trigger_kind})` : "sem gatilho Opção C";
+                swingDivergences.push({
+                    type: d.dir === 1 ? "BULL_DIV" : "BEAR_DIV",
+                    prevIdx: pi, prevTime: d.f1_time, prevPrice: Number(d.f1_px), prevWave: Number(d.f1_wave),
+                    currIdx: ci, currTime: d.f2_time, currPrice: Number(d.f2_px), currWave: Number(d.f2_wave),
+                    nearWall: String(d.anchor || "").includes("WALL"),
+                    isPendingTrigger: false,
+                    engine: divEngine,
+                    anchor: d.anchor,
+                    driver: `${divEngine.toUpperCase()} · âncora ${d.anchor} · confirmada ${d.conf_time} · ${trigTxt} · onda divergiu ${fmtNum(d.wave_div, 0)} (limiar ${fmtNum(d.wave_thr, 0)})`,
+                });
+            });
+        }
+    }
+
     maxCaboVal = Math.max(100, maxCaboVal * 1.10);
     maxSwingWaveAbs = Math.max(isWinSym ? 2500 : 300, maxSwingWaveAbs * 1.15);
     const toYCabo = (val) => yZero3 - (Number(val || 0) / maxCaboVal) * halfH3;
@@ -1425,23 +1522,37 @@ function FluxoRealAsgChart({
                         >
                             MidWalls
                         </button>
+                        {isWallsHost ? (
+                            <button onClick={toggleCanalGauss}
+                                title="Liga/desliga o Canal Gauss no gráfico: envelope Nadaraya-Watson NWE100 (L=100, bw 8, mult 3), o mesmo do UpdateNWE do MT5. Só muda o desenho; as estratégias não mudam."
+                                style={{
+                                    padding: "2px 6px", fontSize: 9, fontFamily: "monospace", fontWeight: "bold",
+                                    background: showNweLine ? "rgba(0, 212, 255, 0.12)" : "#0c1218",
+                                    color: showNweLine ? "#00d4ff" : "#5a7288",
+                                    border: showNweLine ? "1px solid rgba(0, 212, 255, 0.55)" : "1px solid #1a2530",
+                                    borderRadius: 4, cursor: "pointer",
+                                }}>
+                                〰️ Canal Gauss
+                            </button>
+                        ) : (
                         <button
-                            onClick={() => setShowNweLine(v => !v)}
-                            title={isWallsHost ? "Exibir/Ocultar Envelope Causal NWE30 (L=30, bw=3.0, mult=1.6 — Banda Oposta = TP1 Dinâmico do Lote 1 no WIN)" : "Exibir/Ocultar Média NWE Causal (Nadaraya-Watson h=8, L=40) e Banda ±1 MAE"}
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: showNweLine ? "rgba(0, 212, 255, 0.12)" : "#0c1218",
-                                color: showNweLine ? "#00d4ff" : "#5a7288",
-                                border: showNweLine ? "1px solid rgba(0, 212, 255, 0.55)" : "1px solid #1a2530",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            {isWallsHost ? "〰️ Banda NWE30" : "〰️ Média NWE"}
-                        </button>
+                                onClick={() => setShowNweLine(v => !v)}
+                                title={isWallsHost ? "Exibir/Ocultar Envelope Causal NWE30 (L=30, bw=3.0, mult=1.6 — Banda Oposta = TP1 Dinâmico do Lote 1 no WIN)" : "Exibir/Ocultar Média NWE Causal (Nadaraya-Watson h=8, L=40) e Banda ±1 MAE"}
+                                style={{
+                                    padding: "2px 6px",
+                                    fontSize: 9,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    background: showNweLine ? "rgba(0, 212, 255, 0.12)" : "#0c1218",
+                                    color: showNweLine ? "#00d4ff" : "#5a7288",
+                                    border: showNweLine ? "1px solid rgba(0, 212, 255, 0.55)" : "1px solid #1a2530",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                }}
+                            >
+                                {isWallsHost ? "〰️ Banda NWE30" : "〰️ Média NWE"}
+                            </button>
+                        )}
                         {!isWallsHost && (
                             <>
                                 <button
@@ -1481,23 +1592,30 @@ function FluxoRealAsgChart({
                             </>
                         )}
                         {isWallsHost && (
-                            <button
-                                onClick={() => setShowSwingDivLines(v => !v)}
-                                title="Exibir/Ocultar Linhas de Divergência de Topo e Fundo (F1 ➔ F2 / T1 ➔ T2) sincronizadas entre Preço e Fluxo"
-                                style={{
-                                    padding: "2px 6px",
-                                    fontSize: 9,
-                                    fontFamily: "monospace",
-                                    fontWeight: "bold",
-                                    background: showSwingDivLines ? "rgba(0, 232, 122, 0.14)" : "#0c1218",
-                                    color: showSwingDivLines ? "#00e87a" : "#5a7288",
-                                    border: showSwingDivLines ? "1px solid rgba(0, 232, 122, 0.65)" : "1px solid #1a2530",
-                                    borderRadius: 4,
-                                    cursor: "pointer",
-                                }}
-                            >
-                                📐 Linhas Div. ({swingDivergences.length})
-                            </button>
+                            (() => {
+                                const on = divEngine === "v3.2";
+                                const busy = on && engineDivs.status === "loading";
+                                const err = on && engineDivs.status === "erro";
+                                return (
+                                    <button
+                                        onClick={() => { const nv = on ? "NENHUMA" : "v3.2"; chooseDivEngine(nv); setShowSwingDivLines(nv !== "NENHUMA"); }}
+                                        title={useM1Active ? "Divergências V3.2: disponível só no M5" : "Liga/desliga as divergências do motor oficial V3.2 (F1 no fluxo mais extremo da perna, uma divergência por perna), o mesmo que gera os trades do Sniper e do Especialista. Âncora: Wall/MidWall ou extremo do dia."}
+                                        style={{
+                                            padding: "2px 6px",
+                                            fontSize: 9,
+                                            fontFamily: "monospace",
+                                            fontWeight: "bold",
+                                            background: on ? "rgba(0, 232, 122, 0.14)" : "#0c1218",
+                                            color: err ? "#ff3860" : on ? "#00e87a" : "#5a7288",
+                                            border: on ? "1px solid rgba(0, 232, 122, 0.65)" : "1px solid #1a2530",
+                                            borderRadius: 4,
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        📐 Divergências V3.2{on ? ` (${busy ? "…" : err ? "erro" : swingDivergences.length})` : ""}
+                                    </button>
+                                );
+                            })()
                         )}
                         {!isWallsHost && (
                             <>
@@ -1715,7 +1833,7 @@ function FluxoRealAsgChart({
                         )}
                         {showNweLine && getNweLine(inspectedPt) > 0 && (
                             <span style={{ color: isWallsHost ? "#94a3b8" : (getNweIsUp(inspectedPt) !== false ? "#00d4ff" : "#ff6b8b"), fontWeight: "bold" }}>
-                                {isWallsHost ? "NWE30" : "NWE"}: {fmtNum(getNweLine(inspectedPt), dec)} {getNweIsUp(inspectedPt) !== false ? "↑" : "↓"}
+                                {nweLbl}: {fmtNum(getNweLine(inspectedPt), dec)} {getNweIsUp(inspectedPt) !== false ? "↑" : "↓"}
                             </span>
                         )}
                     </div>
@@ -2745,7 +2863,7 @@ function FluxoRealAsgChart({
                                         fontWeight="bold"
                                         fontFamily="monospace"
                                     >
-                                        {isWallsHost ? "NWE30" : "NWE"} {fmtNum(lastNwe, dec)} {lastNweUp ? "↑" : "↓"}
+                                        {nweLbl} {fmtNum(lastNwe, dec)} {lastNweUp ? "↑" : "↓"}
                                     </text>
                                 </g>
                             )}
@@ -2767,7 +2885,9 @@ function FluxoRealAsgChart({
                         ? Math.max(p1Top + 18, Math.min(p1Bot - 16, rawY2 + 5))
                         : Math.max(p1Top + 18, Math.min(p1Bot - 16, rawY2 - 5));
                     const col = dv.isPendingTrigger ? "#ffd600" : (isBull ? "#00e87a" : "#ff3860");
-                    const badgeTxt = dv.isPendingTrigger
+                    const badgeTxt = dv.engine
+                        ? `${isBull ? "🟢" : "🔴"} ${dv.engine.toUpperCase()} ${isBull ? "COMPRA" : "VENDA"} · ${dv.anchor}`
+                        : dv.isPendingTrigger
                         ? (isBull ? "⏳ DIV. COMPRA NA WALL · Aguard. Gatilho" : "⏳ DIV. VENDA NA WALL · Aguard. Gatilho")
                         : (isBull
                             ? (dv.nearWall ? "🟢 DIV. COMPRA NA WALL · Fluxo ↑" : "🟢 DIV. COMPRA · Fluxo ↑")
@@ -3085,8 +3205,9 @@ function FluxoRealAsgChart({
                     const sid = String(sig.strategy_id || "");
                     const isWallsFlow = isWallsFlowLocalhost();
                     const shortMap = isWallsFlow ? {
-                        WIN_DIV_WALL: "🎯 WIN Div · 2L Mix",
-                        WDO_DIV_WALL: "🎯 WDO Div · 1L MidWall",
+                        WIN_DIV_WALL: "🎯 WIN Sniper · 2L Mix",
+                        WDO_DIV_WALL: "🎯 WDO Sniper · 1L",
+                        ESP_DIV_V22_WIN: "🧭 WIN Especialista · 2L",
                     } : {
                         EST_01: "EST-01 PinBar",
                         EST_04: "EST-04 WDO-Alinh",
@@ -3105,6 +3226,7 @@ function FluxoRealAsgChart({
                     const colorMap = {
                         WIN_DIV_WALL: "#00e87a",
                         WDO_DIV_WALL: "#ffd600",
+                        ESP_DIV_V22_WIN: "#c084fc",
                         EST_01: "#38bdf8",
                         EST_04: "#00d4ff",
                         EST_07: "#38bdf8",
@@ -4506,8 +4628,9 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                         const isSel = selectedSigId === sig.id;
                         const isWallsFlow = isWallsFlowLocalhost();
                         const shortMap = isWallsFlow ? {
-                            WIN_DIV_WALL: "🎯 WIN Div · 2L Mix",
-                            WDO_DIV_WALL: "🎯 WDO Div · 1L MidWall",
+                            WIN_DIV_WALL: "🎯 WIN Sniper · 2L Mix",
+                            WDO_DIV_WALL: "🎯 WDO Sniper · 1L",
+                            ESP_DIV_V22_WIN: "🧭 WIN Especialista · 2L",
                         } : {
                             EST_01: "EST-01 PinBar",
                             EST_04: "EST-04 WDO-Alinh",
@@ -4653,7 +4776,7 @@ function CombinedPortfolioDayCard({ winPayload, wdoPayload }) {
                     </span>
                     <span style={{ fontSize: 9.5, color: "#00e87a", background: "#0c1218", border: "1px solid #00e87a44", padding: "2px 8px", borderRadius: 4, fontFamily: "monospace", fontWeight: "bold" }}>
                         {isWallsFlow
-                            ? "🎯 SNIPER DIVERGÊNCIA NA WALL (BASE 2c WIN + 1c WDO): s/ 12h WIN & 11h WDO · Meta +R$ 180 / +R$ 120 · corrigido (causal) · WR 67% · PF 1,95 · Ret/DD 14,2 · 10/11 M+"
+                            ? "🎯 CARTEIRA 5176 · MOTOR ÚNICO V3.2: Sniper (2c WIN + 1c WDO) + Especialista (2c WIN) · 520 tr · PF 1,96 · R$ 16.889 · DD R$ 664 · Ret/DD 25,4 · 11/11 M+ · até 11/11"
                             : "⭐ TOP 8 ELITE M5 C/ FLUXO (PROPOSTA A): 5 WIN (EST-04/07/13/14/15) + 3 WDO (WDO-01/05/07) · 11/11 M+ · Ret/DD 28,24x"}
                     </span>
                 </div>
@@ -4742,12 +4865,17 @@ const WALLS_FLOW_STRAT_META = [
     {
         id: "WIN_DIV_WALL", asset: "WIN", code: "WIN-2L-MIX", shortLabel: "🇧🇷 WIN Sniper · 2c Mix (NWE30 + 750p)", name: "WIN_DIV_WALL · 🇧🇷 WIN Sniper F1➔F2 / T1➔T2 · 2 Contratos Mix", short: "WIN 2c Mix",
         color: "#00e87a", strokeW: 2.3, dec: 0,
-        subRule: "Sniper F1➔F2/T1➔T2 c/ sobreposição · s/ 12h · Meta +R$ 180/dia · 2c (NWE30 Din + 750p) · WR 74,2% · PF 2,71",
+        subRule: "Sniper · divergência v3.2 até 2 barras antes da entrada do setup · s/ 12h · Meta +R$ 180/dia · 2c (NWE30 Din + 750p) · 112 tr · WR 69,6% · PF 2,52 · Ret/DD 12,3",
     },
     {
         id: "WDO_DIV_WALL", asset: "WDO", code: "WDO-1L-MID", shortLabel: "💵 WDO Sniper · 1c MidWalls", name: "WDO_DIV_WALL · 💵 WDO Sniper F1➔F2 / T1➔T2 · 1 Contrato MidWall", short: "WDO 1c Mid",
         color: "#ffd600", strokeW: 2.2, dec: 1,
-        subRule: "Sniper F1➔F2/T1➔T2 c/ sobreposição · s/ 11h NY/PTAX · Meta +R$ 120/dia · 1c MidWall · WR 67,8% · PF 2,36",
+        subRule: "Sniper · divergência v3.2 até 2 barras antes da entrada do setup · s/ 11h NY/PTAX · Meta +R$ 120/dia · 1c · 156 tr · WR 60,3% · PF 1,55 · Ret/DD 3,0",
+    },
+    {
+        id: "ESP_DIV_V22_WIN", asset: "WIN", code: "WIN-ESP-V22", shortLabel: "🧭 WIN Especialista v3.2 · 2c", name: "ESP_DIV_V22_WIN · 🧭 WIN Especialista de Divergência v3.2 · 2 Contratos", short: "WIN Esp. 2c",
+        color: "#c084fc", strokeW: 2.1, dec: 0,
+        subRule: "Divergência v3.2 na Wall ou extremo do dia + gatilho Opção C · 10:00–15:55 · SL 200 · BE 180→20 · sem alvo, 60 min · 252 tr · WR 54,0% · PF 1,94 · Ret/DD 14,1",
     },
 ];
 
@@ -6964,7 +7092,7 @@ function IntradayCompassPanel({ compassData, mode = "COCKPIT", onChangeMode, sel
                     </span>
                     <span style={{ fontSize: 9.5, color: "#c9d8e4", fontFamily: "monospace" }}>
                         {isWallsFlowHost
-                            ? "Carteira Sniper Base: 🇧🇷 WIN 2c Mix [s/ 12h · Meta +R$ 180] (+R$ 3.281 · WR 69,9% · PF 1,87) + 💵 WDO 1c MidWall [s/ 11h NY · Meta +R$ 120] (+R$ 4.155 · WR 65,2% · PF 2,02) ➔ Total +R$ 7.436 · DD R$ 524 · Ret/DD 14,2 (10/11 M+) · corrigido (causal)"
+                            ? "Carteira 5176 (motor de divergência único v3.2): 🇧🇷 WIN Sniper 2c (+R$ 5.290 · PF 2,52) + 💵 WDO Sniper 1c (+R$ 2.385 · PF 1,55) + 🧭 WIN Especialista 2c (+R$ 9.214 · PF 1,94) ➔ Total +R$ 16.889 · DD R$ 664 (trade a trade) · Ret/DD 25,4 · 11/11 M+ · 02/01 a 11/11 · dentro da amostra"
                             : "Setups Ativos: EST-04 [15_NR_IGN] · EST-07 [16_NR_DIV] · EST-13 [11_SHIELD] · EST-14/WDO-07 [12_NR_TRAP] · EST-15 [14_NR_SQUEEZE] · WDO-01/05 [13_NR_ABS] (+R$ 33.046 · DD R$ 1.170 · Ret/DD 28,24x)"}
                     </span>
                 </div>

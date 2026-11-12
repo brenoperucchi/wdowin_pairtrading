@@ -25,7 +25,7 @@ from research.flow_window_asg.flow_filters import FILTER_NAMES, _bar_masks, _ses
 OUT_DIR = os.path.join(ROOT, "data", "research", "setup_flow_min_v1")
 OUT_PKL = os.path.join(OUT_DIR, "flow_masks.pkl")
 MANIFEST = os.path.join(ROOT, "research", "setup_parity", "flow_min_manifest.json")
-START, END = "2025-12-01", "2026-11-10"
+START, END = "2025-12-01", "2026-11-11"
 
 
 def session_masks(asset: str, date: str, rec: dict) -> dict:

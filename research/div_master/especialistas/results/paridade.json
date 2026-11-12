@@ -1,0 +1,31 @@
+{
+ "port_v3_WIN": {
+  "days": 143,
+  "signals": 985,
+  "bad": 0
+ },
+ "port_v3_WDO": {
+  "days": 143,
+  "signals": 985,
+  "bad": 0
+ },
+ "port_v21": {
+  "days": 16,
+  "signals": 144,
+  "bad": 0
+ },
+ "parity_WIN": {
+  "days": 143,
+  "cands": 3359,
+  "trig": 3019,
+  "errors": 0,
+  "first": []
+ },
+ "parity_WDO": {
+  "days": 143,
+  "cands": 3734,
+  "trig": 3141,
+  "errors": 0,
+  "first": []
+ }
+}

@@ -1,0 +1,390 @@
+{
+ "WIN": {
+  "days": 143,
+  "v3": {
+   "cands": 913,
+   "cands_day": 6.38,
+   "wall": 735,
+   "extremo": 505,
+   "both": 327,
+   "micro_ok": 98.0,
+   "src": {
+    "-": 913
+   },
+   "esp": {
+    "WALL": {
+     "base": 735,
+     "trig": 581,
+     "trig_day": 4.06,
+     "fired": 79.0,
+     "discard": 0,
+     "discard_pct": 0.0,
+     "sub": {
+      "C2": 514,
+      "C1": 67
+     },
+     "lag": {
+      "1": 469,
+      "2": 80,
+      "3": 32
+     },
+     "super": 255,
+     "dup": 136,
+     "after_17h": 38,
+     "h09": 56,
+     "h09_pct": 9.6,
+     "buy": 304,
+     "micro_ok": 97.9
+    },
+    "EXTREMO": {
+     "base": 505,
+     "trig": 287,
+     "trig_day": 2.01,
+     "fired": 56.8,
+     "discard": 0,
+     "discard_pct": 0.0,
+     "sub": {
+      "DUPLO": 171,
+      "VIOL": 116
+     },
+     "lag": {
+      "1": 188,
+      "2": 63,
+      "3": 36
+     },
+     "super": 180,
+     "dup": 39,
+     "after_17h": 10,
+     "h09": 32,
+     "h09_pct": 11.1,
+     "buy": 146,
+     "micro_ok": 98.3
+    }
+   },
+   "combined_entries": 693,
+   "combined_day": 4.85
+  },
+  "v2.1": {
+   "cands": 1438,
+   "cands_day": 10.06,
+   "wall": 1267,
+   "extremo": 514,
+   "both": 343,
+   "micro_ok": 95.4,
+   "src": {
+    "-": 1438
+   },
+   "esp": {
+    "WALL": {
+     "base": 1267,
+     "trig": 915,
+     "trig_day": 6.4,
+     "fired": 72.2,
+     "discard": 60,
+     "discard_pct": 4.7,
+     "sub": {
+      "C2": 787,
+      "C1": 128
+     },
+     "lag": {
+      "1": 576,
+      "2": 224,
+      "3": 115
+     },
+     "super": 242,
+     "dup": 152,
+     "after_17h": 147,
+     "h09": 17,
+     "h09_pct": 1.9,
+     "buy": 500,
+     "micro_ok": 96.8
+    },
+    "EXTREMO": {
+     "base": 514,
+     "trig": 297,
+     "trig_day": 2.08,
+     "fired": 57.8,
+     "discard": 22,
+     "discard_pct": 4.3,
+     "sub": {
+      "VIOL": 120,
+      "DUPLO": 177
+     },
+     "lag": {
+      "1": 160,
+      "2": 84,
+      "3": 53
+     },
+     "super": 187,
+     "dup": 31,
+     "after_17h": 14,
+     "h09": 15,
+     "h09_pct": 5.1,
+     "buy": 154,
+     "micro_ok": 96.3
+    }
+   },
+   "combined_entries": 1029,
+   "combined_day": 7.2
+  },
+  "v3.1": {
+   "cands": 1008,
+   "cands_day": 7.05,
+   "wall": 806,
+   "extremo": 608,
+   "both": 406,
+   "micro_ok": 93.4,
+   "src": {
+    "zz": 921,
+    "zz08": 82,
+    "lr": 5
+   },
+   "esp": {
+    "WALL": {
+     "base": 806,
+     "trig": 588,
+     "trig_day": 4.11,
+     "fired": 73.0,
+     "discard": 26,
+     "discard_pct": 3.2,
+     "sub": {
+      "C2": 505,
+      "C1": 83
+     },
+     "lag": {
+      "1": 394,
+      "2": 137,
+      "3": 57
+     },
+     "super": 285,
+     "dup": 186,
+     "after_17h": 26,
+     "h09": 93,
+     "h09_pct": 15.8,
+     "buy": 316,
+     "micro_ok": 95.7
+    },
+    "EXTREMO": {
+     "base": 608,
+     "trig": 351,
+     "trig_day": 2.45,
+     "fired": 57.7,
+     "discard": 21,
+     "discard_pct": 3.5,
+     "sub": {
+      "DUPLO": 193,
+      "VIOL": 158
+     },
+     "lag": {
+      "1": 194,
+      "2": 101,
+      "3": 56
+     },
+     "super": 228,
+     "dup": 37,
+     "after_17h": 14,
+     "h09": 40,
+     "h09_pct": 11.4,
+     "buy": 188,
+     "micro_ok": 94.9
+    }
+   },
+   "combined_entries": 716,
+   "combined_day": 5.01
+  }
+ },
+ "WDO": {
+  "days": 143,
+  "v3": {
+   "cands": 931,
+   "cands_day": 6.51,
+   "wall": 726,
+   "extremo": 603,
+   "both": 398,
+   "micro_ok": 99.2,
+   "src": {
+    "-": 931
+   },
+   "esp": {
+    "WALL": {
+     "base": 726,
+     "trig": 510,
+     "trig_day": 3.57,
+     "fired": 70.2,
+     "discard": 0,
+     "discard_pct": 0.0,
+     "sub": {
+      "C2": 421,
+      "C1": 89
+     },
+     "lag": {
+      "1": 380,
+      "2": 88,
+      "3": 42
+     },
+     "super": 294,
+     "dup": 176,
+     "after_17h": 36,
+     "h09": 74,
+     "h09_pct": 14.5,
+     "buy": 281,
+     "micro_ok": 99.6
+    },
+    "EXTREMO": {
+     "base": 603,
+     "trig": 361,
+     "trig_day": 2.52,
+     "fired": 59.9,
+     "discard": 0,
+     "discard_pct": 0.0,
+     "sub": {
+      "VIOL": 121,
+      "DUPLO": 240
+     },
+     "lag": {
+      "1": 228,
+      "2": 81,
+      "3": 52
+     },
+     "super": 233,
+     "dup": 44,
+     "after_17h": 19,
+     "h09": 40,
+     "h09_pct": 11.1,
+     "buy": 195,
+     "micro_ok": 99.7
+    }
+   },
+   "combined_entries": 651,
+   "combined_day": 4.55
+  },
+  "v2.1": {
+   "cands": 1716,
+   "cands_day": 12.0,
+   "wall": 1473,
+   "extremo": 656,
+   "both": 413,
+   "micro_ok": 97.9,
+   "src": {
+    "-": 1716
+   },
+   "esp": {
+    "WALL": {
+     "base": 1473,
+     "trig": 944,
+     "trig_day": 6.6,
+     "fired": 64.1,
+     "discard": 42,
+     "discard_pct": 2.9,
+     "sub": {
+      "C2": 783,
+      "C1": 161
+     },
+     "lag": {
+      "1": 599,
+      "2": 219,
+      "3": 126
+     },
+     "super": 282,
+     "dup": 185,
+     "after_17h": 153,
+     "h09": 35,
+     "h09_pct": 3.7,
+     "buy": 494,
+     "micro_ok": 98.7
+    },
+    "EXTREMO": {
+     "base": 656,
+     "trig": 373,
+     "trig_day": 2.61,
+     "fired": 56.9,
+     "discard": 14,
+     "discard_pct": 2.1,
+     "sub": {
+      "VIOL": 120,
+      "DUPLO": 253
+     },
+     "lag": {
+      "1": 204,
+      "2": 108,
+      "3": 61
+     },
+     "super": 228,
+     "dup": 28,
+     "after_17h": 34,
+     "h09": 18,
+     "h09_pct": 4.8,
+     "buy": 202,
+     "micro_ok": 98.7
+    }
+   },
+   "combined_entries": 1104,
+   "combined_day": 7.72
+  },
+  "v3.1": {
+   "cands": 1087,
+   "cands_day": 7.6,
+   "wall": 839,
+   "extremo": 711,
+   "both": 463,
+   "micro_ok": 97.5,
+   "src": {
+    "zz": 970,
+    "zz08": 113,
+    "lr": 4
+   },
+   "esp": {
+    "WALL": {
+     "base": 839,
+     "trig": 555,
+     "trig_day": 3.88,
+     "fired": 66.2,
+     "discard": 31,
+     "discard_pct": 3.7,
+     "sub": {
+      "C2": 457,
+      "C1": 98
+     },
+     "lag": {
+      "1": 365,
+      "2": 119,
+      "3": 71
+     },
+     "super": 314,
+     "dup": 197,
+     "after_17h": 33,
+     "h09": 141,
+     "h09_pct": 25.4,
+     "buy": 295,
+     "micro_ok": 98.0
+    },
+    "EXTREMO": {
+     "base": 711,
+     "trig": 398,
+     "trig_day": 2.78,
+     "fired": 56.0,
+     "discard": 19,
+     "discard_pct": 2.7,
+     "sub": {
+      "VIOL": 131,
+      "DUPLO": 267
+     },
+     "lag": {
+      "1": 214,
+      "2": 113,
+      "3": 71
+     },
+     "super": 250,
+     "dup": 33,
+     "after_17h": 32,
+     "h09": 50,
+     "h09_pct": 12.6,
+     "buy": 212,
+     "micro_ok": 98.7
+    }
+   },
+   "combined_entries": 723,
+   "combined_day": 5.06
+  }
+ }
+}

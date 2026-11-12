@@ -33,7 +33,7 @@ from core.profit_mt5_flow_engine import load_daily_magic_walls  # noqa: E402
 from core.div_wall_signal import nwe_for_session  # noqa: E402
 
 OUT_DIR = os.path.join(ROOT, "data", "research", "div_wall_v1")
-START, END = "2026-01-02", "2026-11-09"   # 10/11 é o pregão corrente (incompleto)
+START, END = "2026-01-02", "2026-11-11"   # 12/11 é o pregão corrente (incompleto)
 KEEP_COLS = ["open", "high", "low", "close", "buy_vol", "sell_vol", "avg_buy_lot", "avg_sell_lot",
              "inst_aggr_delta", "inst_pass_delta", "ret_delta_bar"]
 WALL_TYPES = ("Wall", "MidWall", "GammaFlip", "MaxGamma", "MinGamma")

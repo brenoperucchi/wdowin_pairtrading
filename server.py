@@ -2638,6 +2638,21 @@ def get_compass_etapa2(date_str: str = None):
         return {"ok": False, "error": str(e)}
 
 
+@app.post("/api/compass/divergencias_motor")
+async def post_divergencias_motor(request: Request):
+    """Divergências dos motores V2.1 / V3.1 sobre as barras M5 que o painel 5176 está mostrando (só visualização;
+    não altera sinais nem trades). Corpo: {asset, engine, bars: [{time, open, high, low, close, wave}], walls: [{type, price}]}."""
+    try:
+        body = await request.json()
+        from core.div_engines_view import detect
+        asset = str(body.get("asset", "WIN")).upper()
+        engine = str(body.get("engine", "v2.1"))
+        divs = detect(asset, body.get("bars") or [], body.get("walls") or [], engine)
+        return {"ok": True, "asset": asset, "engine": engine, "divergences": divs}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/compass/etapa3")
 @app.get("/api/compass/options-radar")
 def get_compass_etapa3():

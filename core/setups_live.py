@@ -19,6 +19,7 @@ from research import mt5_loader
 from research.flow_window_asg.flow_filters import load_flow_tables
 
 WARMUP_DAYS = 7
+CSV_END = "2026-11-11"   # último pregão nos caches data/mt5_rates (research/append_mt5_rates.py); depois disso vem do MT5 ao vivo
 _lock = threading.Lock()
 _cache: Dict[tuple, Dict[str, List[dict]]] = {}
 _base_flow = None
@@ -78,7 +79,7 @@ def _fetch_mt5_extension(now: datetime):
     tf = {"M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5}
     for sym, tfs in (("WIN$N", ("M5", "M1")), ("WDO$N", ("M5",))):
         for tfn in tfs:
-            base = mt5_loader._get_mt5_rates_raw(sym, tfn, "2026-04-01", "2026-11-06", False)
+            base = mt5_loader._get_mt5_rates_raw(sym, tfn, "2026-04-01", CSV_END, False)
             start = pd.Timestamp(base["t"].max()).to_pydatetime() + timedelta(minutes=1)
             with mt5_lock:
                 raw = mt5.copy_rates_range(sym, tf[tfn], start, now + timedelta(days=1))
@@ -96,7 +97,7 @@ def trades_for(day: str, asset: str, is_live: bool, now: Optional[datetime] = No
     """Trades do runner único para `asset` em `day` (mesmo formato dos trades do JSON do BT)."""
     from core.setups_runner import run_setups
 
-    csv_end = "2026-11-06"
+    csv_end = CSV_END
     with _lock:
         now = now or datetime.now()
         if not is_live:

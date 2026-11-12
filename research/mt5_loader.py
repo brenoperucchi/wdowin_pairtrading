@@ -45,7 +45,7 @@ def set_live_extension(sym: str, timeframe: str, df):
     _LIVE_EXT[(sym, timeframe)] = None if df is None else df.copy()
 
 
-def get_mt5_rates(sym: str, timeframe: str = "M5", since: str = "2026-04-01", until: str = "2026-11-06", refresh: bool = False) -> pd.DataFrame:
+def get_mt5_rates(sym: str, timeframe: str = "M5", since: str = "2026-04-01", until: str = "2026-11-11", refresh: bool = False) -> pd.DataFrame:
     """Retorna barras M5 ou M1 do símbolo no horário do servidor MT5, respeitando o corte de dados."""
     df = _get_mt5_rates_raw(sym, timeframe, since, until, refresh).copy()
     ext = _LIVE_EXT.get((sym, timeframe))

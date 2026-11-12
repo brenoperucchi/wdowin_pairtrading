@@ -1,6 +1,6 @@
 {
  "version": "div_wall_v1",
- "built_at": "2026-11-10T21:50:39",
+ "built_at": "2026-11-12T12:22:04",
  "source": "Profit .min M1+M5 decomposition (sem .trd) + jumba_gex_*_history.csv",
  "nwe": {
   "lookback": 100,
@@ -9,12 +9,12 @@
  },
  "range": [
   "2026-01-02",
-  "2026-11-09"
+  "2026-11-11"
  ],
  "assets": {
   "WIN": {
-   "days": 211,
-   "rows": 23841,
+   "days": 213,
+   "rows": 24067,
    "skipped": [
     {
      "date": "2026-02-18",
@@ -27,8 +27,8 @@
    ],
    "low_warmup_days": [],
    "sha256": {
-    "bars": "c769bb52028e4e5683f6b4cfd65b8b5729696788bf338789714cf59b3f787a27",
-    "walls": "5b9855d85076a95d1d91d93006503b79037d80b5a81d29458f41b7a168ebaa1a"
+    "bars": "e612f331deb1f8c18962184d6ba317d6a453d8bfeaf08359553955dda898f5c3",
+    "walls": "441374c08a6ba99894f812e103fa88c645e0da096b2945bc6fcba52981987841"
    },
    "days_meta": [
     {
@@ -1718,12 +1718,28 @@
      "walls": 34,
      "warmup_bars": 200,
      "m5_indiv": true
+    },
+    {
+     "date": "2026-11-10",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-11",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
     }
    ]
   },
   "WDO": {
-   "days": 209,
-   "rows": 23806,
+   "days": 211,
+   "rows": 24034,
    "skipped": [
     {
      "date": "2026-02-18",
@@ -1746,8 +1762,8 @@
     "2026-01-02"
    ],
    "sha256": {
-    "bars": "542391f10d708e93d898d4dc06da7b11fe690c65aa13791b6231ee8a629fad38",
-    "walls": "7b7f2b46455f1f6c042478e66bcf9170d7116cd86d869ae1322ab5621cbf49af"
+    "bars": "e4d9bfe2a852532038c5cb167cf978a3c12e4c675fac868859b0ac5cebb33c25",
+    "walls": "6f32b520e342c36f46a633b127f4f2ed65b12b46e805dcdce63099b95a85bde1"
    },
    "days_meta": [
     {
@@ -3416,6 +3432,22 @@
     },
     {
      "date": "2026-11-09",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-10",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-11",
      "contract": "WDOZ26",
      "bars": 114,
      "walls": 34,

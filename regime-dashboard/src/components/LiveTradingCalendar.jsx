@@ -20,11 +20,12 @@ const STRATS_MT5 = {
     WDO_S2: { code: "WDO-01", name: "WDO Scalper Curto NY (TP 6–8p)" },
 };
 const STRATS_WALLS_FLOW = {
-    WIN_DIV_WALL: { code: "🇧🇷 WIN 2c Sniper", name: "Sniper F1➔F2/T1➔T2 · 2c Mix (NWE30+750p · s/ 12h · Meta +R$180)" },
-    WDO_DIV_WALL: { code: "💵 WDO 1c Sniper", name: "Sniper F1➔F2/T1➔T2 · 1c MidWall (s/ 11h NY · Meta +R$120)" },
+    WIN_DIV_WALL: { code: "🇧🇷 WIN 2c Sniper", name: "Sniper v3.2 · 2c Mix (NWE30+750p · s/ 12h · Meta +R$180)" },
+    WDO_DIV_WALL: { code: "💵 WDO 1c Sniper", name: "Sniper v3.2 · 1c (s/ 11h NY · Meta +R$120)" },
+    ESP_DIV_V22_WIN: { code: "🧭 WIN 2c Especialista", name: "Especialista de Divergência v3.2 · 2c (10:00–15:55 · SL 200 · BE 180→20 · 60 min)" },
 };
 const MT5_TOP6_SET = new Set(["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"]);
-const WALLS_FLOW_6_SET = new Set(["WIN_DIV_WALL", "WDO_DIV_WALL"]);
+const WALLS_FLOW_6_SET = new Set(["WIN_DIV_WALL", "WDO_DIV_WALL", "ESP_DIV_V22_WIN"]);
 const COST_PER_CTR = { WIN: 2.0, WDO: 5.0 }; // custo operacional B3 embutido (R$/contrato)
 
 function isWallsFlowLocalhost() {
@@ -223,12 +224,12 @@ function LiveTradingCalendar({ portfolioData, onSelectDate }) {
                 <div>
                     <div style={{ fontSize: 12, fontWeight: "bold", color: C.txt, letterSpacing: 2 }}>
                         {isWallsFlow
-                            ? "📅 CALENDÁRIO AUDITADO · DIVERGÊNCIA NA WALL · OPÇÃO 2 (2 MIX WIN + 1 DOL MIDWALLS · 5176)"
+                            ? "📅 CALENDÁRIO AUDITADO · CARTEIRA 5176 · MOTOR DE DIVERGÊNCIA V3.2 (SNIPER WIN + WDO + ESPECIALISTA WIN)"
                             : "📅 CALENDÁRIO AUDITADO DOS 8 ROBÔS COM FILTRO DE FLUXO (5 WIN + 3 WDO · 5174)"}
                     </div>
                     <div style={{ fontSize: 9, color: C.mute, marginTop: 3 }}>
                         {isWallsFlow
-                            ? "Resultado diário auditado · Opção 2 Oficial: WIN 2L Mix (L1 NWE30 Din + L2 750p) + WDO 1L MidWalls · Sniper corrigido (causal) · 287 trades · PF 1,95 · Ret/DD 14,2 · 10/11 M+ · líquido B3"
+                            ? "Resultado diário · Sniper WIN 2c + Sniper WDO 1c + Especialista WIN 2c, motor v3.2 · 520 trades · PF 1,96 · R$ 16.889 · DD R$ 664 (trade a trade) · Ret/DD 25,4 · 11/11 M+ · 02/01 a 11/11 · líquido B3 · dentro da amostra"
                             : "Resultado diário e robôs que operaram · 8 Robôs Campeões c/ Filtro de Fluxo (EST_04, 07, 13, 14, 15 + WDO_01, 05, 07 · Ret/DD 25,03x · 11/11 M+ · líquido B3)"}
                         {liveStart && <> · 🟢 live desde {liveStart.split("-").reverse().join("/")}</>}
                         {!ok && <span style={{ color: C.red }}> · aguardando dados do /api/compass/etapa1</span>}

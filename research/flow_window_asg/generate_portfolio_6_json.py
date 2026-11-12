@@ -36,7 +36,7 @@ from research.flow_window_asg.flow_filters import load_flow_tables, make_sig_fil
 sg_sim.load_m5_m1_wdo_gex = functools.lru_cache(maxsize=1)(sg_sim.load_m5_m1_wdo_gex)
 
 START_DATE = "2026-01-02"
-END_DATE = "2026-11-06"
+END_DATE = os.environ.get("JUMBA_BT_END", "2026-11-11")   # último pregão fechado no BT (12/11/2026: estendido de 06/11)
 SPLIT_DATE = "2026-05-06"
 
 COST_WIN_PTS = 10.0   # R$ 2,00 / contrato WIN
@@ -915,7 +915,7 @@ def main():
         "days": days_list,
     }
 
-    out_path = os.path.join(ROOT_DIR, "data", "processed", "portfolio_4_sistematicas_equity_v1.json")
+    out_path = os.environ.get("JUMBA_BT_OUT") or os.path.join(ROOT_DIR, "data", "processed", "portfolio_4_sistematicas_equity_v1.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
