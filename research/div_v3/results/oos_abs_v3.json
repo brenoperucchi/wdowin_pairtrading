@@ -1,0 +1,61 @@
+{
+ "executed_at": "2026-11-11T21:00:08",
+ "regras": {
+  "sinal": "absor\u00e7\u00e3o r\u00e1pida na Wall/MidWall (raio 100) at\u00e9 12 barras ap\u00f3s diverg\u00eancia v3 no mesmo sentido",
+  "entrada": "E1_rompimento",
+  "saida": "SL 200 \u00b7 alvo 450 \u00b7 sem BE \u00b7 trailing NWE30 \u00b7 m\u00e1x 24 barras",
+  "mode": "UM_POR_VEZ",
+  "meta_diaria": true
+ },
+ "is": {
+  "ops": 172,
+  "wr": 41.3,
+  "pf": 1.33,
+  "net": 1369,
+  "dd": 365,
+  "rdd": 3.76,
+  "meses": "6/7",
+  "net_h1": 529,
+  "net_h2": 840,
+  "plateau": 3.1849999999999996
+ },
+ "placebo_a_p": 0.024875621890547265,
+ "placebo_b_p": 0.01990049751243781,
+ "ok_is": true,
+ "oos": {
+  "ops": 66,
+  "wr": 33.3,
+  "pf": 0.93,
+  "net": -133,
+  "dd": 516,
+  "rdd": -0.26,
+  "meses": "2/4",
+  "net_h1": 0,
+  "net_h2": -133
+ },
+ "total": {
+  "ops": 238,
+  "wr": 39.1,
+  "pf": 1.21,
+  "net": 1237,
+  "dd": 516,
+  "rdd": 2.4,
+  "meses": "8/11",
+  "net_h1": 529,
+  "net_h2": 708
+ },
+ "aprovado_oos": false,
+ "mensal": {
+  "2026-01": 213.0,
+  "2026-02": 120.0,
+  "2026-03": 74.0,
+  "2026-04": 122.0,
+  "2026-05": -169.0,
+  "2026-06": 157.0,
+  "2026-07": 852.0,
+  "2026-08": -374.0,
+  "2026-09": 213.0,
+  "2026-10": 154.0,
+  "2026-11": -126.0
+ }
+}

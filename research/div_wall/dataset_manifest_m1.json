@@ -1,0 +1,2585 @@
+{
+ "version": "div_wall_m1_v1",
+ "built_at": "2026-11-10T21:58:29",
+ "source": "Profit .min M1 + core/profit_min_decomp.py + jumba_gex_*_history.csv",
+ "nwe": {
+  "lookback": 100,
+  "bw": 8.0,
+  "mult": 3.0,
+  "tf": "M1"
+ },
+ "range": [
+  "2026-01-02",
+  "2026-11-09"
+ ],
+ "assets": {
+  "WIN": {
+   "days": 211,
+   "rows": 118906,
+   "skipped": [
+    {
+     "date": "2026-02-18",
+     "skipped": "sessao incompleta (325 min)"
+    },
+    {
+     "date": "2026-07-31",
+     "skipped": "sessao incompleta (351 min)"
+    }
+   ],
+   "low_warmup_days": [],
+   "sha256": {
+    "bars": "0c0a176760e242588c1e1aed79e7af7c0f8e4707773bb42b45ce97df618bc302",
+    "walls": "5b9855d85076a95d1d91d93006503b79037d80b5a81d29458f41b7a168ebaa1a"
+   },
+   "days_meta": [
+    {
+     "date": "2026-01-02",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-05",
+     "contract": "WING26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-06",
+     "contract": "WING26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-07",
+     "contract": "WING26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-08",
+     "contract": "WING26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-09",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-12",
+     "contract": "WING26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-13",
+     "contract": "WING26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-14",
+     "contract": "WING26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-15",
+     "contract": "WING26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-16",
+     "contract": "WING26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-19",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-20",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-21",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-22",
+     "contract": "WING26",
+     "bars": 564,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-23",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-26",
+     "contract": "WING26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-27",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-28",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-29",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-30",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-02",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-03",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-04",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-05",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-06",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-09",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-10",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-11",
+     "contract": "WING26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-12",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-13",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-19",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-20",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-23",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-24",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-25",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-26",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-27",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-02",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-03",
+     "contract": "WINJ26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-04",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-05",
+     "contract": "WINJ26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-06",
+     "contract": "WINJ26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-09",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-10",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-11",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-12",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-13",
+     "contract": "WINJ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-16",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 169
+    },
+    {
+     "date": "2026-03-17",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-18",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-19",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-20",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-23",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-24",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-25",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-26",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-27",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-30",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-31",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-01",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-02",
+     "contract": "WINFUTV",
+     "bars": 561,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-06",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-07",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-08",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-09",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-10",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-13",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-14",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-15",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-16",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-17",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-20",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-22",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-23",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-24",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-27",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-28",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-29",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-30",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-04",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-05",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-06",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-07",
+     "contract": "WINFUTV",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-08",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-11",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-12",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-13",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-14",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-15",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-18",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-19",
+     "contract": "WINFUTV",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-20",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-21",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-22",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-25",
+     "contract": "WINFUTV",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-26",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-27",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-28",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-29",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-01",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-02",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-03",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-05",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-08",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-09",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-10",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-11",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-12",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-15",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-16",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-17",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-18",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-19",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-22",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-23",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-24",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-25",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-26",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-29",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-30",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-01",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-02",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-03",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-06",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-07",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-08",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-09",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-10",
+     "contract": "WINFUT",
+     "bars": 564,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-13",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-14",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-15",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-16",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-17",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-20",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-21",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-22",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-23",
+     "contract": "WINFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-24",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-27",
+     "contract": "WINFUT",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-28",
+     "contract": "WINFUT",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-29",
+     "contract": "WINQ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-30",
+     "contract": "WINQ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-03",
+     "contract": "WINQ26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-04",
+     "contract": "WINQ26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-05",
+     "contract": "WINQ26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-06",
+     "contract": "WINQ26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-07",
+     "contract": "WINQ26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-10",
+     "contract": "WINQ26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-11",
+     "contract": "WINQ26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-12",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-13",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-14",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-17",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-18",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-19",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-20",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-21",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-24",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-25",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-26",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-27",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-28",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-31",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-01",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-02",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-03",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-04",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-08",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-09",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-10",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-11",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-14",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-15",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-16",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-17",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-18",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-21",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-22",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-23",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-24",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-25",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-28",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-29",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-30",
+     "contract": "WINV26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-01",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-02",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-05",
+     "contract": "WINV26",
+     "bars": 552,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-06",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-07",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-08",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-09",
+     "contract": "WINV26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-13",
+     "contract": "WINV26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-14",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-15",
+     "contract": "WINZ26",
+     "bars": 560,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-16",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-19",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-20",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-21",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-22",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-23",
+     "contract": "WINZ26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-26",
+     "contract": "WINZ26",
+     "bars": 553,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-27",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-28",
+     "contract": "WINZ26",
+     "bars": 564,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-29",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-30",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-03",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-04",
+     "contract": "WINZ26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-05",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-06",
+     "contract": "WINZ26",
+     "bars": 565,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-09",
+     "contract": "WINZ26",
+     "bars": 563,
+     "warmup_bars": 200
+    }
+   ]
+  },
+  "WDO": {
+   "days": 207,
+   "rows": 117074,
+   "skipped": [
+    {
+     "date": "2026-02-18",
+     "skipped": "sessao incompleta (326 min)"
+    },
+    {
+     "date": "2026-07-31",
+     "skipped": "sessao incompleta (353 min)"
+    },
+    {
+     "date": "2026-09-01",
+     "skipped": "sessao incompleta (248 min)"
+    },
+    {
+     "date": "2026-09-02",
+     "skipped": "sessao incompleta (361 min)"
+    },
+    {
+     "date": "2026-09-03",
+     "skipped": "sessao incompleta (271 min)"
+    },
+    {
+     "date": "2026-09-04",
+     "skipped": "sessao incompleta (320 min)"
+    }
+   ],
+   "low_warmup_days": [
+    "2026-01-02"
+   ],
+   "sha256": {
+    "bars": "5efc9d31e40b234698bbac95aaac0e3eb5e4d5e16e5ee3e843008e8fda8e10e8",
+    "walls": "1227c7a2948ca0d731bc08431fda0a2268ede95bec50ca5bc4ea6a0a5dfe9a82"
+   },
+   "days_meta": [
+    {
+     "date": "2026-01-02",
+     "contract": "WDOG26",
+     "bars": 563,
+     "warmup_bars": 0
+    },
+    {
+     "date": "2026-01-05",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-06",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-07",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-08",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-09",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-12",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-13",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-14",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-15",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-16",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-19",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-20",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-21",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-22",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-23",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-26",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-27",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-28",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-29",
+     "contract": "WDOG26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-01-30",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-02",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-03",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-04",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-05",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-06",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-09",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-10",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-11",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-12",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-13",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-19",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-20",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-23",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-24",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-25",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-26",
+     "contract": "WDOH26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-02-27",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-02",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-03",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-04",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-05",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-06",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-09",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-10",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-11",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-12",
+     "contract": "WDOJ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-13",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-16",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-17",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-18",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-19",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-20",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-23",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-24",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-25",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-26",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-27",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-30",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-03-31",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-01",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-02",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-06",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-07",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-08",
+     "contract": "WDOFUT",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-09",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-10",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-13",
+     "contract": "WDOFUT",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-14",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-15",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-16",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-17",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-20",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-22",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-23",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-24",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-27",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-28",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-29",
+     "contract": "WDOK26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-04-30",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-04",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-05",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-06",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-07",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-08",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-11",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-12",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-13",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-14",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-15",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-18",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-19",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-20",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-21",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-22",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-25",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-26",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-27",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-28",
+     "contract": "WDOM26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-05-29",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-01",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-02",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-03",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-05",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-08",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-09",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-10",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-11",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-12",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-15",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-16",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-17",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-18",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-19",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-22",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-23",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-24",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-25",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-26",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-29",
+     "contract": "WDON26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-06-30",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-01",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-02",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-03",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-06",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-07",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-08",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-09",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-10",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-13",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-14",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-15",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-16",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-17",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-20",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-21",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-22",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-23",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-24",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-27",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-28",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-29",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-07-30",
+     "contract": "WDOQ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-03",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-04",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-05",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-06",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-07",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-10",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-11",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-12",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-13",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-14",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-17",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-18",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-19",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-20",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-21",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-24",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-25",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-26",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-27",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-28",
+     "contract": "WDOU26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-08-31",
+     "contract": "WDOU26",
+     "bars": 523,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-08",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-09",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-10",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-11",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-14",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-15",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-16",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-17",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-18",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-21",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-22",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-23",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-24",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-25",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-28",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-29",
+     "contract": "WDOV26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-09-30",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-01",
+     "contract": "WDOX26",
+     "bars": 562,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-02",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-05",
+     "contract": "WDOX26",
+     "bars": 560,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-06",
+     "contract": "WDOX26",
+     "bars": 560,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-07",
+     "contract": "WDOX26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-08",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-09",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-13",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-14",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-15",
+     "contract": "WDOX26",
+     "bars": 563,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-16",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-19",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-20",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-21",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-22",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-23",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-26",
+     "contract": "WDOX26",
+     "bars": 549,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-27",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-28",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-29",
+     "contract": "WDOX26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-10-30",
+     "contract": "WDOZ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-03",
+     "contract": "WDOZ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-04",
+     "contract": "WDOZ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-05",
+     "contract": "WDOZ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-06",
+     "contract": "WDOZ26",
+     "bars": 566,
+     "warmup_bars": 200
+    },
+    {
+     "date": "2026-11-09",
+     "contract": "WDOZ26",
+     "bars": 566,
+     "warmup_bars": 200
+    }
+   ]
+  }
+ }
+}

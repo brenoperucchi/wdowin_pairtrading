@@ -1,0 +1,239 @@
+{
+ "A_reproducao_painel": {
+  "win": {
+   "ops": 147,
+   "wr": 72.8,
+   "pf": 2.29,
+   "net": 5302,
+   "dd_dia": 404,
+   "retdd_dia": 13.12,
+   "dd_trade": 416,
+   "retdd_trade": 12.75,
+   "meses": "10/10"
+  },
+  "wdo": {
+   "ops": 253,
+   "wr": 67.2,
+   "pf": 2.24,
+   "net": 7105,
+   "dd_dia": 420,
+   "retdd_dia": 16.92,
+   "dd_trade": 445,
+   "retdd_trade": 15.97,
+   "meses": "10/11"
+  },
+  "total": {
+   "ops": 400,
+   "wr": 69.2,
+   "pf": 2.26,
+   "net": 12407,
+   "dd_dia": 445,
+   "retdd_dia": 27.88,
+   "dd_trade": 569,
+   "retdd_trade": 21.8,
+   "meses": "11/11"
+  },
+  "total_is": {
+   "ops": 288,
+   "wr": 67.0,
+   "pf": 1.99,
+   "net": 7699,
+   "dd_dia": 445,
+   "retdd_dia": 17.3,
+   "dd_trade": 569,
+   "retdd_trade": 13.53,
+   "meses": "7/7"
+  },
+  "total_oos": {
+   "ops": 112,
+   "wr": 75.0,
+   "pf": 3.31,
+   "net": 4708,
+   "dd_dia": 349,
+   "retdd_dia": 13.49,
+   "dd_trade": 349,
+   "retdd_trade": 13.49,
+   "meses": "4/4"
+  },
+  "n_candidatos_win": 1623,
+  "n_sem_wall": null
+ },
+ "B_sem_lookahead": {
+  "win": {
+   "ops": 123,
+   "wr": 69.9,
+   "pf": 1.87,
+   "net": 3281,
+   "dd_dia": 352,
+   "retdd_dia": 9.32,
+   "dd_trade": 356,
+   "retdd_trade": 9.22,
+   "meses": "9/10"
+  },
+  "wdo": {
+   "ops": 164,
+   "wr": 65.2,
+   "pf": 2.02,
+   "net": 4155,
+   "dd_dia": 470,
+   "retdd_dia": 8.84,
+   "dd_trade": 520,
+   "retdd_trade": 7.99,
+   "meses": "9/11"
+  },
+  "total": {
+   "ops": 287,
+   "wr": 67.2,
+   "pf": 1.95,
+   "net": 7436,
+   "dd_dia": 465,
+   "retdd_dia": 15.99,
+   "dd_trade": 524,
+   "retdd_trade": 14.19,
+   "meses": "10/11"
+  },
+  "total_is": {
+   "ops": 212,
+   "wr": 64.6,
+   "pf": 1.75,
+   "net": 4736,
+   "dd_dia": 465,
+   "retdd_dia": 10.18,
+   "dd_trade": 524,
+   "retdd_trade": 9.04,
+   "meses": "6/7"
+  },
+  "total_oos": {
+   "ops": 75,
+   "wr": 74.7,
+   "pf": 2.79,
+   "net": 2700,
+   "dd_dia": 428,
+   "retdd_dia": 6.31,
+   "dd_trade": 428,
+   "retdd_trade": 6.31,
+   "meses": "4/4"
+  },
+  "n_candidatos_win": 1623,
+  "n_sem_wall": null
+ },
+ "C_sem_lookahead_sem_filtros_manuais": {
+  "win": {
+   "ops": 151,
+   "wr": 67.5,
+   "pf": 1.63,
+   "net": 3147,
+   "dd_dia": 324,
+   "retdd_dia": 9.71,
+   "dd_trade": 412,
+   "retdd_trade": 7.64,
+   "meses": "9/10"
+  },
+  "wdo": {
+   "ops": 192,
+   "wr": 63.0,
+   "pf": 1.59,
+   "net": 3435,
+   "dd_dia": 725,
+   "retdd_dia": 4.74,
+   "dd_trade": 775,
+   "retdd_trade": 4.43,
+   "meses": "9/11"
+  },
+  "total": {
+   "ops": 343,
+   "wr": 65.0,
+   "pf": 1.61,
+   "net": 6582,
+   "dd_dia": 634,
+   "retdd_dia": 10.38,
+   "dd_trade": 724,
+   "retdd_trade": 9.09,
+   "meses": "10/11"
+  },
+  "total_is": {
+   "ops": 251,
+   "wr": 63.3,
+   "pf": 1.54,
+   "net": 4486,
+   "dd_dia": 634,
+   "retdd_dia": 7.08,
+   "dd_trade": 724,
+   "retdd_trade": 6.2,
+   "meses": "6/7"
+  },
+  "total_oos": {
+   "ops": 92,
+   "wr": 69.6,
+   "pf": 1.85,
+   "net": 2096,
+   "dd_dia": 428,
+   "retdd_dia": 4.9,
+   "dd_trade": 523,
+   "retdd_trade": 4.01,
+   "meses": "4/4"
+  },
+  "n_candidatos_win": 1623,
+  "n_sem_wall": null
+ },
+ "D_com_lookahead_sem_filtros_manuais": {
+  "win": {
+   "ops": 179,
+   "wr": 70.9,
+   "pf": 2.04,
+   "net": 5496,
+   "dd_dia": 304,
+   "retdd_dia": 18.08,
+   "dd_trade": 404,
+   "retdd_trade": 13.6,
+   "meses": "10/11"
+  },
+  "wdo": {
+   "ops": 318,
+   "wr": 64.8,
+   "pf": 1.76,
+   "net": 6590,
+   "dd_dia": 640,
+   "retdd_dia": 10.3,
+   "dd_trade": 760,
+   "retdd_trade": 8.67,
+   "meses": "10/11"
+  },
+  "total": {
+   "ops": 497,
+   "wr": 67.0,
+   "pf": 1.86,
+   "net": 12086,
+   "dd_dia": 544,
+   "retdd_dia": 22.22,
+   "dd_trade": 794,
+   "retdd_trade": 15.22,
+   "meses": "11/11"
+  },
+  "total_is": {
+   "ops": 355,
+   "wr": 65.4,
+   "pf": 1.73,
+   "net": 7781,
+   "dd_dia": 544,
+   "retdd_dia": 14.3,
+   "dd_trade": 794,
+   "retdd_trade": 9.8,
+   "meses": "7/7"
+  },
+  "total_oos": {
+   "ops": 142,
+   "wr": 71.1,
+   "pf": 2.32,
+   "net": 4305,
+   "dd_dia": 349,
+   "retdd_dia": 12.34,
+   "dd_trade": 484,
+   "retdd_trade": 8.89,
+   "meses": "4/4"
+  },
+  "n_candidatos_win": 1623,
+  "n_sem_wall": null
+ },
+ "divergencias_WIN_fora_da_wall": "355/1238"
+}

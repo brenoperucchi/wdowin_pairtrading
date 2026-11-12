@@ -310,18 +310,20 @@ class GexLiveDealerEngine:
     def _get_prev_day_warmup_closes(self, asset: str, sess_date: str, max_bars: int = 300) -> list:
         if not sess_date:
             return []
+        hist_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data",
+            "processed",
+            "gex_historical_sessions_v1",
+        )
         if self._prev_day_closes_cache is None:
             self._prev_day_closes_cache = {"WIN": {}, "WDO": {}, "dates": []}
-            hist_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "data",
-                "processed",
-                "gex_historical_sessions_v1",
-            )
-            if os.path.isdir(hist_dir):
-                fnames = sorted(f[:-5] for f in os.listdir(hist_dir) if f.endswith(".json"))
-                self._prev_day_closes_cache["dates"] = fnames
-                for d_k in fnames:
+        if os.path.isdir(hist_dir):
+            fnames = sorted(f[:-5] for f in os.listdir(hist_dir) if f.endswith(".json"))
+            known_set = set(self._prev_day_closes_cache.get("dates", []))
+            new_dates = [d_k for d_k in fnames if d_k not in known_set]
+            if new_dates:
+                for d_k in new_dates:
                     fp = os.path.join(hist_dir, f"{d_k}.json")
                     try:
                         with open(fp, "r", encoding="utf-8") as fh:
@@ -333,6 +335,7 @@ class GexLiveDealerEngine:
                                 self._prev_day_closes_cache[sym][d_k] = c_day
                     except Exception:
                         pass
+                self._prev_day_closes_cache["dates"] = fnames
         dates_list = self._prev_day_closes_cache.get("dates", [])
         prev_dates = [d for d in dates_list if d < sess_date]
         if not prev_dates:
@@ -443,6 +446,10 @@ class GexLiveDealerEngine:
             inst_s = float(w.get("inst_sell_vol", 0.0))
             inst_tot = float(w.get("inst_total_vol", inst_b + inst_s))
             inst_d = float(w.get("inst_delta", inst_b - inst_s))
+            if w.get("rlp_delta") is None:
+                ret_d_w = float(w.get("ret_delta", 0.0))
+                rlp_sh_w = float(w.get("rlp_share_pct", w.get("rlp_pct", 0.0)))
+                w["rlp_delta"] = round(-ret_d_w * (rlp_sh_w / 100.0), 0)
 
             # Régua estatística de 3 Estágios calibrada nos 127 pregões históricos:
             # WDO: P25 = 3.000 L (Moderado) | P50 = 8.000 L (Forte)
@@ -629,6 +636,9 @@ class GexLiveDealerEngine:
                     w["broken_dir"] = int(ref_w.get("broken_dir", 0))
                     w["wall_events"] = ref_w.get("wall_events", [])
                     w["live_verdict"] = ref_w.get("live_verdict", "")
+                    for p4_k in ("inst_aggr_delta", "inst_pass_delta", "ret_delta", "hft_delta", "rlp_delta", "hft_churn_pct", "rlp_share_pct", "player_verdict", "top_wall_brokers"):
+                        if p4_k in ref_w and p4_k not in w:
+                            w[p4_k] = ref_w[p4_k]
                 else:
                     wgex = gex_by_price.get(wp, 0.0)
                     if wgex == 0.0:
@@ -842,13 +852,13 @@ class GexLiveDealerEngine:
         busy_until_idx = -1
         occupied_intervals = []
 
-        # Calibração Campeã Conjunta da Janela de Fluxo A.S.G (124 pregões auditados):
-        # - WIN: Fast=5, Slow=18, wCVD=0.85, Smooth=0.45, Flip=11.0 (100% meses positivos no WIN Rejeição + Ret/DD 24.20x no Combo WIN)
-        # - WDO: Fast=4, Slow=22, wCVD=0.85, Smooth=0.60, Flip=11.0 (100% meses positivos no WDO Pullback + Ret/DD 11.38x)
-        fast_period = 5.0 if is_win else 4.0
-        slow_period = 18.0 if is_win else 22.0
-        w_cvd_weight = 0.85
-        w_price_weight = 0.15
+        # Calibração Unificada da Janela de Fluxo Smart Money (V5b · 212 pregões auditados):
+        # - 12% Absorção Wyckoff + 18% Porte Lote + 70% Institucional (0.90 Agr + 0.75 Pass - 0.25 Varejo), 0% Preço
+        # - EMA Rápida = 4, EMA Lenta = 20 (92% Detrended CVD + 8% Impulso 3b), Smooth = 0.45 (WIN) / 0.60 (WDO), Flip = ±11.0
+        fast_period = 4.0
+        slow_period = 20.0
+        w_cvd_weight = 1.0
+        w_price_weight = 0.0
         hist_smooth_alpha = 0.45 if is_win else 0.60
         flip_threshold = 11.0
 
@@ -865,9 +875,12 @@ class GexLiveDealerEngine:
         ema_p_high = first_h
         ema_p_low = first_l
         ema_atr = max(first_h - first_l, 40.0 if is_win else 1.5)
-        ema_cvd_f = first_cvd
-        ema_cvd_s = first_cvd
-        ema_cvd_step = max(abs(float(first_b.get("inst_delta_bar", 0.0))), 2500.0 if is_win else 500.0)
+        ema_cvd_f = 0.0
+        ema_cvd_s = 0.0
+        ema_cvd_step = 2500.0 if is_win else 400.0
+        cum_sm_win = 0.0
+        prev_cum_sm_win = 0.0
+        sm_win_forces = []
         ema_hist = 0.0
         active_win_dir = 0
         curr_window = None
@@ -977,19 +990,24 @@ class GexLiveDealerEngine:
                 cum_ipas = 0.0
                 cum_hft = 0.0
                 cum_rlp = 0.0
+                cum_rlp_d = 0.0
             if idx == first_today_idx and idx > 0:
                 ema_p_high = round(h, 2)
                 ema_p_low = round(l, 2)
                 ema_atr = max(round(h, 2) - round(l, 2), 40.0 if is_win else 1.5)
-                ema_cvd_f = cvd
-                ema_cvd_s = cvd
-                ema_cvd_step = max(abs(inst_5m), 2500.0 if is_win else 500.0)
+                ema_cvd_f = 0.0
+                ema_cvd_s = 0.0
+                ema_cvd_step = 2500.0 if is_win else 400.0
+                cum_sm_win = 0.0
+                prev_cum_sm_win = 0.0
+                sm_win_forces = []
                 ema_hist = 0.0
                 cum_dealer_hedge = 0.0
                 cum_iagg = 0.0
                 cum_ipas = 0.0
                 cum_hft = 0.0
                 cum_rlp = 0.0
+                cum_rlp_d = 0.0
                 ema_dealer_score = 0.0
                 ema_magnet_pct = 0.0
                 ema_gex_px = round(c, 2)
@@ -1083,7 +1101,7 @@ class GexLiveDealerEngine:
             loc_g = model.evaluate_local_gex(c)
             is_neg_g = loc_g["local_regime"] == "NEGATIVE_GAMMA"
 
-            # ── 1º PASSO: ATUALIZA JANELA DE FLUXO A.S.G DESTA BARRA ─────────────
+            # ── 1º PASSO: ATUALIZA JANELA DE FLUXO SMART MONEY UNIFICADA (V5b) DESTA BARRA ─────────────
             prev_cvd = m5_enriched[idx - 1]["cvd_inst"] if rel_idx > 0 else (cvd - round(inst_5m, 0))
 
             rng_bar = max(round(h, 2) - round(l, 2), 15.0 if is_win else 0.5)
@@ -1095,22 +1113,55 @@ class GexLiveDealerEngine:
             p_lower_trava = round(ema_p_low - 0.35 * ema_atr, 2)
             p_mid_trava = round(0.5 * (p_upper_trava + p_lower_trava), 2)
 
-            ema_cvd_f = alpha_fast * cvd + (1.0 - alpha_fast) * ema_cvd_f
-            ema_cvd_s = alpha_slow * cvd + (1.0 - alpha_slow) * ema_cvd_s
-            ema_cvd_step = alpha_band * max(abs(cvd - prev_cvd), 500.0 if is_win else 100.0) + (1.0 - alpha_band) * ema_cvd_step
+            # Motores físicos da FITA (0% Preço): 12% Wyckoff + 18% Porte Lote + 70% Institucional (0.90 Agr + 0.75 Pass - 0.25 Varejo)
+            bv_w = float(b.get("buy_vol", 0.0))
+            sv_w = float(b.get("sell_vol", 0.0))
+            tv_w = max(1.0, bv_w + sv_w)
+            lw_w = max(0.0, min(o, c) - l)
+            uw_w = max(0.0, h - max(o, c))
+            phi_wyk_w = (
+                sv_w * ((c - l) / rng) * (0.80 + 1.40 * (lw_w / rng))
+                - bv_w * ((h - c) / rng) * (0.80 + 1.40 * (uw_w / rng))
+            )
+            def_lot_w = 3.1 if is_win else 4.0
+            ab_w = float(b.get("avg_buy_lot", def_lot_w))
+            as_w = float(b.get("avg_sell_lot", def_lot_w))
+            phi_port_w = tv_w * ((ab_w - as_w) / max(0.5, ab_w + as_w)) * 2.2
+            ia5_w = float(b.get("inst_aggr_delta", inst_5m))
+            ip5_w = float(b.get("inst_pass_delta", 0.0))
+            r5_w = float(b.get("ret_delta_bar", 0.0))
+            phi_inst_w = 0.90 * ia5_w + 0.75 * ip5_w - 0.25 * r5_w
+            bf_w = 0.12 * phi_wyk_w + 0.18 * phi_port_w + 0.70 * phi_inst_w
+            sm_win_forces.append(bf_w)
+
+            n_sm_f = len(sm_win_forces)
+            fp1_w = sm_win_forces[n_sm_f - 2] if n_sm_f >= 2 else bf_w
+            fp2_w = sm_win_forces[n_sm_f - 3] if n_sm_f >= 3 else fp1_w
+            imp3_w = 0.45 * bf_w + 0.35 * fp1_w + 0.20 * fp2_w
+
+            cum_sm_win += bf_w
+            if n_sm_f == 1:
+                ema_cvd_f = cum_sm_win
+                ema_cvd_s = cum_sm_win
+                prev_cum_sm_win = 0.0
+            else:
+                ema_cvd_f = alpha_fast * cum_sm_win + (1.0 - alpha_fast) * ema_cvd_f
+                ema_cvd_s = alpha_slow * cum_sm_win + (1.0 - alpha_slow) * ema_cvd_s
+
+            sw_w = 0.92 * (ema_cvd_f - ema_cvd_s) + 0.08 * imp3_w
+            ema_cvd_step = alpha_band * max(abs(cum_sm_win - prev_cum_sm_win), 500.0 if is_win else 100.0) + (1.0 - alpha_band) * ema_cvd_step
+            prev_cum_sm_win = cum_sm_win
 
             flow_upper_trava = round(max(cvd, prev_cvd, ema_cvd_f) + 0.8 * ema_cvd_step, 0)
             flow_lower_trava = round(min(cvd, prev_cvd, ema_cvd_f) - 0.8 * ema_cvd_step, 0)
 
-            raw_cvd_osc = (ema_cvd_f - ema_cvd_s) / max(1.0, ema_cvd_step * 1.4)
-            raw_price_osc = (round(c, 2) - p_mid_trava) / max(1.0, ema_atr * 0.9)
-            raw_score = float(np.clip((w_cvd_weight * raw_cvd_osc + w_price_weight * raw_price_osc) * 55.0, -100.0, 100.0))
+            raw_score = float(np.clip((sw_w / max(1.0, ema_cvd_step * 1.4)) * 55.0, -100.0, 100.0))
             ema_hist = hist_smooth_alpha * raw_score + (1.0 - hist_smooth_alpha) * ema_hist
             hist_val = round(float(np.clip(ema_hist, -100.0, 100.0)), 1)
 
-            # Virada de Janela A.S.G SÓ ocorre em barra FECHADA (não repinta intra-barra)
+            # Virada de Janela Smart Money Unificada SÓ ocorre em barra FECHADA (não repinta intra-barra)
             if active_win_dir == 0:
-                if hist_val >= 4.0 or (cvd >= prev_cvd and round(c, 2) >= round(o, 2)):
+                if hist_val >= 4.0 or (bf_w >= 0.0 and round(c, 2) >= round(o, 2)):
                     active_win_dir = 1
                 else:
                     active_win_dir = -1
@@ -1566,16 +1617,19 @@ class GexLiveDealerEngine:
             b_hft_ch = round(float(b.get("hft_churn_pct", 36.0)), 1)
             b_rlp_v = round(float(b.get("rlp_vol_bar", 0.0)), 0)
             b_rlp_sh = round(float(b.get("rlp_share_pct", b.get("rlp_pct", 0.0))), 1)
+            b_rlp_d = round(float(b.get("rlp_delta_bar", -b_ret_d * max(0.32, min(0.75, b_rlp_sh / 100.0)))), 0)
 
             cum_iagg += b_iagg
             cum_ipas += b_ipas
             cum_hft += b_hft_d
             cum_rlp += b_rlp_v
+            cum_rlp_d += b_rlp_d
 
             raw_cvd_iagg = b.get("cvd_inst_aggr")
             raw_cvd_ipas = b.get("cvd_inst_pass")
             raw_cvd_hft = b.get("cvd_hft")
             raw_cvd_rlp = b.get("cvd_rlp")
+            raw_cvd_rlp_d = b.get("cvd_rlp_delta")
 
             m5_enriched.append({
                 "timestamp": ts_raw,
@@ -1596,6 +1650,7 @@ class GexLiveDealerEngine:
                 "hft_vol_bar": b_hft_v,
                 "hft_churn_pct": b_hft_ch,
                 "rlp_vol_bar": b_rlp_v,
+                "rlp_delta_bar": b_rlp_d,
                 "rlp_deals_bar": int(b.get("rlp_deals_bar", 0) or 0),
                 "rlp_share_pct": b_rlp_sh,
                 "rlp_pct": b_rlp_sh,
@@ -1610,6 +1665,7 @@ class GexLiveDealerEngine:
                 "cvd_hft": round(float(raw_cvd_hft) if (raw_cvd_hft is not None and float(raw_cvd_hft) != 0.0) else cum_hft, 0),
                 "cvd_retail": round(float(b["cvd_retail"]), 0),
                 "cvd_rlp": round(float(raw_cvd_rlp) if (raw_cvd_rlp is not None and float(raw_cvd_rlp) != 0.0) else cum_rlp, 0),
+                "cvd_rlp_delta": round(float(raw_cvd_rlp_d) if (raw_cvd_rlp_d is not None and float(raw_cvd_rlp_d) != 0.0) else cum_rlp_d, 0),
                 "dealer_hedge_bar": hf["dealer_hedge_contracts"],
                 "dealer_hedge_open": round(prev_cum_dealer, 0),
                 "cum_dealer_hedge": round(cum_dealer_hedge, 0),
@@ -1654,11 +1710,31 @@ class GexLiveDealerEngine:
         # ── 2.5º PASSO: MATEMÁTICA DE FLUXO EFETIVO INDEPENDENTE DE CORRETORA (KYLE-WYCKOFF + PORTE + SMART WAVE) & DETECTOR DE DIVERGÊNCIA TOPO/FUNDO ──
         n_enr = len(m5_enriched)
         if n_enr > 0:
+            closes_enr = np.array([float(eb["close"]) for eb in m5_enriched], dtype=float)
+            closes_enr_all = (
+                np.concatenate([np.array(warmup_closes, dtype=float), closes_enr])
+                if w_len > 0
+                else closes_enr
+            )
+            n30_c_all, n30_u_all, n30_l_all, _, n30_s_all = self._compute_mt5_nwe_series(closes_enr_all, 30, 3.0, 1.6)
+            n30_c_enr = n30_c_all[w_len:]
+            n30_u_enr = n30_u_all[w_len:]
+            n30_l_enr = n30_l_all[w_len:]
+            n30_s_enr = n30_s_all[w_len:]
+            prev_n30_u = float(n30_u_all[w_len - 1]) if w_len > 0 else None
+            prev_n30_l = float(n30_l_all[w_len - 1]) if w_len > 0 else None
             tick_sz_val = 5.0 if is_win else 0.5
             cum_eff = 0.0
             ema_eff_fast = 0.0
             ema_eff_slow = 0.0
             for i_e, eb in enumerate(m5_enriched):
+                eb["nwe30_line"] = round(float(n30_c_enr[i_e]), 2)
+                eb["nwe30_upper"] = round(float(n30_u_enr[i_e]), 2)
+                eb["nwe30_lower"] = round(float(n30_l_enr[i_e]), 2)
+                eb["nwe30_is_up"] = bool(float(n30_s_enr[i_e]) >= 0)
+                if i_e == 0 and prev_n30_u is not None and prev_n30_l is not None:
+                    eb["nwe30_prev_upper"] = round(prev_n30_u, 2)
+                    eb["nwe30_prev_lower"] = round(prev_n30_l, 2)
                 if eb.get("is_prev_day", False) and i_e == 0:
                     cum_eff = 0.0
                 if i_e == first_today_idx:
@@ -1844,7 +1920,9 @@ class GexLiveDealerEngine:
                 (i, eb) for i, eb in enumerate(m5_enriched)
                 if not eb.get("is_prev_day", False)
             ]
-            cached_bt_trades = self._get_portfolio_6_cached_trades(str(sess_date or ""), asset.upper())
+            # Runner ÚNICO dos setups (core/setups_runner.py): o mesmo código do BT, com corte na última barra
+            # fechada no pregão corrente. Substitui a reimplementação `_evaluate_live_mt5_*_strategies`.
+            cached_bt_trades = self._get_setup_trades(str(sess_date or ""), asset.upper(), is_live_session)
             strat_short_names = {
                 "EST_01": "WIN Rejeição",
                 "EST_04": "WIN-B1 Virou Sup/Res",
@@ -1854,6 +1932,7 @@ class GexLiveDealerEngine:
                 "EST_15": "WIN Grid Z30",
                 "EST_16": "WIN Spring",
                 "WIN_E2": "WIN-E2 Wall Gasta",
+                "WIN_DIV_WALL": "WIN Div 2L Mix",
                 "WDO_01": "WDO-A1 Scalper NY",
                 "WDO_02": "WDO Scalper",
                 "WDO_05": "WDO Cluster NWE",
@@ -1862,8 +1941,9 @@ class GexLiveDealerEngine:
                 "WDO_10": "WDO-A2 Vai Defender",
                 "WDO_11": "WDO Next Wall",
                 "WDO_S2": "WDO Lunch",
+                "WDO_DIV_WALL": "WDO Div 1L MidWall",
             }
-            if cached_bt_trades:
+            if cached_bt_trades is not None:
                 signals_log = []
                 for eb in m5_enriched:
                     eb["signal"] = None
@@ -1886,17 +1966,23 @@ class GexLiveDealerEngine:
                     s_dir = 1 if tr.get("direction") == "COMPRA" else -1
                     pts = float(tr.get("pts", 0.0))
                     epx = float(tr.get("entry_price") or eb["close"])
-                    xpx = float(tr.get("exit_price") or (epx + s_dir * pts))
+                    xpx = float(tr.get("exit_price") or (epx + s_dir * (pts * 0.5 if sid == "WIN_DIV_WALL" else pts)))
                     w_ref_obj = eb.get("sup_w") if s_dir > 0 else eb.get("res_w")
                     w_ref_px = float(w_ref_obj["price"]) if (w_ref_obj and w_ref_obj.get("price") is not None) else None
-                    sl_px = float(tr.get("stop_price") or (epx - s_dir * (240.0 if is_win else 10.0)))
-                    if w_ref_px is not None:
+                    sl_px = float(tr.get("stop_price") or (epx - s_dir * (260.0 if sid == "WIN_DIV_WALL" else (240.0 if is_win else 10.0))))
+                    if w_ref_px is not None and sid != "WIN_DIV_WALL":
                         w_buf = 60.0 if is_win else 3.0
                         sl_px = min(sl_px, w_ref_px - w_buf) if s_dir > 0 else max(sl_px, w_ref_px + w_buf)
-                    tp_px = float(tr.get("tp_price") or (epx + s_dir * (350.0 if is_win else 15.0)))
+                    tp_px = float(tr.get("tp_price") or (epx + s_dir * (750.0 if sid == "WIN_DIV_WALL" else (350.0 if is_win else 15.0))))
+                    tp1_px = tr.get("tp1_price")
+                    sl1_px = tr.get("sl1_price")
                     lbl = str(tr.get("label", ""))
                     is_val = pts > 0
                     val_st = "VALIDO_ALVO" if ("ALVO" in lbl and is_val) else ("VALIDO_FAVORAVEL" if is_val else "INVALIDO_STOP")
+                    be_trig_flag = bool(tr.get("be_triggered") or "PROTEÇÃO" in lbl or "ESCUDO" in lbl or "REDUZIDO" in lbl)
+                    if str(tr.get("status", "")).upper() == "ABERTA":
+                        val_st, is_val = "EM_ANDAMENTO", None
+                        lbl = f"⏳ EM ABERTO ({pts:+.0f} pts)"
                     sig_obj = {
                         "id": f"{asset}_{t_in}_{sid}_{tr_idx}",
                         "strategy_id": sid,
@@ -1913,13 +1999,18 @@ class GexLiveDealerEngine:
                         "exit_price": round(xpx, 2),
                         "exit_reason": "TP" if is_val else "SL",
                         "stop_price": round(sl_px, 2),
+                        "sl1_price": round(float(sl1_px), 2) if sl1_px is not None else None,
                         "tp_price": round(tp_px, 2),
-                        "tp_tag": "TP",
-                        "be_triggered": "PROTEÇÃO" in lbl or "ESCUDO" in lbl or "REDUZIDO" in lbl,
+                        "tp1_price": round(float(tp1_px), 2) if tp1_px is not None else None,
+                        "tp_tag": "TP2 (+750)" if sid == "WIN_DIV_WALL" else "TP",
+                        "contracts": int(tr.get("contracts", 2 if sid == "WIN_DIV_WALL" else 1)),
+                        "pts_l1": tr.get("pts_l1"),
+                        "pts_l2": tr.get("pts_l2"),
+                        "be_triggered": be_trig_flag,
                         "be_bar_index": min(ex_idx, b_idx + 1),
                         "be_time": m5_enriched[min(ex_idx, b_idx + 1)].get("time", t_in),
-                        "be_trigger_price": None,
-                        "be_stop_price": round(epx, 2),
+                        "be_trigger_price": tr.get("be_trigger_price"),
+                        "be_stop_price": round(float(tr.get("be_stop_price") or epx), 2),
                         "wall_price": eb.get("sup_w", {}).get("price") if (s_dir > 0 and eb.get("sup_w")) else (eb.get("res_w", {}).get("price") if eb.get("res_w") else None),
                         "wall_type": short_nm,
                         "inst_delta_5m": eb["inst_delta_bar"],
@@ -1939,8 +2030,17 @@ class GexLiveDealerEngine:
                         "closed_bar_confirmed": True,
                     }
                     signals_log.append(sig_obj)
-                    m5_enriched[b_idx]["signal"] = sig_obj
+                    if sid not in ("WIN_DIV_WALL", "WDO_DIV_WALL") or m5_enriched[b_idx].get("signal") is None:
+                        m5_enriched[b_idx]["signal"] = sig_obj
                 signals_log.sort(key=lambda s: s["bar_index"])
+                # Sniper da 5176 (WIN/WDO_DIV_WALL): histórico até last_bt_date vem do JSON; qualquer pregão
+                # posterior a last_bt_date (mesmo já encerrado, ex: ontem antes de rodar novo BT) calcula via _append_live_unified_divergence_signals.
+                has_div_wall_cached = any(s.get("strategy_id") in ("WIN_DIV_WALL", "WDO_DIV_WALL") for s in signals_log)
+                if is_live_session or not has_div_wall_cached:
+                    self._append_live_unified_divergence_signals(
+                        asset=asset.upper(), m5_enriched=m5_enriched, today_closed_bars=today_closed_bars,
+                        signals_log=signals_log, is_live_session=is_live_session,
+                    )
             elif is_win:
                 signals_log = self._evaluate_live_mt5_win_strategies(
                     sess_date=str(sess_date or ""),
@@ -1953,6 +2053,13 @@ class GexLiveDealerEngine:
                     strat_short_names=strat_short_names,
                     is_live_session=is_live_session,
                 )
+                self._append_live_unified_divergence_signals(
+                    asset="WIN",
+                    m5_enriched=m5_enriched,
+                    today_closed_bars=today_closed_bars,
+                    signals_log=signals_log,
+                    is_live_session=is_live_session,
+                )
             else:
                 signals_log = self._evaluate_live_mt5_wdo_strategies(
                     sess_date=str(sess_date or ""),
@@ -1962,6 +2069,13 @@ class GexLiveDealerEngine:
                     w_len=w_len,
                     walls_clean=walls_clean,
                     strat_short_names=strat_short_names,
+                    is_live_session=is_live_session,
+                )
+                self._append_live_unified_divergence_signals(
+                    asset="WDO",
+                    m5_enriched=m5_enriched,
+                    today_closed_bars=today_closed_bars,
+                    signals_log=signals_log,
                     is_live_session=is_live_session,
                 )
 
@@ -3084,6 +3198,399 @@ class GexLiveDealerEngine:
             sim_signals=signals_log,
         )
 
+    @staticmethod
+    def _detect_causal_visual_swing_divs(today_bars: list, is_win: bool) -> list:
+        """
+        Detector 100% causal idêntico ao `swingDivergences` (`F1➔F2` / `T1➔T2`) desenhado no `FluxoRealAsgChart`.
+        Retorna lista de `(pos_idx, dir_num)` sobre `today_bars`.
+        """
+        p_tol = 50.0 if is_win else 1.5
+        max_ext = 360.0 if is_win else 8.5
+        sigs = []
+        last_bull = -12
+        last_bear = -12
+
+        for i in range(4, len(today_bars)):
+            b = today_bars[i]
+            pb = today_bars[i - 1]
+            p2b = today_bars[i - 2]
+            p3b = today_bars[i - 3]
+
+            h, l, c = float(b["high"]), float(b["low"]), float(b["close"])
+            ph, pl, pc = float(pb["high"]), float(pb["low"]), float(pb["close"])
+            p2h, p2l = float(p2b["high"]), float(p2b["low"])
+            p3h, p3l = float(p3b["high"]), float(p3b["low"])
+
+            w_i = float(b.get("smart_swing_wave", 0.0))
+            w_p1 = float(pb.get("smart_swing_wave", 0.0))
+            w_p2 = float(p2b.get("smart_swing_wave", 0.0))
+            wyk = float(b.get("wyckoff_abs_bar", 0.0))
+            eff = float(b.get("effective_force_bar", 0.0))
+            sv = float(b.get("sell_vol", 0.0))
+            bv = float(b.get("buy_vol", 0.0))
+            abl = float(b.get("avg_buy_lot", 3.1 if is_win else 4.0))
+            asl = float(b.get("avg_sell_lot", 3.1 if is_win else 4.0))
+
+            l2 = min(l, pl)
+            h2 = max(h, ph)
+            w_low2 = min(w_i, w_p1, w_p2)
+            w_high2 = max(w_i, w_p1, w_p2)
+
+            is_local_bottom = (
+                l2 <= min(p2l, p3l) + (20.0 if is_win else 0.5)
+                and (c >= l + (h - l) * 0.35 or c >= pc or wyk > 0)
+                and (eff > 0 or wyk > 0 or w_i > 0)
+            )
+            is_local_top = (
+                h2 >= max(p2h, p3h) - (20.0 if is_win else 0.5)
+                and (c <= h - (h - l) * 0.35 or c <= pc or wyk < 0)
+                and (eff < 0 or wyk < 0 or w_i < 0)
+            )
+
+            if is_local_bottom:
+                best_p1 = None
+                for j in range(max(1, i - 16), i - 2):
+                    lj = float(today_bars[j]["low"])
+                    l_prev = float(today_bars[max(0, j - 1)]["low"])
+                    l_next = float(today_bars[min(i - 1, j + 1)]["low"])
+                    if lj <= l_prev and lj <= l_next:
+                        wj = min(
+                            float(today_bars[j].get("smart_swing_wave", 0.0)),
+                            float(today_bars[max(0, j - 1)].get("smart_swing_wave", 0.0)),
+                            float(today_bars[min(i - 1, j + 1)].get("smart_swing_wave", 0.0)),
+                        )
+                        if best_p1 is None or lj < best_p1["price"]:
+                            best_p1 = {"idx": j, "price": lj, "wave": wj, "sv": float(today_bars[j].get("sell_vol", 0.0))}
+                if best_p1 is not None:
+                    price_ok = (best_p1["price"] - max_ext) <= l2 <= (best_p1["price"] + p_tol)
+                    wave_ok = (w_low2 > best_p1["wave"] + max(1500.0 if is_win else 180.0, abs(best_p1["wave"]) * 0.18)) or (best_p1["wave"] < 0 and w_i > 0)
+                    sv_ok = (sv < best_p1["sv"] * 0.90) or (wyk > 0) or (abl >= asl)
+                    if price_ok and wave_ok and sv_ok and (i - last_bull > 6):
+                        sigs.append((i, 1))
+                        last_bull = i
+
+            if is_local_top:
+                best_t1 = None
+                for j in range(max(1, i - 16), i - 2):
+                    hj = float(today_bars[j]["high"])
+                    h_prev = float(today_bars[max(0, j - 1)]["high"])
+                    h_next = float(today_bars[min(i - 1, j + 1)]["high"])
+                    if hj >= h_prev and hj >= h_next:
+                        wj = max(
+                            float(today_bars[j].get("smart_swing_wave", 0.0)),
+                            float(today_bars[max(0, j - 1)].get("smart_swing_wave", 0.0)),
+                            float(today_bars[min(i - 1, j + 1)].get("smart_swing_wave", 0.0)),
+                        )
+                        if best_t1 is None or hj > best_t1["price"]:
+                            best_t1 = {"idx": j, "price": hj, "wave": wj, "bv": float(today_bars[j].get("buy_vol", 0.0))}
+                if best_t1 is not None:
+                    price_ok = (best_t1["price"] - p_tol) <= h2 <= (best_t1["price"] + max_ext)
+                    wave_ok = (w_high2 < best_t1["wave"] - max(1500.0 if is_win else 180.0, abs(best_t1["wave"]) * 0.18)) or (best_t1["wave"] > 0 and w_i < 0)
+                    bv_ok = (bv < best_t1["bv"] * 0.90) or (wyk < 0) or (asl >= abl)
+                    if price_ok and wave_ok and bv_ok and (i - last_bear > 6):
+                        sigs.append((i, -1))
+                        last_bear = i
+
+        return sigs
+
+    def _append_live_unified_divergence_signals(
+        self,
+        asset: str,
+        m5_enriched: list,
+        today_closed_bars: list,
+        signals_log: list,
+        is_live_session: bool,
+    ) -> None:
+        """
+        Anexa de forma aditiva (sem alterar os sinais EST_*/WDO_* do localhost:5174)
+        as operações Sniper F1➔F2 / T1➔T2 da Opção 2 para o localhost:5176 em pregões live (> last_bt_date):
+          - WIN_DIV_WALL (2 ct): Sniper F1➔F2/T1➔T2 (tol=2b, c/ sobreposição) + 09:05–16:45 (s/ 12h) + Meta Diária >= +R$ 180
+          - WDO_DIV_WALL (1 ct): Sniper F1➔F2/T1➔T2 (tol=2b, c/ sobreposição) + 09:00–17:00 (s/ 11h NY/PTAX) + Meta Diária >= +R$ 120
+        """
+        if not signals_log or not today_closed_bars:
+            return
+        is_win = asset.upper() == "WIN"
+        seen_keys = set()
+        today_only_bars = [eb for _, eb in today_closed_bars]
+        bar_idx_to_pos = {b_i: pos for pos, (b_i, _) in enumerate(today_closed_bars)}
+        vis_divs = self._detect_causal_visual_swing_divs(today_only_bars, is_win)
+
+        if not is_win:
+            allowed_wdo = {"WDO_01", "WDO_05", "WDO_07", "WDO_10"}
+            added = []
+            for idx_s, s in enumerate(sorted(signals_log, key=lambda x: x["bar_index"])):
+                if s.get("strategy_id") not in allowed_wdo or s.get("is_prev_day"):
+                    continue
+                t_str = str(s.get("time") or "")
+                if t_str < "09:00" or t_str > "17:00" or ("11:00" <= t_str <= "11:55"):
+                    continue
+                key = (t_str, s.get("direction"))
+                if key in seen_keys:
+                    continue
+                pos_in = bar_idx_to_pos.get(int(s["bar_index"]))
+                if pos_in is None:
+                    continue
+                s_dir = 1 if s.get("direction") == "COMPRA" else -1
+                # Versão B (auditoria 11/11/2026): entrada no fechamento da barra do sinal ⇒ divergência até essa barra,
+                # mesma janela do histórico (3 barras: entrada−3 … entrada−1).
+                if not any(sd == s_dir and (pos_in - 2) <= si <= pos_in for (si, sd) in vis_divs):
+                    continue
+                # Meta Causal de Gain Diário WDO (1 ct): >= +R$ 120,00 já encerrados até t_str
+                realized_wdo = sum(
+                    float(prev.get("brl_1c") or 0.0)
+                    for prev in added
+                    if prev.get("is_valid") is not None and str(prev.get("exit_time") or "23:59") < t_str
+                )
+                if realized_wdo >= 120.0:
+                    continue
+
+                seen_keys.add(key)
+                sc = dict(s)
+                is_closed = sc.get("is_valid") is not None and str(sc.get("validation_status", "")).upper() not in ("EM_ANDAMENTO", "ABERTA")
+                raw_pts = float(sc.get("realized_pts") or 0.0)
+                net_pts = round(raw_pts - (0.5 if is_closed else 0.0), 1)
+                sc["id"] = f"WDO_{t_str}_WDO_DIV_WALL_{idx_s}"
+                sc["strategy_id"] = "WDO_DIV_WALL"
+                sc["strategy_short"] = "WDO Div 1L MidWall"
+                sc["type"] = f"WDO Div 1L MidWall · {sc.get('direction')}"
+                sc["contracts"] = 1
+                sc["realized_pts"] = net_pts
+                sc["brl_1c"] = round(net_pts * 10.0, 2)
+                if is_closed:
+                    sc["is_valid"] = net_pts > 0
+                added.append(sc)
+            signals_log.extend(added)
+            signals_log.sort(key=lambda x: x["bar_index"])
+            return
+
+        # WIN_DIV_WALL: Sniper F1➔F2/T1➔T2 (tol=2b, c/ sobreposição) + Horário s/ 12h + Meta Diária >= +R$ 180 + 2 Lotes Mix
+        allowed_win = {"EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2"}
+        rnd5 = self._round_win5
+
+        def check_bar_3motor(b_idx_chk: int, s_dir_chk: int) -> bool:
+            if b_idx_chk < 0 or b_idx_chk >= len(m5_enriched):
+                return False
+            eb_c = m5_enriched[b_idx_chk]
+            o_i, h_i, l_i, c_i = float(eb_c["open"]), float(eb_c["high"]), float(eb_c["low"]), float(eb_c["close"])
+            wyk_i = float(eb_c.get("wyckoff_abs_bar", 0.0))
+            urg_i = float(eb_c.get("lot_urgency_bar", 0.0))
+            eff_i = float(eb_c.get("effective_force_bar", 0.0))
+            imp3_i = float(eb_c.get("swing_impulse_3b", 0.0))
+            w_i = float(eb_c.get("smart_swing_wave", 0.0))
+            bull_sw = bool((eb_c.get("swing_divergence") or {}).get("type") == "BULL_DIV")
+            bear_sw = bool((eb_c.get("swing_divergence") or {}).get("type") == "BEAR_DIV")
+            if b_idx_chk >= 3:
+                l_2b = min(l_i, float(m5_enriched[b_idx_chk - 1]["low"]))
+                h_2b = max(h_i, float(m5_enriched[b_idx_chk - 1]["high"]))
+                w_low_2 = min(w_i, float(m5_enriched[b_idx_chk - 1].get("smart_swing_wave", w_i)))
+                w_high_2 = max(w_i, float(m5_enriched[b_idx_chk - 1].get("smart_swing_wave", w_i)))
+                for k_b in range(b_idx_chk - 2, max(0, b_idx_chk - 16), -1):
+                    kb = m5_enriched[k_b]
+                    if kb.get("is_prev_day"):
+                        continue
+                    l_k, h_k = float(kb["low"]), float(kb["high"])
+                    w_k = float(kb.get("smart_swing_wave", 0.0))
+                    sv_i = float(eb_c.get("sell_vol", 0.0)) + float(m5_enriched[b_idx_chk - 1].get("sell_vol", 0.0))
+                    sv_k = float(kb.get("sell_vol", 0.0)) + float(m5_enriched[max(0, k_b - 1)].get("sell_vol", 0.0))
+                    bv_i = float(eb_c.get("buy_vol", 0.0)) + float(m5_enriched[b_idx_chk - 1].get("buy_vol", 0.0))
+                    bv_k = float(kb.get("buy_vol", 0.0)) + float(m5_enriched[max(0, k_b - 1)].get("buy_vol", 0.0))
+                    if (-380.0 <= (l_2b - l_k) <= 50.0) and (max(w_i, w_low_2) > w_k + 1200 or sv_i < 0.85 * sv_k or wyk_i > 0):
+                        bull_sw = True
+                    if (-50.0 <= (h_2b - h_k) <= 380.0) and (min(w_i, w_high_2) < w_k - 1200 or bv_i < 0.85 * bv_k or wyk_i < 0):
+                        bear_sw = True
+            dp3 = c_i - float(m5_enriched[max(0, b_idx_chk - 3)]["close"])
+            if s_dir_chk > 0:
+                return (
+                    (bull_sw and (eff_i > 0 or wyk_i > 0 or imp3_i > 0 or urg_i > 0))
+                    or ((dp3 <= 30.0 or c_i <= o_i) and (wyk_i > 0 or eff_i > 0 or imp3_i > 0))
+                    or (eff_i > 0 and imp3_i > 0 and wyk_i >= -800)
+                )
+            return (
+                (bear_sw and (eff_i < 0 or wyk_i < 0 or imp3_i < 0 or urg_i < 0))
+                or ((dp3 >= -30.0 or c_i >= o_i) and (wyk_i < 0 or eff_i < 0 or imp3_i < 0))
+                or (eff_i < 0 and imp3_i < 0 and wyk_i <= 800)
+            )
+
+        def causal_nwe30_tp1(ep_v: float, s_dir_v: int, bar_i: int) -> float:
+            if bar_i <= 0 and m5_enriched:
+                eb0 = m5_enriched[0]
+                prev_k = "nwe30_prev_upper" if s_dir_v > 0 else "nwe30_prev_lower"
+                cur_k = "nwe30_upper" if s_dir_v > 0 else "nwe30_lower"
+                opp30 = float(eb0.get(prev_k, eb0.get(cur_k, ep_v + s_dir_v * 400.0)))
+            else:
+                ref_i = max(0, bar_i - 1)
+                eb_r = m5_enriched[ref_i]
+                opp30 = float(eb_r.get("nwe30_upper" if s_dir_v > 0 else "nwe30_lower", ep_v + s_dir_v * 400.0))
+            raw_p = opp30 - s_dir_v * 15.0
+            clip_p = np.clip(raw_p, ep_v + 260.0, ep_v + 750.0) if s_dir_v > 0 else np.clip(raw_p, ep_v - 750.0, ep_v - 260.0)
+            return rnd5(float(clip_p))
+
+        added_win = []
+        for idx_s, s in enumerate(sorted(signals_log, key=lambda x: x["bar_index"])):
+            if s.get("strategy_id") not in allowed_win or s.get("is_prev_day"):
+                continue
+            t_str = str(s.get("time") or "")
+            if t_str < "09:05" or t_str > "16:45" or ("12:00" <= t_str <= "12:55"):
+                continue
+            key = (t_str, s.get("direction"))
+            if key in seen_keys:
+                continue
+            b_idx = int(s["bar_index"])
+            pos_in = bar_idx_to_pos.get(b_idx)
+            if pos_in is None:
+                continue
+            s_dir = 1 if s.get("direction") == "COMPRA" else -1
+            # Versão B (auditoria 11/11/2026): 3 motores só na barra do sinal (= barra anterior à entrada) e
+            # divergência na mesma janela do histórico (entrada−3 … entrada−1).
+            if not check_bar_3motor(b_idx, s_dir):
+                continue
+            if not any(sd == s_dir and (pos_in - 2) <= si <= pos_in for (si, sd) in vis_divs):
+                continue
+            # Meta Causal de Gain Diário WIN (2 ct): >= +R$ 180,00 já encerrados até t_str
+            realized_win = sum(
+                float(prev.get("brl_1c") or 0.0)
+                for prev in added_win
+                if prev.get("is_valid") is not None and str(prev.get("exit_time") or "23:59") < t_str
+            )
+            if realized_win >= 180.0:
+                continue
+            seen_keys.add(key)
+
+            ep = float(s.get("entry_price") or m5_enriched[b_idx]["close"])
+            tp1_px = causal_nwe30_tp1(ep, s_dir, b_idx)
+            tp2_px = rnd5(ep + s_dir * 750.0)
+            sl1_init = rnd5(ep - s_dir * 240.0)
+            sl2_init = rnd5(ep - s_dir * 260.0)
+            sl1_px, sl2_px = sl1_init, sl2_init
+
+            leg1_open, leg2_open = True, True
+            be1_on, be2_on = False, False
+            mfe = 0.0
+            xp1, xp2 = ep, ep
+            ex_idx = b_idx
+            rsn1, rsn2 = "ABERTA", "ABERTA"
+
+            for step_k, (f_idx, fb) in enumerate(today_closed_bars[pos_in + 1 :], start=1):
+                bh, bl, bc, bo = float(fb["high"]), float(fb["low"]), float(fb["close"]), float(fb["open"])
+                if fb["time"] >= "17:25":
+                    if leg1_open:
+                        xp1, leg1_open, rsn1 = bo, False, "EOD"
+                    if leg2_open:
+                        xp2, leg2_open, rsn2 = bo, False, "EOD"
+                    ex_idx = f_idx
+                    break
+
+                if leg1_open:
+                    tp1_px = causal_nwe30_tp1(ep, s_dir, f_idx)
+                    if (s_dir == 1 and bl <= sl1_px) or (s_dir == -1 and bh >= sl1_px):
+                        xp1, leg1_open, rsn1, ex_idx = sl1_px, False, ("BE" if be1_on else "SL"), f_idx
+                    elif s_dir == 1 and bh >= tp1_px:
+                        xp1, leg1_open, rsn1, ex_idx = (bo if bo >= tp1_px else tp1_px), False, "TP1", f_idx
+                    elif s_dir == -1 and bl <= tp1_px:
+                        xp1, leg1_open, rsn1, ex_idx = (bo if bo <= tp1_px else tp1_px), False, "TP1", f_idx
+
+                if leg2_open:
+                    if (s_dir == 1 and bl <= sl2_px) or (s_dir == -1 and bh >= sl2_px):
+                        xp2, leg2_open, rsn2, ex_idx = sl2_px, False, ("BE" if be2_on else "SL"), f_idx
+                    elif (s_dir == 1 and bh >= tp2_px) or (s_dir == -1 and bl <= tp2_px):
+                        xp2, leg2_open, rsn2, ex_idx = tp2_px, False, "TP2", f_idx
+
+                fav = (bh - ep) if s_dir == 1 else (ep - bl)
+                if fav > mfe:
+                    mfe = fav
+
+                next_pos = pos_in + 1 + step_k
+                if mfe >= 180.0 and next_pos < len(today_closed_bars):
+                    no = float(today_closed_bars[next_pos][1]["open"])
+                    cand = ep + s_dir * 20.0
+                    if leg1_open and not be1_on and ((s_dir == 1 and cand > sl1_px and no > cand) or (s_dir == -1 and cand < sl1_px and no < cand)):
+                        sl1_px, be1_on = cand, True
+                    if leg2_open and not be2_on and ((s_dir == 1 and cand > sl2_px and no > cand) or (s_dir == -1 and cand < sl2_px and no < cand)):
+                        sl2_px, be2_on = cand, True
+
+                if step_k >= 24:
+                    if leg1_open:
+                        xp1, leg1_open, rsn1 = bc, False, "TEMPO"
+                    if leg2_open:
+                        xp2, leg2_open, rsn2 = bc, False, "TEMPO"
+                    ex_idx = f_idx
+                    break
+                if not leg1_open and not leg2_open:
+                    break
+
+            last_c = float(m5_enriched[-1]["close"])
+            if (leg1_open or leg2_open) and is_live_session:
+                cur_xp1 = last_c if leg1_open else xp1
+                cur_xp2 = last_c if leg2_open else xp2
+                pts1 = round((cur_xp1 - ep) * s_dir - (0.0 if leg1_open else 10.0), 1)
+                pts2 = round((cur_xp2 - ep) * s_dir - (0.0 if leg2_open else 10.0), 1)
+                tot_pts = round(pts1 + pts2, 1)
+                tot_brl = round(tot_pts * 0.20, 2)
+                val_st = "EM_ANDAMENTO"
+                is_val = None
+                ex_idx = today_closed_bars[-1][0]
+                lbl = f"⏳ EM ABERTO 2L ({tot_pts:+.0f}p · R$ {tot_brl:+.0f})"
+                ex_px = round(0.5 * (cur_xp1 + cur_xp2), 1)
+            else:
+                if leg1_open:
+                    xp1 = float(today_closed_bars[-1][1]["close"])
+                if leg2_open:
+                    xp2 = float(today_closed_bars[-1][1]["close"])
+                pts1 = round((xp1 - ep) * s_dir - 10.0, 1)
+                pts2 = round((xp2 - ep) * s_dir - 10.0, 1)
+                tot_pts = round(pts1 + pts2, 1)
+                tot_brl = round(tot_pts * 0.20, 2)
+                is_val = tot_pts > 0
+                val_st = "VALIDO_ALVO" if (rsn1 == "TP1" and is_val) else ("VALIDO_FAVORAVEL" if is_val else "INVALIDO_STOP")
+                if rsn1 == "TP1" and rsn2 == "TP2":
+                    lbl = f"✅ ALVO DUPLO NWE30+750 ({tot_pts:+.0f}p · R$ {tot_brl:+.0f})"
+                elif rsn1 == "TP1" and is_val:
+                    lbl = f"✅ ALVO TP1 NWE30 + {rsn2} ({tot_pts:+.0f}p · R$ {tot_brl:+.0f})"
+                elif is_val and (be1_on or be2_on):
+                    lbl = f"🛡️ PROTEÇÃO BE ZERO ({tot_pts:+.0f}p · R$ {tot_brl:+.0f})"
+                elif is_val:
+                    lbl = f"✅ A FAVOR ({tot_pts:+.0f}p · R$ {tot_brl:+.0f})"
+                else:
+                    lbl = f"❌ STOP ({tot_pts:+.0f}p · R$ {tot_brl:+.0f})"
+                ex_px = round(0.5 * (xp1 + xp2), 1)
+
+            sc = dict(s)
+            sc.update({
+                "id": f"WIN_{s.get('time')}_WIN_DIV_WALL_{idx_s}",
+                "strategy_id": "WIN_DIV_WALL",
+                "strategy_short": "WIN Div 2L Mix",
+                "type": f"WIN Div 2L Mix · {s.get('direction')}",
+                "entry_price": round(ep, 2),
+                "exit_bar_index": ex_idx,
+                "exit_time": m5_enriched[min(len(m5_enriched) - 1, ex_idx)].get("time", s.get("time")),
+                "exit_price": ex_px,
+                "exit_reason": "ABERTA" if val_st == "EM_ANDAMENTO" else ("TP" if is_val else "SL"),
+                "stop_price": round(sl2_init, 2),
+                "sl1_price": round(sl1_init, 2),
+                "tp_price": round(tp2_px, 2),
+                "tp1_price": round(tp1_px, 2),
+                "tp_tag": "TP2 (+750)",
+                "contracts": 2,
+                "pts_l1": pts1,
+                "pts_l2": pts2,
+                "be_triggered": bool(be1_on or be2_on),
+                "be_trigger_price": round(ep + s_dir * 180.0, 2),
+                "be_stop_price": round(ep + s_dir * 20.0, 2),
+                "reason": f"WIN Div 2L Mix (NWE30 Din + 750p) · {lbl}",
+                "pnl_5m": tot_pts,
+                "pnl_15m": tot_pts,
+                "pnl_30m": tot_pts,
+                "realized_pts": tot_pts,
+                "brl_1c": tot_brl,
+                "validation_status": val_st,
+                "validation_label": lbl,
+                "is_valid": is_val,
+            })
+            added_win.append(sc)
+
+        signals_log.extend(added_win)
+        signals_log.sort(key=lambda x: x["bar_index"])
+
     def _build_asg_hud(
         self,
         asset: str,
@@ -3251,8 +3758,8 @@ class GexLiveDealerEngine:
                         raw = json.load(f)
                     summary_1c = raw.get("summary_1c", {})
                     strat_ids = [
-                        "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2",
-                        "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2",
+                        "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2", "WIN_DIV_WALL",
+                        "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2", "WDO_DIV_WALL",
                     ]
                     stats_acc = {
                         k: {"wins": 0, "ops": 0, "gross_win_1c": 0.0, "gross_loss_1c": 0.0}
@@ -3289,7 +3796,12 @@ class GexLiveDealerEngine:
                                 "direction": tr.get("direction", ""),
                                 "entry_price": tr.get("entry_price", 0),
                                 "exit_price": tr.get("exit_price", 0),
+                                "tp_price": tr.get("tp_price"),
+                                "tp1_price": tr.get("tp1_price"),
+                                "stop_price": tr.get("stop_price"),
                                 "pts": tr.get("pts", 0),
+                                "pts_l1": tr.get("pts_l1"),
+                                "pts_l2": tr.get("pts_l2"),
                                 "brl_1c": tr.get("brl_1c", 0),
                                 "contracts": tr.get("contracts", 1),
                                 "label": tr.get("label", ""),
@@ -3318,6 +3830,27 @@ class GexLiveDealerEngine:
                     self._portfolio_4_base = None
             except Exception:
                 self._portfolio_4_base = None
+
+    def _get_setup_trades(self, sess_date: str, asset: str, is_live_session: bool) -> list:
+        """
+        Trades dos setups registrados pelo runner único (`core/setups_live.py` → `core/setups_runner.py`).
+        Dias passados: idêntico ao BT. Pregão corrente: mesmo código com corte na última barra M5 fechada.
+        Em erro, devolve lista vazia (nunca cai na reimplementação antiga) e registra em `setups_live.LAST_STATUS`.
+        O Sniper legado (WIN/WDO_DIV_WALL) dos dias passados continua vindo do JSON auditado.
+        """
+        from core import setups_live
+
+        try:
+            trades = setups_live.trades_for(str(sess_date), asset, is_live_session)
+        except Exception as exc:  # noqa: BLE001
+            setups_live.LAST_STATUS["error"] = f"{sess_date} {asset}: {exc!r}"
+            print(f"[setups_live] {sess_date} {asset}: {exc!r}")
+            trades = []
+        if not is_live_session:
+            legacy = [t for t in self._get_portfolio_6_cached_trades(sess_date, asset)
+                      if t.get("strategy_id") in ("WIN_DIV_WALL", "WDO_DIV_WALL")]
+            trades = trades + legacy
+        return trades
 
     def _get_portfolio_6_cached_trades(self, sess_date: str, asset: str) -> list:
         """Retorna os trades auditados das 6 estratégias c/ filtro de fluxo para uma data e ativo."""
@@ -3357,13 +3890,18 @@ class GexLiveDealerEngine:
         sel_date = str(snap.get("selected_date") or latest_sess_date)
         is_hist = bool(snap.get("is_historical", False))
         strat_ids = (
-            "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2",
-            "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2",
+            "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2", "WIN_DIV_WALL",
+            "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2", "WDO_DIV_WALL",
         )
 
-        # Limpa registros legados (pré-6 estratégias ou <= last_bt_date)
+        # Limpa registros legados (pré-Sniper v2, sem WIN_DIV_WALL ou <= last_bt_date)
         for k_old in list(self._live_days_map.keys()):
-            if k_old <= last_bt_date or "EST_01_pts" not in self._live_days_map[k_old]:
+            if (
+                k_old <= last_bt_date
+                or "EST_01_pts" not in self._live_days_map[k_old]
+                or "WIN_DIV_WALL_pts" not in self._live_days_map[k_old]
+                or not self._live_days_map[k_old].get("sniper_v2")
+            ):
                 del self._live_days_map[k_old]
 
         # Se o snapshot atual é de um pregão real pós-backtest (> last_bt_date), atualiza os sinais live desse dia
@@ -3372,6 +3910,7 @@ class GexLiveDealerEngine:
                 "date": sel_date,
                 "month": sel_date[:7],
                 "is_live": True,
+                "sniper_v2": True,
                 "trades": [],
                 "open_trades": [],
             }
@@ -3406,8 +3945,14 @@ class GexLiveDealerEngine:
                             "type": s.get("type", ""),
                             "entry_price": s.get("entry_price", 0.0),
                             "exit_price": s.get("exit_price", 0.0),
+                            "tp_price": s.get("tp_price"),
+                            "tp1_price": s.get("tp1_price"),
+                            "stop_price": s.get("stop_price"),
                             "pts": round(pts, 2),
-                            "brl_1c": round(pts * mult_1c, 2),
+                            "pts_l1": s.get("pts_l1"),
+                            "pts_l2": s.get("pts_l2"),
+                            "brl_1c": round(float(s.get("brl_1c", pts * mult_1c)), 2),
+                            "contracts": int(s.get("contracts", 2 if sid == "WIN_DIV_WALL" else 1)),
                             "label": s.get("validation_label") or s.get("outcome_label", ""),
                             "status": "FECHADA",
                         })
@@ -3423,8 +3968,10 @@ class GexLiveDealerEngine:
                             "entry_price": s.get("entry_price", 0.0),
                             "stop_price": s.get("stop_price", 0.0),
                             "tp_price": s.get("tp_price", 0.0),
+                            "tp1_price": s.get("tp1_price"),
                             "pts": round(unr, 2),
-                            "brl_1c": round(unr * mult_1c, 2),
+                            "brl_1c": round(float(s.get("brl_1c", unr * mult_1c)), 2),
+                            "contracts": int(s.get("contracts", 2 if sid == "WIN_DIV_WALL" else 1)),
                             "label": s.get("validation_label") or s.get("outcome_label", "⏳ EM ABERTO"),
                             "status": "ABERTA",
                         })
@@ -3459,6 +4006,355 @@ class GexLiveDealerEngine:
             "summary_1c": self._portfolio_4_base["summary_1c"],
             "days": days_out + live_days_sorted,
             "live_days": live_days_sorted,
+        }
+
+    def build_m1_asset_series(self, asset: str, sess_date: str = None) -> dict:
+        """
+        Reconstrói e enriquece a série intradiária de 1 Minuto (M1) para `WIN` ou `WDO`
+        usando o índice nativo `.min` M1 do Profit (`decompose_min_bars`) com fallback para MT5 M1,
+        incluindo:
+          - Envelope NWE causal com warm-up do dia anterior (D-1)
+          - Janela de Fluxo Smart Money Unificada (V5b · 0% Preço)
+          - Onda de Fluxo Smart Money 3-Motores (`smart_swing_wave`) para divergências F1➔F2 / T1➔T2 em M1
+        """
+        if not hasattr(self, "_m1_series_cache"):
+            self._m1_series_cache = {}
+
+        is_win = asset.upper() == "WIN"
+        asset_up = "WIN" if is_win else "WDO"
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        from core.profit_wall_players_engine import _load_profit_min_index
+        from core.profit_min_decomp import decompose_min_bars
+
+        idx_map = _load_profit_min_index(asset_up)
+        m1_dates = sorted(d for d, r in idx_map.items() if r.get("m1") is not None)
+
+        target_date = (sess_date or "").strip()
+        if not target_date:
+            target_date = m1_dates[-1] if m1_dates else today_str
+
+        is_live_day = (target_date == today_str)
+        cache_key = (asset_up, target_date)
+        if not is_live_day and cache_key in self._m1_series_cache:
+            return self._m1_series_cache[cache_key]
+
+        raw_bars = []
+        rec = idx_map.get(target_date)
+        if rec is not None and rec.get("m1") is not None:
+            try:
+                raw_bars = decompose_min_bars(rec["m1"], asset_up, target_date)
+            except Exception:
+                raw_bars = []
+
+        # Fallback MT5 M1 para sessão ao vivo ou data ainda não consolidada no .min
+        if len(raw_bars) < 10:
+            try:
+                import MetaTrader5 as mt5
+                from core.mt5_client import mt5_lock, connect_mt5
+                dt_base = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                dt_start = dt_base.replace(hour=9, minute=0, second=0, microsecond=0)
+                dt_end = dt_base.replace(hour=18, minute=35, second=0, microsecond=0)
+                cont_sym = "WIN$N" if is_win else "WDO$N"
+                with mt5_lock:
+                    connect_mt5()
+                    if mt5.terminal_info() is not None:
+                        mt5.symbol_select(cont_sym, True)
+                        rates = mt5.copy_rates_range(cont_sym, mt5.TIMEFRAME_M1, dt_start, dt_end)
+                    else:
+                        rates = None
+                if rates is not None and len(rates) > 0:
+                    tick_sz = 5.0 if is_win else 0.5
+                    def_lot = 3.1 if is_win else 4.0
+                    for r in rates:
+                        rt = int(r["time"])
+                        ro, rh, rl, rc = float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])
+                        rv = float(r["real_volume"]) if r["real_volume"] > 0 else float(r["tick_volume"]) * (15.0 if is_win else 6.0)
+                        rng_r = max(rh - rl, tick_sz)
+                        buy_frac = max(0.15, min(0.85, 0.5 + 0.42 * ((rc - ro) / rng_r)))
+                        bq_r = max(1.0, round(rv * buy_frac))
+                        sq_r = max(1.0, round(rv * (1.0 - buy_frac)))
+                        lwr = max(0.0, min(ro, rc) - rl) / rng_r
+                        uwr = max(0.0, rh - max(ro, rc)) / rng_r
+                        ia_r = (bq_r - sq_r) * (0.52 if is_win else 0.64)
+                        ip_r = (sq_r * (0.28 + 0.42 * lwr) - bq_r * (0.28 + 0.42 * uwr)) * 0.24
+                        rd_r = (bq_r - sq_r) * (0.16 if is_win else 0.12)
+                        raw_bars.append({
+                            "ts": rt,
+                            "time": datetime.fromtimestamp(rt, tz=timezone.utc).strftime("%H:%M"),
+                            "open": ro, "high": rh, "low": rl, "close": rc,
+                            "buy_vol": bq_r, "sell_vol": sq_r,
+                            "avg_buy_lot": def_lot, "avg_sell_lot": def_lot,
+                            "inst_aggr_delta": ia_r, "inst_pass_delta": ip_r, "ret_delta_bar": rd_r,
+                        })
+            except Exception:
+                pass
+
+        if not raw_bars and m1_dates:
+            target_date = m1_dates[-1]
+            rec = idx_map.get(target_date)
+            if rec is not None and rec.get("m1") is not None:
+                raw_bars = decompose_min_bars(rec["m1"], asset_up, target_date)
+
+        if not raw_bars:
+            return {"ok": False, "date": target_date, "m1_series": [], "flow_windows": []}
+
+        # Warm-up de barras M1 do pregão anterior (D-1) do mesmo contrato para NWE causal desde 09:00
+        prev_dates = [d for d in m1_dates if d < target_date]
+        warmup_closes = []
+        if prev_dates:
+            prev_rec = idx_map.get(prev_dates[-1])
+            if prev_rec is not None and prev_rec.get("m1") is not None:
+                try:
+                    prev_bars = decompose_min_bars(prev_rec["m1"], asset_up, prev_dates[-1])
+                    if prev_bars and abs(float(prev_bars[-1]["close"]) - float(raw_bars[0]["open"])) <= (3500.0 if is_win else 80.0):
+                        warmup_closes = [float(pb["close"]) for pb in prev_bars[-200:]]
+                except Exception:
+                    warmup_closes = []
+
+        w_len = len(warmup_closes)
+        today_closes = np.array([float(b["close"]) for b in raw_bars], dtype=float)
+        closes_all = np.concatenate([np.array(warmup_closes, dtype=float), today_closes]) if w_len > 0 else today_closes
+
+        # NWE principal (5174) e NWE30 (5176) calibradas para M1
+        nwe_c_all, nwe_u_all, nwe_l_all, nwe_mae_all, nwe_s_all = self._compute_mt5_nwe_series(closes_all, 100, 8.0, 1.8)
+        n30_c_all, n30_u_all, n30_l_all, _, n30_s_all = self._compute_mt5_nwe_series(closes_all, 90, 5.0, 1.6)
+        nwe_c = nwe_c_all[w_len:]
+        nwe_u = nwe_u_all[w_len:]
+        nwe_l = nwe_l_all[w_len:]
+        nwe_mae = nwe_mae_all[w_len:]
+        nwe_s = nwe_s_all[w_len:]
+        n30_c = n30_c_all[w_len:]
+        n30_u = n30_u_all[w_len:]
+        n30_l = n30_l_all[w_len:]
+        n30_s = n30_s_all[w_len:]
+
+        # Parâmetros da Fórmula Unificada Smart Money (V5b) em M1:
+        fast_p = 12.0
+        slow_p = 60.0
+        alpha_fast = 2.0 / (fast_p + 1.0)
+        alpha_slow = 2.0 / (slow_p + 1.0)
+        alpha_band = 2.0 / (21.0 + 1.0)
+        smooth_a = 0.35 if is_win else 0.45
+        flip_thr = 11.0
+        tick_sz = 5.0 if is_win else 0.5
+        def_lot = 3.1 if is_win else 4.0
+
+        cum_iagg = 0.0
+        cum_ipas = 0.0
+        cum_ret = 0.0
+        cum_sm_win = 0.0
+        prev_cum_sm_win = 0.0
+        ema_cvd_f = 0.0
+        ema_cvd_s = 0.0
+        ema_cvd_step = 800.0 if is_win else 130.0
+        ema_hist = 0.0
+        active_win_dir = 0
+        curr_window = None
+        sm_win_forces = []
+
+        # Onda 3-Motores (5176) em M1
+        cum_eff_3m = 0.0
+        ema_eff_f3 = 0.0
+        ema_eff_s3 = 0.0
+        alpha_f3 = 2.0 / (9.0 + 1.0)
+        alpha_s3 = 2.0 / (30.0 + 1.0)
+        forces_3m = []
+
+        m1_enriched = []
+        flow_windows = []
+
+        for idx, b in enumerate(raw_bars):
+            t_str = str(b.get("time", ""))
+            o = float(b["open"])
+            h = float(b["high"])
+            l = float(b["low"])
+            c = float(b["close"])
+            rng = max(h - l, tick_sz)
+            bv = float(b.get("buy_vol", 0.0))
+            sv = float(b.get("sell_vol", 0.0))
+            tv = max(1.0, bv + sv)
+            ab = float(b.get("avg_buy_lot", def_lot))
+            as_l = float(b.get("avg_sell_lot", def_lot))
+            ia = float(b.get("inst_aggr_delta", 0.0))
+            ip = float(b.get("inst_pass_delta", 0.0))
+            rd = float(b.get("ret_delta_bar", 0.0))
+            delta_b = bv - sv
+
+            prev_cvd = round(cum_iagg, 0)
+            cum_iagg += ia
+            cum_ipas += ip
+            cum_ret += rd
+            cvd = round(cum_iagg, 0)
+
+            lw = max(0.0, min(o, c) - l)
+            uw = max(0.0, h - max(o, c))
+            phi_wyk = (
+                sv * ((c - l) / rng) * (0.80 + 1.40 * (lw / rng))
+                - bv * ((h - c) / rng) * (0.80 + 1.40 * (uw / rng))
+            )
+            phi_port = tv * ((ab - as_l) / max(0.5, ab + as_l)) * 2.2
+
+            # 1) Janela de Fluxo Smart Money Unificada (V5b)
+            phi_inst_v5 = 0.90 * ia + 0.75 * ip - 0.25 * rd
+            bf_v5 = 0.12 * phi_wyk + 0.18 * phi_port + 0.70 * phi_inst_v5
+            sm_win_forces.append(bf_v5)
+            n_f = len(sm_win_forces)
+            fp1 = sm_win_forces[n_f - 2] if n_f >= 2 else bf_v5
+            fp2 = sm_win_forces[n_f - 3] if n_f >= 3 else fp1
+            imp3_v5 = 0.45 * bf_v5 + 0.35 * fp1 + 0.20 * fp2
+
+            cum_sm_win += bf_v5
+            if idx == 0:
+                ema_cvd_f = cum_sm_win
+                ema_cvd_s = cum_sm_win
+                prev_cum_sm_win = 0.0
+            else:
+                ema_cvd_f = alpha_fast * cum_sm_win + (1.0 - alpha_fast) * ema_cvd_f
+                ema_cvd_s = alpha_slow * cum_sm_win + (1.0 - alpha_slow) * ema_cvd_s
+
+            sw_v5 = 0.92 * (ema_cvd_f - ema_cvd_s) + 0.08 * imp3_v5
+            ema_cvd_step = alpha_band * max(abs(cum_sm_win - prev_cum_sm_win), 180.0 if is_win else 35.0) + (1.0 - alpha_band) * ema_cvd_step
+            prev_cum_sm_win = cum_sm_win
+
+            raw_score = float(np.clip((sw_v5 / max(1.0, ema_cvd_step * 2.2)) * 55.0, -100.0, 100.0))
+            ema_hist = smooth_a * raw_score + (1.0 - smooth_a) * ema_hist
+            hist_val = round(float(np.clip(ema_hist, -100.0, 100.0)), 1)
+
+            if active_win_dir == 0:
+                active_win_dir = 1 if (hist_val >= 4.0 or (bf_v5 >= 0.0 and c >= o)) else -1
+            elif active_win_dir == 1 and hist_val <= -flip_thr:
+                active_win_dir = -1
+            elif active_win_dir == -1 and hist_val >= flip_thr:
+                active_win_dir = 1
+
+            is_win_start = False
+            if curr_window is None or curr_window["dir"] != active_win_dir:
+                is_win_start = True
+                if curr_window is not None and idx > 0:
+                    curr_window["end_idx"] = idx - 1
+                    curr_window["end_time"] = m1_enriched[idx - 1]["time"]
+                    curr_window["end_price"] = m1_enriched[idx - 1]["close"]
+                    curr_window["net_pts"] = round(
+                        curr_window["dir"] * (curr_window["end_price"] - curr_window["entry_price"]), 1
+                    )
+                    flow_windows.append(curr_window)
+                curr_window = {
+                    "id": f"M1_WIN_{idx}_{t_str}",
+                    "dir": active_win_dir,
+                    "label": "JANELA DE COMPRA" if active_win_dir > 0 else "JANELA DE VENDA",
+                    "start_idx": idx,
+                    "start_time": t_str,
+                    "entry_price": round(c, 2),
+                    "max_favor_pts": 0.0,
+                    "end_idx": idx,
+                    "end_time": t_str,
+                    "end_price": round(c, 2),
+                    "net_pts": 0.0,
+                }
+            else:
+                curr_window["end_idx"] = idx
+                curr_window["end_time"] = t_str
+                curr_window["end_price"] = round(c, 2)
+                curr_window["net_pts"] = round(
+                    curr_window["dir"] * (round(c, 2) - curr_window["entry_price"]), 1
+                )
+                fav_now = (round(h, 2) - curr_window["entry_price"]) if active_win_dir > 0 else (curr_window["entry_price"] - round(l, 2))
+                if fav_now > curr_window["max_favor_pts"]:
+                    curr_window["max_favor_pts"] = round(fav_now, 1)
+
+            # 2) Onda Smart Money 3-Motores (5176) em M1
+            phi_inst_3m = round(0.55 * ia + 1.15 * ip - 0.85 * rd, 0)
+            bf_3m = round(0.45 * phi_wyk + 0.25 * phi_port + 0.30 * phi_inst_3m, 0)
+            forces_3m.append(bf_3m)
+            f3_p1 = forces_3m[idx - 1] if idx >= 1 else bf_3m
+            f3_p2 = forces_3m[idx - 2] if idx >= 2 else f3_p1
+            imp3_3m = round(0.45 * bf_3m + 0.35 * f3_p1 + 0.20 * f3_p2, 0)
+            cum_eff_3m += bf_3m
+            if idx == 0:
+                ema_eff_f3 = cum_eff_3m
+                ema_eff_s3 = cum_eff_3m
+            else:
+                ema_eff_f3 = alpha_f3 * cum_eff_3m + (1.0 - alpha_f3) * ema_eff_f3
+                ema_eff_s3 = alpha_s3 * cum_eff_3m + (1.0 - alpha_s3) * ema_eff_s3
+            smart_wave_m1 = round((0.68 * (ema_eff_f3 - ema_eff_s3) + 0.32 * imp3_3m) * 2.2, 0)
+
+            candle_state = (1 if c >= o else 0) if active_win_dir == 1 else (-1 if c <= o else 0)
+
+            m1_enriched.append({
+                "time": t_str,
+                "ts": int(b.get("ts", 0)),
+                "is_prev_day": False,
+                "open": round(o, 2),
+                "high": round(h, 2),
+                "low": round(l, 2),
+                "close": round(c, 2),
+                "buy_vol": round(bv, 0),
+                "sell_vol": round(sv, 0),
+                "avg_buy_lot": round(ab, 2),
+                "avg_sell_lot": round(as_l, 2),
+                "lot_imb": round(ab / max(0.1, as_l), 2),
+                "delta_bar": round(delta_b, 0),
+                "inst_delta_bar": round(ia, 0),
+                "inst_aggr_delta": round(ia, 0),
+                "inst_pass_delta": round(ip, 0),
+                "ret_delta_bar": round(rd, 0),
+                "hft_delta_bar": 0.0,
+                "rlp_delta_bar": round(-rd * 0.42, 0),
+                "cvd_total": round(cum_iagg + cum_ret, 0),
+                "cvd_inst": cvd,
+                "cvd_inst_aggr": cvd,
+                "cvd_inst_pass": round(cum_ipas, 0),
+                "cvd_retail": round(cum_ret, 0),
+                "cvd_hft": 0.0,
+                "cvd_rlp_delta": round(-cum_ret * 0.42, 0),
+                "flow_open": prev_cvd,
+                "flow_close": cvd,
+                "flow_hist": hist_val,
+                "window_dir": active_win_dir,
+                "window_entry_price": curr_window["entry_price"],
+                "is_window_start": is_win_start,
+                "candle_state": candle_state,
+                "nwe_line": round(float(nwe_c[idx]), 2),
+                "nwe_mae": round(float(nwe_mae[idx]), 2),
+                "nwe_upper": round(float(nwe_u[idx]), 2),
+                "nwe_lower": round(float(nwe_l[idx]), 2),
+                "nwe_is_up": bool(float(nwe_s[idx]) >= 0),
+                "nwe30_line": round(float(n30_c[idx]), 2),
+                "nwe30_upper": round(float(n30_u[idx]), 2),
+                "nwe30_lower": round(float(n30_l[idx]), 2),
+                "nwe30_is_up": bool(float(n30_s[idx]) >= 0),
+                "wyckoff_abs_bar": round(phi_wyk, 0),
+                "lot_urgency_bar": round(phi_port, 0),
+                "smart_inst_bar": phi_inst_3m,
+                "effective_force_bar": bf_3m,
+                "swing_impulse_3b": imp3_3m,
+                "smart_swing_wave": smart_wave_m1,
+            })
+
+        if curr_window is not None:
+            flow_windows.append(curr_window)
+
+        res = {
+            "ok": True,
+            "asset": asset_up,
+            "date": target_date,
+            "bars_count": len(m1_enriched),
+            "m1_series": m1_enriched,
+            "flow_windows": flow_windows,
+        }
+        if not is_live_day and len(m1_enriched) >= 200:
+            self._m1_series_cache[cache_key] = res
+        return res
+
+    def get_m1_chart_payload(self, sess_date: str = None) -> dict:
+        win_m1 = self.build_m1_asset_series("WIN", sess_date)
+        wdo_m1 = self.build_m1_asset_series("WDO", win_m1.get("date") or sess_date)
+        return {
+            "ok": True,
+            "date": win_m1.get("date") or wdo_m1.get("date") or sess_date,
+            "WIN": win_m1,
+            "WDO": wdo_m1,
         }
 
 

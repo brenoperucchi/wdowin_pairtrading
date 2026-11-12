@@ -226,6 +226,10 @@ def compute_rsi7_series(closes: np.ndarray) -> np.ndarray:
     return r
 
 
+# Ligado só pelo runner ao vivo (core/setups_runner.py) quando há corte de dados; o BT não muda.
+EMIT_OPEN_AT_END = False
+
+
 def simulate_wdo_core_slot(
     slot_id: int,
     df: pd.DataFrame,
@@ -1015,6 +1019,10 @@ def simulate_wdo_core_slot(
                 elif eff_low <= tp_srv:
                     exit_p = min(curr_tp, round05(o0 - 0.5)) if not (opened_intrabar and entry_bar_time == new_bar_time) else curr_tp
                     close_virtual_slot(exit_p, "TP", ts_arr[idx], today_str)
+
+    # Ao vivo (dados cortados no meio do pregão): emite a posição ainda aberta na última barra disponível.
+    if EMIT_OPEN_AT_END and d_pos != 0 and n > 0 and start_date <= str(dates[n - 1]) <= end_date:
+        close_virtual_slot(float(closes[n - 1]), "ABERTA", ts_arr[n - 1], str(dates[n - 1]))
 
     return trades
 

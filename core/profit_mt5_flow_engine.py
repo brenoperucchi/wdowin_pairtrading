@@ -32,6 +32,12 @@ import numpy as np
 import MetaTrader5 as mt5
 
 from core.config import MT5_PATH
+try:
+    import importlib
+    import core.profit_wall_players_engine
+    importlib.reload(core.profit_wall_players_engine)
+except Exception:
+    pass
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RTD_DIR = os.path.join(PROJECT_ROOT, "RTD")
@@ -1590,9 +1596,11 @@ class ProfitMt5FlowEngine:
                 from core.gex_live_dealer_engine import gex_dealer_engine_singleton
                 p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
                 m5_check = cached_snap.get("WIN", {}).get("caminho_a", {}).get("m5_dealer_vs_flow_series", [])
+                sigs_win_check = cached_snap.get("WIN", {}).get("caminho_a", {}).get("signals_log", [])
                 needs_dealer_refresh = (
                     p4.get("version") != cached_snap.get("portfolio_4_sistematicas", {}).get("version")
                     or (m5_check and ("cvd_inst_pass" not in m5_check[-1] or "smart_swing_wave" not in m5_check[-1]))
+                    or not sigs_win_check
                 )
                 if needs_dealer_refresh:
                     win_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WIN"])

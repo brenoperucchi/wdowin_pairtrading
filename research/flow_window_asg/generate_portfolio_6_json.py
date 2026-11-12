@@ -342,7 +342,7 @@ def format_wdo_trades(trades_raw, strat_id: str):
     return out
 
 
-def simulate_win_e2_wall_gasta(df_win, gex_win, n50w, n30w, flow_tables, use_flow: bool = True):
+def simulate_win_e2_wall_gasta(df_win, gex_win, n50w, n30w, flow_tables, use_flow: bool = True, sig_filter=None):
     """
     Simula WIN_E2 (⚪ WALL GASTA · Rompimento 3º+ Toque da Wall c/ Divergência & Confirmação Não-Varejo):
       - No modo `use_flow=True`: exige `NR_WALL_DIV` na barra do 3º+ toque da Wall (sem Absorção Passiva
@@ -408,6 +408,8 @@ def simulate_win_e2_wall_gasta(df_win, gex_win, n50w, n30w, flow_tables, use_flo
             wall_tab[(date, t_min)] = (exbr_b, exbr_s)
 
     flow_fn = make_sig_filter(flow_tables, "WIN", BEST_FLOW_FILTER_MAP.get("WIN_E2", "13_NR_PRICE_ABS_DIV")) if use_flow else None
+    if sig_filter is not None:  # pesquisa (research/div_gate): filtro externo substitui o de fluxo na entrada
+        flow_fn = sig_filter
     dates = df_win["session_date"].values
     t_arr = df_win["t"].values
     tmins = df_win["t_min"].values

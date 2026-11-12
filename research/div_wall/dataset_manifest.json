@@ -1,0 +1,3428 @@
+{
+ "version": "div_wall_v1",
+ "built_at": "2026-11-10T21:50:39",
+ "source": "Profit .min M1+M5 decomposition (sem .trd) + jumba_gex_*_history.csv",
+ "nwe": {
+  "lookback": 100,
+  "bw": 8.0,
+  "mult": 3.0
+ },
+ "range": [
+  "2026-01-02",
+  "2026-11-09"
+ ],
+ "assets": {
+  "WIN": {
+   "days": 211,
+   "rows": 23841,
+   "skipped": [
+    {
+     "date": "2026-02-18",
+     "skipped": "sessao incompleta (65 barras)"
+    },
+    {
+     "date": "2026-07-31",
+     "skipped": "sessao incompleta (71 barras)"
+    }
+   ],
+   "low_warmup_days": [],
+   "sha256": {
+    "bars": "c769bb52028e4e5683f6b4cfd65b8b5729696788bf338789714cf59b3f787a27",
+    "walls": "5b9855d85076a95d1d91d93006503b79037d80b5a81d29458f41b7a168ebaa1a"
+   },
+   "days_meta": [
+    {
+     "date": "2026-01-02",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-05",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-06",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-07",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-08",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-09",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-12",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-13",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-14",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-15",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-16",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-19",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-20",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-21",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-22",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-23",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-26",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-27",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-28",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-29",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-30",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-02",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-03",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-04",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-05",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-06",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-09",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-10",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-11",
+     "contract": "WING26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-12",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-13",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-19",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-20",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-23",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-24",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-25",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-26",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-27",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-02",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-03",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-04",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-05",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-06",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-09",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-10",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-11",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-12",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-13",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-16",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-17",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-18",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-19",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-20",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-23",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-24",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-25",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-26",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-27",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-30",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-31",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-01",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-02",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-06",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-07",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-08",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-09",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-10",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-13",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-14",
+     "contract": "WINJ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-15",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-16",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-17",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-20",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-22",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-23",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-24",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-27",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-28",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-29",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-30",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-04",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-05",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-06",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-07",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-08",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-11",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-12",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-13",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-14",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-15",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-18",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-19",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-20",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-21",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-22",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 33,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-25",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-26",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-27",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-28",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-29",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-01",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-02",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-03",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-05",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-08",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-09",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-10",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-11",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-12",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-15",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-16",
+     "contract": "WINM26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-17",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-18",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-19",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-22",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-23",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-24",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-25",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-26",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-29",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-30",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-01",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-02",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-03",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-06",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-07",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-08",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-09",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-10",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-13",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-14",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-15",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-16",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-17",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-20",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-21",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-22",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-23",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-24",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-27",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-28",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-29",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-30",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-03",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-04",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-05",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-06",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-07",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-10",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-11",
+     "contract": "WINQ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-12",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-13",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-14",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-17",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-18",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-19",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-20",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-21",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-24",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-25",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-26",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-27",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-28",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-31",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-01",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-02",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-03",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-04",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-08",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-09",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-10",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-11",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-14",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-15",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 22,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-16",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-17",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-18",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-21",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-22",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-23",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-24",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-25",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-28",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-29",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-30",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-01",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-02",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-05",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-06",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-07",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-08",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-09",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-13",
+     "contract": "WINV26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-14",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-15",
+     "contract": "WINZ26",
+     "bars": 112,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-16",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-19",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-20",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-21",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-22",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-23",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-26",
+     "contract": "WINZ26",
+     "bars": 112,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-27",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-28",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-29",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-30",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-03",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-04",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-05",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-06",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-09",
+     "contract": "WINZ26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    }
+   ]
+  },
+  "WDO": {
+   "days": 209,
+   "rows": 23806,
+   "skipped": [
+    {
+     "date": "2026-02-18",
+     "skipped": "sessao incompleta (66 barras)"
+    },
+    {
+     "date": "2026-07-31",
+     "skipped": "sessao incompleta (72 barras)"
+    },
+    {
+     "date": "2026-09-01",
+     "skipped": "sessao incompleta (96 barras)"
+    },
+    {
+     "date": "2026-09-04",
+     "skipped": "sessao incompleta (65 barras)"
+    }
+   ],
+   "low_warmup_days": [
+    "2026-01-02"
+   ],
+   "sha256": {
+    "bars": "542391f10d708e93d898d4dc06da7b11fe690c65aa13791b6231ee8a629fad38",
+    "walls": "7b7f2b46455f1f6c042478e66bcf9170d7116cd86d869ae1322ab5621cbf49af"
+   },
+   "days_meta": [
+    {
+     "date": "2026-01-02",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 0,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-05",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 114,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-06",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-07",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-08",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-09",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-12",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-13",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-14",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-15",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-16",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-19",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-20",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-21",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-22",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-23",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-26",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-27",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-28",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-29",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-01-30",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-02",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-03",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-04",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-05",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-06",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-09",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-10",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-11",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-12",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-13",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-19",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-20",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-23",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-24",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-25",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-26",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-02-27",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-02",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-03",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-04",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-05",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-06",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-09",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-10",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-11",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-12",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-13",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-16",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-17",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-18",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-19",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-20",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-23",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-24",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-25",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-26",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-27",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-30",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-03-31",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-01",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-02",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-06",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-07",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-08",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-09",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-10",
+     "contract": "WDOFUT",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-13",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-14",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-15",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-16",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-17",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-20",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-22",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-23",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-24",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-27",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-28",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-29",
+     "contract": "WDOK26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-04-30",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-04",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-05",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-06",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-07",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-08",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-11",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-12",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-13",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-14",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-15",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-18",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-19",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-20",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-21",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-22",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-25",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-26",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-27",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-28",
+     "contract": "WDOM26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-05-29",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-01",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-02",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-03",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-05",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-08",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-09",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-10",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-11",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-12",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-15",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-16",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-17",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-18",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-19",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-22",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-23",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-24",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-25",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-26",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-29",
+     "contract": "WDON26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-06-30",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-01",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-02",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-03",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-06",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-07",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-08",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-09",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-10",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-13",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-14",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-15",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-16",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-17",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-20",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-21",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-22",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-23",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-24",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-27",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-28",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-29",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-07-30",
+     "contract": "WDOQ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-03",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-04",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-05",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-06",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-07",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-10",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-11",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-12",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-13",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-14",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-17",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-18",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-19",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-20",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-21",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-24",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-25",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-26",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-27",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-28",
+     "contract": "WDOU26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-08-31",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-02",
+     "contract": "WDOV26",
+     "bars": 111,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-03",
+     "contract": "WDOV26",
+     "bars": 101,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-08",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-09",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-10",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-11",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-14",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-15",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-16",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-17",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-18",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-21",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-22",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-23",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-24",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-25",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-28",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-29",
+     "contract": "WDOV26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-09-30",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-01",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-02",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-05",
+     "contract": "WDOX26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-06",
+     "contract": "WDOX26",
+     "bars": 113,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-07",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-08",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-09",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-13",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-14",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-15",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-16",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-19",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-20",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-21",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-22",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-23",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-26",
+     "contract": "WDOX26",
+     "bars": 112,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-27",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-28",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-29",
+     "contract": "WDOX26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-10-30",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-03",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-04",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-05",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-06",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    },
+    {
+     "date": "2026-11-09",
+     "contract": "WDOZ26",
+     "bars": 114,
+     "walls": 34,
+     "warmup_bars": 200,
+     "m5_indiv": true
+    }
+   ]
+  }
+ }
+}

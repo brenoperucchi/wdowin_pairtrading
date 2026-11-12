@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, memo } from "react";
+import React, { useState, useRef, useEffect, useMemo, memo } from "react";
 
 function fmtNum(v, decimals = 0, showSign = false) {
     if (v === undefined || v === null || Number.isNaN(Number(v))) return "—";
@@ -26,7 +26,7 @@ function fmtDateFull(dStr) {
     return `${d}/${m}/${y}`;
 }
 
-const WALLS_FLOW_6_IDS = ["EST_14", "EST_04", "EST_07", "WIN_E2", "WDO_07", "WDO_01"];
+const WALLS_FLOW_6_IDS = ["WIN_DIV_WALL", "WDO_DIV_WALL"];
 const WALLS_FLOW_6_SET = new Set(WALLS_FLOW_6_IDS);
 const MT5_TOP6_IDS = ["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"];
 const MT5_TOP6_SET = new Set(MT5_TOP6_IDS);
@@ -43,32 +43,53 @@ function isWallsFlowLocalhost() {
 function filterSignalsForHost(signalsLog = [], isWallsFlow = false) {
     if (!Array.isArray(signalsLog)) return [];
     if (isWallsFlow) {
-        return signalsLog.filter((s) => {
-            if (!s) return false;
-            const sid = String(s.strategy_id || "");
-            return WALLS_FLOW_6_SET.has(sid) || sid === "WDO_S2";
-        });
+        return signalsLog.filter((s) => s && WALLS_FLOW_6_SET.has(String(s.strategy_id || "")));
     }
     return signalsLog.filter((s) => s && MT5_TOP6_SET.has(String(s.strategy_id || "")));
+}
+
+const _M1_CHART_CACHE = {};
+const _M1_CHART_INFLIGHT = {};
+function fetchM1ChartByDate(dateKey, force = false) {
+    const dk = String(dateKey || "").trim();
+    const cacheKey = dk || "__LATEST__";
+    if (!force && _M1_CHART_CACHE[cacheKey]) {
+        return Promise.resolve(_M1_CHART_CACHE[cacheKey]);
+    }
+    if (!force && _M1_CHART_INFLIGHT[cacheKey]) {
+        return _M1_CHART_INFLIGHT[cacheKey];
+    }
+    const url = dk
+        ? `http://localhost:8080/api/compass/m1_series?date_str=${encodeURIComponent(dk)}`
+        : "http://localhost:8080/api/compass/m1_series";
+    const p = fetch(url)
+        .then((r) => r.json())
+        .then((data) => {
+            delete _M1_CHART_INFLIGHT[cacheKey];
+            if (data && data.ok) {
+                _M1_CHART_CACHE[cacheKey] = data;
+                if (data.date) _M1_CHART_CACHE[data.date] = data;
+            }
+            return data;
+        })
+        .catch((err) => {
+            delete _M1_CHART_INFLIGHT[cacheKey];
+            throw err;
+        });
+    _M1_CHART_INFLIGHT[cacheKey] = p;
+    return p;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
    1. GRÁFICO TRIPLO SINCRONIZADO ESTILO TRADINGVIEW ("FLUXO REAL + PINE GEX")
       - Visual Oficial TradingView Dark (#131722, grade #1e222d, Crosshair com tags de Preço/Hora)
       - Zoom no Scroll do Mouse + Pan Horizontal no Arraste + Zoom Vertical na Escala Y
-      - Walls carregadas diretamente de `gex/docs/jumba_tradingview.pine`:
-        * MAGICWALL * / ** / *** (#00e676 sólida, espessura 1/2/3)
-        * MIDLEWALL (#90a4ae tracejada, espessura 1)
-        * GAMMA FLIP (Pivot) (#ffd600 sólida)
-        * MAX GAMMA (Teto) (#00b0ff) / MIN GAMMA (Piso) (#ff1744)
-      - Painel 1 (Topo): Preço M5 pintado pelo Fluxo A.S.G + Pine Walls + Regiões de Defesa + Setas ▲/▼
-      - Painel 2 (Meio): Fluxo Institucional CVD em bolinhas graduadas por peso do lote
-      - Painel 3 (Base): Histograma Linha Zero + Linhas Douradas de Virada de Janela
+      - Suporte nativo a M5 e M1 (com pré-carregamento em background para troca instantânea)
    ══════════════════════════════════════════════════════════════════════════════ */
 function FluxoRealAsgChart({
     symKey,
-    series: rawSeries,
-    flowWindows = [],
+    series: m5RawSeries,
+    flowWindows: m5FlowWindows = [],
     signalsLog = [],
     asgHud = {},
     wallsRadar = {},
@@ -77,8 +98,14 @@ function FluxoRealAsgChart({
     selectedSigId,
     onSelectSignal,
     showSignalsMarkers = true,
+    wideMode = false,
+    capitalDrawerInfo = null,
+    sessionDate = "",
 }) {
     const svgRef = useRef(null);
+    const [chartTf, setChartTf] = useState("M5"); // "M5" | "M1"
+    const [m1AssetData, setM1AssetData] = useState(null);
+    const [m1Loading, setM1Loading] = useState(false);
     const [hoverPos, setHoverPos] = useState(null); // { idx, relX, relY }
     const [hoveredSigId, setHoveredSigId] = useState(null);
     const [rightGapPx, setRightGapPx] = useState(145);
@@ -86,17 +113,120 @@ function FluxoRealAsgChart({
     const [visibleCount, setVisibleCount] = useState(120);
     const [panOffsetRight, setPanOffsetRight] = useState(0); // quantas barras deslocado do fim
     const [yZoomFactor, setYZoomFactor] = useState(1.0); // >1 abre mais o eixo Y para ver mais Walls do Pine
+    const isWallsHost = isWallsFlowLocalhost();
     const [showMidleWalls, setShowMidleWalls] = useState(true);
-    const [showNweLine, setShowNweLine] = useState(false); // NWE oculta por padrão
+    const [showNweLine, setShowNweLine] = useState(() => (isWallsFlowLocalhost() && symKey === "WIN")); // NWE30 ligada por padrão no WIN da 5176 (mostra TP1 Dinâmico)
     const [showWindowFlips, setShowWindowFlips] = useState(false); // Linhas verticais de virada de fluxo (toggle)
-    const [showWallBattleLabels, setShowWallBattleLabels] = useState(false); // Escrita nos candles (Defendeu / Absorveu / Rompeu) opcional, desligada por padrão para não poluir
+    const [showWallBattleLabels, setShowWallBattleLabels] = useState(false); // Escrita nos candles opcional (desativada na 5176)
     const [showSwingDivLines, setShowSwingDivLines] = useState(true); // Linhas de Divergência Topo/Fundo (F1->F2 / T1->T2) sincronizadas Preço x Fluxo
     const [wallColorMode, setWallColorMode] = useState("POLARIDADE"); // "POLARIDADE" (Smart Money) | "PINE" (#ffffff)
-    const [candleColorMode, setCandleColorMode] = useState("TRADICIONAL"); // "TRADICIONAL" (padrão) | "JANELA" (fluxo A.S.G)
-    const [flowSubMode, setFlowSubMode] = useState(() => (isWallsFlowLocalhost() ? "SWING_DIVERGENCIA" : "JANELA_ASG")); // "SWING_DIVERGENCIA" | "CABO_GUERRA" | "OSC_DIVERGENCIA" | "CVD_4PLAYERS" | "JANELA_ASG"
-    const [oscTf, setOscTf] = useState("5M"); // "5M" (Vela Atual / Sem Atraso) | "10M" (2 barras) | "15M" (3 barras)
+    const [candleColorMode, setCandleColorMode] = useState("TRADICIONAL"); // "TRADICIONAL" (padrão) | "JANELA" (fluxo Smart Money)
+    const [flowSubMode, setFlowSubMode] = useState(() => (isWallsFlowLocalhost() ? "SWING_DIVERGENCIA" : "JANELA_ASG"));
+    const [smWinVisualMode, setSmWinVisualMode] = useState("HIST_LINE"); // "HIST_LINE" (Histograma + Linha) | "LINE" (Só Linha) | "HIST" (Só Histograma)
+    const [oscTf, setOscTf] = useState("5M");
     const [gexViewMode, setGexViewMode] = useState("OPCAO_1"); // Legado / reservado
-    const [dragState, setDragState] = useState(null); // { type: 'PAN' | 'YSCALE', startX, startY, startPan, startYZoom }
+    const [dragState, setDragState] = useState(null); // { type: 'PAN_P1' | 'PAN_P3' | 'YSCALE_P1' | 'YSCALE_P3' | 'SPLITTER', ... }
+    const [priceYOffset, setPriceYOffset] = useState(0);
+    const [priceAutoScale, setPriceAutoScale] = useState(true);
+    const [flowYZoom, setFlowYZoom] = useState(1.0);
+    const [flowYOffset, setFlowYOffset] = useState(0);
+    const [flowAutoScale, setFlowAutoScale] = useState(true);
+    const [flowPaneH, setFlowPaneH] = useState(() => (isWallsFlowLocalhost() ? 150 : 112));
+    const [isChartFocused, setIsChartFocused] = useState(false);
+    const [cursorZone, setCursorZone] = useState("PLOT"); // 'PLOT' | 'YAXIS' | 'SPLITTER'
+    const tvMetricsRef = useRef(null);
+
+    // Pré-carrega a série M1 em background assim que a data da sessão estiver disponível (troca M5 <-> M1 em 0ms)
+    useEffect(() => {
+        let cancelled = false;
+        const dKey = String(sessionDate || "").trim();
+        const cached = _M1_CHART_CACHE[dKey || "__LATEST__"];
+        if (cached && cached[symKey]) {
+            setM1AssetData(cached[symKey]);
+        } else if (chartTf === "M1") {
+            setM1Loading(true);
+        }
+        fetchM1ChartByDate(dKey)
+            .then((data) => {
+                if (cancelled) return;
+                if (data && data.ok && data[symKey]) {
+                    setM1AssetData(data[symKey]);
+                }
+                setM1Loading(false);
+            })
+            .catch(() => {
+                if (!cancelled) setM1Loading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [sessionDate, symKey, chartTf]);
+
+    const useM1Active = chartTf === "M1" && Array.isArray(m1AssetData?.m1_series) && m1AssetData.m1_series.length > 0;
+    const rawSeries = useM1Active ? m1AssetData.m1_series : m5RawSeries;
+    const flowWindows = useM1Active ? (m1AssetData.flow_windows || []) : m5FlowWindows;
+
+    useEffect(() => {
+        const svgEl = svgRef.current;
+        if (!svgEl) return undefined;
+
+        const handleWheelNative = (e) => {
+            const m = tvMetricsRef.current;
+            if (!m) return;
+            const rect = svgEl.getBoundingClientRect();
+            if (!(rect.width > 0 && rect.height > 0)) return;
+            const relX = ((e.clientX - rect.left) / rect.width) * m.width;
+            const relY = ((e.clientY - rect.top) / rect.height) * m.height;
+
+            const onPriceAxis = relX > m.padL + m.plotW && relY >= m.p1Top && relY <= m.p1Bot;
+            const onFlowAxis = relX > m.padL + m.plotW && relY >= m.p3Top && relY <= m.p3Bot;
+            const onTimeAxis = relY > m.p3Bot;
+
+            if (onPriceAxis) {
+                e.preventDefault();
+                setPriceAutoScale(false);
+                setYZoomFactor((z) => +(Math.max(0.15, Math.min(6.0, z * (e.deltaY > 0 ? 1.14 : 0.88)))).toFixed(3));
+                return;
+            }
+            if (onFlowAxis) {
+                e.preventDefault();
+                setFlowAutoScale(false);
+                setFlowYZoom((z) => +(Math.max(0.15, Math.min(6.0, z * (e.deltaY > 0 ? 1.14 : 0.88)))).toFixed(3));
+                return;
+            }
+            if (onTimeAxis || m.isChartFocused || e.ctrlKey || e.shiftKey || e.altKey) {
+                e.preventDefault();
+                const frac = Math.max(0, Math.min(1, (relX - (m.padL + m.innerPadL)) / Math.max(1, m.usableW)));
+                const anchorBaseIdx = m.startSlice + frac * Math.max(1, m.effCount - 1);
+                const rawNext = Math.round(m.effCount * (e.deltaY > 0 ? 1.16 : 0.86));
+                const stepedNext = rawNext === m.effCount ? m.effCount + (e.deltaY > 0 ? 2 : -2) : rawNext;
+                const nextCount = Math.max(12, Math.min(m.totalBase, stepedNext));
+                const nextStart = Math.max(0, Math.min(m.totalBase - nextCount, Math.round(anchorBaseIdx - frac * Math.max(1, nextCount - 1))));
+                const nextPanRight = Math.max(0, m.totalBase - (nextStart + nextCount));
+                setViewMode("CUSTOM");
+                setVisibleCount(nextCount);
+                setPanOffsetRight(nextPanRight);
+            }
+        };
+
+        const handleOutsideMouseDown = (e) => {
+            if (svgEl && !svgEl.contains(e.target)) {
+                setIsChartFocused(false);
+            }
+        };
+
+        svgEl.addEventListener("wheel", handleWheelNative, { passive: false });
+        window.addEventListener("mousedown", handleOutsideMouseDown);
+        return () => {
+            svgEl.removeEventListener("wheel", handleWheelNative);
+            window.removeEventListener("mousedown", handleOutsideMouseDown);
+        };
+    }, [rawSeries?.length]);
+
+    const getNweLine = (pt) => Number(isWallsHost ? (pt?.nwe30_line ?? pt?.nwe_line ?? 0) : (pt?.nwe_line ?? 0));
+    const getNweUpper = (pt) => Number(isWallsHost ? (pt?.nwe30_upper ?? pt?.nwe_upper ?? 0) : (pt?.nwe_upper ?? 0));
+    const getNweLower = (pt) => Number(isWallsHost ? (pt?.nwe30_lower ?? pt?.nwe_lower ?? 0) : (pt?.nwe_lower ?? 0));
+    const getNweIsUp = (pt) => (isWallsHost ? (pt?.nwe30_is_up ?? pt?.nwe_is_up) : pt?.nwe_is_up);
 
     const dec = symKey === "WDO" ? 1 : 0;
 
@@ -137,30 +267,36 @@ function FluxoRealAsgChart({
     const startSlice = Math.max(0, endSlice - effCount);
     const series = baseSeries.slice(startSlice, endSlice);
 
-    const width = 900;
-    const height = 544;
+    const width = wideMode ? 1240 : 900;
+    const height = isWallsHost ? 590 : 544;
     const padL = 10;
     const padR = 118; // Eixo Y estilo TradingView à direita
 
-    // Layout Clean em 2 Painéis Verticais:
-    // Painel 1 (Preço M5 + Pine GEX Walls): Y de 14 até 396 (altura 382)
-    // Painel 2 (Janela de Fluxo): Y de 408 até 518 (altura 110)
-    const p1Top = 14, p1H = 382, p1Bot = p1Top + p1H;
+    // Layout Dinâmico estilo TradingView em 2 Painéis Verticais Redimensionáveis:
+    const bottomAxisH = 26;
+    const splitterGap = 12;
+    const clampedFlowH = Math.max(82, Math.min(height - 210, flowPaneH));
+    const p1Top = 14;
+    const p1H = Math.max(180, height - p1Top - bottomAxisH - splitterGap - clampedFlowH);
+    const p1Bot = p1Top + p1H;
     const p2Top = 0, p2H = 0, p2Bot = 0; // Removido (Fluxo CVD)
     const pGexTop = 0, pGexH = 0, pGexBot = 0; // Removido (Hedge Makers GEX)
-    const p3Top = 408, p3H = 110, p3Bot = p3Top + p3H;
+    const p3Top = p1Bot + splitterGap;
+    const p3H = clampedFlowH;
+    const p3Bot = p3Top + p3H;
+    const splitterMidY = (p1Bot + p3Top) / 2;
     const plotW = width - padL - padR;
 
     const innerPadL = 16;
     const usableW = Math.max(180, plotW - innerPadL - rightGapPx);
     const n = series.length;
-    const totalSlots = Math.max(n - 1, 20);
+    const totalSlots = Math.max(n - 1, 14);
     const stepX = usableW / Math.max(1, totalSlots);
-    const candleW = Math.max(3.2, Math.min(10.5, stepX * 0.70));
+    const candleW = Math.max(useM1Active ? 1.4 : 3.2, Math.min(13.5, stepX * 0.72));
     const toX = (idx) => padL + innerPadL + (idx / Math.max(1, totalSlots)) * usableW;
     const firstTodayLocalIdx = series.findIndex((pt, i) => i > 0 && !pt.is_prev_day && series[i - 1]?.is_prev_day);
 
-    // ── Escala Y do Painel 1 (Preço + Walls do jumba_tradingview.pine + Caixas de Trade) ──
+    // ── Escala Y Variável estilo TradingView do Painel 1 (Preço + Walls + Caixas de Trade) ──
     let minP = Infinity;
     let maxP = -Infinity;
     const visTodayTimes = new Set();
@@ -170,10 +306,10 @@ function FluxoRealAsgChart({
         if (l > 0 && l < minP) minP = l;
         if (h > 0 && h > maxP) maxP = h;
         if (!pt.is_prev_day && pt.time) visTodayTimes.add(pt.time);
-        if (showNweLine && Number(pt.nwe_line) > 0) {
-            const nl = Number(pt.nwe_line);
-            const nu = Number(pt.nwe_upper || nl);
-            const nlo = Number(pt.nwe_lower || nl);
+        if (showNweLine && getNweLine(pt) > 0) {
+            const nl = getNweLine(pt);
+            const nu = getNweUpper(pt) || nl;
+            const nlo = getNweLower(pt) || nl;
             if (nlo > 0 && nlo < minP) minP = nlo;
             if (nu > 0 && nu > maxP) maxP = nu;
         }
@@ -195,20 +331,41 @@ function FluxoRealAsgChart({
         });
     }
 
-    // Inclui automaticamente a MagicWall/MidWall imediata de suporte e resistência na janela inicial
+    // Inclui automaticamente a MagicWall/MidWall imediata quando em modo Auto
     const sup0 = wallsRadar?.support_walls?.[0]?.price;
     const res0 = wallsRadar?.resistance_walls?.[0]?.price;
     const rngRaw = Math.max(1, maxP - minP);
-    if (sup0 && sup0 > 0 && (minP - sup0) <= rngRaw * 0.45) minP = Math.min(minP, sup0);
-    if (res0 && res0 > 0 && (res0 - maxP) <= rngRaw * 0.45) maxP = Math.max(maxP, res0);
+    if (priceAutoScale) {
+        if (sup0 && sup0 > 0 && (minP - sup0) <= rngRaw * 0.45) minP = Math.min(minP, sup0);
+        if (res0 && res0 > 0 && (res0 - maxP) <= rngRaw * 0.45) maxP = Math.max(maxP, res0);
+    }
 
-    const midP = (maxP + minP) / 2;
-    const halfSpan = Math.max(symKey === "WDO" ? 6 : 180, ((maxP - minP) / 2) * 1.15 * yZoomFactor);
-    minP = midP - halfSpan;
-    maxP = midP + halfSpan;
+    const baseMidP = (maxP + minP) / 2;
+    const effPriceOffset = priceAutoScale ? 0 : priceYOffset;
+    const halfSpan = Math.max(symKey === "WDO" ? 1.8 : 45, ((maxP - minP) / 2) * 1.15 * yZoomFactor);
+    minP = (baseMidP + effPriceOffset) - halfSpan;
+    maxP = (baseMidP + effPriceOffset) + halfSpan;
     const rangeP = Math.max(1e-6, maxP - minP);
     const toY1 = (p) => p1Top + p1H - ((Number(p) - minP) / rangeP) * p1H;
     const fromY1 = (y) => minP + ((p1Bot - y) / p1H) * rangeP;
+
+    // Marcações regulares (ticks) da Escala de Preço estilo TradingView
+    const priceAxisTicks = (() => {
+        const rawStep = rangeP / Math.max(4, Math.round(p1H / 58));
+        const niceSteps = symKey === "WDO"
+            ? [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100]
+            : [25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
+        const step = niceSteps.find(st => st >= rawStep) || Math.max(1, Math.ceil(rawStep));
+        const firstTick = Math.ceil(minP / step) * step;
+        const arr = [];
+        for (let val = firstTick; val <= maxP + 1e-6 && arr.length < 18; val += step) {
+            const y = toY1(val);
+            if (y >= p1Top + 14 && y <= p1Bot - 14) {
+                arr.push({ price: +val.toFixed(2), y });
+            }
+        }
+        return arr;
+    })();
 
     // ── Escala Y do Painel 2 (Fluxo Institucional CVD) ──
     let minF = Infinity;
@@ -305,6 +462,9 @@ function FluxoRealAsgChart({
         const ip5 = Number(pt.inst_pass_delta ?? 0);
         const nr5 = ia5 + ip5;
         const r5 = Number(pt.ret_delta_bar ?? 0);
+        const h5 = Number(pt.hft_delta_bar ?? 0);
+        const rlpSh = Number(pt.rlp_share_pct ?? pt.rlp_pct ?? 28);
+        const rlp5 = Number(pt.rlp_delta_bar ?? Math.round(-r5 * Math.max(0.32, Math.min(0.75, rlpSh / 100.0))));
         const lotImb = Number(pt.lot_imb || 1.0);
 
         // ── Matemática Agnóstica de Corretora (3 Motores do que realmente move o preço) ──
@@ -378,8 +538,9 @@ function FluxoRealAsgChart({
         const cvdIp = Number(pt.cvd_inst_pass ?? 0);
         const cvdRet = Number(pt.cvd_retail ?? 0);
         const cvdHft = Number(pt.cvd_hft ?? 0);
-        minCvd4 = Math.min(minCvd4, cvdIa, cvdIp, cvdRet, cvdHft);
-        maxCvd4 = Math.max(maxCvd4, cvdIa, cvdIp, cvdRet, cvdHft);
+        const cvdRlp = Number(pt.cvd_rlp_delta ?? Math.round(-cvdRet * 0.42));
+        minCvd4 = Math.min(minCvd4, cvdIa, cvdIp, cvdRet, cvdHft, cvdRlp);
+        maxCvd4 = Math.max(maxCvd4, cvdIa, cvdIp, cvdRet, cvdHft, cvdRlp);
 
         // Classificação da Divergência / Assinatura na Barra M5
         const fomoBuyTrap = r5 > (isWinSym ? 450 : 65) && ip5 < (isWinSym ? -250 : -40) && ia5 <= 0;
@@ -436,10 +597,10 @@ function FluxoRealAsgChart({
 
         return {
             idx, c, o, h, l, bv, sv, abl, asl,
-            dp1, dp2, dp3, dpOsc, ia5, ip5, nr5, r5, ia15, ip15, nr15, r15, nrOsc, rOsc,
+            dp1, dp2, dp3, dpOsc, ia5, ip5, nr5, r5, h5, rlp5, ia15, ip15, nr15, r15, nrOsc, rOsc,
             wyckoffAbs, lotUrgency, smartInst, effForce,
             detrendedFallback: ema3Fallback - ema10Fallback,
-            cvdIa, cvdIp, cvdRet, cvdHft,
+            cvdIa, cvdIp, cvdRet, cvdHft, cvdRlp,
             divType, divLabel, divColor, divShort,
         };
     });
@@ -463,6 +624,7 @@ function FluxoRealAsgChart({
     // ── Detector Causal de Divergências de Topo e Fundo (F1 -> F2 e T1 -> T2) sincronizado na Janela Visível ──
     const swingDivergences = [];
     {
+        const isWallsFlow = isWallsFlowLocalhost();
         const pTolDiv = isWinSym ? 50.0 : 1.5;
         const maxExtDiv = isWinSym ? 360.0 : 8.5;
         const wRadDiv = isWinSym ? 130.0 : 3.0;
@@ -471,6 +633,70 @@ function FluxoRealAsgChart({
             ...((wallsRadar?.resistance_walls || []).map(w => Number(w.price || 0))),
             ...((wallsRadar?.support_walls || []).map(w => Number(w.price || 0))),
         ].filter(p => p > 0);
+
+        const todayIdxByTime = {};
+        series.forEach((pt, idxS) => {
+            if (!pt?.is_prev_day && pt?.time) todayIdxByTime[String(pt.time)] = idxS;
+        });
+
+        const sniperTrades = isWallsFlow
+            ? (hostSignalsLog || [])
+                .filter(s => s && !s.is_prev_day && todayIdxByTime[String(s.time)] !== undefined)
+                .map(s => ({
+                    tradeIdx: todayIdxByTime[String(s.time)],
+                    dir: s.direction === "COMPRA" ? 1 : -1,
+                    time: String(s.time),
+                    exitTime: String(s.exit_time || "23:59"),
+                    brl: Number(s.brl_1c || 0),
+                    isClosed: s.is_valid !== null && s.is_valid !== undefined && String(s.validation_status || "").toUpperCase() !== "EM_ANDAMENTO",
+                }))
+            : [];
+
+        let dailyCapHitTime = null;
+        let dailyRealizedSum = 0;
+        if (isWallsFlow) {
+            const capTarget = isWinSym ? 180.0 : 120.0;
+            const allDayClosedSorted = (hostSignalsLog || [])
+                .filter(s => s && !s.is_prev_day && s.is_valid !== null && s.is_valid !== undefined && String(s.validation_status || "").toUpperCase() !== "EM_ANDAMENTO")
+                .map(s => ({ exitTime: String(s.exit_time || "23:59"), brl: Number(s.brl_1c || 0) }))
+                .sort((a, b) => a.exitTime.localeCompare(b.exitTime));
+            for (const ct of allDayClosedSorted) {
+                dailyRealizedSum += ct.brl;
+                if (dailyRealizedSum >= capTarget && !dailyCapHitTime) {
+                    dailyCapHitTime = ct.exitTime;
+                }
+            }
+        }
+
+        const isInSniperHours = (tStr) => {
+            if (!tStr) return false;
+            if (isWinSym) {
+                return tStr >= "09:05" && tStr <= "16:45" && !(tStr >= "12:00" && tStr <= "12:55");
+            }
+            return tStr >= "09:00" && tStr <= "17:00" && !(tStr >= "11:00" && tStr <= "11:55");
+        };
+
+        if (isWallsFlow) {
+            subPanelBars.forEach((sb, idxS) => {
+                const ptS = series[idxS];
+                if (!ptS || ptS.is_prev_day) return;
+                const tS = String(ptS.time || "");
+                if (dailyCapHitTime && tS > dailyCapHitTime) {
+                    sb.divType = null;
+                    sb.divColor = "#00d4ff";
+                    sb.divLabel = `🔒 Meta Diária Atingida (+R$ ${fmtNum(dailyRealizedSum, 0)}) · Novas entradas bloqueadas`;
+                } else if (!isInSniperHours(tS)) {
+                    sb.divType = null;
+                    sb.divColor = "#6b8599";
+                    sb.divLabel = `⏸️ Fora do Horário Operacional (${isWinSym ? "09:05–16:45 s/ 12h" : "09:00–17:00 s/ 11h NY"})`;
+                } else if (sb.divType === "BULL_DIV" || sb.divType === "BEAR_DIV") {
+                    // Evita exibir divergência de 1 barra no HUD se não for divergência F1->F2 / T1->T2 confirmada
+                    sb.divType = null;
+                    sb.divColor = "#7f96a8";
+                    sb.divLabel = "⚪ Monitorando Fluxo na Wall";
+                }
+            });
+        }
 
         let lastBullIdx = -12;
         let lastBearIdx = -12;
@@ -531,35 +757,32 @@ function FluxoRealAsgChart({
                         const driverTxt = sb.wyckoffAbs > Math.abs(sb.lotUrgency)
                             ? "Absorção Oculta Wyckoff na Pedra"
                             : (sb.lotUrgency > 0 ? "Urgência Lote Institucional" : "Exaustão Vendedora + Defesa Passiva");
-                        const divObj = {
-                            type: "BULL_DIV",
-                            prevIdx: bestP1.idx,
-                            prevTime: bestP1.time,
-                            prevPrice: bestP1.price,
-                            prevWave: bestP1.wave,
-                            currIdx: sb.l <= prevSb.l ? i : i - 1,
-                            currTime: series[i]?.time,
-                            currPrice: l2,
-                            currWave: Math.max(wLow2, sb.smartSwingWave),
-                            nearWall: nearW,
-                            driver: driverTxt,
-                        };
-                        if (i - lastBullIdx <= 6 && swingDivergences.length > 0 && swingDivergences[swingDivergences.length - 1].type === "BULL_DIV") {
-                            if (l2 <= swingDivergences[swingDivergences.length - 1].currPrice) {
-                                swingDivergences[swingDivergences.length - 1] = divObj;
+                        if (i - lastBullIdx > 6) {
+                            lastBullIdx = i;
+                            const tCurr = String(series[i]?.time || "");
+                            const matchedTrade = isWallsFlow && sniperTrades.some(t => t.dir === 1 && i <= t.tradeIdx && t.tradeIdx <= i + 3);
+                            const isLivePending = isWallsFlow && !matchedTrade && (i >= subPanelBars.length - 3) && nearW && isInSniperHours(tCurr) && (!dailyCapHitTime || tCurr < dailyCapHitTime);
+                            if (!isWallsFlow || matchedTrade || isLivePending) {
+                                const divObj = {
+                                    type: "BULL_DIV",
+                                    prevIdx: bestP1.idx,
+                                    prevTime: bestP1.time,
+                                    prevPrice: bestP1.price,
+                                    prevWave: bestP1.wave,
+                                    currIdx: sb.l <= prevSb.l ? i : i - 1,
+                                    currTime: series[i]?.time,
+                                    currPrice: l2,
+                                    currWave: Math.max(wLow2, sb.smartSwingWave),
+                                    nearWall: nearW || matchedTrade,
+                                    isPendingTrigger: Boolean(isLivePending),
+                                    driver: driverTxt,
+                                };
+                                swingDivergences.push(divObj);
                                 sb.swingDiv = divObj;
                                 sb.divType = "BULL_DIV";
                                 sb.divColor = "#00e87a";
                                 sb.divLabel = `🟢 DIV. COMPRA DE FUNDO (${bestP1.time} ➔ ${series[i]?.time}): Preço ${fmtNum(bestP1.price, dec)} ➔ ${fmtNum(l2, dec)} ↘ | Fluxo Subiu ↗ (${driverTxt})`;
-                                lastBullIdx = i;
                             }
-                        } else if (i - lastBullIdx > 6) {
-                            swingDivergences.push(divObj);
-                            sb.swingDiv = divObj;
-                            sb.divType = "BULL_DIV";
-                            sb.divColor = "#00e87a";
-                            sb.divLabel = `🟢 DIV. COMPRA DE FUNDO (${bestP1.time} ➔ ${series[i]?.time}): Preço ${fmtNum(bestP1.price, dec)} ➔ ${fmtNum(l2, dec)} ↘ | Fluxo Subiu ↗ (${driverTxt})`;
-                            lastBullIdx = i;
                         }
                     }
                 }
@@ -598,35 +821,32 @@ function FluxoRealAsgChart({
                         const driverTxt = sb.wyckoffAbs < -Math.abs(sb.lotUrgency)
                             ? "Absorção Vendedora Wyckoff no Topo"
                             : (sb.lotUrgency < 0 ? "Lote Vendedor Pesado" : "Exaustão Compradora + Oferta Passiva");
-                        const divObj = {
-                            type: "BEAR_DIV",
-                            prevIdx: bestT1.idx,
-                            prevTime: bestT1.time,
-                            prevPrice: bestT1.price,
-                            prevWave: bestT1.wave,
-                            currIdx: sb.h >= prevSb.h ? i : i - 1,
-                            currTime: series[i]?.time,
-                            currPrice: h2,
-                            currWave: Math.min(wHigh2, sb.smartSwingWave),
-                            nearWall: nearW,
-                            driver: driverTxt,
-                        };
-                        if (i - lastBearIdx <= 6 && swingDivergences.length > 0 && swingDivergences[swingDivergences.length - 1].type === "BEAR_DIV") {
-                            if (h2 >= swingDivergences[swingDivergences.length - 1].currPrice) {
-                                swingDivergences[swingDivergences.length - 1] = divObj;
+                        if (i - lastBearIdx > 6) {
+                            lastBearIdx = i;
+                            const tCurr = String(series[i]?.time || "");
+                            const matchedTrade = isWallsFlow && sniperTrades.some(t => t.dir === -1 && i <= t.tradeIdx && t.tradeIdx <= i + 3);
+                            const isLivePending = isWallsFlow && !matchedTrade && (i >= subPanelBars.length - 3) && nearW && isInSniperHours(tCurr) && (!dailyCapHitTime || tCurr < dailyCapHitTime);
+                            if (!isWallsFlow || matchedTrade || isLivePending) {
+                                const divObj = {
+                                    type: "BEAR_DIV",
+                                    prevIdx: bestT1.idx,
+                                    prevTime: bestT1.time,
+                                    prevPrice: bestT1.price,
+                                    prevWave: bestT1.wave,
+                                    currIdx: sb.h >= prevSb.h ? i : i - 1,
+                                    currTime: series[i]?.time,
+                                    currPrice: h2,
+                                    currWave: Math.min(wHigh2, sb.smartSwingWave),
+                                    nearWall: nearW || matchedTrade,
+                                    isPendingTrigger: Boolean(isLivePending),
+                                    driver: driverTxt,
+                                };
+                                swingDivergences.push(divObj);
                                 sb.swingDiv = divObj;
                                 sb.divType = "BEAR_DIV";
                                 sb.divColor = "#ff3860";
                                 sb.divLabel = `🔴 DIV. VENDA DE TOPO (${bestT1.time} ➔ ${series[i]?.time}): Preço ${fmtNum(bestT1.price, dec)} ➔ ${fmtNum(h2, dec)} ↗ | Fluxo Caiu ↘ (${driverTxt})`;
-                                lastBearIdx = i;
                             }
-                        } else if (i - lastBearIdx > 6) {
-                            swingDivergences.push(divObj);
-                            sb.swingDiv = divObj;
-                            sb.divType = "BEAR_DIV";
-                            sb.divColor = "#ff3860";
-                            sb.divLabel = `🔴 DIV. VENDA DE TOPO (${bestT1.time} ➔ ${series[i]?.time}): Preço ${fmtNum(bestT1.price, dec)} ➔ ${fmtNum(h2, dec)} ↗ | Fluxo Caiu ↘ (${driverTxt})`;
-                            lastBearIdx = i;
                         }
                     }
                 }
@@ -637,7 +857,73 @@ function FluxoRealAsgChart({
     maxCaboVal = Math.max(100, maxCaboVal * 1.10);
     maxSwingWaveAbs = Math.max(isWinSym ? 2500 : 300, maxSwingWaveAbs * 1.15);
     const toYCabo = (val) => yZero3 - (Number(val || 0) / maxCaboVal) * halfH3;
-    const toYSwingWave = (val) => Math.max(p3Top + 17, Math.min(p3Bot - 4, yZero3 - (Number(val || 0) / maxSwingWaveAbs) * halfH3));
+
+    // ── Escala Y Variável Dinâmica do Fluxo Smart Money (estilo TradingView: adapta às barras visíveis + zoom/pan livre) ──
+    let rawMinWave = Infinity;
+    let rawMaxWave = -Infinity;
+    subPanelBars.forEach((sb) => {
+        const wv = Number(sb.smartSwingWave || 0);
+        if (wv < rawMinWave) rawMinWave = wv;
+        if (wv > rawMaxWave) rawMaxWave = wv;
+    });
+    swingDivergences.forEach((dv) => {
+        if (dv.prevWave < rawMinWave) rawMinWave = dv.prevWave;
+        if (dv.prevWave > rawMaxWave) rawMaxWave = dv.prevWave;
+        if (dv.currWave < rawMinWave) rawMinWave = dv.currWave;
+        if (dv.currWave > rawMaxWave) rawMaxWave = dv.currWave;
+    });
+    if (!Number.isFinite(rawMinWave) || !Number.isFinite(rawMaxWave)) {
+        rawMinWave = isWinSym ? -2000 : -250;
+        rawMaxWave = isWinSym ? 2000 : 250;
+    }
+    const baseMidWave = (rawMaxWave + rawMinWave) / 2;
+    const rawHalfWave = Math.max(isWinSym ? 350 : 50, (rawMaxWave - rawMinWave) / 2);
+    const effFlowOffset = flowAutoScale ? 0 : flowYOffset;
+    const effHalfWave = rawHalfWave * 1.20 * flowYZoom;
+    const minWave = (baseMidWave + effFlowOffset) - effHalfWave;
+    const maxWave = (baseMidWave + effFlowOffset) + effHalfWave;
+    const rangeWave = Math.max(1e-6, maxWave - minWave);
+    const flowPlotTop = p3Top + 17;
+    const flowPlotBot = p3Bot - 6;
+    const flowPlotH = Math.max(24, flowPlotBot - flowPlotTop);
+    const toYSwingWave = (val) => flowPlotBot - ((Number(val || 0) - minWave) / rangeWave) * flowPlotH;
+    const fromYSwingWave = (y) => minWave + ((flowPlotBot - y) / flowPlotH) * rangeWave;
+    const yZeroWave = toYSwingWave(0);
+
+    const flowAxisTicks = (() => {
+        const rawStep = rangeWave / Math.max(3, Math.round(flowPlotH / 34));
+        const pow10 = Math.pow(10, Math.floor(Math.log10(Math.max(1, rawStep))));
+        const norm = rawStep / pow10;
+        const mult = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+        const step = Math.max(10, mult * pow10);
+        const firstT = Math.ceil(minWave / step) * step;
+        const arr = [];
+        for (let val = firstT; val <= maxWave + 1e-6 && arr.length < 10; val += step) {
+            const y = toYSwingWave(val);
+            if (y >= flowPlotTop + 4 && y <= flowPlotBot - 4) {
+                arr.push({ val, y });
+            }
+        }
+        return arr;
+    })();
+
+    tvMetricsRef.current = {
+        width,
+        height,
+        padL,
+        plotW,
+        p1Top,
+        p1Bot,
+        p3Top,
+        p3Bot,
+        totalBase,
+        effCount,
+        startSlice,
+        usableW,
+        innerPadL,
+        isChartFocused,
+    };
+
     const toYOscP = (val) => yZero3 - (Number(val || 0) / (maxOscPrice * 1.12)) * halfH3;
     const toYOscNr = (val) => yZero3 - (Number(val || 0) / (maxOscNr * 1.12)) * halfH3;
     const spanCvd4 = Math.max(100, maxCvd4 - minCvd4);
@@ -999,59 +1285,129 @@ function FluxoRealAsgChart({
                         border: "1px solid #1a2530",
                         borderLeft: "3px solid #00d4ff",
                     }}>
-                        FLUXO REAL + PINE GEX ({symKey} · M5)
+                        FLUXO REAL + PINE GEX ({symKey} · {useM1Active ? "M1" : "M5"})
                     </span>
-                    {candleColorMode === "TRADICIONAL" ? (
+                    {/* Seletor de Timeframe M5 / M1 */}
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "#080d12", padding: "2px 4px", borderRadius: 5, border: "1px solid #1a2530" }}>
+                        {[
+                            { id: "M5", label: "⏱️ M5", desc: "Gráfico de 5 Minutos (Padrão)" },
+                            { id: "M1", label: m1Loading && chartTf === "M1" ? "⏳ M1..." : "⚡ M1", desc: "Gráfico de 1 Minuto (Microestrutura Fina + Fluxo Smart Money)" },
+                        ].map((tfOpt) => {
+                            const active = chartTf === tfOpt.id;
+                            return (
+                                <button
+                                    key={tfOpt.id}
+                                    onClick={() => {
+                                        setChartTf(tfOpt.id);
+                                        setHoverPos(null);
+                                        setPanOffsetRight(0);
+                                        if (tfOpt.id === "M1" && viewMode === "RECENTE") {
+                                            setVisibleCount(120);
+                                        } else if (tfOpt.id === "M5" && viewMode === "RECENTE") {
+                                            setVisibleCount(48);
+                                        }
+                                    }}
+                                    title={tfOpt.desc}
+                                    style={{
+                                        padding: "2px 7px",
+                                        fontSize: 9.5,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: active ? "rgba(0, 212, 255, 0.18)" : "transparent",
+                                        color: active ? "#00d4ff" : "#7f96a8",
+                                        border: active ? "1px solid #00d4ff" : "1px solid transparent",
+                                        borderRadius: 3.5,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {tfOpt.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {isWallsHost ? (
+                        <>
+                            <span style={{ fontSize: 10, color: "#cbd5e1", fontWeight: "bold" }}>⬜ Barra Alta</span>
+                            <span style={{ fontSize: 10, color: "#64748b", fontWeight: "bold" }}>⬛ Barra Baixa</span>
+                            <span style={{ fontSize: 10, color: "#f1f5f9" }}>━ Wall</span>
+                            <span style={{ fontSize: 10, color: "#94a3b8" }}>┅ MidWall</span>
+                        </>
+                    ) : candleColorMode === "TRADICIONAL" ? (
                         <>
                             <span style={{ fontSize: 10, color: "#00e87a", fontWeight: "bold" }}>🟩 Barra Alta</span>
                             <span style={{ fontSize: 10, color: "#ff3860", fontWeight: "bold" }}>🟥 Barra Baixa</span>
                         </>
                     ) : (
                         <>
-                            <span style={{ fontSize: 10, color: "#00e87a", fontWeight: "bold" }}>🟩 Comprado (ASG)</span>
-                            <span style={{ fontSize: 10, color: "#ff3860", fontWeight: "bold" }}>🟥 Vendido (ASG)</span>
+                            <span style={{ fontSize: 10, color: "#00e87a", fontWeight: "bold" }}>🟩 Comprado (Smart Money)</span>
+                            <span style={{ fontSize: 10, color: "#ff3860", fontWeight: "bold" }}>🟥 Vendido (Smart Money)</span>
                             <span style={{ fontSize: 10, color: "#7f96a8" }}>⬜ Pullback</span>
                         </>
                     )}
                 </div>
 
-                {/* Controles do Gráfico: Cores das Barras, Cores Pine, MidWalls, Recuo e Zoom */}
+                {/* Controles do Gráfico: Limpo e Focado em Divergências na 5176 | Completo na 5174 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 3, background: "#0c1218", padding: "2px 6px", borderRadius: 5, border: "1px solid #1a2530" }}>
-                        <button
-                            onClick={() => setCandleColorMode(m => (m === "TRADICIONAL" ? "JANELA" : "TRADICIONAL"))}
-                            title="Alternar cor das barras entre Modo Tradicional (Alta/Baixa - Padrão) ou Pintadas pelas Janelas de Operação A.S.G"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: candleColorMode === "TRADICIONAL" ? "#e2e8f0" : "#00d4ff",
-                                border: `1px solid ${candleColorMode === "TRADICIONAL" ? "rgba(226, 232, 240, 0.35)" : "rgba(0, 212, 255, 0.45)"}`,
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            {candleColorMode === "TRADICIONAL" ? "🕯️ Barras: Tradicional" : "🎨 Barras: Janelas"}
-                        </button>
-                        <button
-                            onClick={() => setWallColorMode(m => (m === "PINE" ? "POLARIDADE" : "PINE"))}
-                            title="Alternar entre Posição Smart Money (3 Estágios Calibrados em 127 Pregões) ou Branco Neutro"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: wallColorMode === "PINE" ? "#ffffff" : "#00e87a",
-                                border: `1px solid ${wallColorMode === "PINE" ? "rgba(255, 255, 255, 0.45)" : "rgba(0, 232, 122, 0.45)"}`,
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            {wallColorMode === "PINE" ? "⬜ Walls: Branco" : "🎯 Smart Money"}
-                        </button>
+                        {!isWallsHost && (
+                            <>
+                                <button
+                                    onClick={() => setCandleColorMode(m => (m === "TRADICIONAL" ? "JANELA" : "TRADICIONAL"))}
+                                    title="Alternar cor das barras entre Modo Tradicional (Alta/Baixa - Padrão) ou Pintadas pelas Janelas de Fluxo Smart Money"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: candleColorMode === "TRADICIONAL" ? "#e2e8f0" : "#00d4ff",
+                                        border: `1px solid ${candleColorMode === "TRADICIONAL" ? "rgba(226, 232, 240, 0.35)" : "rgba(0, 212, 255, 0.45)"}`,
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {candleColorMode === "TRADICIONAL" ? "🕯️ Barras: Tradicional" : "🎨 Barras: Janelas"}
+                                </button>
+                                <button
+                                    onClick={() => setWallColorMode(m => (m === "PINE" ? "POLARIDADE" : "PINE"))}
+                                    title="Alternar entre Posição Smart Money (3 Estágios Calibrados em 127 Pregões) ou Branco Neutro"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: wallColorMode === "PINE" ? "#ffffff" : "#00e87a",
+                                        border: `1px solid ${wallColorMode === "PINE" ? "rgba(255, 255, 255, 0.45)" : "rgba(0, 232, 122, 0.45)"}`,
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {wallColorMode === "PINE" ? "⬜ Walls: Branco" : "🎯 Smart Money"}
+                                </button>
+                                <button
+                                    onClick={() => setSmWinVisualMode(m => (m === "HIST_LINE" ? "LINE" : m === "LINE" ? "HIST" : "HIST_LINE"))}
+                                    title="Alternar visualização da Janela de Fluxo Smart Money entre: Histograma + Linha (Padrão), Modo Linha ou Só Histograma"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "rgba(0, 212, 255, 0.10)",
+                                        color: "#00d4ff",
+                                        border: "1px solid rgba(0, 212, 255, 0.50)",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {smWinVisualMode === "HIST_LINE"
+                                        ? "📊+📈 Fluxo: Hist + Linha"
+                                        : smWinVisualMode === "LINE"
+                                            ? "📈 Fluxo: Modo Linha"
+                                            : "📊 Fluxo: Histograma"}
+                                </button>
+                            </>
+                        )}
                         <button
                             onClick={() => setShowMidleWalls(v => !v)}
                             title="Exibir/Ocultar MIDLEWALL tracejada e suas Regiões de Compra/Venda"
@@ -1071,56 +1427,60 @@ function FluxoRealAsgChart({
                         </button>
                         <button
                             onClick={() => setShowNweLine(v => !v)}
-                            title="Exibir/Ocultar Média NWE Causal (Nadaraya-Watson h=8, L=40) e Banda ±1 MAE"
+                            title={isWallsHost ? "Exibir/Ocultar Envelope Causal NWE30 (L=30, bw=3.0, mult=1.6 — Banda Oposta = TP1 Dinâmico do Lote 1 no WIN)" : "Exibir/Ocultar Média NWE Causal (Nadaraya-Watson h=8, L=40) e Banda ±1 MAE"}
                             style={{
                                 padding: "2px 6px",
                                 fontSize: 9,
                                 fontFamily: "monospace",
                                 fontWeight: "bold",
-                                background: "#0c1218",
+                                background: showNweLine ? "rgba(0, 212, 255, 0.12)" : "#0c1218",
                                 color: showNweLine ? "#00d4ff" : "#5a7288",
-                                border: showNweLine ? "1px solid rgba(0, 212, 255, 0.45)" : "1px solid #1a2530",
+                                border: showNweLine ? "1px solid rgba(0, 212, 255, 0.55)" : "1px solid #1a2530",
                                 borderRadius: 4,
                                 cursor: "pointer",
                             }}
                         >
-                            〰️ Média NWE
+                            {isWallsHost ? "〰️ Banda NWE30" : "〰️ Média NWE"}
                         </button>
-                        <button
-                            onClick={() => setShowWindowFlips(v => !v)}
-                            title="Exibir/Ocultar Linhas Verticais Tracejadas de Virada da Janela de Fluxo"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: showWindowFlips ? "#ffd600" : "#5a7288",
-                                border: showWindowFlips ? "1px solid rgba(255, 214, 0, 0.55)" : "1px solid #1a2530",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            ⚡ Viradas
-                        </button>
-                        <button
-                            onClick={() => setShowWallBattleLabels(v => !v)}
-                            title="Exibir/Ocultar escrita nos candles (🛡️ Defendeu / 🪤 Absorveu / 💥 Rompeu / 🔄 Virou)"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: showWallBattleLabels ? "#00e87a" : "#5a7288",
-                                border: showWallBattleLabels ? "1px solid rgba(0, 232, 122, 0.55)" : "1px solid #1a2530",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            🛡️ Eventos Wall
-                        </button>
-                        {isWallsFlowLocalhost() && (
+                        {!isWallsHost && (
+                            <>
+                                <button
+                                    onClick={() => setShowWindowFlips(v => !v)}
+                                    title="Exibir/Ocultar Linhas Verticais Tracejadas de Virada da Janela de Fluxo"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: showWindowFlips ? "#ffd600" : "#5a7288",
+                                        border: showWindowFlips ? "1px solid rgba(255, 214, 0, 0.55)" : "1px solid #1a2530",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    ⚡ Viradas
+                                </button>
+                                <button
+                                    onClick={() => setShowWallBattleLabels(v => !v)}
+                                    title="Exibir/Ocultar escrita nos candles (🛡️ Defendeu / 🪤 Absorveu / 💥 Rompeu / 🔄 Virou)"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: showWallBattleLabels ? "#00e87a" : "#5a7288",
+                                        border: showWallBattleLabels ? "1px solid rgba(0, 232, 122, 0.55)" : "1px solid #1a2530",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    🛡️ Eventos Wall
+                                </button>
+                            </>
+                        )}
+                        {isWallsHost && (
                             <button
                                 onClick={() => setShowSwingDivLines(v => !v)}
                                 title="Exibir/Ocultar Linhas de Divergência de Topo e Fundo (F1 ➔ F2 / T1 ➔ T2) sincronizadas entre Preço e Fluxo"
@@ -1139,106 +1499,125 @@ function FluxoRealAsgChart({
                                 📐 Linhas Div. ({swingDivergences.length})
                             </button>
                         )}
-                        <span style={{ color: "#1a2530", margin: "0 2px" }}>|</span>
-                        <button
-                            onClick={() => setRightGapPx(g => Math.min(280, g + 35))}
-                            title="Chegar gráfico mais para a esquerda"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: "#00d4ff",
-                                border: "1px solid #1a2530",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            ◀ Esq
-                        </button>
-                        <button
-                            onClick={() => setRightGapPx(g => Math.max(30, g - 35))}
-                            title="Chegar gráfico mais para a direita"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: "#9fb4c7",
-                                border: "1px solid #1a2530",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            Dir ▶
-                        </button>
-                        <button
-                            onClick={() => setYZoomFactor(z => Math.min(4.0, +(z * 1.35).toFixed(2)))}
-                            title="Abrir escala vertical Y para enxergar mais MagicWalls e MidWalls acima e abaixo"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: "#00e87a",
-                                border: "1px solid #1a2530",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            ↕ +Walls
-                        </button>
-                        <button
-                            onClick={() => setYZoomFactor(z => Math.max(0.5, +(z / 1.35).toFixed(2)))}
-                            title="Dar mais zoom vertical nos candles atuais"
-                            style={{
-                                padding: "2px 6px",
-                                fontSize: 9,
-                                fontFamily: "monospace",
-                                fontWeight: "bold",
-                                background: "#0c1218",
-                                color: "#9fb4c7",
-                                border: "1px solid #1a2530",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                            }}
-                        >
-                            ↕ −Zoom Y
-                        </button>
-                        {yZoomFactor !== 1.0 && (
+                        {!isWallsHost && (
+                            <>
+                                <span style={{ color: "#1a2530", margin: "0 2px" }}>|</span>
+                                <button
+                                    onClick={() => setRightGapPx(g => Math.min(280, g + 35))}
+                                    title="Chegar gráfico mais para a esquerda"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: "#00d4ff",
+                                        border: "1px solid #1a2530",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    ◀ Esq
+                                </button>
+                                <button
+                                    onClick={() => setRightGapPx(g => Math.max(30, g - 35))}
+                                    title="Chegar gráfico mais para a direita"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: "#9fb4c7",
+                                        border: "1px solid #1a2530",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    Dir ▶
+                                </button>
+                                <button
+                                    onClick={() => setYZoomFactor(z => Math.min(4.0, +(z * 1.35).toFixed(2)))}
+                                    title="Abrir escala vertical Y para enxergar mais MagicWalls e MidWalls acima e abaixo"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: "#00e87a",
+                                        border: "1px solid #1a2530",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    ↕ +Walls
+                                </button>
+                                <button
+                                    onClick={() => setYZoomFactor(z => Math.max(0.5, +(z / 1.35).toFixed(2)))}
+                                    title="Dar mais zoom vertical nos candles atuais"
+                                    style={{
+                                        padding: "2px 6px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: "#0c1218",
+                                        color: "#9fb4c7",
+                                        border: "1px solid #1a2530",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    ↕ −Zoom Y
+                                </button>
+                            </>
+                        )}
+                        {(!priceAutoScale || yZoomFactor !== 1.0 || !flowAutoScale || flowYZoom !== 1.0 || viewMode === "CUSTOM" || rightGapPx !== 145) && (
                             <button
-                                onClick={() => setYZoomFactor(1.0)}
-                                title="Resetar escala vertical Y"
+                                onClick={() => {
+                                    setPriceAutoScale(true);
+                                    setYZoomFactor(1.0);
+                                    setPriceYOffset(0);
+                                    setFlowAutoScale(true);
+                                    setFlowYZoom(1.0);
+                                    setFlowYOffset(0);
+                                    setRightGapPx(145);
+                                    setPanOffsetRight(0);
+                                    setViewMode("HOJE");
+                                }}
+                                title="Resetar escalas de Preço, Fluxo Smart Money e Zoom horizontal para Automático (igual duplo-clique no TV)"
                                 style={{
-                                    padding: "2px 6px",
+                                    padding: "2px 7px",
                                     fontSize: 9,
                                     fontFamily: "monospace",
                                     fontWeight: "bold",
-                                    background: "#0c1218",
+                                    background: "rgba(0, 212, 255, 0.12)",
                                     color: "#00d4ff",
                                     border: "1px solid #00d4ff",
                                     borderRadius: 4,
                                     cursor: "pointer",
                                 }}
                             >
-                                Auto Y
+                                ↺ Auto Escala TV
                             </button>
                         )}
                         <span style={{ color: "#1a2530", margin: "0 2px" }}>|</span>
                         {[
-                            { id: "HOJE", label: "Dia Todo" },
-                            ...(hasPrevDayWarmup ? [{ id: "TUDO", label: "Ontem + Hoje" }] : []),
-                            { id: "RECENTE", label: "Foco (48b)" },
+                            { id: "HOJE", label: "Dia Todo", cnt: null },
+                            ...(hasPrevDayWarmup ? [{ id: "TUDO", label: "Ontem + Hoje", cnt: null }] : []),
+                            ...(useM1Active
+                                ? [
+                                    { id: "RECENTE", label: "Foco (120m)", cnt: 120 },
+                                    { id: "ZOOM45", label: "Zoom (45m)", cnt: 45 },
+                                ]
+                                : [{ id: "RECENTE", label: "Foco (48b)", cnt: 48 }]),
                         ].map(opt => (
                             <button
                                 key={opt.id}
                                 onClick={() => {
                                     setViewMode(opt.id);
                                     setPanOffsetRight(0);
-                                    if (opt.id === "RECENTE") setVisibleCount(48);
+                                    if (opt.cnt) setVisibleCount(opt.cnt);
                                 }}
                                 style={{
                                     padding: "2px 6px",
@@ -1255,69 +1634,39 @@ function FluxoRealAsgChart({
                                 {opt.label}
                             </button>
                         ))}
-                        {isWallsFlowLocalhost() && (
+                        {capitalDrawerInfo && (
                             <>
                                 <span style={{ color: "#1a2530", margin: "0 2px" }}>|</span>
-                                <span style={{ fontSize: 8.5, color: "#7f96a8", fontFamily: "monospace", fontWeight: "bold" }}>Sub-Painel:</span>
-                                {[
-                                    { id: "SWING_DIVERGENCIA", label: "🎯 Ondas & Divergência (Topo/Fundo)", col: "#00e87a", tip: "Onda de Fluxo Efetivo 3-Motores (Absorção Oculta Wyckoff + Assimetria Lote + Não-Varejo) com linhas de divergência F1->F2 / T1->T2 sincronizadas com o Preço" },
-                                    { id: "CABO_GUERRA", label: "⚔️ Cabo de Guerra (NR vs Var)", col: "#00d4ff", tip: "Barras empilhadas de Agressão Institucional + Absorção Passiva Institucional vs Varejo + Marcadores de Divergência" },
-                                    { id: "OSC_DIVERGENCIA", label: "📐 Oscilador Preço vs NR", col: "#38bdf8", tip: "Curva de Preço vs Fluxo Não-Varejo (5m Vela Atual s/ atraso, 10m ou 15m) com área sombreada nas divergências" },
-                                    { id: "CVD_4PLAYERS", label: "📈 CVD 4-Players", col: "#a78bfa", tip: "Curvas acumuladas de CVD Institucional Agressor, Institucional Passivo, Varejo e HFT" },
-                                    { id: "JANELA_ASG", label: "📊 Janela A.S.G", col: "#f59e0b", tip: "Histograma Linha Zero clássico da Janela A.S.G" },
-                                ].map(sm => (
-                                    <button
-                                        key={sm.id}
-                                        onClick={() => setFlowSubMode(sm.id)}
-                                        title={sm.tip}
-                                        style={{
-                                            padding: "2px 6px",
-                                            fontSize: 8.8,
-                                            fontFamily: "monospace",
-                                            fontWeight: "bold",
-                                            background: flowSubMode === sm.id ? "rgba(0, 232, 122, 0.12)" : "#0c1218",
-                                            color: flowSubMode === sm.id ? sm.col : "#7f96a8",
-                                            border: flowSubMode === sm.id ? `1px solid ${sm.col}` : "1px solid #1a2530",
-                                            borderRadius: 4,
-                                            cursor: "pointer",
-                                        }}
-                                    >
-                                        {sm.label}
-                                    </button>
-                                ))}
-                                {flowSubMode === "OSC_DIVERGENCIA" && (
-                                    <div style={{ display: "inline-flex", gap: 2, marginLeft: 3 }}>
-                                        {[
-                                            { id: "5M", label: "⚡ 5m (Vela Atual)", tip: "Divergência imediata na própria vela M5 (Close-Open vs Fluxo Não-Varejo 5m) — sem atraso!" },
-                                            { id: "10M", label: "10m (2b)", tip: "Janela curta de 2 barras (10m)" },
-                                            { id: "15M", label: "15m (3b)", tip: "Janela de swing de 3 barras (15m)" },
-                                        ].map(tf => (
-                                            <button
-                                                key={tf.id}
-                                                onClick={() => setOscTf(tf.id)}
-                                                title={tf.tip}
-                                                style={{
-                                                    padding: "1px 5px",
-                                                    fontSize: 8.2,
-                                                    fontFamily: "monospace",
-                                                    fontWeight: "bold",
-                                                    background: oscTf === tf.id ? "#00d4ff" : "#05080d",
-                                                    color: oscTf === tf.id ? "#04080e" : "#7f96a8",
-                                                    border: oscTf === tf.id ? "1px solid #00d4ff" : "1px solid #1a2530",
-                                                    borderRadius: 3,
-                                                    cursor: "pointer",
-                                                }}
-                                            >
-                                                {tf.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                                <button
+                                    onClick={capitalDrawerInfo.onToggle}
+                                    title={capitalDrawerInfo.isCollapsed
+                                        ? "Expandir painel lateral de Capital das Operações do Dia e HUD"
+                                        : "Recuar painel lateral de Capital para deixar o gráfico de Preço + Fluxo Smart Money maior na tela"}
+                                    style={{
+                                        padding: "2px 8px",
+                                        fontSize: 9,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        background: capitalDrawerInfo.isCollapsed ? "rgba(0, 212, 255, 0.08)" : "#0c1218",
+                                        color: capitalDrawerInfo.netBrl >= 0 ? "#00e87a" : "#ff3860",
+                                        border: capitalDrawerInfo.isCollapsed ? "1px solid rgba(0, 212, 255, 0.45)" : "1px solid #1a2530",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 5,
+                                    }}
+                                >
+                                    <span>💰 {capitalDrawerInfo.netBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(capitalDrawerInfo.netBrl), 0)}</span>
+                                    <span style={{ color: "#00d4ff", fontWeight: 900 }}>
+                                        {capitalDrawerInfo.isCollapsed ? "◀ Capital" : "Recuar ▶"}
+                                    </span>
+                                </button>
                             </>
                         )}
                     </div>
 
-                    {/* Inspetor OHLC + Janela de Fluxo + 4 Players Profit + Diagnóstico de Divergência (5176) */}
+                    {/* Inspetor OHLC enxuto */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 10, fontFamily: "monospace", background: "#0c1218", padding: "3px 9px", borderRadius: 5, border: "1px solid #1a2530" }}>
                         <span style={{ color: "#9fb4c7" }}>
                             🕒 {inspectedPt.is_prev_day ? `Ontem ${inspectedPt.time}` : inspectedPt.time}
@@ -1328,28 +1677,24 @@ function FluxoRealAsgChart({
                         <span style={{ color: "#ffffff", fontWeight: "bold" }}>
                             F:{fmtNum(inspectedPt.close, dec)}
                         </span>
-                        <span style={{ color: (inspectedPt.window_dir || 0) > 0 ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
-                            {(inspectedPt.window_dir || 0) > 0 ? "🟢 COMPRA" : "🔴 VENDA"}
-                        </span>
-                        <span style={{ color: "#00d4ff" }}>
-                            Fluxo: {fmtNum(inspectedPt.flow_hist, 1, true)}
-                        </span>
-                        {isWallsFlowLocalhost() && (
+                        {!isWallsHost && (
                             <>
-                                <span style={{ color: Number(inspectedPt.inst_aggr_delta ?? inspectedPt.inst_delta_bar ?? 0) >= 0 ? "#00e87a" : "#ff6b8b", fontWeight: "bold" }} title="Institucional Agressor (Sweep na barra M5) vs Institucional Passivo (Absorção na Pedra)">
-                                    🏦Agr:{fmtNum(inspectedPt.inst_aggr_delta ?? inspectedPt.inst_delta_bar ?? 0, 0, true)} | Pas:{fmtNum(inspectedPt.inst_pass_delta ?? 0, 0, true)}
+                                <span style={{ color: (inspectedPt.window_dir || 0) > 0 ? "#00e87a" : "#ff3860", fontWeight: "bold" }} title="Direção da Janela Estrutural das 8 Estratégias">
+                                    {(inspectedPt.window_dir || 0) > 0 ? "🟢 COMPRA" : "🔴 VENDA"}
                                 </span>
-                                <span style={{ color: Number(inspectedPt.ret_delta_bar ?? 0) >= 0 ? "#38bdf8" : "#f59e0b" }} title="Delta Varejo Puro (Pessoa Física no Book Central)">
+                                <span style={{ color: "#00d4ff" }} title="Saldo da Onda de Fluxo Smart Money em Contratos/Lotes">
+                                    Fluxo: {fmtNum(inspectedSub?.smartSwingWave ?? 0, 0, true)} L
+                                </span>
+                            </>
+                        )}
+                        {isWallsHost && (
+                            <>
+                                <span style={{ color: Number(inspectedPt.inst_aggr_delta ?? inspectedPt.inst_delta_bar ?? 0) + Number(inspectedPt.inst_pass_delta ?? 0) >= 0 ? "#00e87a" : "#ff6b8b", fontWeight: "bold" }} title="Saldo institucional total na barra M5 (Agressão + Absorção)">
+                                    🏦Não-Var:{fmtNum(Number(inspectedPt.inst_aggr_delta ?? inspectedPt.inst_delta_bar ?? 0) + Number(inspectedPt.inst_pass_delta ?? 0), 0, true)}
+                                </span>
+                                <span style={{ color: Number(inspectedPt.ret_delta_bar ?? 0) >= 0 ? "#38bdf8" : "#f59e0b" }} title="Saldo Varejo Puro na barra M5">
                                     🧑‍💻Var:{fmtNum(inspectedPt.ret_delta_bar ?? 0, 0, true)}
                                 </span>
-                                <span style={{ color: "#a78bfa" }} title="Giro HFT / Market Makers Eletrônicos e Participação RLP (flag 13)">
-                                    ⚡HFT:{fmtNum(inspectedPt.hft_churn_pct ?? 0, 0)}% · 🔄RLP:{fmtNum(inspectedPt.rlp_pct ?? 0, 0)}%
-                                </span>
-                                {Number(inspectedPt.avg_buy_lot || 0) > 0 && (
-                                    <span style={{ color: Number(inspectedPt.lot_imb || 1) >= 1.05 ? "#00e87a" : Number(inspectedPt.lot_imb || 1) <= 0.95 ? "#ff6b8b" : "#8ca5b5" }} title="Ticket Médio Agressor Compra vs Venda (Lotes/Negócio)">
-                                        🎟️Lote C/V:{fmtNum(inspectedPt.avg_buy_lot, 1)}/{fmtNum(inspectedPt.avg_sell_lot, 1)}
-                                    </span>
-                                )}
                                 {inspectedSub?.divType && (
                                     <span
                                         style={{
@@ -1368,16 +1713,16 @@ function FluxoRealAsgChart({
                                 )}
                             </>
                         )}
-                        {showNweLine && Number(inspectedPt.nwe_line) > 0 && (
-                            <span style={{ color: inspectedPt.nwe_is_up !== false ? "#00d4ff" : "#ff6b8b", fontWeight: "bold" }}>
-                                NWE: {fmtNum(inspectedPt.nwe_line, dec)} {inspectedPt.nwe_is_up !== false ? "↑" : "↓"}
+                        {showNweLine && getNweLine(inspectedPt) > 0 && (
+                            <span style={{ color: isWallsHost ? "#94a3b8" : (getNweIsUp(inspectedPt) !== false ? "#00d4ff" : "#ff6b8b"), fontWeight: "bold" }}>
+                                {isWallsHost ? "NWE30" : "NWE"}: {fmtNum(getNweLine(inspectedPt), dec)} {getNweIsUp(inspectedPt) !== false ? "↑" : "↓"}
                             </span>
                         )}
                     </div>
                 </div>
             </div>
 
-            {/* ── GRÁFICO PRINCIPAL UNIFICADO COM AS CORES DO DASHBOARD (#0c1218 / #1a2530) ── */}
+            {/* ── GRÁFICO PRINCIPAL INTERATIVO ESTILO TRADINGVIEW (#0c1218 / #1a2530) ── */}
             <svg
                 ref={svgRef}
                 viewBox={`0 0 ${width} ${height}`}
@@ -1387,33 +1732,65 @@ function FluxoRealAsgChart({
                     minHeight: 440,
                     display: "block",
                     userSelect: "none",
-                    cursor: dragState ? (dragState.type === "YSCALE" ? "ns-resize" : "grabbing") : "crosshair",
+                    cursor: dragState
+                        ? (dragState.type === "SPLITTER"
+                            ? "row-resize"
+                            : (dragState.type === "YSCALE_P1" || dragState.type === "YSCALE_P3")
+                                ? "ns-resize"
+                                : "grabbing")
+                        : cursorZone === "SPLITTER"
+                            ? "row-resize"
+                            : cursorZone === "YAXIS"
+                                ? "ns-resize"
+                                : "crosshair",
                     background: "#0c1218",
                     borderRadius: 6,
-                    border: "1px solid #1a2530",
-                }}
-                onWheel={(e) => {
-                    // Só aplica zoom horizontal se segurar Ctrl, para não dar zoom acidental ao rolar a página verticalmente
-                    if (!e.ctrlKey) return;
-                    e.preventDefault();
-                    const delta = e.deltaY > 0 ? 6 : -6;
-                    setViewMode("CUSTOM");
-                    setVisibleCount(c => Math.max(16, Math.min(totalBase, c + delta)));
+                    border: isChartFocused ? "1px solid rgba(0, 212, 255, 0.42)" : "1px solid #1a2530",
+                    transition: "border-color 0.15s ease",
                 }}
                 onMouseDown={(e) => {
+                    setIsChartFocused(true);
                     const rect = e.currentTarget.getBoundingClientRect();
                     const relX = ((e.clientX - rect.left) / rect.width) * width;
-                    if (relX > padL + plotW) {
+                    const relY = ((e.clientY - rect.top) / rect.height) * height;
+
+                    if (Math.abs(relY - splitterMidY) <= 7 && relX <= padL + plotW) {
                         setDragState({
-                            type: "YSCALE",
+                            type: "SPLITTER",
                             startY: e.clientY,
-                            startYZoom: yZoomFactor,
+                            rectH: rect.height,
+                            startFlowH: clampedFlowH,
                         });
+                    } else if (relX > padL + plotW) {
+                        if (relY <= p1Bot) {
+                            setPriceAutoScale(false);
+                            setDragState({
+                                type: "YSCALE_P1",
+                                startY: e.clientY,
+                                startYZoom: yZoomFactor,
+                            });
+                        } else if (relY >= p3Top && relY <= p3Bot) {
+                            setFlowAutoScale(false);
+                            setDragState({
+                                type: "YSCALE_P3",
+                                startY: e.clientY,
+                                startYZoom: flowYZoom,
+                            });
+                        }
                     } else {
+                        const isFlowPane = relY >= p3Top;
                         setDragState({
-                            type: "PAN",
+                            type: isFlowPane ? "PAN_P3" : "PAN_P1",
                             startX: e.clientX,
+                            startY: e.clientY,
+                            rectW: rect.width,
+                            rectH: rect.height,
                             startPan: clampedPan,
+                            startRightGap: rightGapPx,
+                            startPriceOffset: priceAutoScale ? 0 : priceYOffset,
+                            startFlowOffset: flowAutoScale ? 0 : flowYOffset,
+                            startRangeP: rangeP,
+                            startRangeWave: rangeWave,
                         });
                     }
                 }}
@@ -1422,15 +1799,56 @@ function FluxoRealAsgChart({
                     const relX = ((e.clientX - rect.left) / rect.width) * width;
                     const relY = ((e.clientY - rect.top) / rect.height) * height;
 
+                    if (!dragState) {
+                        if (Math.abs(relY - splitterMidY) <= 7 && relX <= padL + plotW) {
+                            if (cursorZone !== "SPLITTER") setCursorZone("SPLITTER");
+                        } else if (relX > padL + plotW && relY >= p1Top && relY <= p3Bot) {
+                            if (cursorZone !== "YAXIS") setCursorZone("YAXIS");
+                        } else if (cursorZone !== "PLOT") {
+                            setCursorZone("PLOT");
+                        }
+                    }
+
                     if (dragState) {
-                        if (dragState.type === "PAN") {
+                        const dyPx = e.clientY - dragState.startY;
+                        const dySvg = (dyPx / Math.max(1, dragState.rectH || rect.height)) * height;
+
+                        if (dragState.type === "SPLITTER") {
+                            const nextFlowH = Math.round(Math.max(82, Math.min(height - 210, dragState.startFlowH - dySvg)));
+                            setFlowPaneH(nextFlowH);
+                        } else if (dragState.type === "YSCALE_P1") {
+                            const factor = Math.max(0.15, Math.min(6.0, dragState.startYZoom * Math.exp(dyPx * 0.0055)));
+                            setYZoomFactor(+factor.toFixed(3));
+                        } else if (dragState.type === "YSCALE_P3") {
+                            const factor = Math.max(0.15, Math.min(6.0, dragState.startYZoom * Math.exp(dyPx * 0.0055)));
+                            setFlowYZoom(+factor.toFixed(3));
+                        } else if (dragState.type === "PAN_P1" || dragState.type === "PAN_P3") {
                             const dxPx = e.clientX - dragState.startX;
-                            const barsDelta = Math.round((dxPx / Math.max(1, rect.width * 0.7)) * effCount);
-                            setPanOffsetRight(Math.max(0, Math.min(maxPan, dragState.startPan + barsDelta)));
-                        } else if (dragState.type === "YSCALE") {
-                            const dyPx = e.clientY - dragState.startY;
-                            const factor = Math.max(0.4, Math.min(4.5, dragState.startYZoom * (1 + dyPx * 0.005)));
-                            setYZoomFactor(+factor.toFixed(2));
+                            const dxSvg = (dxPx / Math.max(1, dragState.rectW || rect.width)) * width;
+
+                            if (maxPan > 0) {
+                                const barsDelta = Math.round((dxPx / Math.max(1, (dragState.rectW || rect.width) * 0.72)) * effCount);
+                                const rawTargetPan = dragState.startPan + barsDelta;
+                                if (rawTargetPan < 0) {
+                                    setPanOffsetRight(0);
+                                    const extraGap = Math.round(-rawTargetPan * stepX);
+                                    setRightGapPx(Math.max(35, Math.min(480, dragState.startRightGap + extraGap)));
+                                } else {
+                                    setPanOffsetRight(Math.min(maxPan, rawTargetPan));
+                                }
+                            } else {
+                                setRightGapPx(Math.max(35, Math.min(480, Math.round(dragState.startRightGap - dxSvg))));
+                            }
+
+                            if (dragState.type === "PAN_P1" && (!priceAutoScale || e.shiftKey)) {
+                                if (e.shiftKey && priceAutoScale) setPriceAutoScale(false);
+                                const nextOffP = dragState.startPriceOffset + (dySvg / Math.max(1, p1H)) * dragState.startRangeP;
+                                setPriceYOffset(nextOffP);
+                            } else if (dragState.type === "PAN_P3" && (!flowAutoScale || e.shiftKey)) {
+                                if (e.shiftKey && flowAutoScale) setFlowAutoScale(false);
+                                const nextOffW = dragState.startFlowOffset + (dySvg / Math.max(1, flowPlotH)) * dragState.startRangeWave;
+                                setFlowYOffset(nextOffW);
+                            }
                         }
                     }
 
@@ -1449,38 +1867,164 @@ function FluxoRealAsgChart({
                 onMouseLeave={() => {
                     setDragState(null);
                     setHoverPos(null);
+                    setCursorZone("PLOT");
                 }}
-                onDoubleClick={() => {
-                    setYZoomFactor(1.0);
-                    setPanOffsetRight(0);
-                    setVisibleCount(48);
-                    setViewMode("TUDO");
+                onDoubleClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const relX = ((e.clientX - rect.left) / rect.width) * width;
+                    const relY = ((e.clientY - rect.top) / rect.height) * height;
+                    if (relX > padL + plotW && relY <= p1Bot) {
+                        setPriceAutoScale(true);
+                        setYZoomFactor(1.0);
+                        setPriceYOffset(0);
+                    } else if (relX > padL + plotW && relY >= p3Top) {
+                        setFlowAutoScale(true);
+                        setFlowYZoom(1.0);
+                        setFlowYOffset(0);
+                    } else {
+                        setPriceAutoScale(true);
+                        setYZoomFactor(1.0);
+                        setPriceYOffset(0);
+                        setFlowAutoScale(true);
+                        setFlowYZoom(1.0);
+                        setFlowYOffset(0);
+                        setRightGapPx(145);
+                        setPanOffsetRight(0);
+                        setViewMode("HOJE");
+                    }
                 }}
             >
+                <defs>
+                    <clipPath id={`clip-p1-band-${symKey}`}>
+                        <rect x="0" y={p1Top} width={width} height={p1H} />
+                    </clipPath>
+                    <clipPath id={`clip-p3-band-${symKey}`}>
+                        <rect x="0" y={p3Top + 15} width={width} height={Math.max(10, p3H - 15)} />
+                    </clipPath>
+                </defs>
+
                 {/* Fundos dos 2 Painéis Unificados com o Dashboard (#0c1218) */}
                 <rect x={padL} y={p1Top} width={plotW} height={p1H} fill="#0c1218" />
                 <rect x={padL} y={p3Top} width={plotW} height={p3H} fill="#0c1218" />
 
-                {/* Divisórias Horizontais Discretas dos 2 Painéis e Eixo Y Direito */}
-                <line x1={padL} y1={p1Bot} x2={width} y2={p1Bot} stroke="#1a2530" strokeWidth="1" />
+                {/* Grade Regular e Escala de Preço Dinâmica estilo TradingView (Painel 1) */}
+                {priceAxisTicks.map((tk, tIdx) => {
+                    const nearSpot = Math.abs(tk.y - lastY) < 13;
+                    const nearWall = nearbyWalls.some((w) => Math.abs(toY1(w.price) - tk.y) < 11);
+                    const nearAutoBtn = tk.y > p1Bot - 22;
+                    return (
+                        <g key={`tv-p1-tick-${tIdx}`}>
+                            <line
+                                x1={padL}
+                                y1={tk.y}
+                                x2={padL + plotW}
+                                y2={tk.y}
+                                stroke="#131d27"
+                                strokeWidth="0.8"
+                            />
+                            {!nearSpot && !nearWall && !nearAutoBtn && (
+                                <text
+                                    x={padL + plotW + 6}
+                                    y={tk.y + 3}
+                                    fill="#51687c"
+                                    fontSize="8"
+                                    fontFamily="monospace"
+                                >
+                                    {fmtNum(tk.price, dec)}
+                                </text>
+                            )}
+                        </g>
+                    );
+                })}
+
+                {/* Divisórias Horizontais + Barra Splitter Redimensionável estilo TradingView (↕) */}
+                <line x1={padL} y1={p1Bot} x2={width} y2={p1Bot} stroke={cursorZone === "SPLITTER" || dragState?.type === "SPLITTER" ? "#00d4ff88" : "#1a2530"} strokeWidth="1" />
+                <line x1={padL} y1={p3Top} x2={width} y2={p3Top} stroke={cursorZone === "SPLITTER" || dragState?.type === "SPLITTER" ? "#00d4ff88" : "#1a2530"} strokeWidth="1" />
+                <rect
+                    x={padL}
+                    y={p1Bot}
+                    width={plotW}
+                    height={splitterGap}
+                    fill={cursorZone === "SPLITTER" || dragState?.type === "SPLITTER" ? "rgba(0, 212, 255, 0.08)" : "#080d12"}
+                />
+                <rect
+                    x={padL + plotW / 2 - 18}
+                    y={splitterMidY - 1.5}
+                    width={36}
+                    height={3}
+                    rx="1.5"
+                    fill={cursorZone === "SPLITTER" || dragState?.type === "SPLITTER" ? "#00d4ff" : "#243444"}
+                />
                 <line x1={padL} y1={p3Bot} x2={width} y2={p3Bot} stroke="#1a2530" strokeWidth="1" />
                 <line x1={padL + plotW} y1={p1Top} x2={padL + plotW} y2={p3Bot} stroke="#1a2530" strokeWidth="1" />
 
                 {/* Títulos Internos Discretos na Paleta do Dashboard */}
                 <text x={padL + 8} y={p1Top + 13} fill="#5a7288" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
-                    1. {symKey} · M5 · MAGIC GEX LEVELS &amp; MIDWALLS (jumba_tradingview.pine)
+                    1. {symKey} · {useM1Active ? "M1 (1 MINUTO)" : "M5"} · MAGIC GEX LEVELS &amp; MIDWALLS (jumba_tradingview.pine)
                 </text>
-                <text x={padL + 8} y={p3Top + 11} fill="#8ca5b5" fontSize="7.8" fontWeight="bold" fontFamily="monospace">
+                <text x={padL + 8} y={p3Top + 12} fill="#9fb4c7" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
                     {flowSubMode === "SWING_DIVERGENCIA"
-                        ? "2. ONDA DE FLUXO EFETIVO & DIVERGÊNCIAS TOPO/FUNDO (F1➔F2 / T1➔T2) · 🛡️ Absorção Oculta Wyckoff + 🎟️ Porte Lote + 🏦 Não-Varejo"
+                        ? "2. FLUXO SMART MONEY"
                         : flowSubMode === "CABO_GUERRA"
                             ? "2. CABO DE GUERRA (NÃO-VAREJO vs VAREJO · M5) · 🟩🟥 Inst Agressor | 🟦🟧 Inst Passivo (Pedra) | 🟪 Barra Fina Varejo | ◆ Divergência"
                             : flowSubMode === "OSC_DIVERGENCIA"
                                 ? `2. OSCILADOR DE DIVERGÊNCIA (${oscTf === "5M" ? "⚡ 5m VELA ATUAL / TOQUE WALL" : oscTf === "10M" ? "10m / 2 BARRAS" : "15m / 3 BARRAS"}) · ⬜ ΔPreço vs 🟢 Fluxo Não-Varejo · Áreas Sombreadas = Divergência`
                                 : flowSubMode === "CVD_4PLAYERS"
-                                    ? "2. CVD ACUMULADO 4-PLAYERS (SESSÃO) · 🟢 Inst Agressor | 🔵 Inst Passivo (Absorção) | 🟠 Varejo | 🟣 HFT"
-                                    : "2. JANELA DE FLUXO A.S.G (HISTOGRAMA LINHA ZERO)"}
+                                    ? "2. CVD ACUMULADO 4-PLAYERS EM LOTES (SESSÃO) · 🟢 Inst Agressor | 🔵 Inst Passivo | 🟠 Varejo | 🟣 HFT | 🟡 RLP (Mesma Escala em Lotes)"
+                                    : smWinVisualMode === "HIST_LINE"
+                                        ? "2. JANELA DE FLUXO SMART MONEY (HISTOGRAMA + LINHA)"
+                                        : smWinVisualMode === "LINE"
+                                            ? "2. JANELA DE FLUXO SMART MONEY (MODO LINHA)"
+                                            : "2. JANELA DE FLUXO SMART MONEY (HISTOGRAMA)"}
                 </text>
+                {flowSubMode === "JANELA_ASG" && (
+                    <g onMouseDown={(e) => e.stopPropagation()}>
+                        {[
+                            { id: "HIST_LINE", label: "📊+📈 Hist+Linha", w: 78 },
+                            { id: "LINE", label: "📈 Linha", w: 50 },
+                            { id: "HIST", label: "📊 Hist", w: 46 },
+                        ].map((mOpt, mIdx, arr) => {
+                            const rightAnchor = padL + plotW - 6;
+                            const totalBefore = arr.slice(mIdx).reduce((acc, it) => acc + it.w + 4, 0);
+                            const xBtn = rightAnchor - totalBefore;
+                            const active = smWinVisualMode === mOpt.id;
+                            return (
+                                <g
+                                    key={`sm-vmode-${mOpt.id}`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSmWinVisualMode(mOpt.id);
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                >
+                                    <rect
+                                        x={xBtn}
+                                        y={p3Top + 2}
+                                        width={mOpt.w}
+                                        height={13}
+                                        rx="2.5"
+                                        fill={active ? "rgba(0, 212, 255, 0.18)" : "#080d12"}
+                                        stroke={active ? "#00d4ff" : "#1f2d3b"}
+                                        strokeWidth="0.85"
+                                    />
+                                    <text
+                                        x={xBtn + mOpt.w / 2}
+                                        y={p3Top + 11}
+                                        fill={active ? "#00d4ff" : "#6b8599"}
+                                        fontSize="7.4"
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                        textAnchor="middle"
+                                    >
+                                        {mOpt.label}
+                                    </text>
+                                </g>
+                            );
+                        })}
+                    </g>
+                )}
+
+                <g clipPath={`url(#clip-p1-band-${symKey})`}>
 
                 {/* Regiões Sombreadas de Compra e Venda (MagicWall + MidWall) Diferenciadas por Defesa Institucional + Hedge Makers */}
                 {(() => {
@@ -1535,18 +2079,24 @@ function FluxoRealAsgChart({
                         const yTop = Math.max(p1Top, toY1(Math.min(maxP, z.topP)));
                         const yBot = Math.min(p1Bot, toY1(Math.max(minP, z.botP)));
                         const hBand = Math.max(5, yBot - yTop);
-                        const isWhiteWallMode = wallColorMode === "PINE" || z.isNeutral;
-                        const col = isWhiteWallMode ? "#ffffff" : (z.isSell ? "#ff3860" : "#00e87a");
-                        const fillRgba = isWhiteWallMode
-                            ? (z.isStrong ? "rgba(255, 255, 255, 0.06)" : (z.isMid ? "rgba(255, 255, 255, 0.025)" : "rgba(255, 255, 255, 0.04)"))
-                            : (z.isSell
-                                ? (z.isStrong ? "rgba(255, 56, 96, 0.13)" : (z.isMid ? "rgba(255, 56, 96, 0.05)" : "rgba(255, 56, 96, 0.08)"))
-                                : (z.isStrong ? "rgba(0, 232, 122, 0.13)" : (z.isMid ? "rgba(0, 232, 122, 0.05)" : "rgba(0, 232, 122, 0.08)")));
+                        const isWhiteWallMode = isWallsHost || wallColorMode === "PINE" || z.isNeutral;
+                        const col = isWallsHost
+                            ? (z.isMid ? "#8b9bb0" : "#f1f5f9")
+                            : (isWhiteWallMode ? "#ffffff" : (z.isSell ? "#ff3860" : "#00e87a"));
+                        const fillRgba = isWallsHost
+                            ? (z.isMid
+                                ? (z.isStrong ? "rgba(148, 163, 184, 0.04)" : "rgba(148, 163, 184, 0.02)")
+                                : (z.isStrong ? "rgba(241, 245, 249, 0.055)" : "rgba(241, 245, 249, 0.032)"))
+                            : (isWhiteWallMode
+                                ? (z.isStrong ? "rgba(255, 255, 255, 0.06)" : (z.isMid ? "rgba(255, 255, 255, 0.025)" : "rgba(255, 255, 255, 0.04)"))
+                                : (z.isSell
+                                    ? (z.isStrong ? "rgba(255, 56, 96, 0.13)" : (z.isMid ? "rgba(255, 56, 96, 0.05)" : "rgba(255, 56, 96, 0.08)"))
+                                    : (z.isStrong ? "rgba(0, 232, 122, 0.13)" : (z.isMid ? "rgba(0, 232, 122, 0.05)" : "rgba(0, 232, 122, 0.08)"))));
                         const borderDash = z.isMid ? "3,3" : "none";
                         return (
                             <g key={z.key}>
                                 <rect x={padL} y={yTop} width={plotW} height={hBand} fill={fillRgba} />
-                                {z.isStrong && !z.isNeutral && (
+                                {!isWallsHost && z.isStrong && !z.isNeutral && (
                                     <line
                                         x1={padL}
                                         y1={z.isSell ? yBot : yTop}
@@ -1582,8 +2132,10 @@ function FluxoRealAsgChart({
                             : isNeutral
                                 ? pineCol
                                 : (isSell ? (isMid ? "#ff6b8b" : "#ff3860") : (isMid ? "#38ef94" : "#00e87a"));
-                    const col = wallColorMode === "PINE" ? pineCol : polCol;
-                    const textCol = (wallColorMode !== "PINE" && w.is_trap) ? "#fbbf24" : col;
+                    const col = isWallsHost
+                        ? (isMid ? "#8b9bb0" : "#f1f5f9")
+                        : (wallColorMode === "PINE" ? pineCol : polCol);
+                    const textCol = (!isWallsHost && wallColorMode !== "PINE" && w.is_trap) ? "#fbbf24" : col;
 
                     const isStrong = w.smart_stage === "FORTE" && !w.is_exhausted;
                     const strokeW = isMid
@@ -1607,7 +2159,6 @@ function FluxoRealAsgChart({
                         : (instD > 0 ? "#00e87a" : (instD < 0 ? "#ff6b8b" : col));
 
                     const shortTag = isMid ? "Mid" : (wType === "Wall" ? "MW" : wType);
-                    const isWallsHost = isWallsFlowLocalhost();
                     const pVerdict = isWallsHost && w.player_verdict && w.player_verdict !== "⏳ Aguardando Toque na Wall"
                         ? w.player_verdict
                         : "";
@@ -1623,13 +2174,18 @@ function FluxoRealAsgChart({
                     const retDeltaW = Number(w.ret_delta ?? 0);
                     const hftChurnW = Number(w.hft_churn_pct ?? 0);
                     const rlpShareW = Number(w.rlp_share_pct ?? w.rlp_pct ?? 0);
+                    const hftDeltaW = Number(w.hft_delta ?? 0);
+                    const rlpDeltaW = Number(w.rlp_delta ?? Math.round(-retDeltaW * (rlpShareW / 100.0)));
                     const fmtShortK = (val) => {
                         const av = Math.abs(Number(val || 0));
                         const sg = Number(val || 0) >= 0 ? "+" : "-";
                         return av >= 1000 ? `${sg}${(av / 1000).toFixed(av >= 10000 ? 0 : 1)}k` : `${sg}${Math.round(av)}`;
                     };
-                    const profit4PlayerSub = isWallsHost && (Math.abs(instAggrW) > 0 || Math.abs(instPassW) > 0 || Math.abs(retDeltaW) > 0)
-                        ? `🏦Agr:${fmtShortK(instAggrW)} Pas:${fmtShortK(instPassW)} · 🧑‍💻Var:${fmtShortK(retDeltaW)} · ⚡${Math.round(hftChurnW)}% · 🔄RLP:${Math.round(rlpShareW)}%`
+                    const profit4PlayerSub = isWallsHost && (Math.abs(instAggrW) > 0 || Math.abs(instPassW) > 0 || Math.abs(retDeltaW) > 0 || Math.abs(hftDeltaW) > 0)
+                        ? `🏦Agr:${fmtShortK(instAggrW)} Pas:${fmtShortK(instPassW)} · 🧑‍💻Var:${fmtShortK(retDeltaW)} · ⚡HFT:${fmtShortK(hftDeltaW)} · 🔄RLP:${fmtShortK(rlpDeltaW)}`
+                        : "";
+                    const profit4PlayerHoverExtra = isWallsHost && profit4PlayerSub
+                        ? ` (Giro Bruto: ⚡HFT ${Math.round(hftChurnW)}% | 🔄RLP ${Math.round(rlpShareW)}%)`
                         : "";
                     const belowLineDeltaText = profit4PlayerSub
                         ? (hideRightAxisTag ? `${fmtNum(w.price, dec)} · ${profit4PlayerSub}` : profit4PlayerSub)
@@ -1642,7 +2198,7 @@ function FluxoRealAsgChart({
 
                     return (
                         <g key={`pine-wall-${i}`}>
-                            <title>{`${w.label || wType} @ ${fmtNum(w.price, dec)} · ${verdictStr || w.status || ""}${ profit4PlayerSub ? ` | ${profit4PlayerSub}` : "" }${topBrokersTitle}`}</title>
+                            <title>{`${w.label || wType} @ ${fmtNum(w.price, dec)}`}</title>
                             <line
                                 x1={padL}
                                 y1={yW}
@@ -1653,33 +2209,36 @@ function FluxoRealAsgChart({
                                 strokeDasharray={isDashed ? "5,4" : "none"}
                                 opacity={isNeutral ? (isMid ? "0.45" : "0.68") : (isMid ? "0.80" : "0.95")}
                             />
-                            {/* Camada B (Acima da Wall): Veredito Vivo em Linguagem Simples alinhado à Direita */}
-                            <text
-                                x={padL + plotW - 6}
-                                y={yW - 3.5}
-                                textAnchor="end"
-                                fill={textCol}
-                                fontSize={isMid ? "7.2" : "7.8"}
-                                fontWeight="bold"
-                                fontFamily="monospace"
-                                opacity={isNeutral ? "0.68" : "0.96"}
-                            >
-                                {rightInnerLabel}
-                            </text>
-                            {/* Camada C (Abaixo da Wall): Delta Institucional sempre visível mesmo quando o preço está em cima da Wall */}
-                            {belowLineDeltaText && (
-                                <text
-                                    x={padL + plotW - 6}
-                                    y={yW + 9.5}
-                                    textAnchor="end"
-                                    fill={hasDeltaInfo ? deltaCol : col}
-                                    fontSize={isMid ? "7.3" : "7.8"}
-                                    fontWeight="bold"
-                                    fontFamily="monospace"
-                                    opacity="0.98"
-                                >
-                                    {belowLineDeltaText}
-                                </text>
+                            {/* Camadas de escrita acima/abaixo da Wall desativadas na 5176 (apenas linhas limpas + preço na escala direita) */}
+                            {!isWallsHost && (
+                                <>
+                                    <text
+                                        x={padL + plotW - 6}
+                                        y={yW - 3.5}
+                                        textAnchor="end"
+                                        fill={textCol}
+                                        fontSize={isMid ? "7.2" : "7.8"}
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                        opacity={isNeutral ? "0.68" : "0.96"}
+                                    >
+                                        {rightInnerLabel}
+                                    </text>
+                                    {belowLineDeltaText && (
+                                        <text
+                                            x={padL + plotW - 6}
+                                            y={yW + 9.5}
+                                            textAnchor="end"
+                                            fill={hasDeltaInfo ? deltaCol : col}
+                                            fontSize={isMid ? "7.3" : "7.8"}
+                                            fontWeight="bold"
+                                            fontFamily="monospace"
+                                            opacity="0.98"
+                                        >
+                                            {belowLineDeltaText}
+                                        </text>
+                                    )}
+                                </>
                             )}
                             {/* Etiqueta de Preço no Eixo Y Direito */}
                             {!hideRightAxisTag && (
@@ -1751,11 +2310,11 @@ function FluxoRealAsgChart({
                 {(() => {
                     const flips = [];
                     let prevPos = null;
-                    series.forEach((pt, idx) => {
-                        const hv = Number(pt.flow_hist || 0);
-                        const isPos = hv >= 0;
+                    subPanelBars.forEach((sb, idx) => {
+                        const wv = Number(sb.smartSwingWave || 0);
+                        const isPos = wv >= 0;
                         if (prevPos !== null && isPos !== prevPos) {
-                            flips.push({ idx, isBuy: isPos, time: pt.time });
+                            flips.push({ idx, isBuy: isPos, time: series[idx]?.time });
                         }
                         prevPos = isPos;
                     });
@@ -1776,31 +2335,33 @@ function FluxoRealAsgChart({
                                         strokeOpacity="0.55"
                                     />
                                 )}
-                                <circle cx={xStart} cy={yZero3} r="2.8" fill="#f5d061" stroke="#0c1218" strokeWidth="0.8" opacity="0.9" />
+                                {!isWallsHost && flowSubMode === "JANELA_ASG" && yZeroWave >= flowPlotTop && yZeroWave <= flowPlotBot && (
+                                    <circle cx={xStart} cy={yZeroWave} r="2.6" fill="#f5d061" stroke="#0c1218" strokeWidth="0.8" opacity="0.9" />
+                                )}
                             </g>
                         );
                     });
                 })()}
 
-                {/* ── FUNDO SUAVE DO ENVELOPE NWE (MULTI-DIA 200 BARRAS) ── */}
+                {/* ── FUNDO SUAVE DO ENVELOPE NWE (NWE30 NA 5176 | NWE40 NA 5174) ── */}
                 {showNweLine && (() => {
                     const validNwePts = series
-                        .map((pt, idx) => ({ pt, idx }))
-                        .filter(({ pt }) => Number(pt.nwe_upper) > 0 && Number(pt.nwe_lower) > 0);
+                        .map((pt, idx) => ({ pt, idx, nu: getNweUpper(pt), nl: getNweLower(pt) }))
+                        .filter(({ nu, nl }) => nu > 0 && nl > 0);
                     if (validNwePts.length < 2) return null;
                     const upperPoly = validNwePts
-                        .map(({ pt, idx }) => `${toX(idx).toFixed(1)},${Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(pt.nwe_upper))).toFixed(1)}`)
+                        .map(({ nu, idx }) => `${toX(idx).toFixed(1)},${Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(nu))).toFixed(1)}`)
                         .join(" ");
                     const lowerRev = [...validNwePts]
                         .reverse()
-                        .map(({ pt, idx }) => `${toX(idx).toFixed(1)},${Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(pt.nwe_lower))).toFixed(1)}`)
+                        .map(({ nl, idx }) => `${toX(idx).toFixed(1)},${Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(nl))).toFixed(1)}`)
                         .join(" ");
                     return (
                         <g pointerEvents="none">
                             <polygon
                                 points={`${upperPoly} ${lowerRev}`}
-                                fill="#00e87a"
-                                fillOpacity="0.025"
+                                fill={isWallsHost ? "#94a3b8" : "#00e87a"}
+                                fillOpacity={isWallsHost ? "0.03" : "0.025"}
                             />
                         </g>
                     );
@@ -1959,29 +2520,37 @@ function FluxoRealAsgChart({
                     const oVal = Number(pt.open ?? pt.close);
                     const cVal = Number(pt.close);
                     const cState = pt.candle_state ?? (pt.window_dir || 0);
-                    const fillCol = candleColorMode === "TRADICIONAL"
-                        ? (cVal >= oVal ? "#00e87a" : "#ff3860")
-                        : (cState > 0 ? "#00e87a" : cState < 0 ? "#ff3860" : "#7f96a8");
+                    const isBullCandle = cVal >= oVal;
+                    const fillCol = isWallsHost
+                        ? (isBullCandle ? "#cbd5e1" : "#475569")
+                        : (candleColorMode === "TRADICIONAL"
+                            ? (isBullCandle ? "#00e87a" : "#ff3860")
+                            : (cState > 0 ? "#00e87a" : cState < 0 ? "#ff3860" : "#7f96a8"));
+                    const wickCol = isWallsHost
+                        ? (isBullCandle ? "#cbd5e1" : "#64748b")
+                        : fillCol;
                     const bodyTop = Math.min(yO, yC);
                     const bodyH = Math.max(2.0, Math.abs(yC - yO));
 
                     return (
                         <g key={`p-candle-${idx}`}>
-                            <line x1={x} y1={yH} x2={x} y2={yL} stroke={fillCol} strokeWidth="1.2" strokeOpacity="0.9" />
+                            <line x1={x} y1={yH} x2={x} y2={yL} stroke={wickCol} strokeWidth="1.2" strokeOpacity="0.9" />
                             <rect
                                 x={x - candleW / 2}
                                 y={bodyTop}
                                 width={candleW}
                                 height={bodyH}
                                 fill={fillCol}
+                                stroke={isWallsHost && !isBullCandle ? "#64748b" : "none"}
+                                strokeWidth={isWallsHost && !isBullCandle ? "0.65" : "0"}
                                 rx="0.8"
                             />
                         </g>
                     );
                 })}
 
-                {/* ── CAMADA A: MÚLTIPLAS MARCAÇÕES DINÂMICAS DAS BATALHAS NA WALL AO LONGO DOS CANDLES (🛡️ Defendeu / 🪤 Absorveu / 💥 Rompeu / 🔄 Virou) ── */}
-                {showWallBattleLabels && (() => {
+                {/* ── CAMADA A: MÚLTIPLAS MARCAÇÕES DINÂMICAS DAS BATALHAS NA WALL AO LONGO DOS CANDLES (DESATIVADO NA 5176 PARA LEITURA LIMPA) ── */}
+                {!isWallsHost && showWallBattleLabels && (() => {
                     const seenByCandle = new Set();
                     const markers = [];
 
@@ -2079,27 +2648,34 @@ function FluxoRealAsgChart({
                     });
                 })()}
 
-                {/* ── ENVELOPE COMPLETO DA MÉDIA NWE (3 LINHAS PARALELAS: UPPER, CENTER, LOWER) COLORIDAS POR INCLINAÇÃO (VERDE ↑ / VERMELHO ↓) ── */}
+                {/* ── ENVELOPE COMPLETO DA MÉDIA NWE (NWE30 NA 5176 | NWE40 NA 5174: UPPER, CENTER, LOWER) ── */}
                 {showNweLine && (() => {
                     const segments = [];
                     for (let i = 1; i < series.length; i++) {
                         const prev = series[i - 1];
                         const curr = series[i];
-                        if (!(Number(prev.nwe_line) > 0 && Number(curr.nwe_line) > 0)) continue;
+                        const pLine = getNweLine(prev);
+                        const cLine = getNweLine(curr);
+                        if (!(pLine > 0 && cLine > 0)) continue;
+                        const pU = getNweUpper(prev);
+                        const cU = getNweUpper(curr);
+                        const pL = getNweLower(prev);
+                        const cL = getNweLower(curr);
+                        const cIsUp = getNweIsUp(curr);
                         const x1 = toX(i - 1);
                         const x2 = toX(i);
-                        const yC1 = Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(prev.nwe_line)));
-                        const yC2 = Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(curr.nwe_line)));
-                        const yU1 = Number(prev.nwe_upper) > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(prev.nwe_upper))) : null;
-                        const yU2 = Number(curr.nwe_upper) > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(curr.nwe_upper))) : null;
-                        const yL1 = Number(prev.nwe_lower) > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(prev.nwe_lower))) : null;
-                        const yL2 = Number(curr.nwe_lower) > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(curr.nwe_lower))) : null;
-                        const isUp = curr.nwe_is_up !== undefined ? Boolean(curr.nwe_is_up) : (Number(curr.nwe_line) >= Number(prev.nwe_line));
+                        const yC1 = Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(pLine)));
+                        const yC2 = Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(cLine)));
+                        const yU1 = pU > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(pU))) : null;
+                        const yU2 = cU > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(cU))) : null;
+                        const yL1 = pL > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(pL))) : null;
+                        const yL2 = cL > 0 ? Math.max(p1Top + 2, Math.min(p1Bot - 2, toY1(cL))) : null;
+                        const isUp = cIsUp !== undefined ? Boolean(cIsUp) : (cLine >= pLine);
                         segments.push({ x1, x2, yC1, yC2, yU1, yU2, yL1, yL2, isUp, key: `nwe-seg-${i}` });
                     }
-                    const lastNwe = Number(lastPt?.nwe_line || 0);
-                    const lastNweUp = lastPt?.nwe_is_up !== false;
-                    const lastNweCol = lastNweUp ? "#00e87a" : "#ff3860";
+                    const lastNwe = getNweLine(lastPt);
+                    const lastNweUp = getNweIsUp(lastPt) !== false;
+                    const lastNweCol = isWallsHost ? "#94a3b8" : (lastNweUp ? "#00e87a" : "#ff3860");
                     const rawNweY = lastNwe > 0 ? Math.max(p1Top + 10, Math.min(p1Bot - 10, toY1(lastNwe))) : null;
                     const badgeNweY = rawNweY !== null
                         ? (Math.abs(rawNweY - lastY) < 17 ? (rawNweY < lastY ? Math.max(p1Top + 9, lastY - 18) : Math.min(p1Bot - 9, lastY + 18)) : rawNweY)
@@ -2108,7 +2684,8 @@ function FluxoRealAsgChart({
                     return (
                         <g pointerEvents="none">
                             {segments.map(seg => {
-                                const col = seg.isUp ? "#00e87a" : "#ff3860";
+                                const col = isWallsHost ? "#94a3b8" : (seg.isUp ? "#00e87a" : "#ff3860");
+                                const bandCol = isWallsHost ? "#64748b" : col;
                                 return (
                                     <g key={seg.key}>
                                         {seg.yU1 !== null && seg.yU2 !== null && (
@@ -2117,10 +2694,10 @@ function FluxoRealAsgChart({
                                                 y1={seg.yU1}
                                                 x2={seg.x2}
                                                 y2={seg.yU2}
-                                                stroke={col}
-                                                strokeWidth="1.45"
+                                                stroke={bandCol}
+                                                strokeWidth={isWallsHost ? "1.15" : "1.45"}
                                                 strokeLinecap="round"
-                                                opacity="0.88"
+                                                opacity={isWallsHost ? "0.60" : "0.88"}
                                             />
                                         )}
                                         <line
@@ -2129,9 +2706,9 @@ function FluxoRealAsgChart({
                                             x2={seg.x2}
                                             y2={seg.yC2}
                                             stroke={col}
-                                            strokeWidth="1.85"
+                                            strokeWidth={isWallsHost ? "1.40" : "1.85"}
                                             strokeLinecap="round"
-                                            opacity="0.96"
+                                            opacity={isWallsHost ? "0.68" : "0.96"}
                                         />
                                         {seg.yL1 !== null && seg.yL2 !== null && (
                                             <line
@@ -2139,10 +2716,10 @@ function FluxoRealAsgChart({
                                                 y1={seg.yL1}
                                                 x2={seg.x2}
                                                 y2={seg.yL2}
-                                                stroke={col}
-                                                strokeWidth="1.45"
+                                                stroke={bandCol}
+                                                strokeWidth={isWallsHost ? "1.15" : "1.45"}
                                                 strokeLinecap="round"
-                                                opacity="0.88"
+                                                opacity={isWallsHost ? "0.60" : "0.88"}
                                             />
                                         )}
                                     </g>
@@ -2164,11 +2741,11 @@ function FluxoRealAsgChart({
                                         x={padL + plotW + 6}
                                         y={badgeNweY + 3}
                                         fill={lastNweCol}
-                                        fontSize="8.5"
+                                        fontSize="8.2"
                                         fontWeight="bold"
                                         fontFamily="monospace"
                                     >
-                                        NWE {fmtNum(lastNwe, dec)} {lastNweUp ? "↑" : "↓"}
+                                        {isWallsHost ? "NWE30" : "NWE"} {fmtNum(lastNwe, dec)} {lastNweUp ? "↑" : "↓"}
                                     </text>
                                 </g>
                             )}
@@ -2189,10 +2766,12 @@ function FluxoRealAsgChart({
                     const y2 = isBull
                         ? Math.max(p1Top + 18, Math.min(p1Bot - 16, rawY2 + 5))
                         : Math.max(p1Top + 18, Math.min(p1Bot - 16, rawY2 - 5));
-                    const col = isBull ? "#00e87a" : "#ff3860";
-                    const badgeTxt = isBull
-                        ? (dv.nearWall ? "🟢 DIV. COMPRA NA WALL · Fluxo ↑" : "🟢 DIV. COMPRA · Fluxo ↑")
-                        : (dv.nearWall ? "🔴 DIV. VENDA NA WALL · Fluxo ↓" : "🔴 DIV. VENDA · Fluxo ↓");
+                    const col = dv.isPendingTrigger ? "#ffd600" : (isBull ? "#00e87a" : "#ff3860");
+                    const badgeTxt = dv.isPendingTrigger
+                        ? (isBull ? "⏳ DIV. COMPRA NA WALL · Aguard. Gatilho" : "⏳ DIV. VENDA NA WALL · Aguard. Gatilho")
+                        : (isBull
+                            ? (dv.nearWall ? "🟢 DIV. COMPRA NA WALL · Fluxo ↑" : "🟢 DIV. COMPRA · Fluxo ↑")
+                            : (dv.nearWall ? "🔴 DIV. VENDA NA WALL · Fluxo ↓" : "🔴 DIV. VENDA · Fluxo ↓"));
                     const badgeW = Math.max(92, badgeTxt.length * 4.4 + 8);
                     const badgeX = Math.max(padL + 4, Math.min(padL + plotW - badgeW - 4, x2 - badgeW / 2));
                     const badgeY = isBull
@@ -2342,9 +2921,12 @@ function FluxoRealAsgChart({
                     const isWinExit = realizedPts >= 0;
                     const isOpenTrade = sig.validation_status === "EM_ANDAMENTO";
 
+                    const tp1P = Number(sig.tp1_price || 0);
+                    const yTp1Proj = tp1P > 0 ? clampY(toY1(tp1P)) : null;
+
                     return (
                         <g key={`tv-box-fg-${sig.id}`} pointerEvents="none">
-                            {/* Linha do Alvo Fixo (Apenas em WIN_1 e WDO_1) */}
+                            {/* Linha do Alvo Principal (TP2 750p no WIN_DIV_WALL ou TP MidWall no WDO_DIV_WALL) */}
                             {hasFixedTp && (
                                 <line
                                     x1={x1}
@@ -2354,6 +2936,19 @@ function FluxoRealAsgChart({
                                     stroke="#2dd4bf"
                                     strokeWidth="1.2"
                                     strokeOpacity="0.95"
+                                />
+                            )}
+                            {/* Linha Intermediária Tracejada do TP1 (NWE30 Banda Oposta Dinâmico do Lote 1 no WIN_DIV_WALL) */}
+                            {yTp1Proj !== null && Math.abs(yTp1Proj - yTpProj) > 2 && (
+                                <line
+                                    x1={x1}
+                                    y1={yTp1Proj}
+                                    x2={x2}
+                                    y2={yTp1Proj}
+                                    stroke="#38bdf8"
+                                    strokeWidth="1.15"
+                                    strokeDasharray="3,2"
+                                    strokeOpacity="0.92"
                                 />
                             )}
 
@@ -2490,12 +3085,8 @@ function FluxoRealAsgChart({
                     const sid = String(sig.strategy_id || "");
                     const isWallsFlow = isWallsFlowLocalhost();
                     const shortMap = isWallsFlow ? {
-                        EST_14: "🛡️ WIN-A1 Vai Defender",
-                        EST_04: "🔄 WIN-B1 Virou Sup/Res",
-                        EST_07: "💥 WIN-C1 Romperam Wall",
-                        WIN_E2: "⚪ WIN-E2 Wall Gasta",
-                        WDO_07: "🪤 WDO-B1 Violinada",
-                        WDO_10: "🛡️ WDO-A2 Vai Defender",
+                        WIN_DIV_WALL: "🎯 WIN Div · 2L Mix",
+                        WDO_DIV_WALL: "🎯 WDO Div · 1L MidWall",
                     } : {
                         EST_01: "EST-01 PinBar",
                         EST_04: "EST-04 WDO-Alinh",
@@ -2512,6 +3103,8 @@ function FluxoRealAsgChart({
                         WDO_S2: "WDO-10 Lunch",
                     };
                     const colorMap = {
+                        WIN_DIV_WALL: "#00e87a",
+                        WDO_DIV_WALL: "#ffd600",
                         EST_01: "#38bdf8",
                         EST_04: "#00d4ff",
                         EST_07: "#38bdf8",
@@ -2611,174 +3204,239 @@ function FluxoRealAsgChart({
                         </g>
                     );
                 })}
+                </g>
 
-                {/* ══════════════════════════════════════════════════════════════════════
-                   PAINEL 2 (BASE): 4 MODOS DE FLUXO & DIVERGÊNCIA NÃO-VAREJO
-                   ══════════════════════════════════════════════════════════════════════ */}
-                {/* Fita Superior de Divergência / Assinatura (5176) */}
-                {isWallsFlowLocalhost() && subPanelBars.map((sb) => {
-                    if (!sb.divType) return null;
-                    const x = toX(sb.idx);
+                {/* Botão 'A' (Auto Escala) estilo TradingView no canto inferior direito do Eixo de Preço */}
+                {(() => {
+                    const isPAuto = priceAutoScale && yZoomFactor === 1.0 && priceYOffset === 0;
                     return (
-                        <g key={`div-strip-${sb.idx}`}>
+                        <g
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (isPAuto) {
+                                    setPriceAutoScale(false);
+                                } else {
+                                    setPriceAutoScale(true);
+                                    setYZoomFactor(1.0);
+                                    setPriceYOffset(0);
+                                }
+                            }}
+                            style={{ cursor: "pointer" }}
+                        >
+                            <title>{isPAuto ? "Escala de Preço Automática ligada (clique para modo livre 2D ou arraste a escala Y)" : "Clique para voltar a escala de Preço ao modo Automático (A)"}</title>
                             <rect
-                                x={x - candleW * 0.55}
-                                y={p3Top + 14}
-                                width={Math.max(3, candleW * 1.1)}
-                                height={3.2}
-                                fill={sb.divColor}
-                                opacity="0.92"
-                                rx="1"
+                                x={width - 21}
+                                y={p1Bot - 16}
+                                width={16}
+                                height={13}
+                                rx="2.5"
+                                fill={isPAuto ? "rgba(0, 212, 255, 0.22)" : "#0c1218"}
+                                stroke={isPAuto ? "#00d4ff" : "#334155"}
+                                strokeWidth="0.9"
+                            />
+                            <text
+                                x={width - 13}
+                                y={p1Bot - 6.8}
+                                fill={isPAuto ? "#00d4ff" : "#7f96a8"}
+                                fontSize="8"
+                                fontWeight="bold"
+                                fontFamily="monospace"
+                                textAnchor="middle"
                             >
-                                <title>{`${series[sb.idx]?.time} · ${sb.divLabel}`}</title>
-                            </rect>
+                                A
+                            </text>
                         </g>
                     );
-                })}
+                })()}
 
-                {/* MODO 0 (PADRÃO 5176): ONDA DE FLUXO EFETIVO 3-MOTORES & DIVERGÊNCIAS TOPO/FUNDO (F1➔F2 / T1➔T2) */}
+                {/* ══════════════════════════════════════════════════════════════════════
+                   PAINEL 2 (BASE): FLUXO SMART MONEY (ESCALA VARIÁVEL ESTILO TRADINGVIEW + F1➔F2 / T1➔T2)
+                   ══════════════════════════════════════════════════════════════════════ */}
                 {flowSubMode === "SWING_DIVERGENCIA" && (() => {
                     const wavePts = subPanelBars.map((sb) => `${toX(sb.idx).toFixed(1)},${toYSwingWave(sb.smartSwingWave).toFixed(1)}`).join(" ");
-                    const areaPts = subPanelBars.length > 1
-                        ? `${toX(0).toFixed(1)},${yZero3.toFixed(1)} ${wavePts} ${toX(subPanelBars.length - 1).toFixed(1)},${yZero3.toFixed(1)}`
-                        : "";
                     const lastSb = subPanelBars[subPanelBars.length - 1] || {};
+                    const lastWaveY = toYSwingWave(lastSb.smartSwingWave || 0);
+                    const isFAuto = flowAutoScale && flowYZoom === 1.0 && flowYOffset === 0;
                     const fmtW = (v) => {
-                        const av = Math.abs(Number(v || 0));
-                        const sg = Number(v || 0) >= 0 ? "+" : "-";
+                        const num = Number(v || 0);
+                        if (Math.abs(num) < 0.5) return "0";
+                        const av = Math.abs(num);
+                        const sg = num > 0 ? "+" : "-";
                         return av >= 1000 ? `${sg}${(av / 1000).toFixed(1)}k` : `${sg}${Math.round(av)}`;
                     };
 
                     return (
                         <g>
-                            <line x1={padL} y1={yZero3} x2={padL + plotW} y2={yZero3} stroke="#243444" strokeWidth="1.1" strokeDasharray="3,3" />
-                            <text x={padL + plotW + 5} y={yZero3 + 3} fill="#6b8599" fontSize="8" fontWeight="bold" fontFamily="monospace">
-                                ZERO
-                            </text>
-                            <text x={padL + plotW + 5} y={p3Top + 25} fill="#00e87a" fontSize="7.5" fontFamily="monospace">
-                                {fmtW(maxSwingWaveAbs)}
-                            </text>
-                            <text x={padL + plotW + 5} y={p3Bot - 5} fill="#ff3860" fontSize="7.5" fontFamily="monospace">
-                                {fmtW(-maxSwingWaveAbs)}
-                            </text>
+                            {/* Grade e Marcações Dinâmicas da Escala Variável do Fluxo Smart Money */}
+                            {flowAxisTicks.map((tk, fIdx) => {
+                                const isZeroTick = Math.abs(tk.val) < 1e-3;
+                                const nearCur = Math.abs(tk.y - lastWaveY) < 11 && lastWaveY >= flowPlotTop && lastWaveY <= flowPlotBot;
+                                const nearAuto = tk.y > p3Bot - 19;
+                                return (
+                                    <g key={`tv-f-tick-${fIdx}`}>
+                                        <line
+                                            x1={padL}
+                                            y1={tk.y}
+                                            x2={padL + plotW}
+                                            y2={tk.y}
+                                            stroke={isZeroTick ? "#243444" : "#131d27"}
+                                            strokeWidth={isZeroTick ? "1.1" : "0.8"}
+                                            strokeDasharray={isZeroTick ? "3,3" : "none"}
+                                        />
+                                        {!nearCur && !nearAuto && (
+                                            <text
+                                                x={padL + plotW + 6}
+                                                y={tk.y + 3}
+                                                fill={isZeroTick ? "#8ca5b8" : "#51687c"}
+                                                fontSize="7.8"
+                                                fontWeight={isZeroTick ? "bold" : "normal"}
+                                                fontFamily="monospace"
+                                            >
+                                                {isZeroTick ? "ZERO" : fmtW(tk.val)}
+                                            </text>
+                                        )}
+                                    </g>
+                                );
+                            })}
 
-                            {/* Área sombreada sutil da Onda de Fluxo Efetivo */}
-                            {areaPts && (
-                                <polygon
-                                    points={areaPts}
-                                    fill={Number(lastSb.smartSwingWave || 0) >= 0 ? "rgba(0, 232, 122, 0.10)" : "rgba(0, 212, 255, 0.08)"}
-                                />
+                            {/* Garante Linha ZERO tracejada caso 0 esteja visível mas não tenha caído num múltiplo exato */}
+                            {yZeroWave >= flowPlotTop && yZeroWave <= flowPlotBot && !flowAxisTicks.some(t => Math.abs(t.val) < 1e-3) && (
+                                <g>
+                                    <line x1={padL} y1={yZeroWave} x2={padL + plotW} y2={yZeroWave} stroke="#243444" strokeWidth="1.1" strokeDasharray="3,3" />
+                                    {Math.abs(yZeroWave - lastWaveY) >= 11 && (
+                                        <text x={padL + plotW + 6} y={yZeroWave + 3} fill="#8ca5b8" fontSize="7.8" fontWeight="bold" fontFamily="monospace">
+                                            ZERO
+                                        </text>
+                                    )}
+                                </g>
                             )}
 
-                            {/* Barras de Força Efetiva 3-Motores por Vela (Wyckoff + Porte Lote + Não-Varejo) */}
-                            {subPanelBars.map((sb) => {
-                                const x = toX(sb.idx);
-                                const efScaled = sb.effForce * 1.35;
-                                const yEf = toYSwingWave(efScaled);
-                                const hEf = Math.max(1.2, Math.abs(yZero3 - yEf));
-                                const topEf = efScaled >= 0 ? yEf : yZero3;
-                                // Se a Absorção Oculta Wyckoff for compradora enquanto o candle caiu (ou vice-versa), destaca em Ciano (#00d4ff)
-                                const isHiddenAbs = (sb.wyckoffAbs > 0 && sb.c <= sb.o) || (sb.ip5 > 0 && sb.c <= sb.o);
-                                const barCol = isHiddenAbs
-                                    ? "#00d4ff"
-                                    : (efScaled >= 0 ? "#00e87a" : "#ff3860");
+                            <g clipPath={`url(#clip-p3-band-${symKey})`}>
+                                {/* Linha Azul Limpa do Fluxo Smart Money (Escala Variável) */}
+                                <polyline
+                                    fill="none"
+                                    stroke="#00d4ff"
+                                    strokeWidth="2.15"
+                                    strokeLinejoin="round"
+                                    strokeLinecap="round"
+                                    points={wavePts}
+                                    opacity="0.96"
+                                />
 
-                                return (
-                                    <g key={`sw-bar-${sb.idx}`}>
-                                        <title>{`${series[sb.idx]?.time} | 🌊 Onda Swing: ${fmtW(sb.smartSwingWave)} | ⚡ Força Barra: ${fmtW(sb.effForce)} (🛡️ Wyckoff: ${fmtW(sb.wyckoffAbs)} | 🎟️ Porte Lote: ${fmtW(sb.lotUrgency)} | 🏦 Inst: ${fmtW(sb.smartInst)}) | ${sb.divLabel}`}</title>
-                                        <rect
-                                            x={x - candleW * 0.44}
-                                            y={topEf}
-                                            width={Math.max(2, candleW * 0.88)}
-                                            height={hEf}
-                                            fill={barCol}
-                                            opacity={sb.swingDiv ? "0.85" : "0.42"}
-                                            rx="0.6"
-                                        />
-                                    </g>
-                                );
-                            })}
+                                {/* Linhas de Divergência Sincronizadas na Onda de Fluxo (F1 ➔ F2 ↗ e T1 ➔ T2 ↘) */}
+                                {swingDivergences.map((dv, dIdx) => {
+                                    const isBull = dv.type === "BULL_DIV";
+                                    const x1 = toX(dv.prevIdx);
+                                    const x2 = toX(dv.currIdx);
+                                    const y1 = toYSwingWave(dv.prevWave);
+                                    const y2 = toYSwingWave(dv.currWave);
+                                    const col = dv.isPendingTrigger ? "#ffd600" : (isBull ? "#00e87a" : "#ff3860");
+                                    const midX = (x1 + x2) / 2;
+                                    const midY = (y1 + y2) / 2;
+                                    const lbl = isBull
+                                        ? `F1➔F2 ↗ (${fmtW(dv.currWave)})`
+                                        : `T1➔T2 ↘ (${fmtW(dv.currWave)})`;
 
-                            {/* Curva Contínua da Onda de Fluxo Efetivo de Swing (Sem Deriva Matinal — Pronta para Topo/Fundo) */}
-                            <polyline
-                                fill="none"
-                                stroke="#00d4ff"
-                                strokeWidth="2.1"
-                                points={wavePts}
-                                opacity="0.95"
-                            />
+                                    return (
+                                        <g key={`p2-swing-div-${dIdx}`}>
+                                            <line
+                                                x1={x2}
+                                                y1={p3Top + 15}
+                                                x2={x2}
+                                                y2={y2}
+                                                stroke={col}
+                                                strokeWidth="0.85"
+                                                strokeDasharray="2,3"
+                                                opacity="0.50"
+                                            />
+                                            <line
+                                                x1={x1}
+                                                y1={y1}
+                                                x2={x2}
+                                                y2={y2}
+                                                stroke="#05080d"
+                                                strokeWidth="3.4"
+                                                opacity="0.85"
+                                            />
+                                            <line
+                                                x1={x1}
+                                                y1={y1}
+                                                x2={x2}
+                                                y2={y2}
+                                                stroke={col}
+                                                strokeWidth="2.2"
+                                            />
+                                            <circle cx={x1} cy={y1} r="2.8" fill="#05080d" stroke={col} strokeWidth="1.5" />
+                                            <circle cx={x2} cy={y2} r="3.5" fill={col} stroke="#05080d" strokeWidth="1.1" />
+                                            <text
+                                                x={midX}
+                                                y={isBull ? Math.min(p3Bot - 4, midY + 11) : Math.max(p3Top + 24, midY - 5)}
+                                                fill={col}
+                                                fontSize="7.2"
+                                                fontWeight="bold"
+                                                fontFamily="monospace"
+                                                textAnchor="middle"
+                                            >
+                                                {lbl}
+                                            </text>
+                                        </g>
+                                    );
+                                })}
 
-                            {/* Linhas de Divergência Sincronizadas na Onda de Fluxo (F1 ➔ F2 ↗ e T1 ➔ T2 ↘) */}
-                            { swingDivergences.map((dv, dIdx) => {
-                                const isBull = dv.type === "BULL_DIV";
-                                const x1 = toX(dv.prevIdx);
-                                const x2 = toX(dv.currIdx);
-                                const y1 = toYSwingWave(dv.prevWave);
-                                const y2 = toYSwingWave(dv.currWave);
-                                const col = isBull ? "#00e87a" : "#ff3860";
-                                const midX = (x1 + x2) / 2;
-                                const midY = (y1 + y2) / 2;
-                                const lbl = isBull
-                                    ? `F1➔F2 ↗ (${fmtW(dv.currWave)})`
-                                    : `T1➔T2 ↘ (${fmtW(dv.currWave)})`;
+                                {/* Badge estilo TradingView do Valor Atual da Onda na Escala Direita */}
+                                {(() => {
+                                    const clampedTagY = Math.max(flowPlotTop + 7, Math.min(flowPlotBot - 7, lastWaveY));
+                                    return (
+                                        <g>
+                                            <line x1={lastX} y1={clampedTagY} x2={padL + plotW} y2={clampedTagY} stroke="#00d4ff" strokeWidth="0.85" strokeDasharray="2,3" opacity="0.65" />
+                                            <rect x={padL + plotW + 2} y={clampedTagY - 7.5} width={padR - 26} height={15} rx="2.5" fill="rgba(0, 212, 255, 0.16)" stroke="#00d4ff" strokeWidth="0.9" />
+                                            <text x={padL + plotW + 6} y={clampedTagY + 3} fill="#00d4ff" fontSize="8.2" fontWeight="bold" fontFamily="monospace">
+                                                {fmtW(lastSb.smartSwingWave)}
+                                            </text>
+                                        </g>
+                                    );
+                                })()}
+                            </g>
 
-                                return (
-                                    <g key={`p2-swing-div-${dIdx}`}>
-                                        <line
-                                            x1={x2}
-                                            y1={p3Top + 14}
-                                            x2={x2}
-                                            y2={y2}
-                                            stroke={col}
-                                            strokeWidth="0.85"
-                                            strokeDasharray="2,3"
-                                            opacity="0.50"
-                                        />
-                                        <line
-                                            x1={x1}
-                                            y1={y1}
-                                            x2={x2}
-                                            y2={y2}
-                                            stroke="#05080d"
-                                            strokeWidth="3.4"
-                                            opacity="0.85"
-                                        />
-                                        <line
-                                            x1={x1}
-                                            y1={y1}
-                                            x2={x2}
-                                            y2={y2}
-                                            stroke={col}
-                                            strokeWidth="2.2"
-                                        />
-                                        <circle cx={x1} cy={y1} r="2.8" fill="#05080d" stroke={col} strokeWidth="1.5" />
-                                        <circle cx={x2} cy={y2} r="3.5" fill={col} stroke="#05080d" strokeWidth="1.1" />
-                                        <text
-                                            x={midX}
-                                            y={isBull ? Math.min(p3Bot - 4, midY + 10) : Math.max(p3Top + 23, midY - 5)}
-                                            fill={col}
-                                            fontSize="7.2"
-                                            fontWeight="bold"
-                                            fontFamily="monospace"
-                                            textAnchor="middle"
-                                        >
-                                            {lbl}
-                                        </text>
-                                    </g>
-                                );
-                            })}
-
-                            {/* Tag Atual da Onda na Escala Direita */}
-                            <text
-                                x={padL + plotW + 4}
-                                y={Math.max(p3Top + 36, Math.min(p3Bot - 14, toYSwingWave(lastSb.smartSwingWave || 0) + 3))}
-                                fill={Number(lastSb.smartSwingWave || 0) >= 0 ? "#00e87a" : "#00d4ff"}
-                                fontSize="7.8"
-                                fontWeight="bold"
-                                fontFamily="monospace"
+                            {/* Botão 'A' (Auto Escala) estilo TradingView no canto inferior direito do Eixo do Fluxo */}
+                            <g
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isFAuto) {
+                                        setFlowAutoScale(false);
+                                    } else {
+                                        setFlowAutoScale(true);
+                                        setFlowYZoom(1.0);
+                                        setFlowYOffset(0);
+                                    }
+                                }}
+                                style={{ cursor: "pointer" }}
                             >
-                                🌊{fmtW(lastSb.smartSwingWave)}
-                            </text>
+                                <title>{isFAuto ? "Escala de Fluxo Smart Money Automática ligada (clique para modo livre 2D ou arraste a escala Y)" : "Clique para voltar a escala do Fluxo Smart Money ao modo Automático (A)"}</title>
+                                <rect
+                                    x={width - 21}
+                                    y={p3Bot - 16}
+                                    width={16}
+                                    height={13}
+                                    rx="2.5"
+                                    fill={isFAuto ? "rgba(0, 212, 255, 0.22)" : "#0c1218"}
+                                    stroke={isFAuto ? "#00d4ff" : "#334155"}
+                                    strokeWidth="0.9"
+                                />
+                                <text
+                                    x={width - 13}
+                                    y={p3Bot - 6.8}
+                                    fill={isFAuto ? "#00d4ff" : "#7f96a8"}
+                                    fontSize="8"
+                                    fontWeight="bold"
+                                    fontFamily="monospace"
+                                    textAnchor="middle"
+                                >
+                                    A
+                                </text>
+                            </g>
                         </g>
                     );
                 })()}
@@ -2945,13 +3603,14 @@ function FluxoRealAsgChart({
                     );
                 })()}
 
-                {/* MODO 3: CVD ACUMULADO 4-PLAYERS (INST AGRESSOR, INST PASSIVO, VAREJO, HFT) */}
+                {/* MODO 3: CVD ACUMULADO 4-PLAYERS EM LOTES (INST AGRESSOR, INST PASSIVO, VAREJO, HFT, RLP) */}
                 {flowSubMode === "CVD_4PLAYERS" && (() => {
                     const yZ = toYCvd4(0);
                     const ptsIa = subPanelBars.map((sb) => `${toX(sb.idx).toFixed(1)},${toYCvd4(sb.cvdIa).toFixed(1)}`).join(" ");
                     const ptsIp = subPanelBars.map((sb) => `${toX(sb.idx).toFixed(1)},${toYCvd4(sb.cvdIp).toFixed(1)}`).join(" ");
                     const ptsRet = subPanelBars.map((sb) => `${toX(sb.idx).toFixed(1)},${toYCvd4(sb.cvdRet).toFixed(1)}`).join(" ");
                     const ptsHft = subPanelBars.map((sb) => `${toX(sb.idx).toFixed(1)},${toYCvd4(sb.cvdHft).toFixed(1)}`).join(" ");
+                    const ptsRlp = subPanelBars.map((sb) => `${toX(sb.idx).toFixed(1)},${toYCvd4(sb.cvdRlp).toFixed(1)}`).join(" ");
                     const lastSb = subPanelBars[subPanelBars.length - 1] || {};
                     const fmtK = (v) => {
                         const av = Math.abs(Number(v || 0));
@@ -2964,59 +3623,199 @@ function FluxoRealAsgChart({
                             {yZ >= p3Top + 14 && yZ <= p3Bot && (
                                 <line x1={padL} y1={yZ} x2={padL + plotW} y2={yZ} stroke="#243444" strokeWidth="1" strokeDasharray="3,3" />
                             )}
-                            <polyline fill="none" stroke="#a78bfa" strokeWidth="1.2" strokeDasharray="2,2" opacity="0.80" points={ptsHft} />
+                            <polyline fill="none" stroke="#eab308" strokeWidth="1.25" strokeDasharray="2,2" opacity="0.85" points={ptsRlp} />
+                            <polyline fill="none" stroke="#a78bfa" strokeWidth="1.35" strokeDasharray="3,2" opacity="0.88" points={ptsHft} />
                             <polyline fill="none" stroke="#f59e0b" strokeWidth="1.45" strokeDasharray="4,2" opacity="0.90" points={ptsRet} />
                             <polyline fill="none" stroke="#00d4ff" strokeWidth="1.85" points={ptsIp} />
                             <polyline fill="none" stroke="#00e87a" strokeWidth="2.15" points={ptsIa} />
 
-                            <text x={padL + plotW + 4} y={p3Top + 26} fill="#00e87a" fontSize="7.8" fontWeight="bold" fontFamily="monospace">
+                            <text x={padL + plotW + 4} y={p3Top + 25} fill="#00e87a" fontSize="7.5" fontWeight="bold" fontFamily="monospace">
                                 🏦Agr {fmtK(lastSb.cvdIa)}
                             </text>
-                            <text x={padL + plotW + 4} y={p3Top + 42} fill="#00d4ff" fontSize="7.8" fontWeight="bold" fontFamily="monospace">
+                            <text x={padL + plotW + 4} y={p3Top + 39} fill="#00d4ff" fontSize="7.5" fontWeight="bold" fontFamily="monospace">
                                 🛡️Pas {fmtK(lastSb.cvdIp)}
                             </text>
-                            <text x={padL + plotW + 4} y={p3Top + 58} fill="#f59e0b" fontSize="7.8" fontFamily="monospace">
+                            <text x={padL + plotW + 4} y={p3Top + 53} fill="#f59e0b" fontSize="7.5" fontFamily="monospace">
                                 🧑‍💻Var {fmtK(lastSb.cvdRet)}
                             </text>
-                            <text x={padL + plotW + 4} y={p3Top + 74} fill="#a78bfa" fontSize="7.8" fontFamily="monospace">
+                            <text x={padL + plotW + 4} y={p3Top + 67} fill="#a78bfa" fontSize="7.5" fontFamily="monospace">
                                 ⚡HFT {fmtK(lastSb.cvdHft)}
+                            </text>
+                            <text x={padL + plotW + 4} y={p3Top + 81} fill="#eab308" fontSize="7.5" fontFamily="monospace">
+                                🔄RLP {fmtK(lastSb.cvdRlp)}
                             </text>
                         </g>
                     );
                 })()}
 
-                {/* MODO 4: JANELA A.S.G CLÁSSICA (HISTOGRAMA LINHA ZERO) */}
-                {flowSubMode === "JANELA_ASG" && (
-                    <g>
-                        <line x1={padL} y1={yZero3} x2={padL + plotW} y2={yZero3} stroke="#1a2530" strokeWidth="1.0" />
-                        <text x={padL + plotW + 6} y={yZero3 + 3} fill="#5a7288" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
-                            ZERO (0)
-                        </text>
+                {/* MODO 4: JANELA DE FLUXO SMART MONEY (HISTOGRAMA + LINHA DE LOTES DA 5176 UNIFICADOS NA MESMA ESCALA E LINHA ZERO) */}
+                {flowSubMode === "JANELA_ASG" && (() => {
+                    const showHistBars = smWinVisualMode === "HIST_LINE" || smWinVisualMode === "HIST";
+                    const showLineWave = smWinVisualMode === "HIST_LINE" || smWinVisualMode === "LINE";
+                    const wavePts = subPanelBars.map((sb) => `${toX(sb.idx).toFixed(1)},${toYSwingWave(sb.smartSwingWave).toFixed(1)}`).join(" ");
+                    const lastSb = subPanelBars[subPanelBars.length - 1] || {};
+                    const lastWaveY = toYSwingWave(lastSb.smartSwingWave || 0);
+                    const yZeroClamped = Math.max(flowPlotTop, Math.min(flowPlotBot, yZeroWave));
+                    const isFAuto = flowAutoScale && flowYZoom === 1.0 && flowYOffset === 0;
+                    const fmtW = (v) => {
+                        const num = Number(v || 0);
+                        if (Math.abs(num) < 0.5) return "0";
+                        const av = Math.abs(num);
+                        const sg = num > 0 ? "+" : "-";
+                        return av >= 1000 ? `${sg}${(av / 1000).toFixed(1)}k` : `${sg}${Math.round(av)}`;
+                    };
 
-                        {series.map((pt, idx) => {
-                            const x = toX(idx);
-                            const hv = Number(pt.flow_hist || 0);
-                            const yH = toY3(hv);
-                            const isPos = hv >= 0;
-                            const col = isPos ? "#00e87a" : "#ff3860";
-                            const barTop = isPos ? yH : yZero3;
-                            const barH = Math.max(1.5, Math.abs(yZero3 - yH));
+                    return (
+                        <g>
+                            {/* Grade e Marcações Dinâmicas da Escala Variável em Contratos/Lotes (mesma escala da 5176 para Histograma e Linha) */}
+                            {flowAxisTicks.map((tk, fIdx) => {
+                                const isZeroTick = Math.abs(tk.val) < 1e-3;
+                                const nearCur = Math.abs(tk.y - lastWaveY) < 11 && lastWaveY >= flowPlotTop && lastWaveY <= flowPlotBot;
+                                const nearAuto = tk.y > p3Bot - 19;
+                                return (
+                                    <g key={`tv-sm-tick-${fIdx}`}>
+                                        <line
+                                            x1={padL}
+                                            y1={tk.y}
+                                            x2={padL + plotW}
+                                            y2={tk.y}
+                                            stroke={isZeroTick ? "#243444" : "#131d27"}
+                                            strokeWidth={isZeroTick ? "1.1" : "0.8"}
+                                            strokeDasharray={isZeroTick ? "3,3" : "none"}
+                                        />
+                                        {!nearCur && !nearAuto && (
+                                            <text
+                                                x={padL + plotW + 6}
+                                                y={tk.y + 3}
+                                                fill={isZeroTick ? "#8ca5b8" : "#51687c"}
+                                                fontSize="7.8"
+                                                fontWeight={isZeroTick ? "bold" : "normal"}
+                                                fontFamily="monospace"
+                                            >
+                                                {isZeroTick ? "ZERO" : fmtW(tk.val)}
+                                            </text>
+                                        )}
+                                    </g>
+                                );
+                            })}
+                            {yZeroWave >= flowPlotTop && yZeroWave <= flowPlotBot && !flowAxisTicks.some(t => Math.abs(t.val) < 1e-3) && (
+                                <g>
+                                    <line x1={padL} y1={yZeroWave} x2={padL + plotW} y2={yZeroWave} stroke="#243444" strokeWidth="1.1" strokeDasharray="3,3" />
+                                    {Math.abs(yZeroWave - lastWaveY) >= 11 && (
+                                        <text x={padL + plotW + 6} y={yZeroWave + 3} fill="#8ca5b8" fontSize="7.8" fontWeight="bold" fontFamily="monospace">
+                                            ZERO
+                                        </text>
+                                    )}
+                                </g>
+                            )}
 
-                            return (
+                            <g clipPath={`url(#clip-p3-band-${symKey})`}>
+                                {/* Camada 1: Histograma da Onda de Fluxo Smart Money em Contratos/Lotes (100% sincronizado com a Linha Azul e com o ZERO dinâmico) */}
+                                {showHistBars && subPanelBars.map((sb, idx) => {
+                                    const x = toX(idx);
+                                    const wv = Number(sb.smartSwingWave || 0);
+                                    const yH = toYSwingWave(wv);
+                                    const isPos = wv >= 0;
+                                    const col = isPos ? "#00e87a" : "#ff3860";
+                                    const barTop = Math.min(yH, yZeroClamped);
+                                    const barH = Math.max(1.2, Math.abs(yZeroClamped - yH));
+
+                                    return (
+                                        <rect
+                                            key={`h-bar-${idx}`}
+                                            x={x - candleW / 2}
+                                            y={barTop}
+                                            width={candleW}
+                                            height={barH}
+                                            fill={col}
+                                            opacity={showLineWave ? "0.38" : "0.88"}
+                                            rx="0.5"
+                                        />
+                                    );
+                                })}
+
+                                {/* Camada 2: Mesma Linha Azul de Fluxo Smart Money em Contratos/Lotes da 5176 (`smartSwingWave`) */}
+                                {showLineWave && subPanelBars.length >= 2 && (
+                                    <g>
+                                        {smWinVisualMode === "HIST_LINE" && (
+                                            <polyline
+                                                fill="none"
+                                                stroke="#060a0f"
+                                                strokeWidth="3.4"
+                                                strokeLinejoin="round"
+                                                strokeLinecap="round"
+                                                points={wavePts}
+                                                opacity="0.80"
+                                            />
+                                        )}
+                                        <polyline
+                                            fill="none"
+                                            stroke="#00d4ff"
+                                            strokeWidth="2.15"
+                                            strokeLinejoin="round"
+                                            strokeLinecap="round"
+                                            points={wavePts}
+                                            opacity="0.96"
+                                        />
+                                    </g>
+                                )}
+
+                                {/* Badge estilo TradingView do Valor Atual em Contratos/Lotes na Escala Direita (idêntico à 5176) */}
+                                {subPanelBars.length > 0 && (() => {
+                                    const clampedTagY = Math.max(flowPlotTop + 7, Math.min(flowPlotBot - 7, lastWaveY));
+                                    return (
+                                        <g>
+                                            <line x1={lastX} y1={clampedTagY} x2={padL + plotW} y2={clampedTagY} stroke="#00d4ff" strokeWidth="0.85" strokeDasharray="2,3" opacity="0.65" />
+                                            <rect x={padL + plotW + 2} y={clampedTagY - 7.5} width={padR - 26} height={15} rx="2.5" fill="rgba(0, 212, 255, 0.16)" stroke="#00d4ff" strokeWidth="0.9" />
+                                            <text x={padL + plotW + 6} y={clampedTagY + 3} fill="#00d4ff" fontSize="8.2" fontWeight="bold" fontFamily="monospace">
+                                                {fmtW(lastSb.smartSwingWave)}
+                                            </text>
+                                        </g>
+                                    );
+                                })()}
+                            </g>
+
+                            {/* Botão 'A' (Auto Escala) estilo TradingView no canto inferior direito do Eixo do Fluxo */}
+                            <g
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isFAuto) {
+                                        setFlowAutoScale(false);
+                                    } else {
+                                        setFlowAutoScale(true);
+                                        setFlowYZoom(1.0);
+                                        setFlowYOffset(0);
+                                    }
+                                }}
+                                style={{ cursor: "pointer" }}
+                            >
+                                <title>{isFAuto ? "Escala de Fluxo Smart Money Automática ligada (clique para modo livre 2D ou arraste a escala Y)" : "Clique para voltar a escala do Fluxo Smart Money ao modo Automático (A)"}</title>
                                 <rect
-                                    key={`h-bar-${idx}`}
-                                    x={x - candleW / 2}
-                                    y={barTop}
-                                    width={candleW}
-                                    height={barH}
-                                    fill={col}
-                                    opacity="0.88"
-                                    rx="0.5"
+                                    x={width - 21}
+                                    y={p3Bot - 16}
+                                    width={16}
+                                    height={13}
+                                    rx="2.5"
+                                    fill={isFAuto ? "rgba(0, 212, 255, 0.22)" : "#0c1218"}
+                                    stroke={isFAuto ? "#00d4ff" : "#334155"}
+                                    strokeWidth="0.9"
                                 />
-                            );
-                        })}
-                    </g>
-                )}
+                                <text
+                                    x={width - 13}
+                                    y={p3Bot - 6.8}
+                                    fill={isFAuto ? "#00d4ff" : "#7f96a8"}
+                                    fontSize="8"
+                                    fontWeight="bold"
+                                    fontFamily="monospace"
+                                    textAnchor="middle"
+                                >
+                                    A
+                                </text>
+                            </g>
+                        </g>
+                    );
+                })()}
 
                 {/* Eixo de Tempo no Rodapé Unificado com o Dashboard */}
                 {timeTicks.map((tIdx) => (
@@ -3070,7 +3869,7 @@ function FluxoRealAsgChart({
                             {series[hoverPos.idx]?.time}
                         </text>
 
-                        {/* Linha Horizontal do Crosshair + Badge de Preço no Eixo Y Direito */}
+                        {/* Linha Horizontal do Crosshair + Badge de Valor no Eixo Y Direito (Preço ou Fluxo Smart Money) */}
                         {hoverPos.relY >= p1Top && hoverPos.relY <= p1Bot && (
                             <>
                                 <line
@@ -3086,7 +3885,7 @@ function FluxoRealAsgChart({
                                 <rect
                                     x={padL + plotW + 2}
                                     y={hoverPos.relY - 9}
-                                    width={padR - 6}
+                                    width={padR - 26}
                                     height={18}
                                     rx="3"
                                     fill="#1b1810"
@@ -3105,6 +3904,46 @@ function FluxoRealAsgChart({
                                 </text>
                             </>
                         )}
+                        {(flowSubMode === "SWING_DIVERGENCIA" || (flowSubMode === "JANELA_ASG" && smWinVisualMode !== "HIST")) && hoverPos.relY >= flowPlotTop && hoverPos.relY <= flowPlotBot && (() => {
+                            const wVal = fromYSwingWave(hoverPos.relY);
+                            const absW = Math.abs(wVal);
+                            const sgW = wVal >= 0 ? "+" : "-";
+                            const crossLbl = absW >= 1000 ? `${sgW}${(absW / 1000).toFixed(1)}k` : `${sgW}${Math.round(absW)}`;
+                            return (
+                                <>
+                                    <line
+                                        x1={padL}
+                                        y1={hoverPos.relY}
+                                        x2={padL + plotW}
+                                        y2={hoverPos.relY}
+                                        stroke="#c8a444"
+                                        strokeWidth="1"
+                                        strokeDasharray="4,4"
+                                        strokeOpacity="0.85"
+                                    />
+                                    <rect
+                                        x={padL + plotW + 2}
+                                        y={hoverPos.relY - 9}
+                                        width={padR - 26}
+                                        height={18}
+                                        rx="3"
+                                        fill="#1b1810"
+                                        stroke="#c8a444"
+                                        strokeWidth="0.9"
+                                    />
+                                    <text
+                                        x={padL + plotW + 7}
+                                        y={hoverPos.relY + 3.5}
+                                        fill="#f5d061"
+                                        fontSize="9"
+                                        fontWeight="bold"
+                                        fontFamily="monospace"
+                                    >
+                                        {crossLbl}
+                                    </text>
+                                </>
+                            );
+                        })()}
                     </g>
                 )}
             </svg>
@@ -3115,7 +3954,7 @@ function FluxoRealAsgChart({
 /* ══════════════════════════════════════════════════════════════════════════════
    2. BARRA COMPACTA DE RESUMO DO DIA (SEM REDUNDÂNCIAS DE VELA 3D / ALVOS 1-2-3)
    ══════════════════════════════════════════════════════════════════════════════ */
-function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleHistory, showHistory }) {
+function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleHistory, showHistory, onCollapseDrawer }) {
     const winDir = Number(asgHud.window_dir || 0);
     const makersPct = Number(asgHud.makers_pct || 0);
     const winCol = winDir >= 0 ? "#00e87a" : "#ff3860";
@@ -3130,8 +3969,10 @@ function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleH
     const sessInstAggr = Number(tot.inst_aggr_delta ?? lastBar.cvd_inst_aggr ?? tot.inst_delta ?? 0);
     const sessInstPass = Number(tot.inst_pass_delta ?? lastBar.cvd_inst_pass ?? 0);
     const sessRetDelta = Number(tot.retail_delta ?? lastBar.cvd_retail ?? 0);
+    const sessHftDelta = Number(tot.hft_delta ?? lastBar.cvd_hft ?? 0);
     const sessHftChurn = Number(tot.hft_churn_pct ?? lastBar.hft_churn_pct ?? 0);
     const sessRlpPct = Number(tot.rlp_pct ?? lastBar.rlp_pct ?? 0);
+    const sessRlpDelta = Number(tot.rlp_delta ?? lastBar.cvd_rlp_delta ?? Math.round(-sessRetDelta * (sessRlpPct / 100.0)));
 
     return (
         <div style={{
@@ -3179,6 +4020,25 @@ function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleH
                         </span>
                     )}
                 </div>
+                {onCollapseDrawer && (
+                    <button
+                        onClick={onCollapseDrawer}
+                        title="Recuar painel lateral para ampliar o gráfico de Preço + Fluxo Smart Money"
+                        style={{
+                            padding: "3px 8px",
+                            fontSize: 8.5,
+                            fontFamily: "monospace",
+                            fontWeight: "bold",
+                            background: "rgba(0, 212, 255, 0.08)",
+                            border: "1px solid rgba(0, 212, 255, 0.38)",
+                            color: "#00d4ff",
+                            borderRadius: 4,
+                            cursor: "pointer",
+                        }}
+                    >
+                        Recuar Lateral ▶
+                    </button>
+                )}
             </div>
 
             {isWallsHost && (
@@ -3196,7 +4056,7 @@ function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleH
                         <div style={{ background: "#0c1218", padding: "4px 6px", borderRadius: 4, border: "1px solid #16222d" }}>
                             <div style={{ color: "#6b8599", fontSize: 7.5 }}>🏦 INST (AGR / PAS)</div>
                             <div style={{ fontWeight: "bold", color: sessInstAggr >= 0 ? "#00e87a" : "#ff6b8b" }}>
-                                {fmtNum(sessInstAggr, 0, true)} <span style={{ color: sessInstPass >= 0 ? "#38ef94" : "#fb7185", fontSize: 8 }}>/ {fmtNum(sessInstPass, 0, true)}</span>
+                                {fmtNum(sessInstAggr, 0, true)}L <span style={{ color: sessInstPass >= 0 ? "#38ef94" : "#fb7185", fontSize: 8 }}>/ {fmtNum(sessInstPass, 0, true)}L</span>
                             </div>
                         </div>
                         <div style={{ background: "#0c1218", padding: "4px 6px", borderRadius: 4, border: "1px solid #16222d" }}>
@@ -3205,44 +4065,33 @@ function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleH
                                 {fmtNum(sessRetDelta, 0, true)}L
                             </div>
                         </div>
-                        <div style={{ background: "#0c1218", padding: "4px 6px", borderRadius: 4, border: "1px solid #16222d" }}>
-                            <div style={{ color: "#6b8599", fontSize: 7.5 }}>⚡ HFT CHURN</div>
-                            <div style={{ fontWeight: "bold", color: "#a78bfa" }}>
-                                {fmtNum(sessHftChurn, 1)}%
+                        <div style={{ background: "#0c1218", padding: "4px 6px", borderRadius: 4, border: "1px solid #16222d" }} title={`Saldo Líquido HFT na Sessão em Lotes | Giro Bruto HFT: ${fmtNum(sessHftChurn, 1)}% do volume`}>
+                            <div style={{ color: "#6b8599", fontSize: 7.5 }}>⚡ HFT (SALDO LOTE)</div>
+                            <div style={{ fontWeight: "bold", color: sessHftDelta >= 0 ? "#c084fc" : "#a78bfa" }}>
+                                {fmtNum(sessHftDelta, 0, true)}L <span style={{ color: "#6b8599", fontSize: 7.2, fontWeight: "normal" }}>({fmtNum(sessHftChurn, 0)}% giro)</span>
                             </div>
                         </div>
-                        <div style={{ background: "#0c1218", padding: "4px 6px", borderRadius: 4, border: "1px solid #16222d" }}>
-                            <div style={{ color: "#6b8599", fontSize: 7.5 }}>🔄 RLP (FLAG 13)</div>
-                            <div style={{ fontWeight: "bold", color: "#fbbf24" }}>
-                                {fmtNum(sessRlpPct, 1)}%
+                        <div style={{ background: "#0c1218", padding: "4px 6px", borderRadius: 4, border: "1px solid #16222d" }} title={`Saldo Líquido Provedor RLP contra Varejo em Lotes | Participação RLP: ${fmtNum(sessRlpPct, 1)}% do volume`}>
+                            <div style={{ color: "#6b8599", fontSize: 7.5 }}>🔄 RLP (SALDO LOTE)</div>
+                            <div style={{ fontWeight: "bold", color: sessRlpDelta >= 0 ? "#fbbf24" : "#f97316" }}>
+                                {fmtNum(sessRlpDelta, 0, true)}L <span style={{ color: "#6b8599", fontSize: 7.2, fontWeight: "normal" }}>({fmtNum(sessRlpPct, 0)}% vol)</span>
                             </div>
                         </div>
                     </div>
 
-                    {(res0 || sup0) && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 8.5, borderTop: "1px solid #13202c", paddingTop: 5 }}>
-                            {[
-                                res0 ? { tag: "▲ RES", col: "#ff6b8b", w: res0 } : null,
-                                sup0 ? { tag: "▼ SUP", col: "#00e87a", w: sup0 } : null,
-                            ].filter(Boolean).map(({ tag, col, w }) => {
-                                const topB = Array.isArray(w.top_wall_brokers) && w.top_wall_brokers.length > 0
-                                    ? w.top_wall_brokers.slice(0, 2).map(b => `${b.broker}(${b.net >= 0 ? "+" : ""}${Math.round(b.net)})`).join(" ")
-                                    : "";
-                                return (
-                                    <div key={tag} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                        <span style={{ color: col, fontWeight: "bold" }}>
-                                            {tag} {fmtNum(w.price, dec)} ({fmtNum(w.dist_pts, dec, true)}p):{" "}
-                                            <span style={{ color: "#e6edf3" }}>{w.player_verdict || w.live_verdict || w.status}</span>
-                                        </span>
-                                        <span style={{ color: "#9fb4c4", fontSize: 8 }}>
-                                            🏦Agr:{fmtNum(w.inst_aggr_delta ?? w.inst_delta ?? 0, 0, true)} Pas:{fmtNum(w.inst_pass_delta ?? 0, 0, true)} · 🧑‍💻Var:{fmtNum(w.ret_delta ?? 0, 0, true)}
-                                            {topB ? ` · 🏛️${topB}` : ""}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 8.3, borderTop: "1px solid #13202c", paddingTop: 5, color: "#9fb4c4" }}>
+                        {symKey === "WIN" ? (
+                            <>
+                                <span>🎯 <strong style={{ color: "#00e87a" }}>WIN 2L Mix:</strong> L1 TP NWE30 Din · L2 TP 750p</span>
+                                <span>SL 240p/260p · BE +180p → +20p</span>
+                            </>
+                        ) : (
+                            <>
+                                <span>🎯 <strong style={{ color: "#ffd600" }}>WDO 1L MidWalls:</strong> TP MidWall GEX</span>
+                                <span>SL ~10p · BE Escudo Wall</span>
+                            </>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -3285,7 +4134,7 @@ function AsgCockpitHud({ symKey, payload, asgHud = {}, scorecard = {}, onToggleH
       - Evolução acumulada em R$ e Pontos dos sinais/operações emitidos na sessão
       - Seletor de lote (1, 5, 10 contratos) + inspeção interativa de cada trade
    ══════════════════════════════════════════════════════════════════════════════ */
-function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, selectedSigId, onSelectSignal }) {
+function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, selectedSigId, onSelectSignal, onCollapseDrawer }) {
     const [contracts, setContracts] = useState(1);
     const [hoverTradeIdx, setHoverTradeIdx] = useState(null);
 
@@ -3308,6 +4157,8 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
     let cumPts = 0;
     let peakPts = 0;
     let maxDrawdownPts = 0;
+    let peakBrlDay = 0;
+    let maxDrawdownBrlDay = 0;
     let grossGainPts = 0;
     let grossLossPts = 0;
 
@@ -3361,6 +4212,8 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                 : tradePts * brlPerPt * contracts);
         const prevCumBrl = equityPoints[equityPoints.length - 1]?.cumBrl || 0;
         const cumBrl = prevCumBrl + tradeBrl;
+        if (cumBrl > peakBrlDay) peakBrlDay = cumBrl;
+        if (peakBrlDay - cumBrl > maxDrawdownBrlDay) maxDrawdownBrlDay = peakBrlDay - cumBrl;
 
         equityPoints.push({
             idx: i + 1,
@@ -3449,10 +4302,37 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                     </span>
                 </div>
                 <div style={{ display: "flex", gap: 4 }}>
-                    {(symKey === "WDO" ? [1, 2, 5] : [1, 5, 10]).map(c => (
+                    {(isWallsFlowLocalhost()
+                        ? [1, 2, 5]
+                        : (symKey === "WDO" ? [1, 2, 5] : [1, 5, 10])
+                    ).map(c => {
+                        const btnLbl = isWallsFlowLocalhost()
+                            ? (symKey === "WIN" ? `${c}x (${c * 2}L)` : `${c}x (${c}L)`)
+                            : `${c} Contr.`;
+                        return (
+                            <button
+                                key={c}
+                                onClick={() => setContracts(c)}
+                                style={{
+                                    padding: "2px 7px",
+                                    fontSize: 8.5,
+                                    fontFamily: "monospace",
+                                    fontWeight: "bold",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                    background: contracts === c ? "#00d4ff" : "#0c1218",
+                                    color: contracts === c ? "#04080e" : "#8ca5b5",
+                                    border: contracts === c ? "1px solid #00d4ff" : "1px solid #1a2530",
+                                }}
+                            >
+                                {btnLbl}
+                            </button>
+                        );
+                    })}
+                    {onCollapseDrawer && (
                         <button
-                            key={c}
-                            onClick={() => setContracts(c)}
+                            onClick={onCollapseDrawer}
+                            title="Recuar gráfico de capital para ampliar o gráfico de Preço e Fluxo Smart Money"
                             style={{
                                 padding: "2px 7px",
                                 fontSize: 8.5,
@@ -3460,21 +4340,24 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                                 fontWeight: "bold",
                                 borderRadius: 4,
                                 cursor: "pointer",
-                                background: contracts === c ? "#00d4ff" : "#0c1218",
-                                color: contracts === c ? "#04080e" : "#8ca5b5",
-                                border: contracts === c ? "1px solid #00d4ff" : "1px solid #1a2530",
+                                background: "rgba(0, 212, 255, 0.10)",
+                                color: "#00d4ff",
+                                border: "1px solid rgba(0, 212, 255, 0.45)",
+                                marginLeft: 2,
                             }}
                         >
-                            {c} {c === 1 ? "Contr." : "Contr."}
+                            Recuar ▶
                         </button>
-                    ))}
+                    )}
                 </div>
             </div>
 
             {/* Faixa de KPIs Financeiros do Dia */}
             <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 0.9fr", gap: 6 }}>
                 <div style={{ background: "#0c1218", border: `1px solid ${curveColor}44`, borderRadius: 7, padding: "5px 8px" }}>
-                    <div style={{ fontSize: 7.5, color: "#7f96a8", fontWeight: "bold" }}>SALDO ACUMULADO ({contracts}c)</div>
+                    <div style={{ fontSize: 7.5, color: "#7f96a8", fontWeight: "bold" }}>
+                        SALDO ACUMULADO ({isWallsFlowLocalhost() ? (symKey === "WIN" ? `${contracts * 2}L` : `${contracts}L`) : `${contracts}c`})
+                    </div>
                     <div style={{ fontSize: 14, fontWeight: 900, color: curveColor, fontFamily: "monospace" }}>
                         {totalBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(totalBrl), 0)}
                         <span style={{ fontSize: 9.5, color: "#9fb4c4", fontWeight: "normal", marginLeft: 5 }}>
@@ -3494,7 +4377,7 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                 <div style={{ background: "#0c1218", border: "1px solid #1a2530", borderRadius: 7, padding: "5px 8px" }}>
                     <div style={{ fontSize: 7.5, color: "#7f96a8", fontWeight: "bold" }}>DRAWDOWN MÁX</div>
                     <div style={{ fontSize: 12.5, fontWeight: "bold", color: "#ff6b8b", fontFamily: "monospace" }}>
-                        -R$ {fmtNum(maxDrawdownPts * brlPerPt * contracts, 0)}
+                        -R$ {fmtNum(maxDrawdownBrlDay, 0)}
                     </div>
                 </div>
             </div>
@@ -3623,13 +4506,8 @@ function DailyOperationsEquityChart({ symKey, signalsLog = [], scorecard = {}, s
                         const isSel = selectedSigId === sig.id;
                         const isWallsFlow = isWallsFlowLocalhost();
                         const shortMap = isWallsFlow ? {
-                            EST_14: "🛡️ WIN-A1 Vai Defender",
-                            EST_04: "🔄 WIN-B1 Virou Sup/Res",
-                            EST_07: "💥 WIN-C1 Romperam Wall",
-                            WIN_E2: "⚪ WIN-E2 Wall Gasta",
-                            WDO_07: "🪤 WDO-B1 Violinada",
-                            WDO_01: "🛡️ WDO-A1 Vai Defender",
-                            WDO_10: "🛡️ WDO-A2 Vai Defender",
+                            WIN_DIV_WALL: "🎯 WIN Div · 2L Mix",
+                            WDO_DIV_WALL: "🎯 WDO Div · 1L MidWall",
                         } : {
                             EST_01: "EST-01 PinBar",
                             EST_04: "EST-04 WDO-Alinh",
@@ -3775,13 +4653,13 @@ function CombinedPortfolioDayCard({ winPayload, wdoPayload }) {
                     </span>
                     <span style={{ fontSize: 9.5, color: "#00e87a", background: "#0c1218", border: "1px solid #00e87a44", padding: "2px 8px", borderRadius: 4, fontFamily: "monospace", fontWeight: "bold" }}>
                         {isWallsFlow
-                            ? "🛡️ 6 WALLS V2 · PROFIT 4-PLAYERS (PROPOSTA B ⭐): 4 WIN (WIN-A1/B1/C1/E2) + 2 WDO (WDO-B1/A1) · 11/11 M+ · Ret/DD 29,84x"
+                            ? "🎯 SNIPER DIVERGÊNCIA NA WALL (BASE 2c WIN + 1c WDO): s/ 12h WIN & 11h WDO · Meta +R$ 180 / +R$ 120 · corrigido (causal) · WR 67% · PF 1,95 · Ret/DD 14,2 · 10/11 M+"
                             : "⭐ TOP 8 ELITE M5 C/ FLUXO (PROPOSTA A): 5 WIN (EST-04/07/13/14/15) + 3 WDO (WDO-01/05/07) · 11/11 M+ · Ret/DD 28,24x"}
                     </span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, fontFamily: "monospace", fontSize: 10 }}>
                     <span style={{ color: "#00d4ff" }}>
-                        WIN ({winContracts}c): <strong>{winBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(winBrl), 0)}</strong>
+                        WIN ({isWallsFlow ? `${winContracts * 2}c` : `${winContracts}c`}): <strong>{winBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(winBrl), 0)}</strong>
                     </span>
                     <span style={{ color: "#c8a444" }}>
                         WDO ({wdoContracts}c): <strong>{wdoBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(wdoBrl), 0)}</strong>
@@ -3862,34 +4740,14 @@ const MT5_STRAT_META = [
 
 const WALLS_FLOW_STRAT_META = [
     {
-        id: "EST_14", asset: "WIN", code: "WIN-A1", shortLabel: "🛡️ WIN-A1 Vai Defender", name: "WIN-A1 (EST-14) · 🛡️ VAI DEFENDER Pavio na Wall", short: "WIN-A1",
-        color: "#00e87a", strokeW: 2.1, dec: 0,
-        subRule: "🛡️ Vai Defender · Limite 50% b1 · NextWall 1+2L + BE Escudo · 12_NR_WALL_TRAP_DIV (Divergência Armadilha Varejo vs Não-Varejo · 7,27x)",
+        id: "WIN_DIV_WALL", asset: "WIN", code: "WIN-2L-MIX", shortLabel: "🇧🇷 WIN Sniper · 2c Mix (NWE30 + 750p)", name: "WIN_DIV_WALL · 🇧🇷 WIN Sniper F1➔F2 / T1➔T2 · 2 Contratos Mix", short: "WIN 2c Mix",
+        color: "#00e87a", strokeW: 2.3, dec: 0,
+        subRule: "Sniper F1➔F2/T1➔T2 c/ sobreposição · s/ 12h · Meta +R$ 180/dia · 2c (NWE30 Din + 750p) · WR 74,2% · PF 2,71",
     },
     {
-        id: "EST_04", asset: "WIN", code: "WIN-B1", shortLabel: "🔄 WIN-B1 Virou Sup/Res", name: "WIN-B1 (EST-04) · 🔄 VIROU SUP/RES Pullback Wall", short: "WIN-B1",
-        color: "#00d4ff", strokeW: 1.9, dec: 0,
-        subRule: "🔄 Virou Sup/Res · SL 220p + BE 2-Estágios Wall (15p→+45p) · 15_NR_IGNITION_DIV (Sem Distribuição Não-Varejo 15m · 5,71x)",
-    },
-    {
-        id: "EST_07", asset: "WIN", code: "WIN-C1", shortLabel: "💥 WIN-C1 Romperam Wall", name: "WIN-C1 (EST-07) · 💥 ROMPERAM A WALL Ignição", short: "WIN-C1",
-        color: "#38bdf8", strokeW: 1.9, dec: 0,
-        subRule: "💥 Romperam a Wall · SL 260p + BE Escudo Wall (15p) · 16_NR_DIV_ABS_OR_AGGR (Divergência Preço vs Absorção/Agressão NR · 8,60x)",
-    },
-    {
-        id: "WIN_E2", asset: "WIN", code: "WIN-E2", shortLabel: "⚪ WIN-E2 Wall Gasta", name: "WIN-E2 · ⚪ WALL GASTA Rompimento 3º+ Toque", short: "WIN-E2",
-        color: "#a78bfa", strokeW: 1.9, dec: 0,
-        subRule: "⚪ Wall Gasta (3º+ Toque) · Limite 50% b1 · SL 230p + BE Escudo · NR_WALL_DIV + 13_NR_PRICE_ABS_DIV (Sweep NR s/ Absorção Contra · 6,01x)",
-    },
-    {
-        id: "WDO_07", asset: "WDO", code: "WDO-B1", shortLabel: "🪤 WDO-B1 Violinada", name: "WDO-B1 (WDO-07) · 🪤 VIOLINADA Absorção NY", short: "WDO-B1",
-        color: "#fbbf24", strokeW: 2.0, dec: 1,
-        subRule: "🪤 Violinada (Absorvendo) · SL 11,5p + BE Escudo Wall (1,0p) · 12_NR_WALL_TRAP_DIV (Divergência Armadilha Varejo vs NR · 8,73x)",
-    },
-    {
-        id: "WDO_01", asset: "WDO", code: "WDO-A1", shortLabel: "🛡️ WDO-A1 Scalper NY", name: "WDO-A1 (WDO-01) · 🛡️ VAI DEFENDER Wall NY", short: "WDO-A1",
-        color: "#f97316", strokeW: 2.0, dec: 1,
-        subRule: "🛡️ Vai Defender Wall NY · SL 9,5p + BE Escudo Wall (1,0p) · 13_NR_PRICE_ABS_DIV (Divergência Preço vs Absorção/Agressão NR · 9,35x)",
+        id: "WDO_DIV_WALL", asset: "WDO", code: "WDO-1L-MID", shortLabel: "💵 WDO Sniper · 1c MidWalls", name: "WDO_DIV_WALL · 💵 WDO Sniper F1➔F2 / T1➔T2 · 1 Contrato MidWall", short: "WDO 1c Mid",
+        color: "#ffd600", strokeW: 2.2, dec: 1,
+        subRule: "Sniper F1➔F2/T1➔T2 c/ sobreposição · s/ 11h NY/PTAX · Meta +R$ 120/dia · 1c MidWall · WR 67,8% · PF 2,36",
     },
 ];
 
@@ -3901,8 +4759,8 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
     const STRAT_META_BY_ID = Object.fromEntries(ALL_11_STRAT_META.map((m) => [m.id, m]));
     if (!isWallsFlow) {
         STRAT_META_BY_ID.WDO_11 = STRAT_META_BY_ID.WDO_01;
+        STRAT_META_BY_ID.WDO_S2 = STRAT_META_BY_ID.WDO_01;
     }
-    STRAT_META_BY_ID.WDO_S2 = STRAT_META_BY_ID.WDO_01;
     const PRESET_TOP6_IDS = isWallsFlow ? WALLS_FLOW_6_IDS : MT5_PRESET_IDS;
 
     const [winContracts, setWinContracts] = useState(1);
@@ -4111,7 +4969,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                 key: "PORTFOLIO",
                 shortLabel: `🏆 PORTFÓLIO (${effectivePortIds.length} ATIVAS)`,
                 title: `🏆 PORTFÓLIO COMBINADO (${effectivePortIds.length} ESTRATÉGIAS ATIVAS)`,
-                subRule: `WIN (${winContracts}c) + WDO (${wdoContracts}c) · ${_posMonthsCount}/${_totalMonthsCount} Meses Positivos · Ret/DD ${fmtNum(_portRetDd, 2)}x`,
+                subRule: `WIN (${isWallsFlow ? 2 * winContracts : winContracts}c) + WDO (${wdoContracts}c) · ${_posMonthsCount}/${_totalMonthsCount} Meses Positivos · Ret/DD ${fmtNum(_portRetDd, 2)}x`,
                 color: "#00e87a",
                 strokeW: 2.9,
                 kpi: {
@@ -4276,7 +5134,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 13, fontWeight: 900, color: "#ffffff", letterSpacing: 0.7 }}>
                             {isWallsFlow
-                                ? "🛡️ PORTFÓLIO 6 WALLS V2 · DIVERGÊNCIA NÃO-VAREJO · PROPOSTA B ⭐ (4 WIN + 2 WDO · 11/11 M+ · Ret/DD 29,84x)"
+                                ? "🎯 PORTFÓLIO SNIPER · DIVERGÊNCIA F1➔F2 / T1➔T2 NA WALL (BASE: 2c WIN MIX + 1c WDO MIDWALL · s/ 12h WIN & 11h WDO · META DIÁRIA · WR 70% · PF 2,49)"
                                 : "📈 PORTFÓLIO TOP 8 ELITE M5 C/ FLUXO · PROPOSTA A ⭐ (5 WIN + 3 WDO · 11/11 M+ · Ret/DD 28,24x)"}
                         </span>
                         <span style={{
@@ -4319,7 +5177,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                         🏆 Curva Portfólio ({visibleCurves.PORTFOLIO ? "ON" : "OFF"})
                     </button>
 
-                    {/* Preset Equilibrado vs 1x1 */}
+                    {/* Preset Escala Base */}
                     <div style={{ display: "flex", gap: 4, background: "#05080d", padding: "3px 5px", borderRadius: 6, border: "1px solid #1a2530" }}>
                         <button
                             onClick={() => { setWinContracts(1); setWdoContracts(1); }}
@@ -4335,10 +5193,10 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                                 border: "1px solid #1a2530",
                             }}
                         >
-                            Base 1 WIN : 1 WDO
+                            {isWallsFlow ? "🎯 Opção 2 Base (2L WIN + 1L WDO)" : "Base 1 WIN : 1 WDO"}
                         </button>
                         <button
-                            onClick={() => { setWinContracts(2); setWdoContracts(1); }}
+                            onClick={() => isWallsFlow ? (setWinContracts(2), setWdoContracts(2)) : (setWinContracts(2), setWdoContracts(1))}
                             style={{
                                 padding: "3px 7px",
                                 fontSize: 8.5,
@@ -4346,12 +5204,12 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                                 fontWeight: "bold",
                                 borderRadius: 4,
                                 cursor: "pointer",
-                                background: winContracts === 2 && wdoContracts === 1 ? "#00e87a" : "#0c1218",
-                                color: winContracts === 2 && wdoContracts === 1 ? "#04080e" : "#8ca5b5",
+                                background: (isWallsFlow ? (winContracts === 2 && wdoContracts === 2) : (winContracts === 2 && wdoContracts === 1)) ? "#00e87a" : "#0c1218",
+                                color: (isWallsFlow ? (winContracts === 2 && wdoContracts === 2) : (winContracts === 2 && wdoContracts === 1)) ? "#04080e" : "#8ca5b5",
                                 border: "1px solid #1a2530",
                             }}
                         >
-                            ⚖️ 2 WIN : 1 WDO
+                            {isWallsFlow ? "⚡ Escala 2x (4L WIN + 2L WDO)" : "⚖️ 2 WIN : 1 WDO"}
                         </button>
                     </div>
 
@@ -4374,7 +5232,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                                     border: winContracts === c ? "1px solid #00d4ff" : "1px solid #1a2530",
                                 }}
                             >
-                                {c}c
+                                {isWallsFlow ? `${c}x(${c * 2}L)` : `${c}c`}
                             </button>
                         ))}
                     </div>
@@ -4398,7 +5256,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                                     border: wdoContracts === c ? "1px solid #ffd600" : "1px solid #1a2530",
                                 }}
                             >
-                                {c}c
+                                {isWallsFlow ? `${c}x(${c}L)` : `${c}c`}
                             </button>
                         ))}
                     </div>
@@ -4435,8 +5293,8 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
             {/* 2. SCORECARD INTERATIVO DAS ESTRATÉGIAS CAMPEÃS (CLIQUE PARA ATIVAR/DESATIVAR) */}
             <div style={{
                 display: "grid",
-                gridTemplateColumns: isWallsFlow ? "repeat(6, 1fr)" : "repeat(4, 1fr)",
-                gap: 6,
+                gridTemplateColumns: isWallsFlow ? "repeat(2, 1fr)" : "repeat(4, 1fr)",
+                gap: 8,
             }}>
                 {curveConfigs.filter((cfg) => cfg.key !== "PORTFOLIO").map((cfg) => {
                     const isOn = visibleCurves[cfg.key];
@@ -5156,6 +6014,39 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                     };
                 };
 
+                if (isWallsFlow) {
+                    return (
+                        <div style={{
+                            background: "#05080d",
+                            border: "1px solid #1a2530",
+                            borderRadius: 8,
+                            padding: "9px 14px",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            gap: 10,
+                            fontFamily: "monospace",
+                            fontSize: 9,
+                        }}>
+                            <span style={{ color: "#ffffff", fontWeight: "bold" }}>
+                                ⚖️ SINERGIA & DESCORRELAÇÃO DIÁRIA ({sessionPts.length} PREGÕES)
+                            </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                                <span style={{ color: "#9fb4c4" }}>
+                                    Correlação Pearson <strong style={{ color: "#00e87a" }}>WIN 2L Mix × WDO 1L MidWalls</strong>:{" "}
+                                    <strong style={{ color: corrWinDol <= 0.15 ? "#00e87a" : "#00d4ff" }}>
+                                        r = {corrWinDol >= 0 ? "+" : ""}{fmtNum(corrWinDol, 2)} (Independentes)
+                                    </strong>
+                                </span>
+                                <span style={{ color: "#6c8496" }}>
+                                    Efeito Diversificação: DD cai p/ <strong style={{ color: "#00e87a" }}>-R$ {fmtNum(mddPort, 0)}</strong> ➔ Ret/DD <strong style={{ color: "#00d4ff" }}>{fmtNum(portRetDd, 2)}x</strong>
+                                </span>
+                            </div>
+                        </div>
+                    );
+                }
+
                 return (
                     <div style={{
                         background: "#05080d",
@@ -5356,6 +6247,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
 function SingleAssetCockpitView({ symKey, payload }) {
     const [selectedSigId, setSelectedSigId] = useState(null);
     const [showHistory, setShowHistory] = useState(false);
+    const [isCapitalCollapsed, setIsCapitalCollapsed] = useState(() => isWallsFlowLocalhost());
 
     if (!payload) return null;
 
@@ -5382,10 +6274,38 @@ function SingleAssetCockpitView({ symKey, payload }) {
     const radar = payload.walls_radar || {};
     const allWalls = payload.all_walls || [];
 
+    // Resumo rápido do Capital do Dia (lote base 1x: 2L no WIN / 1L no WDO na 5176) para a barra retrátil
+    const brlPerPt = symKey === "WDO" ? 10.0 : 0.20;
+    const targetRef = Number(sc.target_ref_pts || (symKey === "WDO" ? 10.0 : 250));
+    const stopRef = Number(sc.stop_ref_pts || (symKey === "WDO" ? 10.0 : 250));
+    let dayNetPts = 0;
+    let dayNetBrl = 0;
+    signalsLog.forEach((sig) => {
+        if (!sig) return;
+        const st = String(sig.validation_status || "");
+        if (st === "EM_ANDAMENTO") return;
+        let tPts = 0;
+        if (sig.realized_pts !== undefined && sig.realized_pts !== null) tPts = Number(sig.realized_pts);
+        else if (st === "VALIDO_ALVO") tPts = targetRef;
+        else if (st === "INVALIDO_STOP") tPts = -stopRef;
+        else if (st === "VALIDO_FAVORAVEL") tPts = Number(sig.pnl_30m ?? sig.pnl_15m ?? Math.round(targetRef * 0.45));
+        else if (st === "INVALIDO_CONTRA") tPts = Number(sig.pnl_30m ?? sig.pnl_15m ?? -Math.round(stopRef * 0.5));
+        dayNetPts += tPts;
+        dayNetBrl += (sig.brl_1c !== undefined && sig.brl_1c !== null) ? Number(sig.brl_1c) : (tPts * brlPerPt);
+    });
+    const drawerCollapsedActive = isWallsFlow && isCapitalCollapsed;
+    const lotBaseTag = isWallsFlow ? (symKey === "WIN" ? "2L" : "1L") : "1c";
+    const netCol = dayNetBrl >= 0 ? "#00e87a" : "#ff3860";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "2.1fr 1fr", gap: 14, alignItems: "stretch" }}>
-                {/* Esquerda (68%): Gráfico Triplo Sincronizado Fluxo Real + A.S.G */}
+            <div style={{
+                display: "grid",
+                gridTemplateColumns: drawerCollapsedActive ? "minmax(0, 1fr) 44px" : "2.1fr 1fr",
+                gap: drawerCollapsedActive ? 10 : 14,
+                alignItems: "stretch",
+            }}>
+                {/* Esquerda (68% padrão | ~97% modo expandido): Gráfico Preço + Fluxo Smart Money */}
                 <FluxoRealAsgChart
                     symKey={symKey}
                     series={series}
@@ -5396,33 +6316,128 @@ function SingleAssetCockpitView({ symKey, payload }) {
                     allWalls={allWalls}
                     vwap={payload.vwap}
                     selectedSigId={selectedSigId}
+                    wideMode={drawerCollapsedActive}
+                    sessionDate={payload.session_date || ca.ref_date || ""}
+                    capitalDrawerInfo={isWallsFlow ? {
+                        isCollapsed: isCapitalCollapsed,
+                        netBrl: dayNetBrl,
+                        netPts: dayNetPts,
+                        onToggle: () => setIsCapitalCollapsed((v) => !v),
+                    } : null}
                     onSelectSignal={(id) => {
                         setSelectedSigId(id);
                         if (id) setShowHistory(true);
                     }}
                 />
 
-                {/* Direita (32%): HUD Visual Instantâneo A.S.G + Gráfico de Capital das Operações do Dia */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 12, justifyContent: "space-between" }}>
-                    <AsgCockpitHud
-                        symKey={symKey}
-                        payload={payload}
-                        asgHud={asgHud}
-                        scorecard={sc}
-                        showHistory={showHistory}
-                        onToggleHistory={() => setShowHistory(s => !s)}
-                    />
-                    <DailyOperationsEquityChart
-                        symKey={symKey}
-                        signalsLog={signalsLog}
-                        scorecard={sc}
-                        selectedSigId={selectedSigId}
-                        onSelectSignal={(id) => {
-                            setSelectedSigId(id);
-                            if (id) setShowHistory(true);
+                {/* Direita: Gaveta Retrátil (44px quando recuada na 5176 | 32% quando aberta) */}
+                {drawerCollapsedActive ? (
+                    <div
+                        onClick={() => setIsCapitalCollapsed(false)}
+                        title={`Clique para expandir o Gráfico de Capital e HUD do ${symKey} (${dayNetBrl >= 0 ? "+" : "-"}R$ ${fmtNum(Math.abs(dayNetBrl), 0)} hoje)`}
+                        style={{
+                            background: "#0c1218",
+                            border: "1px solid #1a2530",
+                            borderLeft: `2px solid ${netCol}88`,
+                            borderRadius: 10,
+                            padding: "10px 4px",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            cursor: "pointer",
+                            userSelect: "none",
+                            transition: "border-color 0.15s ease, background 0.15s ease",
                         }}
-                    />
-                </div>
+                    >
+                        <div style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: 4,
+                            padding: "4px 5px",
+                            borderRadius: 6,
+                            background: "rgba(0, 212, 255, 0.10)",
+                            border: "1px solid rgba(0, 212, 255, 0.40)",
+                            color: "#00d4ff",
+                            fontSize: 10,
+                            fontFamily: "monospace",
+                            fontWeight: 900,
+                        }}>
+                            <span>◀</span>
+                            <span style={{ fontSize: 11 }}>💰</span>
+                        </div>
+
+                        <div style={{
+                            writingMode: "vertical-rl",
+                            transform: "rotate(180deg)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            fontFamily: "monospace",
+                            fontSize: 10.5,
+                            letterSpacing: 0.6,
+                            whiteSpace: "nowrap",
+                            padding: "8px 0",
+                        }}>
+                            <span style={{ color: "#94a3b8", fontWeight: "bold" }}>
+                                CAPITAL {symKey} ({lotBaseTag})
+                            </span>
+                            <span style={{ color: netCol, fontWeight: 900, fontSize: 12 }}>
+                                {dayNetBrl >= 0 ? "+" : "-"}R$ {fmtNum(Math.abs(dayNetBrl), 0)} ({fmtNum(dayNetPts, dec, true)}p)
+                            </span>
+                            <span style={{ color: "#cbd5e1", fontSize: 9.5 }}>
+                                {sc.valid_signals || 0}✅ / {sc.invalid_signals || 0}❌ ({fmtNum(sc.win_rate_pct, 0)}%)
+                            </span>
+                            <span style={{ color: "#00d4ff", fontSize: 9, fontWeight: "bold" }}>
+                                ◀ Expandir Capital
+                            </span>
+                        </div>
+
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowHistory((s) => !s);
+                            }}
+                            title={showHistory ? "Ocultar tabela de sinais do dia" : "Ver tabela de sinais do dia"}
+                            style={{
+                                padding: "5px 6px",
+                                fontSize: 10,
+                                fontFamily: "monospace",
+                                background: showHistory ? "rgba(0, 212, 255, 0.18)" : "#080d12",
+                                border: "1px solid #00d4ff55",
+                                color: "#00d4ff",
+                                borderRadius: 5,
+                                cursor: "pointer",
+                            }}
+                        >
+                            📋
+                        </button>
+                    </div>
+                ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12, justifyContent: "space-between" }}>
+                        <AsgCockpitHud
+                            symKey={symKey}
+                            payload={payload}
+                            asgHud={asgHud}
+                            scorecard={sc}
+                            showHistory={showHistory}
+                            onToggleHistory={() => setShowHistory(s => !s)}
+                            onCollapseDrawer={isWallsFlow ? () => setIsCapitalCollapsed(true) : undefined}
+                        />
+                        <DailyOperationsEquityChart
+                            symKey={symKey}
+                            signalsLog={signalsLog}
+                            scorecard={sc}
+                            selectedSigId={selectedSigId}
+                            onCollapseDrawer={isWallsFlow ? () => setIsCapitalCollapsed(true) : undefined}
+                            onSelectSignal={(id) => {
+                                setSelectedSigId(id);
+                                if (id) setShowHistory(true);
+                            }}
+                        />
+                    </div>
+                )}
             </div>
 
             {/* Tabela Retrátil de Janelas e Sinais (só aparece se o usuário clicar em "Ver Sinais do Dia") */}
@@ -5721,7 +6736,9 @@ function RaioXAssetCard({ symKey, payload }) {
                                             {fmtNum(w.inst_aggr_delta ?? w.inst_delta ?? 0, 0, true)} / <span style={{ color: (w.inst_pass_delta ?? 0) >= 0 ? "#38ef94" : "#fb7185" }}>{fmtNum(w.inst_pass_delta ?? 0, 0, true)}</span>
                                         </td>
                                         <td style={{ padding: "3px 4px", color: (w.ret_delta ?? 0) >= 0 ? "#38bdf8" : "#f59e0b" }}>{fmtNum(w.ret_delta ?? 0, 0, true)}</td>
-                                        <td style={{ padding: "3px 4px", color: "#a78bfa" }}>{fmtNum(w.hft_churn_pct ?? 0, 0)}% / {fmtNum(w.rlp_share_pct ?? w.rlp_pct ?? 0, 0)}%</td>
+                                        <td style={{ padding: "3px 4px", color: "#a78bfa" }} title={`Giro Bruto HFT: ${fmtNum(w.hft_churn_pct ?? 0, 0)}% | Participação RLP: ${fmtNum(w.rlp_share_pct ?? w.rlp_pct ?? 0, 0)}%`}>
+                                            {fmtNum(w.hft_delta ?? 0, 0, true)} / <span style={{ color: "#fbbf24" }}>{fmtNum(w.rlp_delta ?? Math.round(-Number(w.ret_delta ?? 0) * (Number(w.rlp_share_pct ?? w.rlp_pct ?? 0) / 100.0)), 0, true)}</span>
+                                        </td>
                                         <td style={{ padding: "3px 4px", color: "#9fb4c4", fontSize: 8 }}>
                                             {w.player_verdict || w.status} {topB ? <span style={{ color: "#c8a444" }}>({topB})</span> : null}
                                         </td>
@@ -5756,7 +6773,9 @@ function RaioXAssetCard({ symKey, payload }) {
                                             {fmtNum(w.inst_aggr_delta ?? w.inst_delta ?? 0, 0, true)} / <span style={{ color: (w.inst_pass_delta ?? 0) >= 0 ? "#38ef94" : "#fb7185" }}>{fmtNum(w.inst_pass_delta ?? 0, 0, true)}</span>
                                         </td>
                                         <td style={{ padding: "3px 4px", color: (w.ret_delta ?? 0) >= 0 ? "#38bdf8" : "#f59e0b" }}>{fmtNum(w.ret_delta ?? 0, 0, true)}</td>
-                                        <td style={{ padding: "3px 4px", color: "#a78bfa" }}>{fmtNum(w.hft_churn_pct ?? 0, 0)}% / {fmtNum(w.rlp_share_pct ?? w.rlp_pct ?? 0, 0)}%</td>
+                                        <td style={{ padding: "3px 4px", color: "#a78bfa" }} title={`Giro Bruto HFT: ${fmtNum(w.hft_churn_pct ?? 0, 0)}% | Participação RLP: ${fmtNum(w.rlp_share_pct ?? w.rlp_pct ?? 0, 0)}%`}>
+                                            {fmtNum(w.hft_delta ?? 0, 0, true)} / <span style={{ color: "#fbbf24" }}>{fmtNum(w.rlp_delta ?? Math.round(-Number(w.ret_delta ?? 0) * (Number(w.rlp_share_pct ?? w.rlp_pct ?? 0) / 100.0)), 0, true)}</span>
+                                        </td>
                                         <td style={{ padding: "3px 4px", color: "#9fb4c4", fontSize: 8 }}>
                                             {w.player_verdict || w.status} {topB ? <span style={{ color: "#c8a444" }}>({topB})</span> : null}
                                         </td>
@@ -5774,17 +6793,17 @@ function RaioXAssetCard({ symKey, payload }) {
                 </tbody>
             </table>
 
-            {/* Gráfico CVD Institucional vs Varejo vs Dealers (ou 4-Players no 5176) */}
+            {/* Gráfico CVD Institucional vs Varejo vs Dealers (ou 4-Players em Lotes no 5176) */}
             <MiniSvgChart
                 series={ca.m5_dealer_vs_flow_series || []}
                 keys={isWallsFlowLocalhost()
-                    ? ["cvd_inst_aggr", "cvd_inst_pass", "cvd_retail", "cvd_hft"]
+                    ? ["cvd_inst_aggr", "cvd_inst_pass", "cvd_retail", "cvd_hft", "cvd_rlp_delta"]
                     : ["cvd_inst", "cum_dealer_hedge", "cvd_retail"]}
                 colors={isWallsFlowLocalhost()
-                    ? ["#00e87a", "#38ef94", "#38bdf8", "#a78bfa"]
+                    ? ["#00e87a", "#38ef94", "#38bdf8", "#a78bfa", "#fbbf24"]
                     : ["#00e87a", "#c8a444", "#00d4ff"]}
                 labels={isWallsFlowLocalhost()
-                    ? ["🏦 CVD Inst Agressor", "🛡️ CVD Inst Passivo", "🧑‍💻 CVD Varejo", "⚡ CVD HFT"]
+                    ? ["🏦 CVD Inst Agressor (L)", "🛡️ CVD Inst Passivo (L)", "🧑‍💻 CVD Varejo (L)", "⚡ CVD HFT (L)", "🔄 CVD RLP (L)"]
                     : ["CVD Institucional", "Hedge Acum. Dealers (GEX)", "CVD Varejo"]}
                 height={110}
             />
@@ -5794,7 +6813,7 @@ function RaioXAssetCard({ symKey, payload }) {
 
 /* ── COMPONENTE PRINCIPAL EXPORTADO ────────────────────────────────────────── */
 function IntradayCompassPanel({ compassData, mode = "COCKPIT", onChangeMode, selectedDate = "", onSelectDate }) {
-    const [selectedAsset, setSelectedAsset] = useState("WIN"); // "WIN" | "WDO" | "DUAL"
+    const [selectedAsset, setSelectedAsset] = useState(() => (isWallsFlowLocalhost() ? "DUAL" : "WIN")); // "WIN" | "WDO" | "DUAL"
 
     if (!compassData || !compassData.WIN) {
         return (
@@ -5940,12 +6959,12 @@ function IntradayCompassPanel({ compassData, mode = "COCKPIT", onChangeMode, sel
                         border: isWallsFlowHost ? "1px solid #00e87a66" : "1px solid #00d4ff66",
                     }}>
                         {isWallsFlowHost
-                            ? "🛡️ LOCALHOST 5176 · PROPOSTA B ⭐ (6 WALLS V2 · PROFIT 4-PLAYERS: 4 WIN + 2 WDO · 11/11 M+)"
+                            ? "🎯 LOCALHOST 5176 · SNIPER DIVERGÊNCIA F1➔F2 / T1➔T2 NA WALL (BASE: 2c WIN MIX + 1c WDO MIDWALL)"
                             : "🤖 LOCALHOST 5174 · PROPOSTA A ⭐ (TOP 8 ELITE M5 C/ FLUXO: 5 WIN + 3 WDO)"}
                     </span>
                     <span style={{ fontSize: 9.5, color: "#c9d8e4", fontFamily: "monospace" }}>
                         {isWallsFlowHost
-                            ? "Setups Ativos: 🛡️ WIN-A1 [12_NR_TRAP_DIV] · 🔄 WIN-B1 [15_NR_IGN_DIV] · 💥 WIN-C1 [16_NR_DIV_ABS] · ⚪ WIN-E2 [NR_WALL_DIV] · 🪤 WDO-B1 [12_NR_TRAP_DIV] · 🛡️ WDO-A1 [13_NR_PRICE_ABS] (11/11 M+ · +R$ 19.606 · DD R$ 657 · Ret/DD 29,84x)"
+                            ? "Carteira Sniper Base: 🇧🇷 WIN 2c Mix [s/ 12h · Meta +R$ 180] (+R$ 3.281 · WR 69,9% · PF 1,87) + 💵 WDO 1c MidWall [s/ 11h NY · Meta +R$ 120] (+R$ 4.155 · WR 65,2% · PF 2,02) ➔ Total +R$ 7.436 · DD R$ 524 · Ret/DD 14,2 (10/11 M+) · corrigido (causal)"
                             : "Setups Ativos: EST-04 [15_NR_IGN] · EST-07 [16_NR_DIV] · EST-13 [11_SHIELD] · EST-14/WDO-07 [12_NR_TRAP] · EST-15 [14_NR_SQUEEZE] · WDO-01/05 [13_NR_ABS] (+R$ 33.046 · DD R$ 1.170 · Ret/DD 28,24x)"}
                     </span>
                 </div>
@@ -5967,7 +6986,7 @@ function IntradayCompassPanel({ compassData, mode = "COCKPIT", onChangeMode, sel
                 >
                     {isWallsFlowHost
                         ? "↗ Abrir Localhost 5174 (Operações via MT5)"
-                        : "↗ Abrir Localhost 5176 (Fluxo nas Walls · 4 WIN + 2 WDO)"}
+                        : "↗ Abrir Localhost 5176 (Divergência na Wall · Opção 2)"}
                 </a>
             </div>
 

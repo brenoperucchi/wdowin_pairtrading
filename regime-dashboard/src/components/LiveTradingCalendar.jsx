@@ -20,17 +20,11 @@ const STRATS_MT5 = {
     WDO_S2: { code: "WDO-01", name: "WDO Scalper Curto NY (TP 6–8p)" },
 };
 const STRATS_WALLS_FLOW = {
-    EST_14: { code: "🛡️ WIN-A1", name: "Vai Defender (Pullback Wall)" },
-    EST_04: { code: "🔄 WIN-B1", name: "Virou Sup/Res (Reteste)" },
-    EST_07: { code: "💥 WIN-C1", name: "Romperam Wall (Ignição)" },
-    WIN_E2: { code: "⚪ WIN-E2", name: "Wall Gasta (3º+ Toque)" },
-    WDO_07: { code: "🪤 WDO-B1", name: "Violinada / Absorção Wall" },
-    WDO_01: { code: "🛡️ WDO-A2", name: "Vai Defender Extrema NWE" },
-    WDO_10: { code: "🛡️ WDO-A2", name: "Vai Defender Extrema NWE" },
-    WDO_S2: { code: "🛡️ WDO-A2", name: "Vai Defender Extrema NWE" },
+    WIN_DIV_WALL: { code: "🇧🇷 WIN 2c Sniper", name: "Sniper F1➔F2/T1➔T2 · 2c Mix (NWE30+750p · s/ 12h · Meta +R$180)" },
+    WDO_DIV_WALL: { code: "💵 WDO 1c Sniper", name: "Sniper F1➔F2/T1➔T2 · 1c MidWall (s/ 11h NY · Meta +R$120)" },
 };
 const MT5_TOP6_SET = new Set(["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"]);
-const WALLS_FLOW_6_SET = new Set(["EST_14", "EST_04", "EST_07", "WIN_E2", "WDO_07", "WDO_01", "WDO_10", "WDO_S2"]);
+const WALLS_FLOW_6_SET = new Set(["WIN_DIV_WALL", "WDO_DIV_WALL"]);
 const COST_PER_CTR = { WIN: 2.0, WDO: 5.0 }; // custo operacional B3 embutido (R$/contrato)
 
 function isWallsFlowLocalhost() {
@@ -229,12 +223,12 @@ function LiveTradingCalendar({ portfolioData, onSelectDate }) {
                 <div>
                     <div style={{ fontSize: 12, fontWeight: "bold", color: C.txt, letterSpacing: 2 }}>
                         {isWallsFlow
-                            ? "📅 CALENDÁRIO AUDITADO DAS 6 ESTRATÉGIAS DE FLUXO NAS WALLS (4 WIN + 2 WDO)"
+                            ? "📅 CALENDÁRIO AUDITADO · DIVERGÊNCIA NA WALL · OPÇÃO 2 (2 MIX WIN + 1 DOL MIDWALLS · 5176)"
                             : "📅 CALENDÁRIO AUDITADO DOS 8 ROBÔS COM FILTRO DE FLUXO (5 WIN + 3 WDO · 5174)"}
                     </div>
                     <div style={{ fontSize: 9, color: C.mute, marginTop: 3 }}>
                         {isWallsFlow
-                            ? "Resultado diário e robôs que operaram · 6 Estratégias de Marcação das Walls (WIN-A1, WIN-B1, WIN-C1, WIN-E2, WDO-B1, WDO-A2 · líquido de custos B3)"
+                            ? "Resultado diário auditado · Opção 2 Oficial: WIN 2L Mix (L1 NWE30 Din + L2 750p) + WDO 1L MidWalls · Sniper corrigido (causal) · 287 trades · PF 1,95 · Ret/DD 14,2 · 10/11 M+ · líquido B3"
                             : "Resultado diário e robôs que operaram · 8 Robôs Campeões c/ Filtro de Fluxo (EST_04, 07, 13, 14, 15 + WDO_01, 05, 07 · Ret/DD 25,03x · 11/11 M+ · líquido B3)"}
                         {liveStart && <> · 🟢 live desde {liveStart.split("-").reverse().join("/")}</>}
                         {!ok && <span style={{ color: C.red }}> · aguardando dados do /api/compass/etapa1</span>}

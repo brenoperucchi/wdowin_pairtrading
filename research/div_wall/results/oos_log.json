@@ -1,0 +1,43 @@
+[
+ {
+  "key": "WIN_m1_div_strong",
+  "ran_at": "2026-11-10T22:09:00",
+  "signal": {
+   "pivot_right": "1",
+   "wave_k": "1.5",
+   "wall_radius": "40.0",
+   "wall_types": "('Wall',)",
+   "nwe_filter": "slope_against"
+  },
+  "exit": {
+   "sl_mode": "pivot",
+   "tp_mode": "rr",
+   "be_trigger_r": "1.0",
+   "max_bars": "60",
+   "rr": "1.5"
+  },
+  "is": {
+   "trades": "53",
+   "wr": 50.9,
+   "pf": 1.91,
+   "net": 318.0,
+   "mdd": 99.0,
+   "ret_dd": 3.21,
+   "pos_months": "6",
+   "plateau": 1.93
+  },
+  "oos": {
+   "trades": 11,
+   "wr": 27.3,
+   "pf": 0.33,
+   "net": -106.0,
+   "mdd": 125.0,
+   "ret_dd": -0.85,
+   "pos_months": 0,
+   "months": 3,
+   "avg": -9.64,
+   "days": 10
+  },
+  "approved": false
+ }
+]

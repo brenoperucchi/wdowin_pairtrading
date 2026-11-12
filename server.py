@@ -2605,6 +2605,18 @@ def get_compass_etapa1(date_str: str = None, lite: bool = False):
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/compass/m1_series")
+def get_compass_m1_series(date_str: str = None):
+    """Retorna a série intradiária enriquecida de 1 Minuto (M1) para WIN e WDO (com NWE causal + Fluxo Smart Money)."""
+    try:
+        from core.gex_live_dealer_engine import gex_dealer_engine_singleton
+        return gex_dealer_engine_singleton.get_m1_chart_payload(sess_date=date_str)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/compass/etapa2")
 @app.get("/api/compass/dealer-gex")
 def get_compass_etapa2(date_str: str = None):

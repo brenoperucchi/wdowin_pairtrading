@@ -372,6 +372,10 @@ def classify_wall_player_signature(
             sig_label = "⚖️ Wall em Disputa Equilibrada"
             strategy_hint = "NEUTRO"
 
+    # Saldo líquido direcional do provedor RLP em Lotes (contraparte passiva absorvendo o desbalanço do Varejo no RLP)
+    rlp_ratio = min(0.85, rlp_vol / max(1.0, tot_book))
+    rlp_delta = float(kwargs.get("rlp_delta", -ret_delta * max(0.32, rlp_ratio)))
+
     return {
         "player_signature": sig_code,
         "player_verdict": sig_label,
@@ -384,9 +388,11 @@ def classify_wall_player_signature(
         "hft_churn_pct": hft_churn_pct,
         "ret_delta": round(ret_delta, 0),
         "rlp_vol": round(rlp_vol, 0),
+        "rlp_delta": round(rlp_delta, 0),
         "rlp_share_pct": round(rlp_share_pct, 1),
         "avg_buy_lot": round(avg_buy_lot, 2),
         "avg_sell_lot": round(avg_sell_lot, 2),
+        "top_brokers_wall": top_brokers_wall or [],
         "top_wall_brokers": top_brokers_wall or [],
         "is_strong_inst": abs(inst_total_delta) >= strong_inst_thr,
     }

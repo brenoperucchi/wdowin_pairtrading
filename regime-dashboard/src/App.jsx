@@ -310,7 +310,7 @@ export default function App() {
     // Polling do fluxo de corretoras do Profit (aba RAIO_X, tanto live quanto data histórica selecionada)
     useEffect(() => {
         if (import.meta.env.PROD || workspaceTab !== "RAIO_X") return;
-        
+
         let active = true;
         let flowInFlight = false;
         async function pollFlow() {
@@ -509,7 +509,7 @@ export default function App() {
     // ── Merged signal data for histogram ───────────────────────────────────────
     const mergedSignals = useMemo(() => {
         const sourceData = isViewingHistory && histDayData ? histDayData : (isViewingHistory ? [] : history);
-        
+
         return sourceData.map((h) => {
             return {
                 ...h,
@@ -624,7 +624,7 @@ export default function App() {
                     if (c.chart !== sourceChart) {
                         try {
                             c.chart.timeScale().setVisibleLogicalRange(logicalRange);
-                        } catch (e) {}
+                        } catch (e) { }
                     }
                 });
                 isSyncingTime = false;
@@ -638,7 +638,7 @@ export default function App() {
                 try {
                     c.chart.timeScale().fitContent();
                     c.chart.timeScale().setVisibleLogicalRange(fullRange);
-                } catch (e) {}
+                } catch (e) { }
             });
             isSyncingTime = false;
         }
@@ -684,7 +684,7 @@ export default function App() {
             return (param) => {
                 if (isSyncingCrosshair) return;
                 isSyncingCrosshair = true;
-                
+
                 if (!param.time) {
                     charts.forEach(c => {
                         if (c.chart !== sourceChart) c.chart.clearCrosshairPosition();
@@ -695,7 +695,7 @@ export default function App() {
                         if (c.chart !== sourceChart && c.series) {
                             let price = 0;
                             let targetTime = t;
-                            
+
                             if (c.chart === zChart) {
                                 targetTime = getClosestTimestampForSeries(timeToZPrice, t);
                                 price = timeToZPrice.get(targetTime) ?? 0;
@@ -706,10 +706,10 @@ export default function App() {
                                 targetTime = getClosestTimestampForSeries(timeToHPrice, t);
                                 price = timeToHPrice.get(targetTime) ?? 3;
                             }
-                            
+
                             try {
                                 c.chart.setCrosshairPosition(price, targetTime, c.series);
-                            } catch(e) {}
+                            } catch (e) { }
                         }
                     });
                 }
@@ -802,424 +802,424 @@ export default function App() {
                     <div className="skeleton-pulse">AGUARDANDO MODELO MATADOR V4...</div>
                 </div>
             )}
-        <div style={{ background: "#0c1218", minHeight: "100vh", color: "#c9d1d9", fontFamily: "monospace", display: "flex", flexDirection: "column" }}>
+            <div style={{ background: "#0c1218", minHeight: "100vh", color: "#c9d1d9", fontFamily: "monospace", display: "flex", flexDirection: "column" }}>
 
-            {/* ── Topbar ──────────────────────────────────────────────────────────── */}
-            <div className="topbar">
-                <div className="topbar-left">
-                    <span className="text-sm text-highlight font-bold" style={{ letterSpacing: 4 }}>PAIR TRADING</span>
-                    <span style={{ display: "inline-block", width: 1, height: 14, background: "#1c2e3a" }} />
-                    <span className="text-xs text-muted" style={{ letterSpacing: 2 }}>
-                        {meta.symbol_a} x {meta.symbol_b}  ·  STAT ARB  ·  {meta.timeframe}
-                    </span>
-                    <span 
-                        className="text-xxs text-highlight font-bold" 
-                        style={{ 
-                            background: showSetup ? "rgba(200,164,68,0.3)" : "rgba(200,164,68,0.15)", 
-                            border: "1px solid #c8a44455", 
-                            borderRadius: 4, 
-                            padding: "3px 8px", 
-                            marginLeft: 15, 
-                            letterSpacing: 1,
-                            cursor: "pointer",
-                            transition: "background 0.2s"
-                        }}
-                        onClick={() => setShowSetup(s => !s)}
-                        title="Ver regras do Setup Matador V6"
-                    >
-                        MATADOR
-                    </span>
-                </div>
-                <div className="topbar-right">
-                    {lastUpdate && (
-                        <div style={{
-                            display: "flex", alignItems: "center", gap: 6,
-                            background: flash ? "rgba(200,164,68,0.18)" : "transparent",
-                            border: `1px solid ${flash ? "#c8a444" : "#1c2e3a"}`,
-                            borderRadius: 4, padding: "3px 10px",
-                            transition: "background 0.3s, border-color 0.3s"
-                        }}>
-                            <span className="text-xxs text-muted" style={{ letterSpacing: 2 }}>ANÁLISE</span>
-                            <span className="text-sm font-bold" style={{ color: flash ? "#c8a444" : "#8ca5b5", letterSpacing: 1, transition: "color 0.3s" }}>
-                                {lastUpdate}
-                            </span>
-                        </div>
-                    )}
-                    {/* Johansen Gate badge */}
-                    {johWdoGate && (
-                        <div style={{
-                            display: "flex", alignItems: "center", gap: 6,
-                            background: johWdoGate.open ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)",
-                            border: `1px solid ${johWdoGate.open ? "#00e87a55" : "#ff386055"}`,
-                            borderRadius: 4, padding: "3px 10px"
-                        }}>
-                            <span style={{ fontSize: 8, color: johWdoGate.open ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
-                                JOH: {johWdoGate.open ? "ABERTO" : "FECHADO"} ({johWdoGate.trace_ratio}x)
-                            </span>
-                        </div>
-                    )}
-
-                    {/* Consensus badge */}
-                    {consensusCount >= 2 && (
-                        <div style={{
-                            display: "flex", alignItems: "center", gap: 5,
-                            background: `${consensusColor}18`,
-                            border: `1px solid ${consensusColor}55`,
-                            borderRadius: 4, padding: "3px 10px",
-                            opacity: blink && consensusCount === 2 ? 1 : 0.85,
-                            transition: "opacity 0.3s"
-                        }}>
-                            <span style={{ fontSize: 9, fontWeight: "bold", color: consensusColor, letterSpacing: 1 }}>
-                                {consensusDir} {consensusCount}/2
-                            </span>
-                        </div>
-                    )}
-                    {/* NWE state badge */}
-                    {data?.nwe && (
-                        <div style={{
-                            display: "flex", alignItems: "center", gap: 5,
-                            background: data.nwe.is_up ? "rgba(0,232,122,0.12)" : "rgba(255,56,96,0.12)",
-                            border: `1px solid ${data.nwe.is_up ? "#00e87a33" : "#ff386033"}`,
-                            borderRadius: 4, padding: "3px 10px",
-                        }}>
-                            <span style={{ fontSize: 8, fontWeight: "bold", color: data.nwe.is_up ? "#00e87a" : "#ff3860", letterSpacing: 1 }}>
-                                NWE {data.nwe.is_up ? "▲" : "▼"}
-                            </span>
-                        </div>
-                    )}
-                    {/* Per-strategy status badges */}
-                    {data?.trade_engine?.strategies && (
-                        <div style={{ display: "flex", gap: 4 }}>
-                            {Object.entries(data.trade_engine.strategies).map(([key, val]) => {
-                                const info = STRAT_LABELS[key];
-                                if (!info) return null;
-                                const isHolding = val?.open_trade != null;
-                                const action = val?.action || "WAIT";
-                                const isBuy = action === "BUY_WIN";
-                                const isSell = action === "SELL_WIN";
-                                const isEntry = isBuy || isSell;
-                                const bg = isHolding ? "rgba(245,166,35,0.15)" : isEntry ? (isBuy ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)") : "rgba(58,80,96,0.08)";
-                                const fg = isHolding ? "#f5a623" : isEntry ? (isBuy ? "#00e87a" : "#ff3860") : "#3a5060";
-                                return (
-                                    <div key={key} style={{
-                                        display: "flex", alignItems: "center", gap: 3,
-                                        background: bg, border: `1px solid ${fg}33`, borderRadius: 3, padding: "2px 6px",
-                                    }}>
-                                        <span style={{ fontSize: 7, color: info.color, fontWeight: "bold" }}>{info.label}</span>
-                                        <span style={{ fontSize: 7, color: fg, fontWeight: "bold" }}>
-                                            {isHolding ? (val.open_trade?.direction === "BUY" ? "C" : "V") : isEntry ? (isBuy ? "C!" : "V!") : "—"}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                    {/* Date picker */}
-                    <select
-                        value={selectedDate}
-                        onChange={e => setSelectedDate(e.target.value)}
-                        style={{
-                            padding: "4px 10px", fontSize: 11, fontFamily: "monospace",
-                            background: isViewingHistory ? "#1a2530" : "#0d1820",
-                            border: `1px solid ${isViewingHistory ? "#c8a444" : "#1c2e3a"}`,
-                            borderRadius: 6, color: isViewingHistory ? "#c8a444" : "#8a9aaa",
-                            cursor: "pointer", outline: "none", minWidth: 130,
-                            appearance: "none",
-                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%233a5060'/%3E%3C/svg%3E")`,
-                            backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
-                            paddingRight: 24,
-                        }}
-                    >
-                        <option value="">HOJE (LIVE)</option>
-                        {histDates.map(d => {
-                            const [y, m, day] = d.split("-");
-                            const wd = new Date(y, m - 1, day).toLocaleDateString("pt-BR", { weekday: "short" });
-                            return <option key={d} value={d}>{wd} {day}/{m}</option>;
-                        })}
-                    </select>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{
-                            display: "inline-block", width: 6, height: 6, borderRadius: "50%",
-                            background: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060",
-                            opacity: blink ? 1 : 0.2, transition: "opacity 0.3s"
-                        }} />
-                        <span style={{
-                            fontSize: 9, letterSpacing: 2,
-                            color: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060"
-                        }}>
-                            {isViewingHistory ? "HISTÓRICO PROFIT" : status === "live" ? "PROFIT LIVE" : status === "fallback" ? "SIMULADO" : "CONECTANDO"}
+                {/* ── Topbar ──────────────────────────────────────────────────────────── */}
+                <div className="topbar">
+                    <div className="topbar-left">
+                        <span className="text-sm text-highlight font-bold" style={{ letterSpacing: 4 }}>PAIR TRADING</span>
+                        <span style={{ display: "inline-block", width: 1, height: 14, background: "#1c2e3a" }} />
+                        <span className="text-xs text-muted" style={{ letterSpacing: 2 }}>
+                            {meta.symbol_a} x {meta.symbol_b}  ·  STAT ARB  ·  {meta.timeframe}
+                        </span>
+                        <span
+                            className="text-xxs text-highlight font-bold"
+                            style={{
+                                background: showSetup ? "rgba(200,164,68,0.3)" : "rgba(200,164,68,0.15)",
+                                border: "1px solid #c8a44455",
+                                borderRadius: 4,
+                                padding: "3px 8px",
+                                marginLeft: 15,
+                                letterSpacing: 1,
+                                cursor: "pointer",
+                                transition: "background 0.2s"
+                            }}
+                            onClick={() => setShowSetup(s => !s)}
+                            title="Ver regras do Setup Matador V6"
+                        >
+                            MATADOR
                         </span>
                     </div>
-                    <TopbarClock />
-                </div>
-            </div>
+                    <div className="topbar-right">
+                        {lastUpdate && (
+                            <div style={{
+                                display: "flex", alignItems: "center", gap: 6,
+                                background: flash ? "rgba(200,164,68,0.18)" : "transparent",
+                                border: `1px solid ${flash ? "#c8a444" : "#1c2e3a"}`,
+                                borderRadius: 4, padding: "3px 10px",
+                                transition: "background 0.3s, border-color 0.3s"
+                            }}>
+                                <span className="text-xxs text-muted" style={{ letterSpacing: 2 }}>ANÁLISE</span>
+                                <span className="text-sm font-bold" style={{ color: flash ? "#c8a444" : "#8ca5b5", letterSpacing: 1, transition: "color 0.3s" }}>
+                                    {lastUpdate}
+                                </span>
+                            </div>
+                        )}
+                        {/* Johansen Gate badge */}
+                        {johWdoGate && (
+                            <div style={{
+                                display: "flex", alignItems: "center", gap: 6,
+                                background: johWdoGate.open ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)",
+                                border: `1px solid ${johWdoGate.open ? "#00e87a55" : "#ff386055"}`,
+                                borderRadius: 4, padding: "3px 10px"
+                            }}>
+                                <span style={{ fontSize: 8, color: johWdoGate.open ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
+                                    JOH: {johWdoGate.open ? "ABERTO" : "FECHADO"} ({johWdoGate.trace_ratio}x)
+                                </span>
+                            </div>
+                        )}
 
-            {/* ── Banners ─────────────────────────────────────────────────────────── */}
-            {error && (
-                <div style={{ background: "rgba(245,166,35,0.08)", borderBottom: "1px solid rgba(245,166,35,0.3)", padding: "6px 20px", fontSize: 10, color: "#f5a623" }}>
-                    {error}
+                        {/* Consensus badge */}
+                        {consensusCount >= 2 && (
+                            <div style={{
+                                display: "flex", alignItems: "center", gap: 5,
+                                background: `${consensusColor}18`,
+                                border: `1px solid ${consensusColor}55`,
+                                borderRadius: 4, padding: "3px 10px",
+                                opacity: blink && consensusCount === 2 ? 1 : 0.85,
+                                transition: "opacity 0.3s"
+                            }}>
+                                <span style={{ fontSize: 9, fontWeight: "bold", color: consensusColor, letterSpacing: 1 }}>
+                                    {consensusDir} {consensusCount}/2
+                                </span>
+                            </div>
+                        )}
+                        {/* NWE state badge */}
+                        {data?.nwe && (
+                            <div style={{
+                                display: "flex", alignItems: "center", gap: 5,
+                                background: data.nwe.is_up ? "rgba(0,232,122,0.12)" : "rgba(255,56,96,0.12)",
+                                border: `1px solid ${data.nwe.is_up ? "#00e87a33" : "#ff386033"}`,
+                                borderRadius: 4, padding: "3px 10px",
+                            }}>
+                                <span style={{ fontSize: 8, fontWeight: "bold", color: data.nwe.is_up ? "#00e87a" : "#ff3860", letterSpacing: 1 }}>
+                                    NWE {data.nwe.is_up ? "▲" : "▼"}
+                                </span>
+                            </div>
+                        )}
+                        {/* Per-strategy status badges */}
+                        {data?.trade_engine?.strategies && (
+                            <div style={{ display: "flex", gap: 4 }}>
+                                {Object.entries(data.trade_engine.strategies).map(([key, val]) => {
+                                    const info = STRAT_LABELS[key];
+                                    if (!info) return null;
+                                    const isHolding = val?.open_trade != null;
+                                    const action = val?.action || "WAIT";
+                                    const isBuy = action === "BUY_WIN";
+                                    const isSell = action === "SELL_WIN";
+                                    const isEntry = isBuy || isSell;
+                                    const bg = isHolding ? "rgba(245,166,35,0.15)" : isEntry ? (isBuy ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)") : "rgba(58,80,96,0.08)";
+                                    const fg = isHolding ? "#f5a623" : isEntry ? (isBuy ? "#00e87a" : "#ff3860") : "#3a5060";
+                                    return (
+                                        <div key={key} style={{
+                                            display: "flex", alignItems: "center", gap: 3,
+                                            background: bg, border: `1px solid ${fg}33`, borderRadius: 3, padding: "2px 6px",
+                                        }}>
+                                            <span style={{ fontSize: 7, color: info.color, fontWeight: "bold" }}>{info.label}</span>
+                                            <span style={{ fontSize: 7, color: fg, fontWeight: "bold" }}>
+                                                {isHolding ? (val.open_trade?.direction === "BUY" ? "C" : "V") : isEntry ? (isBuy ? "C!" : "V!") : "—"}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        {/* Date picker */}
+                        <select
+                            value={selectedDate}
+                            onChange={e => setSelectedDate(e.target.value)}
+                            style={{
+                                padding: "4px 10px", fontSize: 11, fontFamily: "monospace",
+                                background: isViewingHistory ? "#1a2530" : "#0d1820",
+                                border: `1px solid ${isViewingHistory ? "#c8a444" : "#1c2e3a"}`,
+                                borderRadius: 6, color: isViewingHistory ? "#c8a444" : "#8a9aaa",
+                                cursor: "pointer", outline: "none", minWidth: 130,
+                                appearance: "none",
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%233a5060'/%3E%3C/svg%3E")`,
+                                backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
+                                paddingRight: 24,
+                            }}
+                        >
+                            <option value="">HOJE (LIVE)</option>
+                            {histDates.map(d => {
+                                const [y, m, day] = d.split("-");
+                                const wd = new Date(y, m - 1, day).toLocaleDateString("pt-BR", { weekday: "short" });
+                                return <option key={d} value={d}>{wd} {day}/{m}</option>;
+                            })}
+                        </select>
+                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                            <span style={{
+                                display: "inline-block", width: 6, height: 6, borderRadius: "50%",
+                                background: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060",
+                                opacity: blink ? 1 : 0.2, transition: "opacity 0.3s"
+                            }} />
+                            <span style={{
+                                fontSize: 9, letterSpacing: 2,
+                                color: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060"
+                            }}>
+                                {isViewingHistory ? "HISTÓRICO PROFIT" : status === "live" ? "PROFIT LIVE" : status === "fallback" ? "SIMULADO" : "CONECTANDO"}
+                            </span>
+                        </div>
+                        <TopbarClock />
+                    </div>
                 </div>
-            )}
-            {betaUnstable && (
+
+                {/* ── Banners ─────────────────────────────────────────────────────────── */}
+                {error && (
+                    <div style={{ background: "rgba(245,166,35,0.08)", borderBottom: "1px solid rgba(245,166,35,0.3)", padding: "6px 20px", fontSize: 10, color: "#f5a623" }}>
+                        {error}
+                    </div>
+                )}
+                {betaUnstable && (
+                    <div style={{
+                        background: "rgba(255,56,96,0.08)",
+                        borderBottom: "1px solid rgba(255,56,96,0.4)",
+                        padding: "7px 20px", fontSize: 11, color: "#ff3860",
+                        display: "flex", alignItems: "center", gap: 10,
+                        opacity: blink ? 1 : 0.6, transition: "opacity 0.3s"
+                    }}>
+                        <span style={{ fontSize: 16 }}>⚠️</span>
+                        <span>
+                            <strong>BETA INSTÁVEL</strong> — variação de <span style={{ fontWeight: 900 }}>{betaChangePct > 0 ? "+" : ""}{betaChangePct.toFixed(1)}%</span> em relação à leitura anterior.
+                            Relação WIN×WDO pode estar em ruptura.
+                        </span>
+                    </div>
+                )}
+
+                {/* ——— Barra Principal de Seleção de Tela (3 Modos Limpos) ———————————————————— */}
                 <div style={{
-                    background: "rgba(255,56,96,0.08)",
-                    borderBottom: "1px solid rgba(255,56,96,0.4)",
-                    padding: "7px 20px", fontSize: 11, color: "#ff3860",
-                    display: "flex", alignItems: "center", gap: 10,
-                    opacity: blink ? 1 : 0.6, transition: "opacity 0.3s"
+                    background: "#0c1218",
+                    borderBottom: "1px solid #1a2530",
+                    padding: "8px 20px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: 10,
                 }}>
-                    <span style={{ fontSize: 16 }}>⚠️</span>
-                    <span>
-                        <strong>BETA INSTÁVEL</strong> — variação de <span style={{ fontWeight: 900 }}>{betaChangePct > 0 ? "+" : ""}{betaChangePct.toFixed(1)}%</span> em relação à leitura anterior.
-                        Relação WIN×WDO pode estar em ruptura.
-                    </span>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {[
+                            { id: "COCKPIT", label: "⚡ 1. COCKPIT MAGIC WALLS E FLUXO", accent: "#00e87a" },
+                            { id: "RAIO_X", label: "🔬 2. RAIO-X DE DADOS (CORRETORAS PROFIT & GRADE OPÇÕES)", accent: "#00d4ff" },
+                            { id: "STAT_ARB", label: "📐 3. STAT-ARB & Z-SCORE (PROFIT: WINFUT × WDOFUT × DIFUT)", accent: "#c8a444" },
+                        ].map(tab => {
+                            const active = workspaceTab === tab.id;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => {
+                                        setWorkspaceTab(tab.id);
+                                    }}
+                                    style={{
+                                        padding: "7px 14px",
+                                        fontSize: 10.5,
+                                        fontFamily: "monospace",
+                                        fontWeight: "bold",
+                                        letterSpacing: 0.6,
+                                        borderRadius: 6,
+                                        cursor: "pointer",
+                                        border: active ? `1.5px solid ${tab.accent}` : "1px solid #1a2530",
+                                        background: "#0c1218",
+                                        color: active ? tab.accent : "#8ca5b5",
+                                        transition: "all 0.2s ease",
+                                    }}
+                                >
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {compassData?.updated_at && (
+                        <span style={{ fontSize: 10, color: "#7f96a8" }}>
+                            Fluxo Profit/MT5 atualizado às <strong style={{ color: "#00e87a" }}>{compassData.updated_at}</strong>
+                        </span>
+                    )}
                 </div>
-            )}
 
-            {/* ——— Barra Principal de Seleção de Tela (3 Modos Limpos) ———————————————————— */}
-            <div style={{
-                background: "#0c1218",
-                borderBottom: "1px solid #1a2530",
-                padding: "8px 20px",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: 10,
-            }}>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {[
-                        { id: "COCKPIT", label: "⚡ 1. COCKPIT MAGIC WALLS E FLUXO", accent: "#00e87a" },
-                        { id: "RAIO_X", label: "🔬 2. RAIO-X DE DADOS (CORRETORAS PROFIT & GRADE OPÇÕES)", accent: "#00d4ff" },
-                        { id: "STAT_ARB", label: "📐 3. STAT-ARB & Z-SCORE (PROFIT: WINFUT × WDOFUT × DIFUT)", accent: "#c8a444" },
-                    ].map(tab => {
-                        const active = workspaceTab === tab.id;
-                        return (
-                            <button
-                                key={tab.id}
-                                onClick={() => {
-                                    setWorkspaceTab(tab.id);
-                                }}
-                                style={{
-                                    padding: "7px 14px",
-                                    fontSize: 10.5,
-                                    fontFamily: "monospace",
-                                    fontWeight: "bold",
-                                    letterSpacing: 0.6,
-                                    borderRadius: 6,
-                                    cursor: "pointer",
-                                    border: active ? `1.5px solid ${tab.accent}` : "1px solid #1a2530",
-                                    background: "#0c1218",
-                                    color: active ? tab.accent : "#8ca5b5",
-                                    transition: "all 0.2s ease",
-                                }}
-                            >
-                                {tab.label}
-                            </button>
-                        );
-                    })}
-                </div>
-                {compassData?.updated_at && (
-                    <span style={{ fontSize: 10, color: "#7f96a8" }}>
-                        Fluxo Profit/MT5 atualizado às <strong style={{ color: "#00e87a" }}>{compassData.updated_at}</strong>
-                    </span>
-                )}
-            </div>
+                {/* ——— Main content ———————————————————————————————————————————————————————————— */}
+                <div style={{ flex: 1, padding: "14px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
 
-            {/* ——— Main content ———————————————————————————————————————————————————————————— */}
-            <div style={{ flex: 1, padding: "14px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+                    {showSetup && <SetupMatadorPanel tradeEngine={data?.trade_engine} />}
 
-                {showSetup && <SetupMatadorPanel tradeEngine={data?.trade_engine} />}
+                    {(workspaceTab === "COCKPIT" || workspaceTab === "RAIO_X") && (
+                        <IntradayCompassPanel
+                            compassData={compassData}
+                            mode={workspaceTab}
+                            onChangeMode={setWorkspaceTab}
+                            selectedDate={selectedDate}
+                            onSelectDate={setSelectedDate}
+                        />
+                    )}
 
-                {(workspaceTab === "COCKPIT" || workspaceTab === "RAIO_X") && (
-                    <IntradayCompassPanel
-                        compassData={compassData}
-                        mode={workspaceTab}
-                        onChangeMode={setWorkspaceTab}
-                        selectedDate={selectedDate}
-                        onSelectDate={setSelectedDate}
-                    />
-                )}
-
-                {workspaceTab === "RAIO_X" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                        <div style={{ border: "1px solid #1a2530", borderRadius: 8, overflow: "hidden", background: "#0c1218" }}>
-                            <FlowDeltaChart
-                                ref={flowDeltaChartRef}
-                                history={paddedSignals}
+                    {workspaceTab === "RAIO_X" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                            <div style={{ border: "1px solid #1a2530", borderRadius: 8, overflow: "hidden", background: "#0c1218" }}>
+                                <FlowDeltaChart
+                                    ref={flowDeltaChartRef}
+                                    history={paddedSignals}
+                                    flowData={flowData}
+                                    classifications={classifications}
+                                    activeSymbol={meta?.symbol_a}
+                                    flowMode={flowMode}
+                                    hideXAxis={false}
+                                />
+                            </div>
+                            <BrokerFlowPanel
                                 flowData={flowData}
+                                dbHistory={paddedSignals}
+                                weights={weights}
+                                setWeights={setWeights}
                                 classifications={classifications}
-                                activeSymbol={meta?.symbol_a}
+                                setClassifications={setClassifications}
                                 flowMode={flowMode}
-                                hideXAxis={false}
+                                setFlowMode={setFlowMode}
                             />
                         </div>
-                        <BrokerFlowPanel
-                            flowData={flowData}
-                            dbHistory={paddedSignals}
-                            weights={weights}
-                            setWeights={setWeights}
-                            classifications={classifications}
-                            setClassifications={setClassifications}
-                            flowMode={flowMode}
-                            setFlowMode={setFlowMode}
-                        />
-                    </div>
-                )}
+                    )}
 
-                {/* History mode banner (Stat-Arb) */}
-                {isViewingHistory && workspaceTab === "STAT_ARB" && (
-                    <div style={{
-                        background: "rgba(200,164,68,0.08)", border: "1px solid rgba(200,164,68,0.3)",
-                        borderRadius: 8, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center",
-                    }}>
-                        <span style={{ fontSize: 10, color: "#c8a444" }}>
-                            📅 Visualizando Z-Score de <strong>{(() => { const [y, m, d] = selectedDate.split("-"); return `${d}/${m}/${y}`; })()}</strong>
-                            {histDayData && ` — ${histDayData.length} barras`}
-                        </span>
-                        <button onClick={() => setSelectedDate("")} style={{
-                            fontSize: 9, padding: "3px 10px", background: "rgba(0,232,122,0.15)",
-                            border: "1px solid #00e87a55", borderRadius: 4, color: "#00e87a",
-                            cursor: "pointer", fontFamily: "monospace", letterSpacing: 1,
-                        }}>VOLTAR AO LIVE</button>
-                    </div>
-                )}
-
-                {workspaceTab === "STAT_ARB" && (
-                <>
-                {/* Compact Regime Health Strip — above charts */}
-                {(() => {
-                    const zWdo = isViewingHistory ? lastBar.z : currentZ;
-                    const zDi = isViewingHistory ? (lastBar.z_di ?? lastBar.z_unfiltered_di ?? 0) : (diData?.current_z ?? 0);
-                    const betaH = data?.regime_health?.beta;
-                    const diBetaH = diData?.regime_health?.beta;
-                    const diRhoH = diData?.regime_health?.rho;
-                    const zColor = (v) => Math.abs(v || 0) >= 1.4 ? (v > 0 ? "#ff3860" : "#00e87a") : "#6f8a9c";
-                    const Pill = ({ label, value, color, badge }) => (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
-                            <span style={{ fontSize: 10, fontWeight: "bold", color: color || "#6f8a9c", fontFamily: "monospace" }}>
-                                {typeof value === "number" ? value.toFixed(3) : value ?? "—"}
-                            </span>
-                            {badge && (
-                                <span style={{ fontSize: 7, color: "#0c1218", background: color, fontWeight: "bold", padding: "0px 4px", borderRadius: 2 }}>{badge}</span>
-                            )}
-                        </span>
-                    );
-                    const Dot = ({ gate, label }) => {
-                        if (!gate) return null;
-                        const c = gate.open ? "#00e87a" : "#ff3860";
-                        return (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                                <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
-                                <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: c, boxShadow: `0 0 4px ${c}55` }} />
-                                <span style={{ fontSize: 8, color: c, fontWeight: "bold" }}>{gate.open ? "A" : "F"}</span>
-                            </span>
-                        );
-                    };
-                    return (
+                    {/* History mode banner (Stat-Arb) */}
+                    {isViewingHistory && workspaceTab === "STAT_ARB" && (
                         <div style={{
-                            display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
-                            padding: "5px 10px", marginBottom: -2,
-                            background: "#0c1218", borderRadius: "8px 8px 0 0",
-                            border: "1px solid #1a2530", borderBottom: "none",
+                            background: "rgba(200,164,68,0.08)", border: "1px solid rgba(200,164,68,0.3)",
+                            borderRadius: 8, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center",
                         }}>
-                            {/* WDO section */}
-                            <span style={{ fontSize: 8, color: "#00e87a", fontWeight: "bold", background: "rgba(0,232,122,0.12)", border: "1px solid rgba(0,232,122,0.3)", padding: "1px 5px", borderRadius: 3, letterSpacing: 1 }}>PROFIT · WINFUT</span>
-                            <span style={{ fontSize: 8, color: "#c8a444", fontWeight: "bold", letterSpacing: 2 }}>WDOFUT</span>
-                            <Pill label="Z" value={zWdo} color={zColor(zWdo)} />
-                            {betaH && <Pill label="β" value={betaH.delta_pct} color={betaH.color} badge={betaH.status} />}
-                            <Dot gate={johWdoGate} label="JOH" />
-
-                            <span style={{ display: "inline-block", width: 1, height: 12, background: "#1c2e3a", margin: "0 4px" }} />
-
-                            {/* DI section */}
-                            <span style={{ fontSize: 8, color: "#8a6dff", fontWeight: "bold", letterSpacing: 2 }}>DIFUT</span>
-                            <Pill label="Z" value={zDi} color={zColor(zDi)} />
-                            {diBetaH && <Pill label="β" value={diBetaH.delta_pct} color={diBetaH.color} badge={diBetaH.status} />}
-                            {diRhoH && <Pill label="ρ" value={diRhoH.value} color={diRhoH.color} badge={diRhoH.status} />}
-                            <Dot gate={johDiGate} label="JOH" />
+                            <span style={{ fontSize: 10, color: "#c8a444" }}>
+                                📅 Visualizando Z-Score de <strong>{(() => { const [y, m, d] = selectedDate.split("-"); return `${d}/${m}/${y}`; })()}</strong>
+                                {histDayData && ` — ${histDayData.length} barras`}
+                            </span>
+                            <button onClick={() => setSelectedDate("")} style={{
+                                fontSize: 9, padding: "3px 10px", background: "rgba(0,232,122,0.15)",
+                                border: "1px solid #00e87a55", borderRadius: 4, color: "#00e87a",
+                                cursor: "pointer", fontFamily: "monospace", letterSpacing: 1,
+                            }}>VOLTAR AO LIVE</button>
                         </div>
-                    );
-                })()}
+                    )}
 
-                {/* Z-Score Chart + Signal Histogram + WINFUT Price/NWE Chart (grouped) */}
-                <div style={{ marginTop: 0 }}>
-                    <ZScoreChart
-                        ref={zScoreChartRef}
-                        history={paddedSignals}
-                        sigColor={isViewingHistory ? "#00e87a" : sig.color}
-                        currentZ={isViewingHistory ? 0 : currentZ}
-                        useV2={true}
-                        hideXAxis={true}
-                    />
-                    <SignalHistogram 
-                        ref={histogramChartRef} 
-                        data={paddedSignals} 
-                        trades={currentDayTrades}
-                    />
-                    <IndexChart
-                        ref={indexChartRef}
-                        history={paddedSignals}
-                        walls={gexWalls}
-                        tradeEngine={data?.trade_engine}
-                        dayTrades={currentDayTrades}
-                        isViewingHistory={isViewingHistory}
-                        hideXAxis={false}
-                    />
+                    {workspaceTab === "STAT_ARB" && (
+                        <>
+                            {/* Compact Regime Health Strip — above charts */}
+                            {(() => {
+                                const zWdo = isViewingHistory ? lastBar.z : currentZ;
+                                const zDi = isViewingHistory ? (lastBar.z_di ?? lastBar.z_unfiltered_di ?? 0) : (diData?.current_z ?? 0);
+                                const betaH = data?.regime_health?.beta;
+                                const diBetaH = diData?.regime_health?.beta;
+                                const diRhoH = diData?.regime_health?.rho;
+                                const zColor = (v) => Math.abs(v || 0) >= 1.4 ? (v > 0 ? "#ff3860" : "#00e87a") : "#6f8a9c";
+                                const Pill = ({ label, value, color, badge }) => (
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                        <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
+                                        <span style={{ fontSize: 10, fontWeight: "bold", color: color || "#6f8a9c", fontFamily: "monospace" }}>
+                                            {typeof value === "number" ? value.toFixed(3) : value ?? "—"}
+                                        </span>
+                                        {badge && (
+                                            <span style={{ fontSize: 7, color: "#0c1218", background: color, fontWeight: "bold", padding: "0px 4px", borderRadius: 2 }}>{badge}</span>
+                                        )}
+                                    </span>
+                                );
+                                const Dot = ({ gate, label }) => {
+                                    if (!gate) return null;
+                                    const c = gate.open ? "#00e87a" : "#ff3860";
+                                    return (
+                                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                            <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
+                                            <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: c, boxShadow: `0 0 4px ${c}55` }} />
+                                            <span style={{ fontSize: 8, color: c, fontWeight: "bold" }}>{gate.open ? "A" : "F"}</span>
+                                        </span>
+                                    );
+                                };
+                                return (
+                                    <div style={{
+                                        display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+                                        padding: "5px 10px", marginBottom: -2,
+                                        background: "#0c1218", borderRadius: "8px 8px 0 0",
+                                        border: "1px solid #1a2530", borderBottom: "none",
+                                    }}>
+                                        {/* WDO section */}
+                                        <span style={{ fontSize: 8, color: "#00e87a", fontWeight: "bold", background: "rgba(0,232,122,0.12)", border: "1px solid rgba(0,232,122,0.3)", padding: "1px 5px", borderRadius: 3, letterSpacing: 1 }}>PROFIT · WINFUT</span>
+                                        <span style={{ fontSize: 8, color: "#c8a444", fontWeight: "bold", letterSpacing: 2 }}>WDOFUT</span>
+                                        <Pill label="Z" value={zWdo} color={zColor(zWdo)} />
+                                        {betaH && <Pill label="β" value={betaH.delta_pct} color={betaH.color} badge={betaH.status} />}
+                                        <Dot gate={johWdoGate} label="JOH" />
+
+                                        <span style={{ display: "inline-block", width: 1, height: 12, background: "#1c2e3a", margin: "0 4px" }} />
+
+                                        {/* DI section */}
+                                        <span style={{ fontSize: 8, color: "#8a6dff", fontWeight: "bold", letterSpacing: 2 }}>DIFUT</span>
+                                        <Pill label="Z" value={zDi} color={zColor(zDi)} />
+                                        {diBetaH && <Pill label="β" value={diBetaH.delta_pct} color={diBetaH.color} badge={diBetaH.status} />}
+                                        {diRhoH && <Pill label="ρ" value={diRhoH.value} color={diRhoH.color} badge={diRhoH.status} />}
+                                        <Dot gate={johDiGate} label="JOH" />
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Z-Score Chart + Signal Histogram + WINFUT Price/NWE Chart (grouped) */}
+                            <div style={{ marginTop: 0 }}>
+                                <ZScoreChart
+                                    ref={zScoreChartRef}
+                                    history={paddedSignals}
+                                    sigColor={isViewingHistory ? "#00e87a" : sig.color}
+                                    currentZ={isViewingHistory ? 0 : currentZ}
+                                    useV2={true}
+                                    hideXAxis={true}
+                                />
+                                <SignalHistogram
+                                    ref={histogramChartRef}
+                                    data={paddedSignals}
+                                    trades={currentDayTrades}
+                                />
+                                <IndexChart
+                                    ref={indexChartRef}
+                                    history={paddedSignals}
+                                    walls={gexWalls}
+                                    tradeEngine={data?.trade_engine}
+                                    dayTrades={currentDayTrades}
+                                    isViewingHistory={isViewingHistory}
+                                    hideXAxis={false}
+                                />
+                            </div>
+
+                            <StatArbLiveTradePanel
+                                history={paddedSignals}
+                                walls={gexWalls}
+                                dayTrades={currentDayTrades}
+                                selectedDate={selectedDate}
+                                isViewingHistory={isViewingHistory}
+                                onSelectDate={(d) => {
+                                    setSelectedDate(d);
+                                    window.scrollTo({ top: 0, behavior: "smooth" });
+                                }}
+                            />
+
+                            <StatArbBacktest2026Panel
+                                onSelectDate={(d) => {
+                                    setSelectedDate(d);
+                                    window.scrollTo({ top: 0, behavior: "smooth" });
+                                }}
+                            />
+
+                            {/* Alert Banner */}
+                            {!safeToTrade && isActive && (
+                                <div style={{
+                                    background: "rgba(255,56,96,0.06)", border: "1px solid rgba(255,56,96,0.3)",
+                                    borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
+                                    opacity: blink ? 1 : 0.7, transition: "opacity 0.3s"
+                                }}>
+                                    <span style={{ fontSize: 18 }}>🚨</span>
+                                    <div style={{ fontSize: 11, color: "#ff3860", lineHeight: 1.5 }}>
+                                        <strong>Z-SCORE ALTO COM RELAÇÃO INSTÁVEL</strong> — Parece oportunidade mas é ruído.
+                                        ρ ou Δβ fora da zona verde invalida o sinal de z={currentZ > 0 ? `+${currentZ.toFixed(2)}` : currentZ.toFixed(2)}.
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {/* Calendário do Live Trading (exclusivo da Aba 1 - Cockpit das 6 Estratégias Campeãs) */}
+                    {workspaceTab === "COCKPIT" && (
+                        <LiveTradingCalendar
+                            portfolioData={compassData?.portfolio_4_sistematicas}
+                            onSelectDate={setSelectedDate}
+                        />
+                    )}
                 </div>
 
-                <StatArbLiveTradePanel
-                    history={paddedSignals}
-                    walls={gexWalls}
-                    dayTrades={currentDayTrades}
-                    selectedDate={selectedDate}
-                    isViewingHistory={isViewingHistory}
-                    onSelectDate={(d) => {
-                        setSelectedDate(d);
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                />
-
-                <StatArbBacktest2026Panel
-                    onSelectDate={(d) => {
-                        setSelectedDate(d);
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                />
-
-                {/* Alert Banner */}
-                {!safeToTrade && isActive && (
-                    <div style={{
-                        background: "rgba(255,56,96,0.06)", border: "1px solid rgba(255,56,96,0.3)",
-                        borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
-                        opacity: blink ? 1 : 0.7, transition: "opacity 0.3s"
-                    }}>
-                        <span style={{ fontSize: 18 }}>🚨</span>
-                        <div style={{ fontSize: 11, color: "#ff3860", lineHeight: 1.5 }}>
-                            <strong>Z-SCORE ALTO COM RELAÇÃO INSTÁVEL</strong> — Parece oportunidade mas é ruído.
-                            ρ ou Δβ fora da zona verde invalida o sinal de z={currentZ > 0 ? `+${currentZ.toFixed(2)}` : currentZ.toFixed(2)}.
-                        </div>
-                    </div>
-                )}
-                </>
-                )}
-
-                {/* Calendário do Live Trading (exclusivo da Aba 1 - Cockpit das 6 Estratégias Campeãs) */}
-                {workspaceTab === "COCKPIT" && (
-                    <LiveTradingCalendar
-                        portfolioData={compassData?.portfolio_4_sistematicas}
-                        onSelectDate={setSelectedDate}
-                    />
-                )}
+                {/* ── Footer ──────────────────────────────────────────────────────────── */}
+                <div style={{ borderTop: "1px solid #1a2530", padding: "7px 20px", display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3d444d", background: "#0c1218" }}>
+                    <span>{status === "live" ? "DADOS REAIS MT5" : "DADOS SIMULADOS"} — NÃO CONSTITUI RECOMENDAÇÃO DE INVESTIMENTO · PAIR TRADING 2025</span>
+                    <span>beta = {meta.beta}  ·  janela {meta.window} barras  ·  {meta.symbol_a} x {meta.symbol_b}  ·  B3</span>
+                </div>
             </div>
-
-            {/* ── Footer ──────────────────────────────────────────────────────────── */}
-            <div style={{ borderTop: "1px solid #1a2530", padding: "7px 20px", display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3d444d", background: "#0c1218" }}>
-                <span>{status === "live" ? "DADOS REAIS MT5" : "DADOS SIMULADOS"} — NÃO CONSTITUI RECOMENDAÇÃO DE INVESTIMENTO · PAIR TRADING 2025</span>
-                <span>beta = {meta.beta}  ·  janela {meta.window} barras  ·  {meta.symbol_a} x {meta.symbol_b}  ·  B3</span>
-            </div>
-        </div>
         </>
     );
 }

@@ -1,0 +1,33 @@
+{
+ "built_at": "2026-11-11T08:01:22",
+ "source": "Profit .min M1+M5",
+ "range": [
+  "2025-12-01",
+  "2026-11-10"
+ ],
+ "days": {
+  "WIN": 234,
+  "WDO": 234
+ },
+ "filters": [
+  "1_JANELA_ASG",
+  "2_JANELA_S_EXPLOSAO",
+  "3_FLUXO_INST",
+  "4_FLUXO_ABSORCAO",
+  "5_COMBO_ESTRITO",
+  "6_COMBO_SMART",
+  "7_PROFIT_DEFENSE",
+  "8_PROFIT_SWEEP",
+  "9_PROFIT_INST_RET",
+  "10_PROFIT_SMART_WALL",
+  "11_PROFIT_WALL_SHIELD",
+  "12_NR_WALL_TRAP_DIV",
+  "13_NR_PRICE_ABS_DIV",
+  "14_NR_BREAKOUT_SQUEEZE",
+  "15_NR_IGNITION_DIV",
+  "16_NR_DIV_ABS_OR_AGGR",
+  "17_NR_SQUEEZE_CLEAN",
+  "18_NR_ASG_PLUS_DIV"
+ ],
+ "sha256": "62aa179543388d93a49b187c560469ddb4b9907abde5fdc79052af619dda47e8"
+}

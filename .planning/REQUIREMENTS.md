@@ -7,10 +7,12 @@
 - **Visualization**: Displayed as an "EFICIÊNCIA" column in the B3 brokers table of the dashboard, using a premium dual-directional balance bar centered at 0% (-100% on the left in red, +100% on the right in green).
 
 ## REQ-002: Indicador Sintético de Fluxo Institucional em Tempo Real (WIN)
+- **Status (10/11/2026):** backend implementado (`GET /api/flow/realtime`, `server.py`); UI parcial: `FlowScoreChart.jsx` existe mas não está no layout atual do `App.jsx` (wiring morto).
 - **Description**: The system must calculate a consolidated, high-frequency synthetic institutional flow score for WIN based on direction, persistence, concentration, and absorption.
 - **Formulas**: 
   - $ScoreFluxo_t = 100 \times (0.40 \times FLN_t + 0.30 \times PERS_t + 0.20 \times CONC\_DIR_t + 0.10 \times ABS\_DIR_t)$
   - $ScoreFinal_t = 0.50 \times Score_{5s} + 0.30 \times Score_{15s} + 0.20 \times Score_{60s}$
+- **Divergência de pesos (decisão pendente):** a especificação acima usa 40/30/20/10 (FLN / PERS / CONC_DIR / ABS_DIR); o código em `server.py` e o default de `FlowScoreChart.jsx` usam 20/40/30/10. Não há vencedor definido — a escolha fica pendente para o usuário.
 - **Aggregation**: Rolling window cache of high-frequency 5-second updates, retaining the last 60 minutes of history (720 points).
 - **Visualization**: Displayed as a single line chart below the FlowDeltaChart on the dashboard. The line must dynamically change color: Green ($\ge 40$), Red ($\le -40$), or Yellow (neutral/conflito between -40 and +40).
 

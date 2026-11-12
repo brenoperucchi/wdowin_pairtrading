@@ -1,0 +1,392 @@
+{
+ "executed_at": "2026-11-11T07:58:01",
+ "candidates": {
+  "EST_01": {
+   "vid": "EST_01",
+   "plateau": 3.82,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 1.0,
+    "R": 100.0,
+    "L": 80,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "EST_04": {
+   "vid": "EST_04",
+   "plateau": 1.95,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 40.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "EST_07": {
+   "vid": "EST_07",
+   "plateau": 11.1,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 1.0,
+    "R": 100.0,
+    "L": 50,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "EST_13": {
+   "vid": "EST_13",
+   "plateau": 5.1,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 6,
+    "k": 0.5,
+    "R": 100.0,
+    "L": 80,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "EST_14": {
+   "vid": "EST_14",
+   "plateau": 1.94,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 3,
+    "k": 1.0,
+    "R": 100.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "EST_15": {
+   "vid": "EST_15",
+   "plateau": 1.785,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 100.0,
+    "L": 80,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "EST_16": {
+   "vid": "EST_16",
+   "plateau": 10.06,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 100.0,
+    "L": 100,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "WDO_01": {
+   "vid": "WDO_01",
+   "plateau": 4.75,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 4.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "WDO_02": {
+   "vid": "WDO_02",
+   "plateau": 0.96,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 4.0,
+    "L": 30,
+    "conf": "FECHA_WALL",
+    "flow": false
+   }
+  },
+  "WDO_05": {
+   "vid": "WDO_05",
+   "plateau": 2.81,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 4.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "WDO_07": {
+   "vid": "WDO_07",
+   "plateau": 3.83,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 6,
+    "k": 0.5,
+    "R": 4.0,
+    "L": 80,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "WDO_10": {
+   "vid": "WDO_10",
+   "plateau": 3.29,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 1.5,
+    "R": 4.0,
+    "L": 80,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "WDO_S09": {
+   "vid": "WDO_S09",
+   "plateau": 1.545,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 1.0,
+    "R": 4.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "WDO_S11": {
+   "vid": "WDO_S11",
+   "plateau": 1.3,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 4.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "WDO_S13": {
+   "vid": "WDO_S13",
+   "plateau": 2.1,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 6,
+    "k": 1.5,
+    "R": 4.0,
+    "L": 80,
+    "conf": "FECHA_WALL",
+    "flow": false
+   }
+  },
+  "WDO_S15": {
+   "vid": "WDO_S15",
+   "plateau": 0.16,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 4.0,
+    "L": 50,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "WIN_E2": {
+   "vid": "WIN_E2",
+   "plateau": 2.965,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 1.0,
+    "R": 100.0,
+    "L": 100,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "WIN_S02": {
+   "vid": "WIN_S02",
+   "plateau": 1.78,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 40.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "WIN_S05": {
+   "vid": "WIN_S05",
+   "plateau": 2.06,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 40.0,
+    "L": 100,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "WIN_S06": {
+   "vid": "WIN_S06",
+   "plateau": 3.71,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 6,
+    "k": 0.5,
+    "R": 40.0,
+    "L": 30,
+    "conf": "PIVO",
+    "flow": false
+   }
+  },
+  "WIN_S09": {
+   "vid": "WIN_S09",
+   "plateau": 2.22,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 0.5,
+    "R": 40.0,
+    "L": 100,
+    "conf": "PIVO",
+    "flow": true
+   }
+  },
+  "WIN_S10": {
+   "vid": "WIN_S10",
+   "plateau": 2.62,
+   "spec": {
+    "mode": "EXIGIR",
+    "N": 12,
+    "k": 1.0,
+    "R": 100.0,
+    "L": 80,
+    "conf": "PIVO",
+    "flow": false
+   }
+  }
+ },
+ "chosen_is": [
+  "EST_07",
+  "EST_16",
+  "WIN_E2",
+  "EST_04",
+  "EST_13",
+  "WDO_07",
+  "WDO_10",
+  "WIN_S02",
+  "EST_01"
+ ],
+ "is_ret_dd": 29.89,
+ "result": {
+  "carteira_div_escolhida": {
+   "is": {
+    "ops": 491,
+    "wr": 58.2,
+    "pf": 1.98,
+    "net": 9088.0,
+    "mdd": 304.0,
+    "ret_dd": 29.89,
+    "pos_m": "7/7"
+   },
+   "oos": {
+    "ops": 199,
+    "wr": 51.8,
+    "pf": 1.45,
+    "net": 1927.0,
+    "mdd": 821.0,
+    "ret_dd": 2.35,
+    "pos_m": "2/4"
+   },
+   "all": {
+    "ops": 690,
+    "wr": 56.4,
+    "pf": 1.81,
+    "net": 11015.0,
+    "mdd": 821.0,
+    "ret_dd": 13.42,
+    "pos_m": "9/11"
+   }
+  },
+  "todas_candidatas_div": {
+   "is": {
+    "ops": 1570,
+    "wr": 61.6,
+    "pf": 1.63,
+    "net": 23854.0,
+    "mdd": 3360.0,
+    "ret_dd": 7.1,
+    "pos_m": "7/7"
+   },
+   "oos": {
+    "ops": 593,
+    "wr": 56.2,
+    "pf": 1.24,
+    "net": 3786.0,
+    "mdd": 2660.0,
+    "ret_dd": 1.42,
+    "pos_m": "3/4"
+   },
+   "all": {
+    "ops": 2163,
+    "wr": 60.1,
+    "pf": 1.51,
+    "net": 27640.0,
+    "mdd": 3360.0,
+    "ret_dd": 8.23,
+    "pos_m": "10/11"
+   }
+  },
+  "elite8_sem_filtro": {
+   "is": {
+    "ops": 3026,
+    "wr": 56.5,
+    "pf": 1.23,
+    "net": 20499.0,
+    "mdd": 3209.0,
+    "ret_dd": 6.39,
+    "pos_m": "5/7"
+   },
+   "oos": {
+    "ops": 1252,
+    "wr": 57.6,
+    "pf": 1.46,
+    "net": 15653.0,
+    "mdd": 1034.0,
+    "ret_dd": 15.14,
+    "pos_m": "4/4"
+   },
+   "all": {
+    "ops": 4278,
+    "wr": 56.8,
+    "pf": 1.29,
+    "net": 36152.0,
+    "mdd": 3209.0,
+    "ret_dd": 11.27,
+    "pos_m": "9/11"
+   }
+  }
+ }
+}

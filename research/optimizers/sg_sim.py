@@ -98,19 +98,38 @@ def close_pos(s, k, px, t, why, trades, cost_pts: float = 0.0):
     s["trades_today"] += 1
 
 
+# Ligado só pelo runner ao vivo (core/setups_runner.py) quando há corte de dados; o BT não muda.
+EMIT_OPEN_AT_END = False
+
+
+_PRE: dict = {}
+
+
 def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_filter=None):
     m5, m1, wdo, gex = load_m5_m1_wdo_gex()
-    C = m5["close"].values
-    n50 = disc.compute_nwe_series(C, lookback=50, bw=5.0, mult=2.0)
-    n30 = disc.compute_nwe_series(C, lookback=30, bw=3.0, mult=1.6)
-    wz = wdo_z_series(wdo).reindex(m5["t"]).ffill().fillna(0.0).values
-    m5["date"] = m5["t"].dt.strftime("%Y-%m-%d")
-    m5["tmin"] = m5["t"].dt.hour * 60 + m5["t"].dt.minute
-    m1["bar5"] = m1["t"].dt.floor("5min")
-    m1g = {k: g[["open", "high", "low", "close"]].values for k, g in m1.groupby("bar5")}
+    # pré-cálculo depende só dos dados carregados (cache do loader): reaproveitado entre chamadas
+    pre_key = (id(m5), id(m1), id(wdo), len(m5), len(m1),
+               str(m5["t"].iloc[-1]) if len(m5) else "", str(m1["t"].iloc[-1]) if len(m1) else "")
+    pre = _PRE.get("v")
+    if pre is None or pre[0] != pre_key:
+        C = m5["close"].values
+        n50 = disc.compute_nwe_series(C, lookback=50, bw=5.0, mult=2.0)
+        n30 = disc.compute_nwe_series(C, lookback=30, bw=3.0, mult=1.6)
+        wz = wdo_z_series(wdo).reindex(m5["t"]).ffill().fillna(0.0).values
+        m5["date"] = m5["t"].dt.strftime("%Y-%m-%d")
+        m5["tmin"] = m5["t"].dt.hour * 60 + m5["t"].dt.minute
+        m1["bar5"] = m1["t"].dt.floor("5min")
+        m1g = {k: g[["open", "high", "low", "close"]].values for k, g in m1.groupby("bar5")}
+        _PRE["v"] = pre = (pre_key, n50, n30, wz, m1g)
+    _, n50, n30, wz, m1g = pre
+    # colunas como listas/arrays: mesmos valores, sem o custo de DataFrame.__getitem__ a cada barra
+    _df5 = m5
+    m5 = {"t": list(_df5["t"]), "date": _df5["date"].tolist(), "tmin": _df5["tmin"].to_numpy(),
+          "open": _df5["open"].to_numpy(), "high": _df5["high"].to_numpy(), "low": _df5["low"].to_numpy(),
+          "close": _df5["close"].to_numpy()}
     trades = []
     S = {k: dict(dir=0, pend=0, trades_today=0, day="") for k in slots}
-    for i in range(1, len(m5)):
+    for i in range(1, len(_df5)):
         t_new = m5["t"][i]
         day = m5["date"][i]
         b1 = i - 1
@@ -274,6 +293,11 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_f
                         if S[k]["dir"] != 0:
                             close_pos(S[k], k, px, t_new, "EOD", trades, cost_pts=cost_pts)
                         S[k]["pend"] = 0
+    # Ao vivo (dados cortados no meio do pregão): emite as posições ainda abertas na última barra disponível.
+    if EMIT_OPEN_AT_END and len(_df5):
+        for k in slots:
+            if S[k]["dir"] != 0:
+                close_pos(S[k], k, float(_df5["close"].iloc[-1]), _df5["t"].iloc[-1], "ABERTA", trades, cost_pts=cost_pts)
     return pd.DataFrame(trades)
 
 

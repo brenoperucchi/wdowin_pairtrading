@@ -19,8 +19,50 @@ HIST_WIN = os.path.join(ROOT_DIR, "mt5", "Files", "jumba_gex_win_history.csv")
 HIST_WDO = os.path.join(ROOT_DIR, "mt5", "Files", "jumba_gex_wdo_history.csv")
 
 
+# ── Corte único de dados (paridade BT × ao vivo) ──────────────────────────────────────────────
+# `_BAR_CUTOFF`: instante T (horário do servidor MT5). Só entram barras FECHADAS até T
+# (abertura + duração <= T). `_LIVE_EXT`: barras recentes (ex.: pregão de hoje via MT5) anexadas ao cache.
+_BAR_CUTOFF = None
+_BAR_FLOOR = None   # opcional: descarta barras antes desta data (aquecimento curto)
+_LIVE_EXT = {}
+_TF_MIN = {"M1": 1, "M5": 5}
+
+
+def set_bar_cutoff(ts):
+    """Define (ou remove, com None) o instante T do corte (o cache do CSV bruto não depende dele)."""
+    global _BAR_CUTOFF
+    _BAR_CUTOFF = None if ts is None else pd.Timestamp(ts)
+
+
+def set_bar_floor(ts):
+    """Descarta barras antes de `ts` (None = sem limite). Usado para aquecimento curto no ao vivo."""
+    global _BAR_FLOOR
+    _BAR_FLOOR = None if ts is None else pd.Timestamp(ts)
+
+
+def set_live_extension(sym: str, timeframe: str, df):
+    """Anexa barras recentes (colunas t, open, high, low, close, tick_volume, real_volume)."""
+    _LIVE_EXT[(sym, timeframe)] = None if df is None else df.copy()
+
+
 def get_mt5_rates(sym: str, timeframe: str = "M5", since: str = "2026-04-01", until: str = "2026-11-06", refresh: bool = False) -> pd.DataFrame:
-    """Retorna barras M5 ou M1 do símbolo no horário do servidor MT5 (idêntico ao Strategy Tester)."""
+    """Retorna barras M5 ou M1 do símbolo no horário do servidor MT5, respeitando o corte de dados."""
+    df = _get_mt5_rates_raw(sym, timeframe, since, until, refresh).copy()
+    ext = _LIVE_EXT.get((sym, timeframe))
+    if ext is not None and len(ext):
+        df = pd.concat([df, ext[~ext["t"].isin(df["t"])]], ignore_index=True).sort_values("t").reset_index(drop=True)
+    if _BAR_FLOOR is not None:
+        df = df[df["t"] >= _BAR_FLOOR].reset_index(drop=True)
+    if _BAR_CUTOFF is not None:
+        df = df[df["t"] + pd.Timedelta(minutes=_TF_MIN[timeframe]) <= _BAR_CUTOFF].reset_index(drop=True)
+    return df
+
+
+from functools import lru_cache  # noqa: E402
+
+
+@lru_cache(maxsize=16)
+def _get_mt5_rates_raw(sym: str, timeframe: str, since: str, until: str, refresh: bool) -> pd.DataFrame:
     cache_path = os.path.join(RATES_DIR, f"mt5_{sym.replace('$', '_')}_{timeframe}.csv")
     if os.path.exists(cache_path) and not refresh:
         return pd.read_csv(cache_path, parse_dates=["t"])

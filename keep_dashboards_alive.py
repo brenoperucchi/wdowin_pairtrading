@@ -152,7 +152,7 @@ def start_vite_port(port: int) -> None:
     vite_bin = os.path.join(DASHBOARD_DIR, "node_modules", "vite", "bin", "vite.js")
     out_log = open(os.path.join(PROJECT_ROOT, "logs", f"vite_{port}.log"), "a", encoding="utf-8")
     flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
-    cmd = [node_exe, vite_bin, "--host", "0.0.0.0", "--port", str(port), "--strictPort"]
+    cmd = [node_exe, vite_bin, "--host", "::", "--port", str(port), "--strictPort"]
     try:
         proc = subprocess.Popen(
             cmd,

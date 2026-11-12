@@ -1,0 +1,61 @@
+{
+ "executed_at": "2026-11-11T21:34:52",
+ "regras": {
+  "sinal": "rompimento de Wall/MidWall no fechamento com a maior for\u00e7a de barra do dia no sentido",
+  "entrada": "E0_abertura",
+  "saida": "SL 200 \u00b7 alvo banda oposta NWE50 \u00b7 sem BE \u00b7 sem trailing \u00b7 m\u00e1x 24 barras",
+  "mode": "LIVRE",
+  "meta_diaria": false
+ },
+ "is": {
+  "ops": 277,
+  "wr": 41.5,
+  "pf": 1.44,
+  "net": 2974,
+  "dd": 576,
+  "rdd": 5.17,
+  "meses": "6/7",
+  "net_h1": 2601,
+  "net_h2": 373,
+  "plateau": 3.99
+ },
+ "placebo_a_p": 0.009950248756218905,
+ "placebo_b_p": 0.009950248756218905,
+ "ok_is": true,
+ "oos": {
+  "ops": 140,
+  "wr": 32.9,
+  "pf": 0.69,
+  "net": -1230,
+  "dd": 1307,
+  "rdd": -0.94,
+  "meses": "2/4",
+  "net_h1": 0,
+  "net_h2": -1230
+ },
+ "total": {
+  "ops": 417,
+  "wr": 38.6,
+  "pf": 1.16,
+  "net": 1744,
+  "dd": 1331,
+  "rdd": 1.31,
+  "meses": "8/11",
+  "net_h1": 2601,
+  "net_h2": -856
+ },
+ "aprovado_oos": false,
+ "mensal": {
+  "2026-01": 987.0,
+  "2026-02": 653.0,
+  "2026-03": 833.0,
+  "2026-04": 128.0,
+  "2026-05": 408.0,
+  "2026-06": -152.0,
+  "2026-07": 117.0,
+  "2026-08": 45.0,
+  "2026-09": 13.0,
+  "2026-10": -820.0,
+  "2026-11": -468.0
+ }
+}

@@ -74,32 +74,37 @@ FILTER_LABELS = {
 
 
 def _session_features(m5_series, is_win: bool):
-    """Histograma A.S.G, janela e fluxo por barra (idêntico ao dashboard)."""
-    fast_p = 5.0 if is_win else 4.0
-    slow_p = 18.0 if is_win else 22.0
-    w_cvd, w_price = 0.85, 0.15
+    """
+    Histograma e Janela de Fluxo Smart Money Unificados por barra M5 (alinhado entre WIN e WDO):
+      - 3 Motores Físicos (0% Preço):
+          * 12% Absorção Oculta na Pedra (Wyckoff Effort vs. Result)
+          * 18% Assimetria de Porte / Ticket Médio (Urgência de Lote Grande)
+          * 70% Saldo Institucional Não-Varejo (0.90 Agressor + 0.75 Passivo na Pedra - 0.25 Varejo)
+      - Memória Estrutural: EMA Rápida 4 / EMA Lenta 20 do CVD Efetivo (92% Detrended CVD + 8% Impulso 3b)
+      - Suavização e Histerese de Janela: flip_thr = ±11.0
+    """
+    fast_p = 4.0
+    slow_p = 20.0
     smooth_a = 0.45 if is_win else 0.60
     flip_thr = 11.0
     alpha_fast = 2.0 / (fast_p + 1.0)
     alpha_slow = 2.0 / (slow_p + 1.0)
     alpha_band = 2.0 / (7.0 + 1.0)
+    tick_sz = 5.0 if is_win else 0.5
+    min_step = 500.0 if is_win else 100.0
+    def_lot = 3.1 if is_win else 4.0
     if not m5_series:
         return []
 
-    fb = m5_series[0]
-    first_c = float(fb.get("close", 0.0))
-    first_h = float(fb.get("high", first_c))
-    first_l = float(fb.get("low", first_c))
-    first_cvd = round(float(fb.get("cvd_inst", 0.0)), 0)
-
-    ema_p_high, ema_p_low = first_h, first_l
-    ema_atr = max(first_h - first_l, 40.0 if is_win else 1.5)
-    ema_cvd_f = ema_cvd_s = first_cvd
-    ema_cvd_step = max(abs(float(fb.get("inst_delta_bar", 0.0))), 2500.0 if is_win else 500.0)
+    cum_eff = 0.0
+    ema_eff_f = 0.0
+    ema_eff_s = 0.0
+    ema_step = 2500.0 if is_win else 400.0
     ema_hist = 0.0
     active_win_dir = 0
-    prev_cvd = first_cvd
+    prev_cum_eff = 0.0
     prev_hist = 0.0
+    forces = []
     out = []
 
     for idx, b in enumerate(m5_series):
@@ -109,6 +114,23 @@ def _session_features(m5_series, is_win: bool):
         h = float(b.get("high", o))
         l = float(b.get("low", o))
         c = float(b.get("close", o))
+        rng = max(h - l, tick_sz)
+
+        bv = float(b.get("buy_vol", 0.0))
+        sv = float(b.get("sell_vol", 0.0))
+        tv = max(1.0, bv + sv)
+        lw = max(0.0, min(o, c) - l)
+        uw = max(0.0, h - max(o, c))
+        phi_wyk = (
+            sv * ((c - l) / rng) * (0.80 + 1.40 * (lw / rng))
+            - bv * ((h - c) / rng) * (0.80 + 1.40 * (uw / rng))
+        )
+
+        avg_buy = float(b.get("avg_buy_lot", def_lot))
+        avg_sell = float(b.get("avg_sell_lot", def_lot))
+        lot_imb = float(b.get("lot_imb", avg_buy / max(avg_sell, 0.1)))
+        phi_port = tv * ((avg_buy - avg_sell) / max(0.5, avg_buy + avg_sell)) * 2.2
+
         inst_5m = float(b.get("inst_delta_bar", 0.0))
         inst_aggr_5m = float(b.get("inst_aggr_delta", inst_5m))
         inst_pass_5m = float(b.get("inst_pass_delta", 0.0))
@@ -116,11 +138,40 @@ def _session_features(m5_series, is_win: bool):
         hft_5m = float(b.get("hft_delta_bar", 0.0))
         hft_churn = float(b.get("hft_churn_pct", 0.0))
         rlp_pct = float(b.get("rlp_pct", 0.0))
-        avg_buy = float(b.get("avg_buy_lot", 1.0))
-        avg_sell = float(b.get("avg_sell_lot", 1.0))
-        lot_imb = float(b.get("lot_imb", avg_buy / max(avg_sell, 0.1)))
         delta_5m = float(b.get("delta_bar", 0.0))
-        cvd = round(float(b.get("cvd_inst", 0.0)), 0)
+
+        phi_inst = 0.90 * inst_aggr_5m + 0.75 * inst_pass_5m - 0.25 * ret_5m
+        bar_force = 0.12 * phi_wyk + 0.18 * phi_port + 0.70 * phi_inst
+        forces.append(bar_force)
+
+        fp1 = forces[idx - 1] if idx >= 1 else bar_force
+        fp2 = forces[idx - 2] if idx >= 2 else fp1
+        imp3 = 0.45 * bar_force + 0.35 * fp1 + 0.20 * fp2
+
+        cum_eff += bar_force
+        if idx == 0:
+            ema_eff_f = cum_eff
+            ema_eff_s = cum_eff
+            prev_cum_eff = 0.0
+        else:
+            ema_eff_f = alpha_fast * cum_eff + (1.0 - alpha_fast) * ema_eff_f
+            ema_eff_s = alpha_slow * cum_eff + (1.0 - alpha_slow) * ema_eff_s
+
+        smart_wave = 0.92 * (ema_eff_f - ema_eff_s) + 0.08 * imp3
+        ema_step = alpha_band * max(abs(cum_eff - prev_cum_eff), min_step) + (1.0 - alpha_band) * ema_step
+        prev_cum_eff = cum_eff
+
+        raw_score = float(np.clip((smart_wave / max(1.0, ema_step * 1.4)) * 55.0, -100.0, 100.0))
+        ema_hist = smooth_a * raw_score + (1.0 - smooth_a) * ema_hist
+        hist_val = round(float(np.clip(ema_hist, -100.0, 100.0)), 1)
+
+        if active_win_dir == 0:
+            active_win_dir = 1 if (hist_val >= 4.0 or (bar_force >= 0.0 and round(c, 2) >= round(o, 2))) else -1
+        elif active_win_dir == 1 and hist_val <= -flip_thr:
+            active_win_dir = -1
+        elif active_win_dir == -1 and hist_val >= flip_thr:
+            active_win_dir = 1
+
         inst_15m = sum(float(m5_series[k].get("inst_delta_bar", 0.0)) for k in range(max(0, idx - 2), idx + 1))
         inst_aggr_15m = sum(float(m5_series[k].get("inst_aggr_delta", m5_series[k].get("inst_delta_bar", 0.0))) for k in range(max(0, idx - 2), idx + 1))
         inst_pass_10m = sum(float(m5_series[k].get("inst_pass_delta", 0.0)) for k in range(max(0, idx - 1), idx + 1))
@@ -132,32 +183,6 @@ def _session_features(m5_series, is_win: bool):
         dp1 = c - o
         dp2 = c - c_prev2
         dp3 = c - c_prev3
-        if idx == 0:
-            prev_cvd = cvd - round(inst_5m, 0)
-
-        rng_bar = max(round(h, 2) - round(l, 2), 15.0 if is_win else 0.5)
-        ema_atr = alpha_band * rng_bar + (1.0 - alpha_band) * ema_atr
-        ema_p_high = alpha_band * round(h, 2) + (1.0 - alpha_band) * ema_p_high
-        ema_p_low = alpha_band * round(l, 2) + (1.0 - alpha_band) * ema_p_low
-        p_upper = round(ema_p_high + 0.35 * ema_atr, 2)
-        p_lower = round(ema_p_low - 0.35 * ema_atr, 2)
-        p_mid = round(0.5 * (p_upper + p_lower), 2)
-
-        ema_cvd_f = alpha_fast * cvd + (1.0 - alpha_fast) * ema_cvd_f
-        ema_cvd_s = alpha_slow * cvd + (1.0 - alpha_slow) * ema_cvd_s
-        ema_cvd_step = alpha_band * max(abs(cvd - prev_cvd), 500.0 if is_win else 100.0) + (1.0 - alpha_band) * ema_cvd_step
-        raw_cvd_osc = (ema_cvd_f - ema_cvd_s) / max(1.0, ema_cvd_step * 1.4)
-        raw_price_osc = (round(c, 2) - p_mid) / max(1.0, ema_atr * 0.9)
-        raw_score = float(np.clip((w_cvd * raw_cvd_osc + w_price * raw_price_osc) * 55.0, -100.0, 100.0))
-        ema_hist = smooth_a * raw_score + (1.0 - smooth_a) * ema_hist
-        hist_val = round(float(np.clip(ema_hist, -100.0, 100.0)), 1)
-
-        if active_win_dir == 0:
-            active_win_dir = 1 if (hist_val >= 4.0 or (cvd >= prev_cvd and round(c, 2) >= round(o, 2))) else -1
-        elif active_win_dir == 1 and hist_val <= -flip_thr:
-            active_win_dir = -1
-        elif active_win_dir == -1 and hist_val >= flip_thr:
-            active_win_dir = 1
 
         out.append(dict(
             t_min=t_min, o=o, h=h, l=l, c=c,
@@ -173,7 +198,6 @@ def _session_features(m5_series, is_win: bool):
             nr15=inst_aggr_15m + inst_pass_15m,
             rlp_pct=rlp_pct, avg_buy=avg_buy, avg_sell=avg_sell, lot_imb=lot_imb,
         ))
-        prev_cvd = cvd
         prev_hist = hist_val
     return out
 
@@ -316,8 +340,32 @@ def _bar_masks(f: dict, is_win: bool) -> dict:
     }
 
 
-def load_flow_tables():
-    """FLOW[asset][filtro][(date, tmin)] = (compra_ok, venda_ok) + cobertura por ativo a partir dos JSONs Profit 2026."""
+FLOW_MIN_PKL = os.path.join(ROOT_DIR, "data", "research", "setup_flow_min_v1", "flow_masks.pkl")
+FLOW_MIN_MANIFEST = os.path.join(ROOT_DIR, "research", "setup_parity", "flow_min_manifest.json")
+
+
+def load_flow_tables(source: str = "min"):
+    """
+    FLOW[asset][filtro][(date, tmin)] = (compra_ok, venda_ok) + datas cobertas.
+
+    source="min" (padrão, decisão de 10/11/2026): os 18 filtros calculados do `.min` do Profit por
+    `research/setup_parity/build_flow_min.py` — a mesma fonte do motor ao vivo. Falha se o hash não bater.
+    source="legacy": caminho antigo (`.pkl` MT5 + JSONs de sessão). Tem o bug de deixar os filtros 12–18
+    sem dado nos dias cobertos pelo `.pkl`; mantido só para comparação.
+    """
+    if source == "min":
+        import hashlib
+        man = json.load(open(FLOW_MIN_MANIFEST, encoding="utf-8"))
+        if hashlib.sha256(open(FLOW_MIN_PKL, "rb").read()).hexdigest() != man["sha256"]:
+            raise RuntimeError("flow_masks.pkl diverge do manifest — rode research/setup_parity/build_flow_min.py")
+        with open(FLOW_MIN_PKL, "rb") as pf:
+            data = pickle.load(pf)
+        covered = sorted(set(data["days"]["WIN"]) | set(data["days"]["WDO"]))
+        return data["flow"], covered
+    return _load_flow_tables_legacy()
+
+
+def _load_flow_tables_legacy():
     flow = {a: {fn: {} for fn in FILTER_NAMES[1:]} for a in ("WIN", "WDO")}
     covered_dates = set()
     covered_dates = set()
@@ -348,16 +396,24 @@ def load_flow_tables():
     return flow, sorted(covered_dates)
 
 
-def make_sig_filter(flow: dict, asset: str, filter_name: str):
-    """Callable f(date, b1_tmin, direção) -> bool para os simuladores. None = sem filtro."""
+MISSING_FLOW_LOOKUPS = {"WIN": 0, "WDO": 0}
+
+
+def make_sig_filter(flow: dict, asset: str, filter_name: str, strict: bool = True):
+    """
+    Callable f(date, b1_tmin, direção) -> bool para os simuladores. None = sem filtro.
+    strict=True (padrão desde 10/11/2026): barra sem dado de fluxo BLOQUEIA a entrada — no ao vivo isso
+    protege contra `.min` atrasado. O contador `MISSING_FLOW_LOOKUPS` registra quantas vezes aconteceu.
+    """
     if filter_name == "0_BASE_MT5":
         return None
     table = flow[asset][filter_name]
 
     def _f(date: str, b1_tmin: int, sig_dir: int) -> bool:
         ok = table.get((str(date), int(b1_tmin)))
-        if ok is None:          # barra sem dado de fluxo -> liberada
-            return True
+        if ok is None:
+            MISSING_FLOW_LOOKUPS[asset] += 1
+            return not strict
         return bool(ok[0] if sig_dir == 1 else ok[1])
 
     return _f

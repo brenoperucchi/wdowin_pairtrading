@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rotulagem de divergências · WIN M5</title>
+<style>
+  :root { --bg:#0b1118; --panel:#111a24; --line:#22303e; --txt:#d7e2ec; --mut:#7f96a8; --buy:#00e87a; --sell:#ff3860; --sel:#ffd600; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.35 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--panel); border-bottom:1px solid var(--line); padding:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  select, button { background:#18232f; color:var(--txt); border:1px solid #2c3d4e; border-radius:8px; padding:8px 10px; font-size:14px; }
+  button.on { outline:2px solid var(--sel); }
+  button.v { background:#0f3a26; border-color:#1d6b46; }
+  button.f { background:#3a1520; border-color:#6b2333; }
+  button:disabled { opacity:.4; }
+  #prog { color:var(--mut); font-size:13px; }
+  #scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; background:#0d151e; border-bottom:1px solid var(--line); }
+  canvas { display:block; }
+  #hint { padding:6px 10px; color:var(--sel); min-height:1.4em; font-size:13px; }
+  #cards { padding:8px; display:grid; gap:8px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .card.sel { border-color:var(--sel); }
+  .card.done-v { border-left:5px solid var(--buy); }
+  .card.done-f { border-left:5px solid var(--sell); }
+  .row { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .tag { font-weight:600; }
+  .buy { color:var(--buy); } .sell { color:var(--sell); }
+  .mut { color:var(--mut); font-size:12px; }
+  #legend { padding:4px 10px; color:var(--mut); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <select id="daySel"></select>
+  <button id="prevBtn">◀</button><button id="nextBtn">▶</button>
+  <button id="addBtn">＋ Marcar faltante</button>
+  <button id="undoBtn">↶ Desfazer</button>
+  <button id="v2Btn" title="Compara o motor v2.1 com os seus rótulos">Motor v2.1</button>
+  <span id="prog"></span>
+</header>
+<div id="legend">Preço M5 + Walls (amarelo) / MidWalls (tracejado) + NWE (azul) · embaixo: Fluxo Smart Money · números = candidatos (verde compra, vermelho venda; ▲▼ = barra em que o sinal ficaria conhecido)</div>
+<div id="scroll"><canvas id="cv"></canvas></div>
+<div id="hint"></div>
+<div id="cards"></div>
+<script>
+const TIPOS = [["REJEICAO","Rejeição"],["ABSORCAO","Absorção"],["ROMPIMENTO","Rompimento"],["OUTRO","Outro"]];
+let IDX=null, DAY=null, SEL=null, ADD=null, DRAFT={};
+const V2MODE=new URLSearchParams(location.search).get("engine")==="v2.1";
+const $=s=>document.querySelector(s);
+const BW=9, PAD_L=8, PAD_R=70, H_PRICE=320, H_GAP=18, H_WAVE=150;
+async function api(path, body){
+  const r = await fetch(path, body ? {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)} : {});
+  return r.json();
+}
+async function loadIndex(){
+  IDX = await api("/api/index");
+  const sel=$("#daySel"), cur=sel.value; sel.innerHTML="";
+  let tot=0, done=0;
+  IDX.days.forEach((d,i)=>{
+    tot+=d.n_cand; done+=d.n_done;
+    const o=document.createElement("option"); o.value=d.date;
+    o.textContent=`${i+1}. ${d.date}${d.role==="gabarito"?" (gabarito)":""} · ${d.n_done}/${d.n_cand}${d.n_manual?` +${d.n_manual}`:""}`;
+    sel.appendChild(o);
+  });
+  if(cur) sel.value=cur;
+  $("#prog").textContent=`geral ${done}/${tot}`;
+}
+async function loadDay(date){
+  DAY = await api("/api/day?date="+date); SEL=null; ADD=null; DRAFT={}; $("#hint").textContent="";
+  draw(); cards(); updProg();
+}
+function updProg(){
+  const n=DAY.candidates.length, d=Object.keys(DAY.state).length;
+  $("#prog").textContent=`pregão ${d}/${n} revisados · ${DAY.manual.length} manuais · fonte: ${DAY.source}`;
+}
+function draw(){
+  const cv=$("#cv"), n=DAY.bars.length;
+  const W=Math.max($("#scroll").clientWidth, PAD_L+PAD_R+n*BW), H=H_PRICE+H_GAP+H_WAVE+20;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+"px"; cv.style.height=H+"px";
+  const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  const B=DAY.bars, nw=DAY.nwe;
+  let lo=Math.min(...B.map(b=>b.low)), hi=Math.max(...B.map(b=>b.high));
+  DAY.walls.forEach(w=>{ if(w.price>lo-250&&w.price<hi+250){lo=Math.min(lo,w.price);hi=Math.max(hi,w.price);} });
+  const pad=(hi-lo)*0.06; lo-=pad; hi+=pad;
+  const X=i=>PAD_L+i*BW+BW/2, Y=p=>10+(hi-p)/(hi-lo)*(H_PRICE-20);
+  // walls
+  DAY.walls.forEach(w=>{
+    if(w.price<lo||w.price>hi) return;
+    g.strokeStyle=w.type==="Wall"?"#ffd600":"#c9a400"; g.setLineDash(w.type==="Wall"?[]:[6,5]); g.lineWidth=1;
+    g.beginPath(); g.moveTo(PAD_L,Y(w.price)); g.lineTo(W-PAD_R,Y(w.price)); g.stroke(); g.setLineDash([]);
+    g.fillStyle="#ffd600"; g.font="11px system-ui"; g.fillText(`${w.type==="Wall"?"W":"Mid"} ${Math.round(w.price)}`, W-PAD_R+3, Y(w.price)+4);
+  });
+  // NWE
+  [["c","#4aa3ff",1.5],["u","#2f6aa8",1],["l","#2f6aa8",1]].forEach(([k,col,lw])=>{
+    g.strokeStyle=col; g.lineWidth=lw; g.beginPath();
+    nw[k].forEach((v,i)=>{ const y=Y(v); if(y<0||y>H_PRICE){return;} i?g.lineTo(X(i),y):g.moveTo(X(i),y); }); g.stroke();
+  });
+  // candles
+  B.forEach((b,i)=>{
+    const up=b.close>=b.open; g.strokeStyle=g.fillStyle=up?"#26a69a":"#ef5350";
+    g.beginPath(); g.moveTo(X(i),Y(b.high)); g.lineTo(X(i),Y(b.low)); g.stroke();
+    const y1=Y(Math.max(b.open,b.close)), y2=Y(Math.min(b.open,b.close));
+    g.fillRect(X(i)-BW*0.35, y1, BW*0.7, Math.max(1,y2-y1));
+    if(i%12===0){ g.fillStyle="#7f96a8"; g.font="11px system-ui"; g.fillText(b.time, X(i)-12, H_PRICE+H_GAP+H_WAVE+16); }
+  });
+  // wave
+  const wv=DAY.wave, wmax=Math.max(1,...wv.map(Math.abs))*1.1, y0=H_PRICE+H_GAP+H_WAVE/2;
+  const YW=v=>y0-(v/wmax)*(H_WAVE/2);
+  g.strokeStyle="#22303e"; g.beginPath(); g.moveTo(PAD_L,y0); g.lineTo(W-PAD_R,y0); g.stroke();
+  wv.forEach((v,i)=>{ g.fillStyle=v>=0?"rgba(0,232,122,.25)":"rgba(255,56,96,.25)"; g.fillRect(X(i)-BW*0.4, Math.min(y0,YW(v)), BW*0.8, Math.abs(YW(v)-y0)); });
+  g.strokeStyle="#00d4ff"; g.lineWidth=1.6; g.beginPath(); wv.forEach((v,i)=>i?g.lineTo(X(i),YW(v)):g.moveTo(X(i),YW(v))); g.stroke();
+  g.fillStyle="#7f96a8"; g.font="11px system-ui"; g.fillText("Fluxo Smart Money", PAD_L+2, H_PRICE+H_GAP+10);
+  // candidatos
+  const mark=(c,idx,col,lab,thick)=>{
+    const d=c.dir, f2=c.f2_idx, f1=c.f1_idx;
+    const p2=c.kind==="BRK"?B[f2].close:(d===1?B[f2].low:B[f2].high);
+    g.strokeStyle=col; g.fillStyle=col; g.lineWidth=thick?2.5:1.5;
+    if(f1!==null&&f1!==undefined){
+      const p1=c.kind==="BRK"?B[f1].close:(d===1?B[f1].low:B[f1].high);
+      g.beginPath(); g.moveTo(X(f1),Y(p1)); g.lineTo(X(f2),Y(p2)); g.stroke();
+      g.beginPath(); g.moveTo(X(f1),YW(wv[f1])); g.lineTo(X(f2),YW(wv[f2])); g.stroke();
+    }
+    const s=c.sig_idx!==undefined?c.sig_idx:f2, yy=d===1?Y(B[s].low)+14:Y(B[s].high)-6;
+    g.font=(thick?"bold ":"")+"12px system-ui"; g.fillText((d===1?"▲":"▼")+lab, X(s)-6, yy);
+  };
+  DAY.candidates.forEach((c,k)=>{
+    const st=DAY.state[c.id]; let col=c.dir===1?"#00e87a":"#ff3860";
+    if(st) col=st.verdict==="VALIDA"?"#7dffb5":"#6b7c8c";
+    if(V2MODE && !st) col="#3a4a58";
+    if(SEL===c.id) col="#ffd600";
+    mark(c,k,col,String(k+1),SEL===c.id && !V2MODE);
+  });
+  if(V2MODE && DAY.v21){
+    g.setLineDash([6,4]);
+    DAY.v21.forEach((c,k)=>{
+      const col=c.dir===1?"#5ad6ff":"#ffb347";
+      mark(c,k,col,"v"+(k+1),true);
+    });
+    g.setLineDash([]);
+  }
+  DAY.manual.forEach(m=>{
+    const i1=B.findIndex(b=>b.time===m.f1_time), i2=B.findIndex(b=>b.time===m.f2_time);
+    if(i1>=0&&i2>=0) mark({dir:m.dir,f1_idx:i1,f2_idx:i2,kind:"DIV"},0,"#b388ff","M",true);
+  });
+  if(ADD&&ADD.f1!==undefined){ g.fillStyle="#b388ff"; g.fillRect(X(ADD.f1)-BW/2,0,BW,H_PRICE); }
+  cv.onclick=ev=>{
+    if(!ADD) return;
+    const r=cv.getBoundingClientRect(), x=ev.clientX-r.left, i=Math.round((x-PAD_L-BW/2)/BW);
+    if(i<0||i>=n) return;
+    if(ADD.f1===undefined){ ADD.f1=i; $("#hint").textContent=`F1 = ${B[i].time}. Agora toque na barra F2.`; draw(); }
+    else if(i>ADD.f1){ ADD.f2=i; $("#hint").textContent=`F1 ${B[ADD.f1].time} → F2 ${B[i].time}. Escolha direção e tipo no cartão abaixo.`; cards(); draw(); }
+  };
+}
+function chip(label,on,fn,cls=""){ const b=document.createElement("button"); b.textContent=label; if(on)b.classList.add("on"); if(cls)b.classList.add(cls); b.onclick=fn; return b; }
+function cards(){
+  const box=$("#cards"); box.innerHTML="";
+  if(ADD&&ADD.f2!==undefined){
+    const c=document.createElement("div"); c.className="card sel";
+    const dr=DRAFT.__add||(DRAFT.__add={dir:0,tipo:""});
+    c.innerHTML=`<div class="tag">Nova marcação: F1 ${DAY.bars[ADD.f1].time} → F2 ${DAY.bars[ADD.f2].time}</div>`;
+    const r1=document.createElement("div"); r1.className="row";
+    r1.append(chip("Compra",dr.dir===1,()=>{dr.dir=1;cards();}), chip("Venda",dr.dir===-1,()=>{dr.dir=-1;cards();}));
+    const r2=document.createElement("div"); r2.className="row";
+    TIPOS.forEach(([k,l])=>r2.append(chip(l,dr.tipo===k,()=>{dr.tipo=k;cards();})));
+    const r3=document.createElement("div"); r3.className="row";
+    const ok=chip("Salvar marcação",false,async()=>{ await api("/api/add",{date:DAY.date,f1_idx:ADD.f1,f2_idx:ADD.f2,dir:dr.dir,tipo:dr.tipo}); ADD=null; $("#addBtn").classList.remove("on"); await refresh(); },"v");
+    ok.disabled=!(dr.dir&&dr.tipo);
+    r3.append(ok, chip("Cancelar",false,()=>{ADD=null; $("#addBtn").classList.remove("on"); $("#hint").textContent=""; cards(); draw();}));
+    c.append(r1,r2,r3); box.append(c);
+  }
+  DAY.candidates.forEach((cd,k)=>{
+    const st=DAY.state[cd.id], dr=DRAFT[cd.id]||(DRAFT[cd.id]={dir:st?st.dir:cd.dir, tipo:st?st.tipo:(cd.kind==="BRK"?"ROMPIMENTO":"")});
+    const c=document.createElement("div");
+    c.className="card"+(SEL===cd.id?" sel":"")+(st?(st.verdict==="VALIDA"?" done-v":" done-f"):"");
+    const dirTxt=cd.dir===1?'<span class="buy">COMPRA</span>':'<span class="sell">VENDA</span>';
+    const f1=cd.f1_time?`F1 ${cd.f1_time} @${Math.round(cd.f1_price)} → `:"";
+    const wall=cd.wall_price?`${cd.wall_type} ${Math.round(cd.wall_price)} (${cd.wall_dist>0?"+":""}${Math.round(cd.wall_dist)})`:"";
+    c.innerHTML=`<div><span class="tag">#${k+1}</span> ${dirTxt} ${cd.kind==="BRK"?"· rompimento":""} · sinal ${cd.sig_time}</div>
+      <div class="mut">${f1}F2 ${cd.f2_time} @${Math.round(cd.f2_price)} · ${wall}${st?` · salvo: ${st.verdict} ${st.tipo||""}`:""}</div>`;
+    c.onclick=e=>{ if(e.target.tagName==="BUTTON") return; SEL=cd.id; draw(); cards(); scrollTo(cd.f2_idx); };
+    const r1=document.createElement("div"); r1.className="row";
+    r1.append(chip("Compra",dr.dir===1,()=>{dr.dir=1;SEL=cd.id;cards();draw();}), chip("Venda",dr.dir===-1,()=>{dr.dir=-1;SEL=cd.id;cards();draw();}));
+    const r2=document.createElement("div"); r2.className="row";
+    TIPOS.forEach(([kk,l])=>r2.append(chip(l,dr.tipo===kk,()=>{dr.tipo=kk;SEL=cd.id;cards();draw();})));
+    const r3=document.createElement("div"); r3.className="row";
+    const v=chip("✔ Válida",false,()=>save(cd,"VALIDA",dr),"v"); v.disabled=!dr.tipo;
+    r3.append(v, chip("✖ Falsa",false,()=>save(cd,"FALSA",dr),"f"));
+    c.append(r1,r2,r3); box.append(c);
+  });
+}
+function scrollTo(i){ const s=$("#scroll"); s.scrollLeft=Math.max(0,PAD_L+i*BW-s.clientWidth/2); }
+async function save(cd,verdict,dr){
+  const r=await api("/api/label",{date:DAY.date,cand_id:cd.id,verdict,tipo:dr.tipo,dir:dr.dir});
+  if(!r.ok){ alert(r.error||"erro"); return; }
+  const k=DAY.candidates.findIndex(c=>c.id===cd.id), nxt=DAY.candidates.slice(k+1).find(c=>!DAY.state[c.id]);
+  await refresh(); if(nxt){ SEL=nxt.id; draw(); cards(); scrollTo(nxt.f2_idx); }
+}
+async function refresh(){
+  const keepSel=SEL, keepDraft=DRAFT, sl=$("#scroll").scrollLeft;
+  DAY=await api("/api/day?date="+DAY.date); SEL=keepSel; DRAFT=keepDraft; draw(); cards(); updProg();
+  $("#scroll").scrollLeft=sl; loadIndex();
+}
+$("#daySel").onchange=e=>loadDay(e.target.value);
+$("#prevBtn").onclick=()=>{ const s=$("#daySel"); if(s.selectedIndex>0){s.selectedIndex--; loadDay(s.value);} };
+$("#nextBtn").onclick=()=>{ const s=$("#daySel"); if(s.selectedIndex<s.options.length-1){s.selectedIndex++; loadDay(s.value);} };
+$("#addBtn").onclick=()=>{ ADD=ADD?null:{}; DRAFT.__add=null; $("#addBtn").classList.toggle("on",!!ADD); $("#hint").textContent=ADD?"Toque na barra F1 no gráfico.":""; cards(); draw(); };
+$("#undoBtn").onclick=async()=>{ const r=await api("/api/undo",{date:DAY.date}); if(!r.ok){$("#hint").textContent=r.msg||"nada para desfazer";} DRAFT={}; await refresh(); };
+window.onresize=()=>DAY&&draw();
+$("#v2Btn").classList.toggle("on", V2MODE);
+$("#v2Btn").onclick=()=>{
+  const u=new URL(location.href);
+  if(V2MODE) u.searchParams.delete("engine"); else u.searchParams.set("engine","v2.1");
+  location.href=u.toString();
+};
+if(V2MODE){
+  $("#legend").textContent="Visão motor v2.1: linhas tracejadas ciano (compra) / laranja (venda) = detecções do v2.1. Sólido verde-claro / cinza = o que você marcou válida / falsa. Roxo = marcação manual. ▲▼v = confirmação do v2.1.";
+}
+(async()=>{ await loadIndex(); await loadDay($("#daySel").value); })();
+</script>
+</body>
+</html>
