@@ -1,37 +1,37 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GBP/USD (CBOE)
-  Vencimento de Referencia: 2026-11-20 (Multi-Exp: 3 vencs, Top OI: 2026-12-18) | Data Ref: 13/11/2026
+  Vencimento de Referencia: 2026-11-20 (Multi-Exp: 3 vencs, Top OI: 2026-12-18) | Data Ref: 16/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    GBPUSD Spot Atual: 1.32253  (FXB: $127.27)
-    Gamma Flip Point:  1.28002
+    GBPUSD Spot Atual: 1.31992  (FXB: $126.99)
+    Gamma Flip Point:  1.28444
     Regime de Gamma:   POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:       ALTA / LATERALIZACAO
     Dinamica de MM:    Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.24438
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.28002
-    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.31775
+    [-] MIN GAMMA (Piso de Queda Livre)   : GBPUSD 1.24213
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : GBPUSD 1.28444
+    [+] MAX GAMMA (Teto Gravitacional)    : GBPUSD 1.31854
 
 [+] JUMBA WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE FXB   | EQUIVALENTE GBPUSD | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $133.0        | 1.3834             | $              0.00M | Width 1
-  Wall       | $132.0        | 1.3730             | $             -0.00M | Width 1
-  Wall       | $131.0        | 1.3626             | $             -0.00M | Width 1
-  Wall       | $130.0        | 1.3522             | $             -0.01M | Width 1
-  Wall       | $129.0        | 1.3418             | $              0.02M | Width 1
-  Wall       | $128.0        | 1.3314             | $              0.00M | Width 1
-  Wall       | $127.0        | 1.3210             | $              0.18M | Width 3
-  Wall       | $126.0        | 1.3106             | $             -0.02M | Width 1
-  Wall       | $125.0        | 1.3002             | $              0.02M | Width 1
-  Wall       | $124.0        | 1.2898             | $              0.04M | Width 2
-  Wall       | $123.0        | 1.2794             | $              0.02M | Width 2
-  Wall       | $122.0        | 1.2690             | $             -0.01M | Width 1
-  Wall       | $121.0        | 1.2586             | $             -0.01M | Width 1
+  Wall       | $133.0        | 1.3840             | $              0.00M | Width 1
+  Wall       | $132.0        | 1.3736             | $              0.00M | Width 1
+  Wall       | $131.0        | 1.3632             | $             -0.00M | Width 1
+  Wall       | $130.0        | 1.3528             | $             -0.01M | Width 1
+  Wall       | $129.0        | 1.3424             | $              0.02M | Width 1
+  Wall       | $128.0        | 1.3320             | $             -0.03M | Width 1
+  Wall       | $127.0        | 1.3216             | $              0.21M | Width 3
+  Wall       | $126.0        | 1.3112             | $             -0.02M | Width 1
+  Wall       | $125.0        | 1.3008             | $              0.03M | Width 2
+  Wall       | $124.0        | 1.2903             | $              0.05M | Width 2
+  Wall       | $123.0        | 1.2799             | $              0.02M | Width 1
+  Wall       | $122.0        | 1.2695             | $             -0.01M | Width 1
+  Wall       | $121.0        | 1.2591             | $             -0.00M | Width 1
 -----------------------------------------------------------------
 Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE no ETF FXB.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
