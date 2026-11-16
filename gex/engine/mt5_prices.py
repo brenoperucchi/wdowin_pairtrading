@@ -520,35 +520,49 @@ def get_mt5_prices(max_retries=6, retry_delay=5):
     return f_win, s_ibov, win_bar_time
 
 
+def _mt5_running_safe(path: str) -> bool:
+    """Verifica se o terminal já está aberto na sessão do usuário usando helper de core.mt5_client."""
+    try:
+        from core.mt5_client import _is_mt5_visible_running
+    except ImportError:
+        import sys
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        try:
+            from core.mt5_client import _is_mt5_visible_running
+        except ImportError:
+            return True
+    return _is_mt5_visible_running(path)
+
+
 def init_mt5_robust(path=None, max_attempts=2):
     """
     Inicializa conexão com o MetaTrader 5 aplicando retries e priorizando o terminal com dados B3 (XP).
     """
     candidate_paths = [
         "C:/Program Files/MetaTrader 5/terminal64.exe",
-        "C:/Program Files/MetaTrader 5 Terminal/terminal64.exe"
+        "C:/Program Files/MetaTrader 5 Terminal - milhao/terminal64.exe",
     ]
     if path:
         if path in candidate_paths:
             candidate_paths.remove(path)
         candidate_paths.insert(0, path)
-        
+
     for p in candidate_paths:
-        if not os.path.exists(p):
+        if not os.path.exists(p) or not _mt5_running_safe(p):
             continue
-        try:
-            if mt5.initialize(p, timeout=3000):
-                info = mt5.terminal_info()
-                if info and info.connected:
-                    return True
-                mt5.shutdown()
-        except Exception:
-            pass
-            
-    for attempt in range(1, max_attempts + 1):
-        if mt5.initialize():
-            return True
-        time.sleep(0.3)
+        for _attempt in range(max(1, max_attempts)):
+            try:
+                if mt5.initialize(p, timeout=3000):
+                    info = mt5.terminal_info()
+                    if info and info.connected:
+                        return True
+                    mt5.shutdown()
+            except Exception:
+                pass
+            time.sleep(0.3)
+
     return False
 
 
