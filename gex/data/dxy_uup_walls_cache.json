@@ -1,16 +1,16 @@
 {
     "ticker": "DXY_UUP",
-    "ref_date": "2026-11-16",
-    "updated_at": "2026-11-16 07:32:13",
-    "current_price": 104.725,
+    "ref_date": "2026-11-17",
+    "updated_at": "2026-11-17 07:32:02",
+    "current_price": 104.93799999999999,
     "walls": [
         {
             "price": 99.4,
             "type": "Wall",
-            "width": 1,
+            "width": 2,
             "style": 0,
             "strike_spy": 28.0,
-            "gex": 7827.666307329666
+            "gex": -215924.41563861427
         },
         {
             "price": 101.18,
@@ -25,7 +25,7 @@
             "width": 2,
             "style": 0,
             "strike_spy": 29.0,
-            "gex": 1049859.039628617
+            "gex": 810714.7274414024
         },
         {
             "price": 104.72,
@@ -40,7 +40,7 @@
             "width": 3,
             "style": 0,
             "strike_spy": 30.0,
-            "gex": 6266885.767875268
+            "gex": 6283301.984549303
         },
         {
             "price": 108.28,
@@ -52,27 +52,27 @@
         {
             "price": 110.05,
             "type": "Wall",
-            "width": 2,
+            "width": 1,
             "style": 0,
             "strike_spy": 31.0,
-            "gex": -74195.35101588434
+            "gex": -88905.54492964903
         },
         {
-            "price": 105.3,
+            "price": 103.35,
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": 7129224.643377176
+            "gex": 6905133.877891242
         },
         {
-            "price": 96.35,
+            "price": 96.54,
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": -903238.6301436671
+            "gex": -598192.0524831752
         },
         {
-            "price": 98.42,
+            "price": 97.92,
             "type": "GammaFlip",
             "width": 2,
             "style": 0,
