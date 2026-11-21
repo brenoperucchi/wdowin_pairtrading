@@ -39,3 +39,6 @@ gex_out*.txt
 uvicorn_*.txt
 prd_temp.txt
 gex/data/*.csv
+
+# Cloudflare named-tunnel token (never commit)
+config/cloudflared_tunnel_token.txt

@@ -1,0 +1,32 @@
+# Fly.io App Spec — MagicWalls Cloud SaaS API (São Paulo / gru)
+# Deploy a partir da raiz do repositório:
+#   fly deploy -c cloud_saas/fly.toml --dockerfile cloud_saas/Dockerfile
+
+app = "magicwalls-cloud-api"
+primary_region = "gru"
+
+[build]
+  dockerfile = "cloud_saas/Dockerfile"
+
+[env]
+  MW_ENV = "production"
+  PORT = "8090"
+
+[http_service]
+  internal_port = 8090
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
