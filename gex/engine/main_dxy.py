@@ -42,10 +42,13 @@ def run_dxy_gex_pipeline():
         print("ERRO: Não foi possível obter os dados de opções.")
         sys.exit(1)
 
-    conv_ratio, price_dxy_mt5, ratio_msg = get_synchronized_etf_ratio(current_uup, "USDX", conv_factor)
+    # Tickmill expõe o Dollar Index como DXY (não USDX). O helper também tenta aliases
+    # e, se o MT5 estiver offline, o fechamento oficial DX-Y.NYB no Yahoo.
+    conv_ratio, price_dxy_mt5, ratio_msg = get_synchronized_etf_ratio(current_uup, "DXY", conv_factor)
     if price_dxy_mt5 and price_dxy_mt5 > 0:
         current_dxy = price_dxy_mt5
         conv_factor = conv_ratio
+    print(f"      Sincronização DXY: {ratio_msg}")
 
     today = datetime.date.today()
     r = 0.0515

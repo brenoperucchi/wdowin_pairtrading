@@ -213,6 +213,18 @@ def export_unified_tradingview(output_path):
                 print(f"[TV Exporter] Erro ao ler cache de {key}: {e}")
     if stale_assets:
         print(f"[TV Exporter] ATENÇÃO: caches desatualizados (> {max_age_h:.0f}h) fora do Pine: {', '.join(stale_assets)}")
+
+    today_s = datetime.date.today().isoformat()
+    reused = []
+    for key, data in loaded_caches.items():
+        ref = str(data.get("ref_date") or "")[:10]
+        if ref and ref != today_s:
+            reused.append(f"{key} (ref_date={ref}, updated_at={data.get('updated_at')})")
+    if reused:
+        print(
+            "[TV Exporter] FALLBACK: reutilizando níveis do dia anterior "
+            f"(o pipeline de hoje não atualizou o cache): {', '.join(reused)}"
+        )
                 
     # Data padrão recomendada
     today_d = datetime.date.today()

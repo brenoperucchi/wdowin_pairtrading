@@ -10,6 +10,7 @@ Vantagens sobre o yfinance:
 
 import datetime
 import re
+import time
 import numpy as np
 import pandas as pd
 import requests
@@ -23,13 +24,18 @@ except ImportError:  # execução direta do módulo
 
 CBOE_BASE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{ticker}.json"
 
+# Cloudflare passou a exigir um Referer de cboe.com (confirmado em 2026-11-22).
+# Sem Referer a API devolve 403 HTML; com Referer: https://www.cboe.com/ retorna JSON.
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "Chrome/142.0.0.0 Safari/537.36"
     ),
-    "Accept": "application/json",
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.cboe.com",
+    "Referer": "https://www.cboe.com/",
 }
 
 _SESSION = None
@@ -48,6 +54,48 @@ def _session():
         s.headers.update(HEADERS)
         _SESSION = s
     return _SESSION
+
+
+def _is_cloudflare_block(resp):
+    """403 ou página HTML de desafio da Cloudflare em vez de JSON."""
+    if resp is None:
+        return False
+    if resp.status_code == 403:
+        return True
+    ctype = (resp.headers.get("content-type") or "").lower()
+    if "text/html" in ctype and "cloudflare" in (resp.text or "").lower():
+        return True
+    return False
+
+
+def _download_cboe_json(ticker, url, attempts=3):
+    """GET com backoff em 403/Cloudflare e em erros transitórios de rede."""
+    last_err = None
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = _session().get(url, timeout=20)
+            if _is_cloudflare_block(resp):
+                last_err = f"HTTP {resp.status_code} Cloudflare/Forbidden for url: {resp.url}"
+                print(f"      [CBOE] {ticker} bloqueado ({last_err}) — tentativa {attempt}/{attempts}.")
+                if attempt < attempts:
+                    time.sleep(2 ** attempt)
+                continue
+            resp.raise_for_status()
+            ctype = (resp.headers.get("content-type") or "").lower()
+            if "json" not in ctype:
+                last_err = f"resposta não-JSON ({ctype or 'sem content-type'}) status={resp.status_code}"
+                print(f"      [CBOE] {ticker} {last_err} — tentativa {attempt}/{attempts}.")
+                if attempt < attempts:
+                    time.sleep(2 ** attempt)
+                continue
+            return resp.json()
+        except Exception as e:
+            last_err = e
+            print(f"      [CBOE] {ticker} erro na tentativa {attempt}/{attempts}: {e}")
+            if attempt < attempts:
+                time.sleep(2 ** attempt)
+    print(f"      [CBOE Warning] Falha ao buscar {ticker} na CBOE após retries ({last_err}).")
+    return None
 
 
 # Cache do payload bruto por ticker dentro do processo (evita baixar 2x ao expandir o DTE)
@@ -140,17 +188,13 @@ def fetch_cboe_chain(
             _PAYLOAD_CACHE[ticker] = (raw_json, archived_now_utc)
             print(f"      [Archive Replay] Usando snapshot matinal arquivado de {ticker} ({rec.get('fetched_at_local', target_date)})")
         else:
-            resp = _session().get(url, timeout=20)
-            resp.raise_for_status()
-            raw_json = resp.json()
+            raw_json = _download_cboe_json(ticker, url)
+            if raw_json is None:
+                return None, pd.DataFrame(), None
             _PAYLOAD_CACHE[ticker] = (raw_json, None)
     else:
-        try:
-            resp = _session().get(url, timeout=20)
-            resp.raise_for_status()
-            raw_json = resp.json()
-        except Exception as e:
-            print(f"      [CBOE Warning] Falha ao buscar {ticker} na CBOE após retries ({e}).")
+        raw_json = _download_cboe_json(ticker, url)
+        if raw_json is None:
             return None, pd.DataFrame(), None
         _PAYLOAD_CACHE[ticker] = (raw_json, None)
         # Arquivo diário da resposta bruta (permite recalcular este dia no futuro)

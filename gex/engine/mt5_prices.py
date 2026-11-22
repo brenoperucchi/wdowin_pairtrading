@@ -92,6 +92,61 @@ def get_global_mt5_price(symbol_mt5, terminal_path=TICKMILL_MT5_PATH):
     return None, None
 
 
+DXY_SYMBOL_ALIASES = ("DXY", "USDX", "DX")
+# UUP ~29–30 e DXY ~100–110; fora dessa faixa o ratio não é crível.
+DXY_RATIO_MIN = 3.0
+DXY_RATIO_MAX = 4.0
+
+
+def _symbol_candidates(symbol_mt5):
+    """Tickmill usa DXY para o Dollar Index; USDX não existe nesse broker."""
+    symbol_mt5 = (symbol_mt5 or "").strip()
+    key = symbol_mt5.upper()
+    seq = DXY_SYMBOL_ALIASES if key in DXY_SYMBOL_ALIASES else (symbol_mt5,)
+    out, seen = [], set()
+    # Se o pedido já é um alias conhecido, tenta ele primeiro.
+    if symbol_mt5:
+        seq = (symbol_mt5,) + tuple(s for s in seq if s.upper() != key)
+    for name in seq:
+        if name and name not in seen:
+            out.append(name)
+            seen.add(name)
+    return out
+
+
+def _public_dxy_spot():
+    """Último fechamento oficial do ICE Dollar Index (Yahoo DX-Y.NYB)."""
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1d&range=10d"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/142.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+    }
+    try:
+        import requests
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        result = resp.json()["chart"]["result"][0]
+        closes = result["indicators"]["quote"][0]["close"]
+        stamps = result["timestamp"]
+        last_px, last_ts = None, None
+        for ts, px in zip(stamps, closes):
+            if px is not None and float(px) > 0:
+                last_px, last_ts = float(px), ts
+        if last_px is None:
+            meta = result.get("meta") or {}
+            last_px = float(meta.get("regularMarketPrice") or 0) or None
+        if last_px and last_px > 50:
+            when = datetime.fromtimestamp(last_ts, timezone.utc).strftime("%Y-%m-%d") if last_ts else "n/d"
+            return last_px, when
+    except Exception as e:
+        print(f"      [DXY Público] Falha ao buscar DX-Y.NYB no Yahoo: {e}")
+    return None, None
+
+
 def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio, terminal_path=TICKMILL_MT5_PATH):
     """
     Calcula a razão de conversão perfeitamente sincronizada entre o CFD do MT5
@@ -114,14 +169,19 @@ def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio, termi
     current_mt5_price = None
     sync_mt5_price = None
     sync_time_str = "Agora"
+    resolved_symbol = symbol_mt5
 
     for p in paths_to_try:
         if not mt5.initialize(p):
             continue
 
-        mt5.symbol_select(symbol_mt5, True)
-        rates = mt5.copy_rates_from_pos(symbol_mt5, mt5.TIMEFRAME_M5, 0, 350)
-        if rates is not None and len(rates) > 0:
+        found = False
+        for cand in _symbol_candidates(symbol_mt5):
+            mt5.symbol_select(cand, True)
+            rates = mt5.copy_rates_from_pos(cand, mt5.TIMEFRAME_M5, 0, 350)
+            if rates is None or len(rates) == 0:
+                continue
+
             last_bar = rates[-1]
             current_mt5_price = float(last_bar[4])
             last_dt = datetime.fromtimestamp(last_bar[0], timezone.utc)
@@ -147,21 +207,51 @@ def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio, termi
                 sync_mt5_price = current_mt5_price
                 sync_time_str = f"Live {last_dt.strftime('%H:%M:%S')} Broker"
 
-            mt5.shutdown()
+            resolved_symbol = cand
+            found = True
             break
 
         mt5.shutdown()
+        if found:
+            break
 
     if sync_mt5_price and sync_mt5_price > 0:
         ratio = sync_mt5_price / etf_spot_price
-        _save_ratio(symbol_mt5, etf_spot_price, ratio)
+        _save_ratio(resolved_symbol, etf_spot_price, ratio)
+        if resolved_symbol != symbol_mt5:
+            _save_ratio(symbol_mt5, etf_spot_price, ratio)
+        alias_note = f" [símbolo MT5: {resolved_symbol}]" if resolved_symbol != symbol_mt5 else ""
         msg = (
-            f"MT5 Sync ({symbol_mt5}: {sync_mt5_price:.4f} @ {sync_time_str} | Live: {current_mt5_price:.4f}) "
-            f"/ Base Spot ({etf_spot_price:.4f}) -> Ratio: {ratio:.6f}"
+            f"MT5 Sync ({resolved_symbol}: {sync_mt5_price:.4f} @ {sync_time_str} | Live: {current_mt5_price:.4f}) "
+            f"/ Base Spot ({etf_spot_price:.4f}) -> Ratio: {ratio:.6f}{alias_note}"
         )
         return ratio, current_mt5_price, msg
 
+    # DXY: fonte pública oficial (ICE via Yahoo) antes do cache/teórico.
+    if (symbol_mt5 or "").upper() in DXY_SYMBOL_ALIASES:
+        pub_px, pub_when = _public_dxy_spot()
+        if pub_px and pub_px > 0:
+            ratio = pub_px / etf_spot_price
+            if DXY_RATIO_MIN <= ratio <= DXY_RATIO_MAX:
+                _save_ratio(symbol_mt5, etf_spot_price, ratio)
+                _save_ratio("DXY", etf_spot_price, ratio)
+                msg = (
+                    f"[DXY Público] Yahoo DX-Y.NYB {pub_px:.4f} ({pub_when}) "
+                    f"/ UUP {etf_spot_price:.4f} -> Ratio: {ratio:.6f}"
+                )
+                print(f"      {msg}")
+                return ratio, pub_px, msg
+            print(
+                f"      [DXY Público] Ratio {ratio:.6f} fora da faixa "
+                f"{DXY_RATIO_MIN:.1f}–{DXY_RATIO_MAX:.1f}; ignorado."
+            )
+
     cached, saved_at = _cached_ratio(symbol_mt5, etf_spot_price)
+    if not cached and (symbol_mt5 or "").upper() in DXY_SYMBOL_ALIASES:
+        for alias in DXY_SYMBOL_ALIASES:
+            cached, saved_at = _cached_ratio(alias, etf_spot_price)
+            if cached:
+                break
     if cached:
         msg = f"[Ratio em Cache] MT5 offline para {symbol_mt5}. Usando último ratio válido ({saved_at}): {cached:.6f}"
         print(f"      {msg}")
@@ -170,7 +260,6 @@ def get_synchronized_etf_ratio(etf_spot_price, symbol_mt5, fallback_ratio, termi
            f"Usando ratio fixo {fallback_ratio:.6f} — níveis podem estar deslocados!")
     print(f"      {msg}")
     return fallback_ratio, None, msg
-
 
 
 def _get_expected_trading_day():
