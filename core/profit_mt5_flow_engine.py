@@ -1141,6 +1141,8 @@ class ProfitMt5FlowEngine:
         self._profit_active_today = {"WIN": False, "WDO": False}
         self._profit_warnings = []
         self._last_update_ts = 0.0
+        self._rtd_ckpt_loaded_date = ""
+        self._rtd_ckpt_saved_ts = 0.0
 
     def _detect_mt5_contracts(self):
         if not self.win_state.active_contract:
@@ -1179,15 +1181,68 @@ class ProfitMt5FlowEngine:
                         best_d = s.name
             self.wdo_state.active_contract = best_d
 
+    def _rtd_checkpoint_path(self, today_iso: str) -> str:
+        cache_dir = os.path.join(PROJECT_ROOT, "data", "processed")
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, f"rtd_live_checkpoint_{today_iso}.pkl")
+
+    def _try_load_rtd_checkpoint(self, today_iso: str) -> None:
+        if self._rtd_ckpt_loaded_date == today_iso:
+            return
+        self._rtd_ckpt_loaded_date = today_iso
+        ckpt_path = self._rtd_checkpoint_path(today_iso)
+        if not os.path.exists(ckpt_path):
+            return
+        try:
+            import pickle
+            with open(ckpt_path, "rb") as f:
+                data = pickle.load(f)
+            if not isinstance(data, dict) or data.get("date") != today_iso:
+                return
+            offsets = data.get("offsets") or {}
+            # Só restaura se os arquivos existentes forem >= aos offsets salvos
+            for fp, off in offsets.items():
+                if not os.path.exists(fp) or os.path.getsize(fp) < int(off):
+                    return
+            self.win_state = data["win_state"]
+            self.wdo_state = data["wdo_state"]
+            self._file_offsets = dict(offsets)
+            self._profit_active_today = dict(data.get("profit_active", {"WIN": False, "WDO": False}))
+            self._last_tick_msc = dict(data.get("last_tick_msc", {"WIN": 0, "WDO": 0}))
+        except Exception:
+            pass
+
+    def _save_rtd_checkpoint(self, today_iso: str) -> None:
+        try:
+            import pickle
+            ckpt_path = self._rtd_checkpoint_path(today_iso)
+            tmp_path = ckpt_path + ".tmp"
+            payload = {
+                "date": today_iso,
+                "offsets": dict(self._file_offsets),
+                "profit_active": dict(self._profit_active_today),
+                "last_tick_msc": dict(self._last_tick_msc),
+                "win_state": self.win_state,
+                "wdo_state": self.wdo_state,
+            }
+            with open(tmp_path, "wb") as f:
+                pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp_path, ckpt_path)
+            self._rtd_ckpt_saved_ts = time.time()
+        except Exception:
+            pass
+
     def _poll_profit_rtd_folder(self):
         if not os.path.exists(RTD_DIR):
             return
 
         today_suffix = datetime.now().strftime("%d_%m_%Y")
         today_iso = datetime.now().strftime("%Y-%m-%d")
+        self._try_load_rtd_checkpoint(today_iso)
         csv_files = glob.glob(os.path.join(RTD_DIR, "*.csv"))
 
         self._profit_warnings.clear()
+        total_bytes_ingested = 0
 
         for filepath in sorted(csv_files):
             fname = os.path.basename(filepath)
@@ -1246,19 +1301,49 @@ class ProfitMt5FlowEngine:
 
             complete_bytes = raw_chunk[: last_nl + 1]
             self._file_offsets[filepath] = (new_offset - len(raw_chunk)) + last_nl + 1
+            total_bytes_ingested += len(complete_bytes)
 
             # Otimização C-Speed: em arquivos grandes (>64KB), 90% das linhas são TinyBook (;Compra;/;Venda;).
-            # Filtramos em C apenas as linhas ;Trade; e os últimos 8KB para atualizar a fila atual do Topo do Book!
-            if len(complete_bytes) > 65536 and b";Trade;" in complete_bytes[:65536]:
-                trade_b = [l for l in complete_bytes.splitlines() if b";Trade;" in l]
-                tail_b = [l for l in complete_bytes[-8192:].splitlines() if b";Trade;" not in l]
-                text_lines = [l.decode("latin1", errors="replace") for l in (trade_b + tail_b)]
+            # Nota: o início do pregão (08:55..09:17) pode ter >3MB de book antes do 1º ;Trade;, então checamos o bloco todo.
+            has_trade_tag = (b";Trade;" in complete_bytes) or (b";TRADE;" in complete_bytes)
+            if len(complete_bytes) > 65536 and has_trade_tag:
+                chunk_size = 16 * 1024 * 1024
+                n_total = len(complete_bytes)
+                trades_ingested = 0
+                pos = 0
+                while pos < n_total:
+                    end = min(n_total, pos + chunk_size)
+                    if end < n_total:
+                        nl = complete_bytes.find(b"\n", end)
+                        end = (nl + 1) if nl != -1 else n_total
+                    sub = complete_bytes[pos:end]
+                    trade_b = [l for l in sub.splitlines() if b";Trade;" in l or b";TRADE;" in l]
+                    if end == n_total:
+                        tail_b = [l for l in complete_bytes[-8192:].splitlines() if b";Trade;" not in l and b";TRADE;" not in l]
+                        batch_b = trade_b + tail_b
+                    else:
+                        batch_b = trade_b
+                    if batch_b:
+                        text_lines = [l.decode("latin1", errors="replace") for l in batch_b]
+                        trades_ingested += self._parse_profit_trades_lines(
+                            text_lines, target_state, today_iso, has_trade_tag_hint=True
+                        )
+                    pos = end
+                    if pos < n_total:
+                        time.sleep(0.005)
             else:
                 text_lines = complete_bytes.decode("latin1", errors="replace").splitlines()
-            trades_ingested = self._parse_profit_trades_lines(text_lines, target_state, today_iso)
+                trades_ingested = self._parse_profit_trades_lines(
+                    text_lines, target_state, today_iso, has_trade_tag_hint=has_trade_tag
+                )
             if trades_ingested > 0:
                 self._profit_active_today[asset_key] = True
                 target_state.source = f"PROFIT_CSV ({fname})"
+
+        if total_bytes_ingested >= 4 * 1024 * 1024 or (
+            total_bytes_ingested > 0 and time.time() - self._rtd_ckpt_saved_ts >= 120.0
+        ):
+            self._save_rtd_checkpoint(today_iso)
 
     def _parse_profit_broker_balance_file(self, filepath: str, state: SymbolMicrostructureState):
         try:
@@ -1315,7 +1400,7 @@ class ProfitMt5FlowEngine:
                 "vol": buy_v + sell_v,
             })
 
-    def _parse_profit_trades_lines(self, lines: list, state: SymbolMicrostructureState, today_iso: str) -> int:
+    def _parse_profit_trades_lines(self, lines: list, state: SymbolMicrostructureState, today_iso: str, has_trade_tag_hint: bool = None) -> int:
         base_dt = datetime.strptime(today_iso, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         base_epoch = int(base_dt.timestamp())
 
@@ -1324,7 +1409,10 @@ class ProfitMt5FlowEngine:
         qty_list = []
         side_list = []
 
-        has_explicit_trade_tag = any(";Trade;" in l or ";TRADE;" in l.upper() for l in lines[:200])
+        if has_trade_tag_hint is not None:
+            has_explicit_trade_tag = bool(has_trade_tag_hint)
+        else:
+            has_explicit_trade_tag = any(";Trade;" in l or ";TRADE;" in l.upper() for l in lines)
 
         # Reconstrução de Ordem Original: agrupa fills consecutivos no mesmo milissegundo (HH:MM:SS:mmm),
         # mesmo lado e mesma corretora agressora (evita que uma ordem de 100 lotes quebrada em 50 fills de 2L pareça varejo)
@@ -1798,11 +1886,13 @@ class ProfitMt5FlowEngine:
                             try:
                                 with open(filepath, "rb") as fb:
                                     raw_b = fb.read()
-                                if b";Trade;" in raw_b[:65536]:
-                                    trade_lines = [l.decode("latin1", errors="replace") for l in raw_b.splitlines() if b";Trade;" in l]
+                                if b";Trade;" in raw_b or b";TRADE;" in raw_b:
+                                    trade_lines = [l.decode("latin1", errors="replace") for l in raw_b.splitlines() if b";Trade;" in l or b";TRADE;" in l]
+                                    has_tag = True
                                 else:
                                     trade_lines = raw_b.decode("latin1", errors="replace").splitlines()
-                                n_tr = self._parse_profit_trades_lines(trade_lines, st, target_date)
+                                    has_tag = False
+                                n_tr = self._parse_profit_trades_lines(trade_lines, st, target_date, has_trade_tag_hint=has_tag)
                                 if n_tr > 0:
                                     st.source = f"HISTÓRICO PROFIT CSV ({fname})"
                             except Exception:

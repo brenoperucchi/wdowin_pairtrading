@@ -6,12 +6,14 @@ import RegimeHealthPanel from "./components/RegimeHealthPanel";
 import SignalHistogram from "./components/SignalHistogram";
 import IndexChart from "./components/IndexChart";
 import SetupMatadorPanel from "./components/SetupMatadorPanel";
-import BrokerFlowPanel from "./components/BrokerFlowPanel";
-import FlowDeltaChart from "./components/FlowDeltaChart";
 import IntradayCompassPanel from "./components/IntradayCompassPanel";
 import LiveTradingCalendar from "./components/LiveTradingCalendar";
 import StatArbBacktest2026Panel from "./components/StatArbBacktest2026Panel";
 import StatArbLiveTradePanel from "./components/StatArbLiveTradePanel";
+import MorningWallsVideoModal from "./components/MorningWallsVideoModal";
+import MagicWallsMark from "./components/MagicWallsMark";
+import { API_BASE, isManualChartMode, isWallsFlowMode } from "./apiBase";
+import { authFetch, canAccessMediaStudio, isSaasAuthEnabled } from "./utils/saasAuth";
 import { simulateDayStatArbTradesJs, normalizeStatArbTrade } from "./utils/statArbDayTrades";
 
 const STRAT_LABELS = {
@@ -20,14 +22,16 @@ const STRAT_LABELS = {
     DI_NWE: { label: "DI", color: "#8a6dff" },
 };
 
-const API_URL = "http://localhost:8080/api/v2/regime";
-const API_PERF_URL = "http://localhost:8080/api/performance";
-const API_DI_URL = "http://localhost:8080/api/di-regime";
-const API_HISTORY_URL = "http://localhost:8080/api/history";
-const API_FLOW_URL = "http://localhost:8080/api/flow";
-const API_FLOW_REALTIME_URL = "http://localhost:8080/api/flow/realtime";
-const API_COMPASS_URL = "http://localhost:8080/api/compass/etapa1";
+const API_URL = `${API_BASE}/api/v2/regime`;
+const API_PERF_URL = `${API_BASE}/api/performance`;
+const API_DI_URL = `${API_BASE}/api/di-regime`;
+const API_HISTORY_URL = `${API_BASE}/api/history`;
+const API_FLOW_REALTIME_URL = `${API_BASE}/api/flow/realtime`;
+const API_COMPASS_URL = `${API_BASE}/api/compass/etapa1`;
 const POLL_MS = 2500;
+// Quando compilado com VITE_API_BASE definido (ex: "" para túnel cloudflared + proxy somente-leitura),
+// usa a API relativa (/api/...) em vez do Firebase Hosting estático.
+const USE_FIREBASE = Boolean(db) && import.meta.env.PROD && import.meta.env.VITE_API_BASE === undefined && !isSaasAuthEnabled();
 
 function alignTimestampTo2025(epochSeconds) {
     if (!epochSeconds) return 0;
@@ -100,12 +104,24 @@ function getSignal(z) {
 const MAX_FULL_HISTORY = 3000;
 
 function TopbarClock() {
-    const [clock, setClock] = useState(() => new Date().toLocaleTimeString("pt-BR"));
+    const [clock, setClock] = useState(() => new Date().toLocaleTimeString("pt-BR", { hour12: false }));
     useEffect(() => {
-        const t = setInterval(() => setClock(new Date().toLocaleTimeString("pt-BR")), 1000);
+        const t = setInterval(() => setClock(new Date().toLocaleTimeString("pt-BR", { hour12: false })), 1000);
         return () => clearInterval(t);
     }, []);
-    return <span style={{ fontSize: 13, color: "#c8a444", minWidth: 70, textAlign: "right" }}>{clock}</span>;
+    return <span className="mw-mono" style={{ fontSize: 12, fontWeight: 400, color: "var(--mw-text-3)", minWidth: 60, textAlign: "right" }}>{clock}</span>;
+}
+
+function fmtDateShortBr(dStr) {
+    if (!dStr || typeof dStr !== "string" || !dStr.includes("-")) return dStr || "";
+    const [, m, d] = dStr.split("-");
+    return `${d}/${m}`;
+}
+
+function fmtDateFullBr(dStr) {
+    if (!dStr || typeof dStr !== "string" || !dStr.includes("-")) return dStr || "";
+    const [y, m, d] = dStr.split("-");
+    return `${d}/${m}/${y}`;
 }
 
 export default function App() {
@@ -120,14 +136,19 @@ export default function App() {
     const [flash, setFlash] = useState(false);
     const [lastSignalId, setLastSignalId] = useState("neutro");
     const [diData, setDiData] = useState(null);
-    const [flowData, setFlowData] = useState(null);
     const [realtimeFlowData, setRealtimeFlowData] = useState([]);
     const [realtimeIafData, setRealtimeIafData] = useState([]);
-    const [flowMode, setFlowMode] = useState("agg"); // "agg" = agressão, "abs" = absorção, "net" = saldo líquido
     const [flowSmoothing, setFlowSmoothing] = useState(3); // Default 3 periods
     const [iafSmoothing, setIafSmoothing] = useState(3); // Default 3 periods
     const [flowWeights, setFlowWeights] = useState({ fln: 20, pers: 40, conc: 30, abs: 10 });
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
+    const [showMorningVideoModal, setShowMorningVideoModal] = useState(false);
+    const [canUseMediaStudio, setCanUseMediaStudio] = useState(() => canAccessMediaStudio());
+    useEffect(() => {
+        const sync = (ev) => setCanUseMediaStudio(canAccessMediaStudio(ev?.detail?.user));
+        window.addEventListener("mw-saas-auth-updated", sync);
+        return () => window.removeEventListener("mw-saas-auth-updated", sync);
+    }, []);
     const [histDates, setHistDates] = useState([]);
     const [histDayData, setHistDayData] = useState(null);
     const [histLoading, setHistLoading] = useState(false);
@@ -137,53 +158,39 @@ export default function App() {
     const zScoreChartRef = useRef(null);
     const histogramChartRef = useRef(null);
     const indexChartRef = useRef(null);
-    const flowDeltaChartRef = useRef(null);
     const flowScoreChartRef = useRef(null);
     const flowAccelerationChartRef = useRef(null);
     const [showSetup, setShowSetup] = useState(false);
     const [workspaceTab, setWorkspaceTab] = useState("COCKPIT"); // "COCKPIT" | "RAIO_X" | "STAT_ARB"
     const [compassData, setCompassData] = useState(null);
+    const [compassError, setCompassError] = useState(null);
     const btDaysRef = useRef(null);
     const btComparisonRef = useRef([]);
     const cachedPortfolioRef = useRef(null);
     const cachedPortfolioSigRef = useRef("");
     const [gexWalls, setGexWalls] = useState([]);
-    const [weights, setWeights] = useState({
-        "XP": 1,
-        "UBS": -1,
-        "BTG": 1,
-        "IDEAL": -1,
-        "GENIAL": 1,
-        "JPMORGAN": -1,
-        "TULLETT": -1,
-        "MERRILL": -1,
-        "GOLDMAN": -1,
-        "MORGAN": -1,
-        "CITI": -1,
-        "ITAU": 0,
-        "BRADESCO": -1
-    });
-    const [classifications, setClassifications] = useState({
-        "XP": "dummy",
-        "UBS": "smart",
-        "BTG": "dummy",
-        "IDEAL": "smart",
-        "GENIAL": "dummy",
-        "JPMORGAN": "smart",
-        "TULLETT": "smart",
-        "MERRILL": "smart",
-        "GOLDMAN": "smart",
-        "MORGAN": "smart",
-        "CITI": "smart",
-        "ITAU": "none",
-        "BRADESCO": "smart"
-    });
+    const [assetView, setAssetView] = useState(() => (typeof window !== "undefined" && window.innerWidth < 760 ? "WIN" : "DUAL"));
+    const [dualLayout, setDualLayout] = useState("stacked"); // "stacked" | "split"
+    const [winWidth, setWinWidth] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1440));
 
+    useEffect(() => {
+        const onResize = () => setWinWidth(window.innerWidth || 1440);
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, []);
+
+    const isNarrowScreen = winWidth < 760;
+    const canSplitDual = winWidth >= 1120;
+    const effectiveAssetView = isNarrowScreen && assetView === "DUAL" ? "WIN" : assetView;
+
+    const isManual = isManualChartMode();
+    const isWallsFlow = isWallsFlowMode();
     const isViewingHistory = selectedDate !== "";
 
     // Listener or Fetcher for GEX Walls
     useEffect(() => {
-        if (import.meta.env.PROD) {
+        if (isManual) return undefined;
+        if (USE_FIREBASE) {
             const wallsRef = ref(db, 'daily_levels/win_gex');
             const unsub = onValue(wallsRef, (snapshot) => {
                 const data = snapshot.val();
@@ -199,7 +206,7 @@ export default function App() {
             let active = true;
             async function fetchLocalWalls() {
                 try {
-                    const res = await fetch("http://localhost:8080/api/gex-walls");
+                    const res = await authFetch(`${API_BASE}/api/gex-walls`);
                     if (res.ok) {
                         const data = await res.json();
                         if (active) setGexWalls(data || []);
@@ -212,15 +219,16 @@ export default function App() {
             const t = setInterval(fetchLocalWalls, 10000); // Poll local server every 10s
             return () => { active = false; clearInterval(t); };
         }
-    }, []);
+    }, [isManual]);
 
 
     // Polling da API (Local) ou Listener (Firebase Produção)
     useEffect(() => {
+        if (isManual) return undefined;
         let active = true;
         let pollInFlight = false;
 
-        if (import.meta.env.PROD && !isViewingHistory) {
+        if (USE_FIREBASE && !isViewingHistory) {
             // Em produÃ§Ã£o (Firebase Hosting), ouvir o Realtime Database
             const dashboardRef = ref(db, 'dashboard');
             const unsub = onValue(dashboardRef, (snapshot) => {
@@ -265,9 +273,9 @@ export default function App() {
                 try {
                     const currentApiUrl = API_URL;
                     const [res, resPerf, resDi] = await Promise.all([
-                        fetch(currentApiUrl, { signal: ctrl.signal }).catch(() => null),
-                        fetch(API_PERF_URL, { signal: ctrl.signal }).catch(() => null),
-                        fetch(API_DI_URL, { signal: ctrl.signal }).catch(() => null),
+                        authFetch(currentApiUrl, { signal: ctrl.signal }).catch(() => null),
+                        authFetch(API_PERF_URL, { signal: ctrl.signal }).catch(() => null),
+                        authFetch(API_DI_URL, { signal: ctrl.signal }).catch(() => null),
                     ]);
                     if (!res || !res.ok) throw new Error(`HTTP ${res?.status}`);
                     const json = await res.json();
@@ -295,7 +303,7 @@ export default function App() {
                 } catch (e) {
                     if (!active) return;
                     setStatus("fallback");
-                    setError("Servidor Python não encontrado em localhost:8080. Mostrando dados simulados.");
+                    setError("Conexão ao vivo indisponível no momento. Exibindo dados em modo offline.");
                 } finally {
                     clearTimeout(timer);
                     pollInFlight = false;
@@ -305,54 +313,17 @@ export default function App() {
             const t = setInterval(poll, POLL_MS);
             return () => { active = false; clearInterval(t); };
         }
-    }, [selectedDate, isViewingHistory]);
-
-    // Polling do fluxo de corretoras do Profit (aba RAIO_X, tanto live quanto data histórica selecionada)
-    useEffect(() => {
-        if (import.meta.env.PROD || workspaceTab !== "RAIO_X") return;
-
-        let active = true;
-        let flowInFlight = false;
-        async function pollFlow() {
-            if (flowInFlight) return;
-            flowInFlight = true;
-            const ctrl = new AbortController();
-            const timer = setTimeout(() => ctrl.abort(), 7000);
-            try {
-                const url = isViewingHistory
-                    ? `${API_FLOW_URL}?date_str=${encodeURIComponent(selectedDate)}`
-                    : API_FLOW_URL;
-                const res = await fetch(url, { signal: ctrl.signal });
-                if (res.ok) {
-                    const json = await res.json();
-                    if (active && json && !json.error) {
-                        setFlowData(json);
-                    }
-                }
-            } catch (e) {
-                // Silencioso para não poluir o console
-            } finally {
-                clearTimeout(timer);
-                flowInFlight = false;
-            }
-        }
-        pollFlow();
-        if (!isViewingHistory) {
-            const t = setInterval(pollFlow, 2500);
-            return () => { active = false; clearInterval(t); };
-        }
-        return () => { active = false; };
-    }, [isViewingHistory, selectedDate, workspaceTab]);
+    }, [isManual, selectedDate, isViewingHistory]);
 
     useEffect(() => {
-        if (import.meta.env.PROD) return;
+        if (USE_FIREBASE) return;
         let active = true;
         let compassInFlight = false;
         async function pollCompass() {
             if (compassInFlight) return;
             compassInFlight = true;
             const ctrl = new AbortController();
-            const timer = setTimeout(() => ctrl.abort(), 8000);
+            const timer = setTimeout(() => ctrl.abort(), selectedDate ? 45000 : 12000);
             try {
                 const hasBtCache = Array.isArray(btDaysRef.current) && btDaysRef.current.length > 0;
                 const params = new URLSearchParams();
@@ -360,7 +331,7 @@ export default function App() {
                 if (hasBtCache) params.set("lite", "1");
                 const qs = params.toString();
                 const url = qs ? `${API_COMPASS_URL}?${qs}` : API_COMPASS_URL;
-                const res = await fetch(url, { signal: ctrl.signal });
+                const res = await authFetch(url, { signal: ctrl.signal });
                 if (res.ok) {
                     const json = await res.json();
                     if (active && json && json.ok) {
@@ -386,9 +357,18 @@ export default function App() {
                             }
                         }
                         setCompassData(json);
+                        setCompassError(null);
+                    } else if (active) {
+                        setCompassError("Dados do pregão indisponíveis no momento.");
                     }
+                } else if (active) {
+                    const errBody = await res.json().catch(() => ({}));
+                    setCompassError(errBody?.detail || `HTTP ${res.status}: aguardando publicação do produtor ao vivo.`);
                 }
             } catch (e) {
+                if (active) {
+                    setCompassError("Aguardando publicação do produtor ao vivo.");
+                }
             } finally {
                 clearTimeout(timer);
                 compassInFlight = false;
@@ -428,15 +408,16 @@ export default function App() {
 
     // ── Fetch available dates on mount ───────────────────────────────────
     useEffect(() => {
+        if (isManual) return;
         async function loadDates() {
             try {
                 let jsonHistory = [];
-                if (import.meta.env.PROD) {
+                if (USE_FIREBASE) {
                     const histRef = ref(db, 'history_30d');
                     const snapshot = await get(histRef);
                     jsonHistory = snapshot.val() || [];
                 } else {
-                    const res = await fetch(`${API_HISTORY_URL}?days=30`);
+                    const res = await authFetch(`${API_HISTORY_URL}?days=30`);
                     const json = await res.json();
                     jsonHistory = json.history || [];
                 }
@@ -454,21 +435,21 @@ export default function App() {
             } catch (e) { /* ignore */ }
         }
         loadDates();
-    }, []);
+    }, [isManual]);
 
     // ── Fetch data for selected historical date ──────────────────────────
     const fetchDayData = useCallback(async (date) => {
-        if (!date) { setHistDayData(null); return; }
+        if (isManual || !date) { setHistDayData(null); return; }
         setHistLoading(true);
         try {
             let jsonHistory = fullHistory;
             if (!jsonHistory || jsonHistory.length === 0) {
-                if (import.meta.env.PROD) {
+                if (USE_FIREBASE) {
                     const histRef = ref(db, 'history_30d');
                     const snapshot = await get(histRef);
                     jsonHistory = snapshot.val() || [];
                 } else {
-                    const res = await fetch(`${API_HISTORY_URL}?days=30`);
+                    const res = await authFetch(`${API_HISTORY_URL}?days=30`);
                     const json = await res.json();
                     jsonHistory = json.history || [];
                 }
@@ -794,298 +775,420 @@ export default function App() {
     const johWdoGate = data?.johansen_gate || null;
     const johDiGate = diData?.johansen_gate || null;
 
+    const liveStatus = isManual ? (compassData?.ok ? "live" : status) : status;
+    const availableDates = compassData?.available_dates || [];
+    const todayDateStr = availableDates[0] || "";
+    const activeCompassDate = selectedDate || compassData?.selected_date || todayDateStr || "";
+    const winBarsCount = compassData?.WIN?.caminho_a?.m5_dealer_vs_flow_series?.length || 0;
+    const wdoBarsCount = compassData?.WDO?.caminho_a?.m5_dealer_vs_flow_series?.length || 0;
+    const hasCompassBars = winBarsCount > 0 || wdoBarsCount > 0;
+    const isHistoricalCompass = Boolean(isViewingHistory || compassData?.is_historical);
+    const isClosedEmpty = Boolean(compassData?.ok && !hasCompassBars);
+    const updatedAtClock = compassData?.updated_at && /^\d{2}:\d{2}/.test(String(compassData.updated_at).trim())
+        ? String(compassData.updated_at).trim().slice(0, 5)
+        : "";
+
+    const handleQuickDatePick = (dStr) => {
+        setSelectedDate(dStr === todayDateStr ? "" : dStr);
+    };
+
+    const quickDates = availableDates.slice(0, 3);
+    const viewOptions = isNarrowScreen
+        ? [
+            { id: "WIN", label: "WIN" },
+            { id: "WDO", label: "WDO" },
+        ]
+        : [
+            { id: "DUAL", label: "Dupla" },
+            { id: "WIN", label: "WIN" },
+            { id: "WDO", label: "WDO" },
+        ];
+
+    const footerStatusText = isClosedEmpty
+        ? `Sem barras no pregão de ${fmtDateFullBr(activeCompassDate)}`
+        : isHistoricalCompass
+        ? `Replay histórico de ${fmtDateFullBr(activeCompassDate)}`
+        : liveStatus === "live"
+        ? "Dados B3 ao vivo"
+        : "Modo offline";
+
+    const waitingInitialData = isManual ? !compassData : (!data && !compassData && !isViewingHistory);
+    const feedUnavailableNow = waitingInitialData && (Boolean(compassError) || status === "fallback");
+
     return (
         <>
-            {/* Loading Overlay */}
-            {(!data && !isViewingHistory) && (
-                <div className="skeleton-loader">
-                    <div className="skeleton-pulse">AGUARDANDO MODELO MATADOR V4...</div>
+            {/* Loading / Aguardando Publicação Overlay */}
+            {waitingInitialData && (
+                <div
+                    className="skeleton-loader"
+                    style={isSaasAuthEnabled() ? { top: 33, padding: 24 } : { padding: 24 }}
+                >
+                    {feedUnavailableNow ? (
+                        <div
+                            data-testid="saas-feed-waiting"
+                            style={{
+                                width: "100%",
+                                maxWidth: 480,
+                                background: "var(--mw-surface, #131720)",
+                                border: "1px solid var(--mw-hairline, rgba(238,240,245,0.1))",
+                                borderRadius: 12,
+                                padding: 24,
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 12,
+                            }}
+                        >
+                            <div style={{ fontSize: 16, fontWeight: 500, color: "var(--mw-text-1, #eef0f5)", lineHeight: 1.3 }}>
+                                Aguardando publicação dos dados do pregão
+                            </div>
+                            <div style={{ fontSize: 13, color: "var(--mw-text-2, #a3a9b8)", lineHeight: 1.55 }}>
+                                O servidor cloud está ativo, mas ainda não há snapshot recente publicado. Assim que o produtor local enviar os dados, o terminal abrirá automaticamente.
+                            </div>
+                            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--mw-text-3, #848da2)" }}>
+                                {compassError || error || "Aguardando publicação do produtor ao vivo."}
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
+                                <button
+                                    type="button"
+                                    className="mw-btn mw-btn-secondary"
+                                    style={{ height: 32, padding: "0 12px" }}
+                                    onClick={() => window.location.reload()}
+                                >
+                                    Tentar novamente
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="skeleton-pulse">Carregando painel Magic Walls...</div>
+                    )}
                 </div>
             )}
-            <div style={{ background: "#0c1218", minHeight: "100vh", color: "#c9d1d9", fontFamily: "monospace", display: "flex", flexDirection: "column" }}>
+            <div className="mw-app-shell" style={{ background: "var(--mw-bg)", minHeight: "100svh", color: "var(--mw-text-1)", fontFamily: "var(--sans)", display: "flex", flexDirection: "column", overflowX: "hidden", maxWidth: "100%" }}>
 
-                {/* ── Topbar ──────────────────────────────────────────────────────────── */}
-                <div className="topbar">
-                    <div className="topbar-left">
-                        <span className="text-sm text-highlight font-bold" style={{ letterSpacing: 4 }}>PAIR TRADING</span>
-                        <span style={{ display: "inline-block", width: 1, height: 14, background: "#1c2e3a" }} />
-                        <span className="text-xs text-muted" style={{ letterSpacing: 2 }}>
-                            {meta.symbol_a} x {meta.symbol_b}  ·  STAT ARB  ·  {meta.timeframe}
+                {/* ── Topbar Unificada Ink Azul + Flip Strata ──────────────────────────── */}
+                <header className="topbar">
+                    <div className="topbar-left" style={{ gap: 12 }}>
+                        <span className="mw-topbar-title" style={{
+                            display: "inline-flex", alignItems: "center", gap: 10,
+                            fontSize: 15, fontWeight: 600, letterSpacing: 0,
+                            color: "var(--mw-text-1)",
+                            lineHeight: 1,
+                            flex: "0 1 auto",
+                            minWidth: 0,
+                        }}>
+                            <MagicWallsMark size={20} variant="small" />
+                            <span>{isManual ? "Magic Walls" : isWallsFlow ? "Robôs Magic Walls" : "Pair Trading"}</span>
                         </span>
-                        <span
-                            className="text-xxs text-highlight font-bold"
-                            style={{
-                                background: showSetup ? "rgba(200,164,68,0.3)" : "rgba(200,164,68,0.15)",
-                                border: "1px solid #c8a44455",
-                                borderRadius: 4,
-                                padding: "3px 8px",
-                                marginLeft: 15,
-                                letterSpacing: 1,
-                                cursor: "pointer",
-                                transition: "background 0.2s"
-                            }}
-                            onClick={() => setShowSetup(s => !s)}
-                            title="Ver regras do Setup Matador V6"
-                        >
-                            MATADOR
+                        <span style={{ display: "inline-block", width: 1, height: 14, background: "var(--mw-hairline-strong)" }} />
+                        <span className="mw-topbar-sub" style={{ fontSize: 13, color: "var(--mw-text-3)", letterSpacing: 0, fontWeight: 400, whiteSpace: "nowrap" }}>
+                            {isManual || isWallsFlow
+                                ? "WIN × WDO · B3"
+                                : `${meta.symbol_a} × ${meta.symbol_b} · ${meta.timeframe}`}
                         </span>
+                        {!isManual && !isWallsFlow && (
+                            <button
+                                type="button"
+                                className="mw-btn mw-btn-secondary"
+                                data-active={showSetup ? "true" : "false"}
+                                onClick={() => setShowSetup(s => !s)}
+                                title="Ver regras"
+                            >
+                                Matador
+                            </button>
+                        )}
                     </div>
-                    <div className="topbar-right">
-                        {lastUpdate && (
+
+                    {isManual && compassData && (
+                        <div className="topbar-center">
+                            <div className="mw-track" role="group" aria-label="Ativos visíveis">
+                                {viewOptions.map((opt) => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        className="mw-btn mw-btn-top"
+                                        data-active={effectiveAssetView === opt.id ? "true" : "false"}
+                                        onClick={() => setAssetView(opt.id)}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {canSplitDual && effectiveAssetView === "DUAL" && (
+                                <div className="mw-track" role="group" aria-label="Disposição da visão dupla">
+                                    <button
+                                        type="button"
+                                        className="mw-btn mw-btn-top"
+                                        data-active={dualLayout === "stacked" ? "true" : "false"}
+                                        onClick={() => setDualLayout("stacked")}
+                                        title="WIN acima, WDO abaixo"
+                                    >
+                                        Empilhado
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="mw-btn mw-btn-top"
+                                        data-active={dualLayout === "split" ? "true" : "false"}
+                                        onClick={() => setDualLayout("split")}
+                                        title="WIN e WDO lado a lado"
+                                    >
+                                        Lado a lado
+                                    </button>
+                                </div>
+                            )}
+
+                            {quickDates.length > 0 && (
+                                <div className="mw-track" role="group" aria-label="Atalhos de pregão">
+                                    {quickDates.map((d, idx) => {
+                                        const isActive = activeCompassDate === d;
+                                        const label = idx === 0
+                                            ? `Hoje (${fmtDateShortBr(d)})`
+                                            : fmtDateShortBr(d);
+                                        return (
+                                            <button
+                                                key={d}
+                                                type="button"
+                                                className="mw-btn mw-btn-top mw-mono"
+                                                data-active={isActive ? "true" : "false"}
+                                                onClick={() => handleQuickDatePick(d)}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {availableDates.length > 0 && (
+                                <select
+                                    className="mw-select"
+                                    aria-label="Selecionar pregão"
+                                    value={activeCompassDate}
+                                    onChange={(e) => handleQuickDatePick(e.target.value)}
+                                >
+                                    {availableDates.map((d, idx) => (
+                                        <option key={d} value={d}>
+                                            {idx === 0 ? `Hoje (${fmtDateShortBr(d)})` : idx === 1 ? `Ontem (${fmtDateShortBr(d)})` : fmtDateFullBr(d)}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+                    )}
+
+                    {!isManual && (
+                        <div className="topbar-center">
+                            <div className="mw-track" role="tablist" aria-label="Seções do terminal">
+                                {[
+                                    { id: "COCKPIT", label: "Cockpit" },
+                                    { id: "RAIO_X", label: "Raio-X" },
+                                    { id: "STAT_ARB", label: "Stat-Arb" },
+                                ].map((tab) => (
+                                    <button
+                                        key={tab.id}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={workspaceTab === tab.id}
+                                        className="mw-btn mw-btn-top"
+                                        data-active={workspaceTab === tab.id ? "true" : "false"}
+                                        onClick={() => setWorkspaceTab(tab.id)}
+                                    >
+                                        {workspaceTab === tab.id && <span className="mw-dot-accent" />}
+                                        <span>{tab.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {quickDates.length > 0 && (
+                                <div className="mw-track" role="group" aria-label="Atalhos de pregão">
+                                    {quickDates.map((d, idx) => {
+                                        const isActive = activeCompassDate === d;
+                                        const label = idx === 0
+                                            ? `Hoje (${fmtDateShortBr(d)})`
+                                            : fmtDateShortBr(d);
+                                        return (
+                                            <button
+                                                key={d}
+                                                type="button"
+                                                className="mw-btn mw-btn-top mw-mono"
+                                                data-active={isActive ? "true" : "false"}
+                                                onClick={() => handleQuickDatePick(d)}
+                                            >
+                                                {label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {availableDates.length > 0 ? (
+                                <select
+                                    className="mw-select"
+                                    aria-label="Selecionar pregão"
+                                    value={activeCompassDate}
+                                    onChange={(e) => handleQuickDatePick(e.target.value)}
+                                >
+                                    {availableDates.map((d, idx) => (
+                                        <option key={d} value={d}>
+                                            {idx === 0 ? `Hoje (${fmtDateShortBr(d)})` : idx === 1 ? `Ontem (${fmtDateShortBr(d)})` : fmtDateFullBr(d)}
+                                        </option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <select
+                                    className="mw-select"
+                                    aria-label="Selecionar pregão histórico"
+                                    value={selectedDate}
+                                    onChange={(e) => setSelectedDate(e.target.value)}
+                                >
+                                    <option value="">Hoje (ao vivo)</option>
+                                    {histDates.map((d) => {
+                                        const [y, m, day] = d.split("-");
+                                        const wd = new Date(y, m - 1, day).toLocaleDateString("pt-BR", { weekday: "short" });
+                                        return <option key={d} value={d}>{wd} {day}/{m}</option>;
+                                    })}
+                                </select>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="topbar-right" style={{ gap: 10 }}>
+                        {!isManual && workspaceTab === "STAT_ARB" && johWdoGate && (
                             <div style={{
                                 display: "flex", alignItems: "center", gap: 6,
-                                background: flash ? "rgba(200,164,68,0.18)" : "transparent",
-                                border: `1px solid ${flash ? "#c8a444" : "#1c2e3a"}`,
-                                borderRadius: 4, padding: "3px 10px",
-                                transition: "background 0.3s, border-color 0.3s"
+                                background: "var(--mw-card)",
+                                border: `1px solid ${johWdoGate.open ? "var(--mw-accent-border)" : "rgba(229,72,77,0.34)"}`,
+                                borderRadius: 6, padding: "4px 10px",
                             }}>
-                                <span className="text-xxs text-muted" style={{ letterSpacing: 2 }}>ANÁLISE</span>
-                                <span className="text-sm font-bold" style={{ color: flash ? "#c8a444" : "#8ca5b5", letterSpacing: 1, transition: "color 0.3s" }}>
-                                    {lastUpdate}
+                                <span className="mw-mono" style={{ fontSize: 12, color: johWdoGate.open ? "var(--mw-accent-ink)" : "var(--mw-neg)", fontWeight: 500 }}>
+                                    Joh {johWdoGate.open ? "aberto" : "fechado"} ({johWdoGate.trace_ratio}x)
                                 </span>
                             </div>
                         )}
-                        {/* Johansen Gate badge */}
-                        {johWdoGate && (
+                        {!isManual && workspaceTab === "STAT_ARB" && data?.nwe && (
                             <div style={{
-                                display: "flex", alignItems: "center", gap: 6,
-                                background: johWdoGate.open ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)",
-                                border: `1px solid ${johWdoGate.open ? "#00e87a55" : "#ff386055"}`,
-                                borderRadius: 4, padding: "3px 10px"
+                                display: "flex", alignItems: "center", gap: 5,
+                                background: "var(--mw-card)",
+                                border: "1px solid var(--mw-hairline)",
+                                borderRadius: 6, padding: "4px 10px",
                             }}>
-                                <span style={{ fontSize: 8, color: johWdoGate.open ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
-                                    JOH: {johWdoGate.open ? "ABERTO" : "FECHADO"} ({johWdoGate.trace_ratio}x)
+                                <span className="mw-mono" style={{ fontSize: 12, fontWeight: 500, color: data.nwe.is_up ? "var(--mw-pos)" : "var(--mw-neg)" }}>
+                                    Gauss {data.nwe.is_up ? "↑" : "↓"}
                                 </span>
                             </div>
+                        )}
+                        {(!isManual || isSaasAuthEnabled()) && canUseMediaStudio && (
+                            <button
+                                type="button"
+                                className="mw-btn mw-btn-secondary"
+                                data-testid="topbar-morning-video-btn"
+                                onClick={() => setShowMorningVideoModal(true)}
+                                title="Abrir Estúdio de Vídeo Animado Pré-Pregão 08h30 (Reels 9:16 e YouTube 16:9)"
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                                    <path d="m10 9 5 3-5 3V9z" />
+                                </svg>
+                                <span>Vídeo 08h30</span>
+                            </button>
                         )}
 
-                        {/* Consensus badge */}
-                        {consensusCount >= 2 && (
-                            <div style={{
-                                display: "flex", alignItems: "center", gap: 5,
-                                background: `${consensusColor}18`,
-                                border: `1px solid ${consensusColor}55`,
-                                borderRadius: 4, padding: "3px 10px",
-                                opacity: blink && consensusCount === 2 ? 1 : 0.85,
-                                transition: "opacity 0.3s"
-                            }}>
-                                <span style={{ fontSize: 9, fontWeight: "bold", color: consensusColor, letterSpacing: 1 }}>
-                                    {consensusDir} {consensusCount}/2
-                                </span>
-                            </div>
-                        )}
-                        {/* NWE state badge */}
-                        {data?.nwe && (
-                            <div style={{
-                                display: "flex", alignItems: "center", gap: 5,
-                                background: data.nwe.is_up ? "rgba(0,232,122,0.12)" : "rgba(255,56,96,0.12)",
-                                border: `1px solid ${data.nwe.is_up ? "#00e87a33" : "#ff386033"}`,
-                                borderRadius: 4, padding: "3px 10px",
-                            }}>
-                                <span style={{ fontSize: 8, fontWeight: "bold", color: data.nwe.is_up ? "#00e87a" : "#ff3860", letterSpacing: 1 }}>
-                                    NWE {data.nwe.is_up ? "▲" : "▼"}
-                                </span>
-                            </div>
-                        )}
-                        {/* Per-strategy status badges */}
-                        {data?.trade_engine?.strategies && (
-                            <div style={{ display: "flex", gap: 4 }}>
-                                {Object.entries(data.trade_engine.strategies).map(([key, val]) => {
-                                    const info = STRAT_LABELS[key];
-                                    if (!info) return null;
-                                    const isHolding = val?.open_trade != null;
-                                    const action = val?.action || "WAIT";
-                                    const isBuy = action === "BUY_WIN";
-                                    const isSell = action === "SELL_WIN";
-                                    const isEntry = isBuy || isSell;
-                                    const bg = isHolding ? "rgba(245,166,35,0.15)" : isEntry ? (isBuy ? "rgba(0,232,122,0.15)" : "rgba(255,56,96,0.15)") : "rgba(58,80,96,0.08)";
-                                    const fg = isHolding ? "#f5a623" : isEntry ? (isBuy ? "#00e87a" : "#ff3860") : "#3a5060";
-                                    return (
-                                        <div key={key} style={{
-                                            display: "flex", alignItems: "center", gap: 3,
-                                            background: bg, border: `1px solid ${fg}33`, borderRadius: 3, padding: "2px 6px",
-                                        }}>
-                                            <span style={{ fontSize: 7, color: info.color, fontWeight: "bold" }}>{info.label}</span>
-                                            <span style={{ fontSize: 7, color: fg, fontWeight: "bold" }}>
-                                                {isHolding ? (val.open_trade?.direction === "BUY" ? "C" : "V") : isEntry ? (isBuy ? "C!" : "V!") : "—"}
-                                            </span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                        {/* Date picker */}
-                        <select
-                            value={selectedDate}
-                            onChange={e => setSelectedDate(e.target.value)}
-                            style={{
-                                padding: "4px 10px", fontSize: 11, fontFamily: "monospace",
-                                background: isViewingHistory ? "#1a2530" : "#0d1820",
-                                border: `1px solid ${isViewingHistory ? "#c8a444" : "#1c2e3a"}`,
-                                borderRadius: 6, color: isViewingHistory ? "#c8a444" : "#8a9aaa",
-                                cursor: "pointer", outline: "none", minWidth: 130,
-                                appearance: "none",
-                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%233a5060'/%3E%3C/svg%3E")`,
-                                backgroundRepeat: "no-repeat", backgroundPosition: "right 8px center",
-                                paddingRight: 24,
-                            }}
-                        >
-                            <option value="">HOJE (LIVE)</option>
-                            {histDates.map(d => {
-                                const [y, m, day] = d.split("-");
-                                const wd = new Date(y, m - 1, day).toLocaleDateString("pt-BR", { weekday: "short" });
-                                return <option key={d} value={d}>{wd} {day}/{m}</option>;
-                            })}
-                        </select>
-                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                            <span style={{
-                                display: "inline-block", width: 6, height: 6, borderRadius: "50%",
-                                background: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060",
-                                opacity: blink ? 1 : 0.2, transition: "opacity 0.3s"
-                            }} />
-                            <span style={{
-                                fontSize: 9, letterSpacing: 2,
-                                color: isViewingHistory ? "#c8a444" : status === "live" ? "#00e87a" : status === "fallback" ? "#f5a623" : "#3a5060"
-                            }}>
-                                {isViewingHistory ? "HISTÓRICO PROFIT" : status === "live" ? "PROFIT LIVE" : status === "fallback" ? "SIMULADO" : "CONECTANDO"}
-                            </span>
+                        {/* Status verdadeiro do feed (estático, zero pulsar falso) */}
+                        <div style={{
+                            display: "inline-flex", alignItems: "center", gap: 8,
+                            height: 28, padding: "0 10px", borderRadius: 6,
+                            background: "var(--mw-card)",
+                            border: "1px solid var(--mw-hairline)",
+                            fontSize: 12, color: "var(--mw-text-2)",
+                            whiteSpace: "nowrap",
+                        }}>
+                            {isClosedEmpty ? (
+                                <>
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--mw-text-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="9" />
+                                        <polyline points="12 7 12 12 15 14" />
+                                    </svg>
+                                    <span>Sem pregão{activeCompassDate ? ` · ${fmtDateShortBr(activeCompassDate)}` : ""}</span>
+                                </>
+                            ) : isHistoricalCompass ? (
+                                <>
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--mw-accent-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <rect x="3" y="4" width="18" height="18" rx="2" />
+                                        <line x1="16" y1="2" x2="16" y2="6" />
+                                        <line x1="8" y1="2" x2="8" y2="6" />
+                                        <line x1="3" y1="10" x2="21" y2="10" />
+                                    </svg>
+                                    <span>Replay{activeCompassDate ? ` · ${fmtDateShortBr(activeCompassDate)}` : ""}</span>
+                                </>
+                            ) : liveStatus === "live" ? (
+                                <>
+                                    <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--mw-pos)" }} />
+                                    <span className="mw-mono">Ao vivo{updatedAtClock ? ` · ${updatedAtClock}` : ""}</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--mw-text-3)" }} />
+                                    <span>{liveStatus === "fallback" ? "Offline" : "Conectando"}</span>
+                                </>
+                            )}
                         </div>
                         <TopbarClock />
                     </div>
-                </div>
+                </header>
 
                 {/* ── Banners ─────────────────────────────────────────────────────────── */}
-                {error && (
-                    <div style={{ background: "rgba(245,166,35,0.08)", borderBottom: "1px solid rgba(245,166,35,0.3)", padding: "6px 20px", fontSize: 10, color: "#f5a623" }}>
+                {!isManual && error && (
+                    <div style={{ background: "var(--mw-chrome)", borderBottom: "1px solid var(--mw-hairline)", padding: "8px 24px", fontSize: 12, color: "var(--mw-accent-ink)" }}>
                         {error}
                     </div>
                 )}
-                {betaUnstable && (
+                {!isManual && workspaceTab === "STAT_ARB" && betaUnstable && (
                     <div style={{
-                        background: "rgba(255,56,96,0.08)",
-                        borderBottom: "1px solid rgba(255,56,96,0.4)",
-                        padding: "7px 20px", fontSize: 11, color: "#ff3860",
+                        background: "var(--mw-neg-bg)",
+                        borderBottom: "1px solid rgba(229, 72, 77, 0.28)",
+                        padding: "8px 24px", fontSize: 12, color: "var(--mw-neg)",
                         display: "flex", alignItems: "center", gap: 10,
-                        opacity: blink ? 1 : 0.6, transition: "opacity 0.3s"
                     }}>
-                        <span style={{ fontSize: 16 }}>⚠️</span>
                         <span>
-                            <strong>BETA INSTÁVEL</strong> — variação de <span style={{ fontWeight: 900 }}>{betaChangePct > 0 ? "+" : ""}{betaChangePct.toFixed(1)}%</span> em relação à leitura anterior.
-                            Relação WIN×WDO pode estar em ruptura.
+                            <strong style={{ fontWeight: 600 }}>Beta instável</strong> — variação de <span className="mw-mono" style={{ fontWeight: 600 }}>{betaChangePct > 0 ? "+" : ""}{betaChangePct.toFixed(1)}%</span> em relação à leitura anterior. Relação WIN × WDO pode estar em ruptura.
                         </span>
                     </div>
                 )}
 
-                {/* ——— Barra Principal de Seleção de Tela (3 Modos Limpos) ———————————————————— */}
-                <div style={{
-                    background: "#0c1218",
-                    borderBottom: "1px solid #1a2530",
-                    padding: "8px 20px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: 10,
-                }}>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {[
-                            { id: "COCKPIT", label: "⚡ 1. COCKPIT MAGIC WALLS E FLUXO", accent: "#00e87a" },
-                            { id: "RAIO_X", label: "🔬 2. RAIO-X DE DADOS (CORRETORAS PROFIT & GRADE OPÇÕES)", accent: "#00d4ff" },
-                            { id: "STAT_ARB", label: "📐 3. STAT-ARB & Z-SCORE (PROFIT: WINFUT × WDOFUT × DIFUT)", accent: "#c8a444" },
-                        ].map(tab => {
-                            const active = workspaceTab === tab.id;
-                            return (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => {
-                                        setWorkspaceTab(tab.id);
-                                    }}
-                                    style={{
-                                        padding: "7px 14px",
-                                        fontSize: 10.5,
-                                        fontFamily: "monospace",
-                                        fontWeight: "bold",
-                                        letterSpacing: 0.6,
-                                        borderRadius: 6,
-                                        cursor: "pointer",
-                                        border: active ? `1.5px solid ${tab.accent}` : "1px solid #1a2530",
-                                        background: "#0c1218",
-                                        color: active ? tab.accent : "#8ca5b5",
-                                        transition: "all 0.2s ease",
-                                    }}
-                                >
-                                    {tab.label}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    {compassData?.updated_at && (
-                        <span style={{ fontSize: 10, color: "#7f96a8" }}>
-                            Fluxo Profit/MT5 atualizado às <strong style={{ color: "#00e87a" }}>{compassData.updated_at}</strong>
-                        </span>
-                    )}
-                </div>
-
                 {/* ——— Main content ———————————————————————————————————————————————————————————— */}
-                <div style={{ flex: 1, padding: "14px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+                <div className="mw-main" style={{ flex: 1, padding: "16px 24px 20px 24px", display: "flex", flexDirection: "column", gap: 16, minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }}>
 
-                    {showSetup && <SetupMatadorPanel tradeEngine={data?.trade_engine} />}
+                    {!isManual && !isWallsFlow && showSetup && <SetupMatadorPanel tradeEngine={data?.trade_engine} />}
 
-                    {(workspaceTab === "COCKPIT" || workspaceTab === "RAIO_X") && (
+                    {(isManual || workspaceTab === "COCKPIT" || workspaceTab === "RAIO_X") && (
                         <IntradayCompassPanel
                             compassData={compassData}
-                            mode={workspaceTab}
+                            mode={isManual ? "COCKPIT" : workspaceTab}
                             onChangeMode={setWorkspaceTab}
                             selectedDate={selectedDate}
                             onSelectDate={setSelectedDate}
+                            selectedAssetProp={isManual ? effectiveAssetView : undefined}
+                            onSelectAssetProp={isManual ? setAssetView : undefined}
+                            dualLayout={canSplitDual ? dualLayout : "stacked"}
                         />
                     )}
 
-                    {workspaceTab === "RAIO_X" && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <div style={{ border: "1px solid #1a2530", borderRadius: 8, overflow: "hidden", background: "#0c1218" }}>
-                                <FlowDeltaChart
-                                    ref={flowDeltaChartRef}
-                                    history={paddedSignals}
-                                    flowData={flowData}
-                                    classifications={classifications}
-                                    activeSymbol={meta?.symbol_a}
-                                    flowMode={flowMode}
-                                    hideXAxis={false}
-                                />
-                            </div>
-                            <BrokerFlowPanel
-                                flowData={flowData}
-                                dbHistory={paddedSignals}
-                                weights={weights}
-                                setWeights={setWeights}
-                                classifications={classifications}
-                                setClassifications={setClassifications}
-                                flowMode={flowMode}
-                                setFlowMode={setFlowMode}
-                            />
-                        </div>
-                    )}
-
                     {/* History mode banner (Stat-Arb) */}
-                    {isViewingHistory && workspaceTab === "STAT_ARB" && (
-                        <div style={{
-                            background: "rgba(200,164,68,0.08)", border: "1px solid rgba(200,164,68,0.3)",
-                            borderRadius: 8, padding: "6px 16px", display: "flex", justifyContent: "space-between", alignItems: "center",
+                    {!isManual && isViewingHistory && workspaceTab === "STAT_ARB" && (
+                        <div className="mw-card" style={{
+                            padding: "8px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
                         }}>
-                            <span style={{ fontSize: 10, color: "#c8a444" }}>
-                                📅 Visualizando Z-Score de <strong>{(() => { const [y, m, d] = selectedDate.split("-"); return `${d}/${m}/${y}`; })()}</strong>
-                                {histDayData && ` — ${histDayData.length} barras`}
+                            <span className="mw-mono" style={{ fontSize: 12, color: "var(--mw-text-2)" }}>
+                                Replay Z-Score · Pregão de <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{(() => { const [y, m, d] = selectedDate.split("-"); return `${d}/${m}/${y}`; })()}</strong>
+                                {histDayData && ` · ${histDayData.length} barras`}
                             </span>
-                            <button onClick={() => setSelectedDate("")} style={{
-                                fontSize: 9, padding: "3px 10px", background: "rgba(0,232,122,0.15)",
-                                border: "1px solid #00e87a55", borderRadius: 4, color: "#00e87a",
-                                cursor: "pointer", fontFamily: "monospace", letterSpacing: 1,
-                            }}>VOLTAR AO LIVE</button>
+                            <button type="button" className="mw-btn mw-btn-secondary" onClick={() => setSelectedDate("")}>
+                                Voltar para hoje
+                            </button>
                         </div>
                     )}
 
-                    {workspaceTab === "STAT_ARB" && (
+                    {!isManual && workspaceTab === "STAT_ARB" && (
                         <>
                             {/* Compact Regime Health Strip — above charts */}
                             {(() => {
@@ -1190,23 +1293,20 @@ export default function App() {
 
                             {/* Alert Banner */}
                             {!safeToTrade && isActive && (
-                                <div style={{
-                                    background: "rgba(255,56,96,0.06)", border: "1px solid rgba(255,56,96,0.3)",
-                                    borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
-                                    opacity: blink ? 1 : 0.7, transition: "opacity 0.3s"
+                                <div className="mw-card" style={{
+                                    background: "var(--mw-neg-bg)", border: "1px solid rgba(229,72,77,0.3)",
+                                    padding: "10px 16px", display: "flex", alignItems: "center", gap: 10,
                                 }}>
-                                    <span style={{ fontSize: 18 }}>🚨</span>
-                                    <div style={{ fontSize: 11, color: "#ff3860", lineHeight: 1.5 }}>
-                                        <strong>Z-SCORE ALTO COM RELAÇÃO INSTÁVEL</strong> — Parece oportunidade mas é ruído.
-                                        ρ ou Δβ fora da zona verde invalida o sinal de z={currentZ > 0 ? `+${currentZ.toFixed(2)}` : currentZ.toFixed(2)}.
+                                    <div style={{ fontSize: 12, color: "var(--mw-neg)", lineHeight: 1.5 }}>
+                                        <strong style={{ fontWeight: 600 }}>Z-Score alto com relação instável</strong> — ρ ou Δβ fora da faixa segura invalida o sinal de z={currentZ > 0 ? `+${currentZ.toFixed(2)}` : currentZ.toFixed(2)}.
                                     </div>
                                 </div>
                             )}
                         </>
                     )}
 
-                    {/* Calendário do Live Trading (exclusivo da Aba 1 - Cockpit das 6 Estratégias Campeãs) */}
-                    {workspaceTab === "COCKPIT" && (
+                    {/* Calendário do Live Trading (exclusivo da Aba 1 - Cockpit) */}
+                    {!isManual && workspaceTab === "COCKPIT" && (
                         <LiveTradingCalendar
                             portfolioData={compassData?.portfolio_4_sistematicas}
                             onSelectDate={setSelectedDate}
@@ -1215,11 +1315,23 @@ export default function App() {
                 </div>
 
                 {/* ── Footer ──────────────────────────────────────────────────────────── */}
-                <div style={{ borderTop: "1px solid #1a2530", padding: "7px 20px", display: "flex", justifyContent: "space-between", fontSize: 8, color: "#3d444d", background: "#0c1218" }}>
-                    <span>{status === "live" ? "DADOS REAIS MT5" : "DADOS SIMULADOS"} — NÃO CONSTITUI RECOMENDAÇÃO DE INVESTIMENTO · PAIR TRADING 2025</span>
-                    <span>beta = {meta.beta}  ·  janela {meta.window} barras  ·  {meta.symbol_a} x {meta.symbol_b}  ·  B3</span>
-                </div>
+                <footer className="mw-footer" style={{ borderTop: "1px solid var(--mw-hairline)", padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, fontSize: 12, color: "var(--mw-text-3)", background: "var(--mw-chrome)", letterSpacing: 0 }}>
+                    <span>{footerStatusText} — uso informativo, não constitui recomendação de investimento</span>
+                    <span className="mw-mono">
+                        {isManual
+                            ? "Magic Walls · WIN × WDO · Canal Gauss, Sinais Numerados & Fluxo · B3"
+                            : isWallsFlow
+                            ? "Robôs Magic Walls · Carteira 5176 · WIN × WDO · B3"
+                            : `beta ${meta.beta} · ${String(meta.window || "").toUpperCase() === "KALMAN" ? "Kalman" : `janela ${meta.window}b`} · ${meta.symbol_a} × ${meta.symbol_b} · B3`}
+                    </span>
+                </footer>
             </div>
+            {canUseMediaStudio && showMorningVideoModal && (
+                <MorningWallsVideoModal
+                    isOpen={showMorningVideoModal}
+                    onClose={() => setShowMorningVideoModal(false)}
+                />
+            )}
         </>
     );
 }

@@ -3,8 +3,8 @@
 //| EST-10 [Matriz WDO MainWalls pos50+GammaFlip + BE_177k(240/45)] (Ret/DD 5.20)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-10 [Matriz WDO MainWalls pos50+GammaFlip + BE_177k(240/45)] (Ret/DD 5.20)"
-#property version   "2.00"
+#property description "EST-10 [Validado 5/5 · MaxTr=1/dia] MainWalls Breakout Stop & Limit (MT5 Ret/DD 2.39x · OOS PF 2.34)"
+#property version   "2.10"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -16,6 +16,7 @@ input ulong               InpMagicNumber   = 88010; // Magic Number Base
 input bool                InpDrawLevels    = true;   // Desenhar MagicWalls no Gráfico
 input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)
 input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)
+input string              InpMaxEntryTime  = "16:00"; // Horario Limite Novas Entradas (HH:MM, vazio=off)
 
 CJumbaGexNweEngine g_engine;
 
@@ -28,6 +29,7 @@ int OnInit()
       false,false,false,false,false,false,false,false
    );
    g_engine.SetUseFlowFilter(InpUseFlowFilter);
+   g_engine.SetMaxEntryTime(InpMaxEntryTime);
    return(INIT_SUCCEEDED);
   }
 

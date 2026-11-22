@@ -15,6 +15,7 @@ input ENUM_JUMBA_WDO_EXEC_MODE InpExecMode         = WDO_EXEC_HEDGING_DIRECT_MAG
 input bool                     InpDrawGexLevels    = true;                         // Desenhar MagicWalls
 input bool                     InpShowHud          = true;                         // Mostrar Painel HUD
 input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)
+input string                   InpMaxEntryTime     = "15:00";                      // Horario Limite Novas Entradas (HH:MM, vazio=off)
 
 CJumbaWdoGexNweEngine ExtEngine;
 
@@ -24,6 +25,7 @@ int OnInit()
                   InpDrawGexLevels, InpShowHud, InpExecMode,
                   false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false);
    ExtEngine.SetUseFlowFilter(InpUseFlowFilter);
+   ExtEngine.SetMaxEntryTime(InpMaxEntryTime);
    return(INIT_SUCCEEDED);
   }
 

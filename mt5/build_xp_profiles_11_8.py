@@ -36,66 +36,95 @@ def patch_mq5_file(filepath: str) -> bool:
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         code = f.read()
 
-    if "InpUseFlowFilter" in code:
-        return False
-
+    changed = False
     base = os.path.basename(filepath)
     if base.startswith("Jumba_EST"):
-        # Insert input bool InpUseFlowFilter after InpWdoSymbol
-        target_in = 'input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)'
-        replacement_in = (
-            target_in
-            + "\ninput bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)"
-        )
-        if target_in not in code:
-            # Fallback: insert before CJumbaGexNweEngine g_engine;
-            code = code.replace(
-                "CJumbaGexNweEngine g_engine;",
-                "input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)\n\nCJumbaGexNweEngine g_engine;",
+        if "InpUseFlowFilter" not in code:
+            target_in = 'input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)'
+            replacement_in = (
+                target_in
+                + "\ninput bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)"
             )
-        else:
-            code = code.replace(target_in, replacement_in)
+            if target_in not in code:
+                code = code.replace(
+                    "CJumbaGexNweEngine g_engine;",
+                    "input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)\n\nCJumbaGexNweEngine g_engine;",
+                )
+            else:
+                code = code.replace(target_in, replacement_in)
+            code = code.replace(
+                "   return(INIT_SUCCEEDED);",
+                "   g_engine.SetUseFlowFilter(InpUseFlowFilter);\n   return(INIT_SUCCEEDED);",
+            )
+            changed = True
 
-        # Call g_engine.SetUseFlowFilter(InpUseFlowFilter); in OnInit()
-        code = code.replace(
-            "   return(INIT_SUCCEEDED);",
-            "   g_engine.SetUseFlowFilter(InpUseFlowFilter);\n   return(INIT_SUCCEEDED);",
-        )
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(code)
-        return True
+        if "InpMaxEntryTime" not in code:
+            target_flow = "input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)"
+            add_in = 'input string              InpMaxEntryTime  = "16:00"; // Horario Limite Novas Entradas (HH:MM, vazio=off)'
+            if target_flow in code:
+                code = code.replace(target_flow, target_flow + "\n" + add_in)
+            else:
+                code = code.replace(
+                    "CJumbaGexNweEngine g_engine;",
+                    add_in + "\n\nCJumbaGexNweEngine g_engine;",
+                )
+            code = code.replace(
+                "   return(INIT_SUCCEEDED);",
+                "   g_engine.SetMaxEntryTime(InpMaxEntryTime);\n   return(INIT_SUCCEEDED);",
+            )
+            changed = True
 
     elif base.startswith("Jumba_WDO") and "Portfolio_Master" not in base:
-        target_in = "input bool                     InpShowHud          = true;                         // Mostrar Painel HUD"
-        replacement_in = (
-            target_in
-            + "\ninput bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)"
-        )
-        if target_in not in code:
-            code = code.replace(
-                "CJumbaWdoGexNweEngine ExtEngine;",
-                "input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)\n\nCJumbaWdoGexNweEngine ExtEngine;",
+        if "InpUseFlowFilter" not in code:
+            target_in = "input bool                     InpShowHud          = true;                         // Mostrar Painel HUD"
+            replacement_in = (
+                target_in
+                + "\ninput bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)"
             )
-        else:
-            code = code.replace(target_in, replacement_in)
+            if target_in not in code:
+                code = code.replace(
+                    "CJumbaWdoGexNweEngine ExtEngine;",
+                    "input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)\n\nCJumbaWdoGexNweEngine ExtEngine;",
+                )
+            else:
+                code = code.replace(target_in, replacement_in)
+            code = code.replace(
+                "   return(INIT_SUCCEEDED);",
+                "   ExtEngine.SetUseFlowFilter(InpUseFlowFilter);\n   return(INIT_SUCCEEDED);",
+            )
+            changed = True
 
-        code = code.replace(
-            "   return(INIT_SUCCEEDED);",
-            "   ExtEngine.SetUseFlowFilter(InpUseFlowFilter);\n   return(INIT_SUCCEEDED);",
-        )
+        if "InpMaxEntryTime" not in code:
+            target_flow = "input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)"
+            add_in = 'input string                   InpMaxEntryTime     = "15:00";                      // Horario Limite Novas Entradas (HH:MM, vazio=off)'
+            if target_flow in code:
+                code = code.replace(target_flow, target_flow + "\n" + add_in)
+            else:
+                code = code.replace(
+                    "CJumbaWdoGexNweEngine ExtEngine;",
+                    add_in + "\n\nCJumbaWdoGexNweEngine ExtEngine;",
+                )
+            code = code.replace(
+                "   return(INIT_SUCCEEDED);",
+                "   ExtEngine.SetMaxEntryTime(InpMaxEntryTime);\n   return(INIT_SUCCEEDED);",
+            )
+            changed = True
+
+    if changed:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(code)
-        return True
-
-    return False
+    return changed
 
 
 def update_and_compile_all():
-    # 1. Patch all Jumba_EST*.mq5 and Jumba_WDO*.mq5 in Experts/ and Experts/Jumba_GEX_NWE/
+    # 1. Patch all Jumba_EST*.mq5 and Jumba_WDO*.mq5 in Experts/ and Experts/Jumba_GEX_NWE/, plus Monitor Live
     mq5_files = sorted(
         glob.glob(os.path.join(EXPERTS_DIR, "Jumba_EST*.mq5"))
         + glob.glob(os.path.join(EXPERTS_DIR, "Jumba_WDO*.mq5"))
     )
+    mon_fp = os.path.join(EXPERTS_DIR, "Jumba_Portfolio_Live_Monitor.mq5")
+    if os.path.isfile(mon_fp):
+        mq5_files.append(mon_fp)
     for fp in mq5_files:
         patched = patch_mq5_file(fp)
         # Copy identical source to SUB_EXPERTS_DIR if it exists there
@@ -149,6 +178,8 @@ ROBOT_SPECS = {
     "EST_01": ("WIN", 88001, 5, "EST-01 M5", "Jumba_EST01_Scalper_Hibrido_NY"),
     "EST_04": ("WIN", 88004, 5, "EST-04 M5", "Jumba_EST04_Pullback_Reteste_Wall"),
     "EST_07": ("WIN", 88007, 5, "EST-07 M5", "Jumba_EST07_Breakout_Momentum_NY"),
+    "EST_09": ("WIN", 88009, 5, "EST-09 M5 [MaxTr=2/d]", "Jumba_EST09_Breakout_Stop_Wall"),
+    "EST_10": ("WIN", 88010, 5, "EST-10 M5 [MaxTr=1/d]", "Jumba_EST10_Breakout_Stop_Wick"),
     "EST_13": ("WIN", 88013, 5, "EST-13 M5", "Jumba_EST13_SmartGrid_RSI_BE"),
     "EST_14": ("WIN", 88014, 5, "EST-14 M5", "Jumba_EST14_Grid_Institucional_123L"),
     "EST_15": ("WIN", 88015, 5, "EST-15 M5", "Jumba_EST15_Posicional_EOD_Breakout"),
@@ -321,7 +352,18 @@ fixed_height=-1
     return content.replace("\r\n", "\n").replace("\n", "\r\n")
 
 
-def build_profile(profile_name: str, robot_ids: list, use_flow_filter: bool, win_sym: str = "WINZ26", wdo_sym: str = "WDOZ26"):
+def build_profile(
+    profile_name: str,
+    robot_ids: list,
+    use_flow_filter: bool,
+    win_sym: str = "WINZ26",
+    wdo_sym: str = "WDOZ26",
+    stop_global: float = 850.0,
+    stop_win: float = 400.0,
+    stop_wdo: float = 550.0,
+    win_max_entry: str = "16:00",
+    wdo_max_entry: str = "15:00",
+):
     out_dir = os.path.join(PROFILES_DIR, profile_name)
     os.makedirs(out_dir, exist_ok=True)
     for old_f in glob.glob(os.path.join(out_dir, "*")):
@@ -358,7 +400,8 @@ InpMaxDailyLoss=1000.0
 InpMagicNumber={magic}
 InpDrawLevels=true
 InpWdoSymbol={wdo_sym}
-InpUseFlowFilter={flow_str}"""
+InpUseFlowFilter={flow_str}
+InpMaxEntryTime={win_max_entry}"""
         else:
             ea_inputs = f"""InpBaseMagic=89000
 InpLotMultiplier=1.0
@@ -366,7 +409,8 @@ InpMaxDailyLossBRL=2000.0
 InpExecMode=0
 InpDrawGexLevels=true
 InpShowHud=true
-InpUseFlowFilter={flow_str}"""
+InpUseFlowFilter={flow_str}
+InpMaxEntryTime={wdo_max_entry}"""
 
         chr_text = make_chart_chr(
             chart_id=chart_id,
@@ -396,7 +440,7 @@ InpUseFlowFilter={flow_str}"""
     bottom = top + cell_h
     mon_id = 148000000000000000 + m_idx
     mon_title = f"JUMBA MONITOR LIVE ({len(robot_ids)} ROBOS {flow_tag})"
-    mon_inputs = """InpWinBaseMagic=88000
+    mon_inputs = f"""InpWinBaseMagic=88000
 InpWdoBaseMagic=89000
 InpBtDdReference=0
 InpHistorySource=0
@@ -408,7 +452,22 @@ InpExportCsvReport=true
 InpAlertOnBtBreach=true
 InpPanelX=12
 InpPanelY=24
-InpFontSize=8"""
+InpFontSize=8
+InpEnableDailyStop=true
+InpMaxDailyLossGlobal={stop_global:.1f}
+InpMaxDailyLossWin={stop_win:.1f}
+InpMaxDailyLossWdo={stop_wdo:.1f}
+InpStopWarningPct=70.0
+InpClosePositionsOnStop=true
+InpCancelPendingOnStop=true
+InpIncludeAllJumbaMagics=true
+InpUseAuctionFilter=true
+InpBlockFrom1=08:55
+InpBlockTo1=09:02
+InpBlockFrom2=17:55
+InpBlockTo2=18:35
+InpSendPushOnStop=false
+InpClearStopOnRemove=false"""
 
     mon_text = make_chart_chr(
         chart_id=mon_id,
@@ -457,12 +516,17 @@ def sync_everything_to_terminals(term_dirs: list, profile_names: list):
                 shutil.copy2(f, os.path.join(exp_dst, os.path.basename(f)))
                 shutil.copy2(f, os.path.join(sub_dst, os.path.basename(f)))
 
-        # 3. Sync Profiles to both MQL5/Profiles/Charts and profiles/Charts
+        # 3. Sync ONLY active Jumba profiles and prune old Jumba_* profiles (preserving non-Jumba profiles!)
+        keep_set = set(profile_names)
         for prof_sub in [
             os.path.join(mql5_dir, "Profiles", "Charts"),
             os.path.join(tdir, "profiles", "Charts"),
         ]:
             os.makedirs(prof_sub, exist_ok=True)
+            for existing in os.listdir(prof_sub):
+                full_p = os.path.join(prof_sub, existing)
+                if os.path.isdir(full_p) and existing.startswith("Jumba_") and existing not in keep_set:
+                    shutil.rmtree(full_p, ignore_errors=True)
             for pname in profile_names:
                 src_p = os.path.join(PROFILES_DIR, pname)
                 dst_p = os.path.join(prof_sub, pname)
@@ -481,19 +545,25 @@ if __name__ == "__main__":
     term_dirs = update_and_compile_all()
 
     SIDS_8 = ["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"]
-    SIDS_11 = ["EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WDO_01", "WDO_05", "WDO_07", "WDO_09"]
+    SIDS_10 = ["EST_04", "EST_07", "EST_09", "EST_10", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"]
 
+    # Manter APENAS o ultimo perfil de 8 e o atual de 10
     profiles_to_build = [
-        ("Jumba_11_SEM_FILTRO", SIDS_11, False),
-        ("Jumba_8_COM_FILTRO",  SIDS_8,  True),
-        ("Jumba_8_SEM_FILTRO",  SIDS_8,  False),
-        ("Jumba_11_COM_FILTRO", SIDS_11, True),
+        ("Jumba_8_SEM_FILTRO",  SIDS_8,  False, 850.0, 400.0, 550.0),
+        ("Jumba_10_SEM_FILTRO", SIDS_10, False, 950.0, 400.0, 0.0),
     ]
 
     built_names = []
-    for pname, rids, use_flow in profiles_to_build:
-        build_profile(pname, rids, use_flow)
+    for pname, rids, use_flow, sg, sw, sd in profiles_to_build:
+        build_profile(pname, rids, use_flow, stop_global=sg, stop_win=sw, stop_wdo=sd)
         built_names.append(pname)
 
+    # Limpar perfis antigos Jumba_* tambem do repositorio mt5/Profiles/Charts
+    keep_set = set(built_names)
+    for existing in os.listdir(PROFILES_DIR):
+        full_p = os.path.join(PROFILES_DIR, existing)
+        if os.path.isdir(full_p) and existing.startswith("Jumba_") and existing not in keep_set:
+            shutil.rmtree(full_p, ignore_errors=True)
+
     sync_everything_to_terminals(term_dirs, built_names)
-    print("\n[SUCESSO TOTAL] Todos os perfis e robôs compilados foram instalados nos MT5!")
+    print("\n[SUCESSO TOTAL] Monitor v4.20 compilado e apenas Jumba_8_SEM_FILTRO + Jumba_10_SEM_FILTRO mantidos nos MT5!")

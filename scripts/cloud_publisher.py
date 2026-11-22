@@ -139,6 +139,7 @@ class CloudPublisher:
         self._cloud = httpx.Client(timeout=10.0)
         self._last_fetch_ts: dict[str, float] = {}
         self._cached_raw: dict[str, bytes] = {}
+        self._day_cache_pushed_ts: dict[str, float] = {}
         self._last_standby_hb_ts = 0.0
 
     def close(self) -> None:
@@ -156,6 +157,16 @@ class CloudPublisher:
             return data
         return self._cached_raw.get(key)
 
+    @staticmethod
+    def _has_compass_bars(obj: Any) -> bool:
+        if not isinstance(obj, dict):
+            return False
+        for sym in ("WIN", "WDO"):
+            bars = ((obj.get(sym) or {}).get("caminho_a") or {}).get("m5_dealer_vs_flow_series") or []
+            if len(bars) > 0:
+                return True
+        return False
+
     def build_snapshots(self, force_all: bool = False) -> dict[str, dict[str, Any]]:
         etapa1_lite_raw = self._fetch_throttled("etapa1_lite", "/api/compass/etapa1?lite=1", 2.0, timeout=15.0, force=force_all)
         etapa1_full_raw = self._fetch_throttled("etapa1_full", "/api/compass/etapa1", 15.0, timeout=25.0, force=force_all)
@@ -165,6 +176,13 @@ class CloudPublisher:
         di_raw = self._fetch_throttled("di_regime", "/api/di-regime", 5.0, timeout=8.0, force=force_all)
         gex_raw = self._fetch_throttled("gex_walls", "/api/gex-walls", 15.0, timeout=8.0, force=force_all)
         hist_raw = self._fetch_throttled("history", "/api/history?days=30", 60.0, timeout=20.0, force=force_all)
+        morning_brief_raw = self._fetch_throttled(
+            "morning_brief",
+            "/api/morning-brief",
+            30.0,
+            timeout=8.0,
+            force=force_all,
+        )
 
         core_lite = _decode_json_bytes(_sanitize_etapa1(etapa1_lite_raw)) if etapa1_lite_raw else None
         core_full = _decode_json_bytes(_sanitize_etapa1(etapa1_full_raw)) if etapa1_full_raw else None
@@ -172,21 +190,57 @@ class CloudPublisher:
         pro_full = _decode_json_bytes(_sanitize_etapa1_5176(etapa1_full_raw)) if etapa1_full_raw else None
         m1_obj = _decode_json_bytes(m1_raw)
 
+        core_map: dict[str, Any] = {
+            "etapa1_lite": core_lite,
+            "etapa1_full": core_full,
+            "m1_series": m1_obj,
+        }
+        pro_map: dict[str, Any] = {
+            "etapa1_lite": pro_lite,
+            "etapa1_full": pro_full,
+            "m1_series": m1_obj,
+            "regime": _decode_json_bytes(regime_raw),
+            "performance": _decode_json_bytes(perf_raw),
+            "di_regime": _decode_json_bytes(di_raw),
+            "gex_walls": _decode_json_bytes(gex_raw),
+            "history": _decode_json_bytes(hist_raw),
+        }
+
+        avail_dates = (pro_lite or core_lite or {}).get("available_dates") or []
+        now_mono = time.monotonic()
+        populated_days = 0
+        for raw_d in avail_dates[:6]:
+            if populated_days >= 3:
+                break
+            d = str(raw_d or "").strip()
+            if len(d) != 10:
+                continue
+            due = force_all or (d not in self._day_cache_pushed_ts) or ((now_mono - self._day_cache_pushed_ts[d]) >= 300.0)
+            if not due:
+                continue
+            day_raw = self._fetch_throttled(
+                f"day_{d}",
+                f"/api/compass/etapa1?date_str={d}&lite=1",
+                300.0,
+                timeout=15.0,
+                force=force_all,
+            )
+            if not day_raw:
+                continue
+            pro_day = _decode_json_bytes(_sanitize_etapa1_5176(day_raw))
+            if not self._has_compass_bars(pro_day):
+                continue
+            core_day = _decode_json_bytes(_sanitize_etapa1(day_raw))
+            core_map[f"etapa1_day_{d}"] = core_day
+            pro_map[f"etapa1_day_{d}"] = pro_day
+            self._day_cache_pushed_ts[d] = now_mono
+            populated_days += 1
+
         return {
-            "core": {
-                "etapa1_lite": core_lite,
-                "etapa1_full": core_full,
-                "m1_series": m1_obj,
-            },
-            "pro": {
-                "etapa1_lite": pro_lite,
-                "etapa1_full": pro_full,
-                "m1_series": m1_obj,
-                "regime": _decode_json_bytes(regime_raw),
-                "performance": _decode_json_bytes(perf_raw),
-                "di_regime": _decode_json_bytes(di_raw),
-                "gex_walls": _decode_json_bytes(gex_raw),
-                "history": _decode_json_bytes(hist_raw),
+            "core": core_map,
+            "pro": pro_map,
+            "admin": {
+                "morning_brief": _decode_json_bytes(morning_brief_raw),
             },
         }
 
@@ -249,7 +303,27 @@ class CloudPublisher:
         return True, resp.json()
 
 
+def _load_default_env(env_file: Optional[str] = None) -> None:
+    """Carrega variáveis de cloud_saas/.env caso ainda não estejam definidas no ambiente."""
+    path = env_file or os.path.join(ROOT, "cloud_saas", ".env")
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                key = k.strip()
+                if key:
+                    os.environ.setdefault(key, v.strip())
+    except OSError:
+        pass
+
+
 def main() -> int:
+    _load_default_env()
     parser = argparse.ArgumentParser(description="MagicWalls Cloud Push Publisher")
     parser.add_argument("--cloud-url", default=os.environ.get("MW_CLOUD_API_URL", "http://127.0.0.1:8090"))
     parser.add_argument("--local-url", default=os.environ.get("MW_LOCAL_BACKEND_URL", "http://127.0.0.1:8080"))

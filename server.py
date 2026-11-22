@@ -560,6 +560,8 @@ from core.mt5_client import mt5_lock as _mt5_lock
 _v2_lock = _mt5_lock
 _di_lock = _mt5_lock
 _hist_lock = _mt5_lock
+_compass_live_lock = threading.RLock()
+_compass_hist_lock = threading.RLock()
 _flow_api_cache: dict = {}
 _flow_api_cache_ts: float = 0.0
 
@@ -1889,16 +1891,31 @@ def _di_regime_impl():
     return _di_cache
 
 
+_last_health_mt5 = {
+    "mt5_connected": False,
+    "terminal_name": "Profit Native DB + RTD",
+    "terminal_path": "Nelogica/Scalper & Profit",
+}
+
+
 @app.get("/health")
 def health():
-    with _mt5_lock:
-        connected = connect_mt5()
-        info = mt5.terminal_info() if connected else None
+    global _last_health_mt5
+    acquired = _mt5_lock.acquire(timeout=0.4)
+    if acquired:
+        try:
+            connected = connect_mt5()
+            info = mt5.terminal_info() if connected else None
+            _last_health_mt5 = {
+                "mt5_connected": connected,
+                "terminal_name": info.name if info else "Profit Native DB + RTD",
+                "terminal_path": info.path if info else "Nelogica/Scalper & Profit",
+            }
+        finally:
+            _mt5_lock.release()
     return {
-        "mt5_connected": connected,
+        **_last_health_mt5,
         "profit_connected": True,
-        "terminal_name": info.name if info else "Profit Native DB + RTD",
-        "terminal_path": info.path if info else "Nelogica/Scalper & Profit",
         "configured_path": MT5_PATH or "(automatico)",
         "symbol_a": "WINFUT",
         "symbol_b": "WDOFUT",
@@ -1936,6 +1953,232 @@ def get_gex_walls():
     except Exception as e:
         print(f"Erro ao ler walls localmente: {e}")
     return []
+
+
+def _read_text_safe(path: str) -> str:
+    if not os.path.exists(path):
+        return ""
+    for enc in ("utf-8", "latin-1"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                return f.read()
+        except Exception:
+            continue
+    return ""
+
+
+def _read_json_safe(path: str) -> dict:
+    import json
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _to_float_safe(val, default=None):
+    if val is None:
+        return default
+    try:
+        return float(str(val).replace(",", ".").strip())
+    except Exception:
+        return default
+
+
+def _parse_win_report(text: str) -> dict:
+    import re
+    out = {}
+    if not text:
+        return out
+    m_date = re.search(r"Data:\s*(\d{2}/\d{2}/\d{4})", text)
+    if m_date:
+        out["report_date"] = m_date.group(1)
+    m_flip = re.search(r"Gamma Flip Point:\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    if m_flip:
+        out["gamma_flip"] = _to_float_safe(m_flip.group(1))
+    m_status = re.search(r"Status Atual:\s*(.+)", text)
+    if m_status:
+        out["status"] = m_status.group(1).strip()
+    m_bias = re.search(r"Vi[eé]s do Dia:\s*(.+)", text)
+    if m_bias:
+        out["bias"] = m_bias.group(1).strip()
+    m_great = re.search(r"A Grande Muralha.*?:\s*\r?\n\s*-\s*([0-9]+(?:[.,][0-9]+)?)(?:\s*\(([^)]+)\))?", text, re.S)
+    if m_great:
+        out["great_wall"] = {
+            "price": _to_float_safe(m_great.group(1)),
+            "note": (m_great.group(2) or "").strip(),
+        }
+    m_res = re.search(r"Resist[eê]ncia Imediata:\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    if m_res:
+        out["immediate_resistance"] = _to_float_safe(m_res.group(1))
+    m_sup = re.search(r"Suporte Imediato:\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    if m_sup:
+        out["immediate_support"] = _to_float_safe(m_sup.group(1))
+    m_conc = re.search(r"CONCLUS[AÃ]O PARA O PREG[AÃ]O:\s*\r?\n(.+?)(?:\r?\n=+\s*$|\Z)", text, re.S)
+    if m_conc:
+        out["conclusion"] = " ".join(line.strip() for line in m_conc.group(1).splitlines() if line.strip())
+    return out
+
+
+def _parse_wdo_report(text: str) -> dict:
+    import re
+    out = {}
+    if not text:
+        return out
+    m_ref = re.search(r"Vencimento de Referencia:\s*(\S+)\s*\|\s*Data Ref:\s*(\d{2}/\d{2}/\d{4})", text)
+    if m_ref:
+        out["expiry"] = m_ref.group(1).strip()
+        out["report_date"] = m_ref.group(2).strip()
+    m_cur = re.search(r"D[oó]lar Futuro Atual:\s*([0-9]+(?:[.,][0-9]+)?)\s*(?:\(([^)]+)\))?", text)
+    if m_cur:
+        out["current_price"] = _to_float_safe(m_cur.group(1))
+        if m_cur.group(2):
+            out["contract"] = m_cur.group(2).strip()
+    m_flip = re.search(r"Gamma Flip Point:\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    if m_flip:
+        out["gamma_flip"] = _to_float_safe(m_flip.group(1))
+    m_reg = re.search(r"Regime de Gamma:\s*(.+)", text)
+    if m_reg:
+        out["status"] = m_reg.group(1).strip()
+    m_bias = re.search(r"Vies do Dia:\s*(.+)", text)
+    if m_bias:
+        out["bias"] = m_bias.group(1).strip()
+    m_min = re.search(r"MIN GAMMA[^:]*:\s*(?:DOL\s*)?([0-9]+(?:[.,][0-9]+)?)", text)
+    if m_min:
+        out["min_gamma"] = _to_float_safe(m_min.group(1))
+    m_max = re.search(r"MAX GAMMA[^:]*:\s*(?:DOL\s*)?([0-9]+(?:[.,][0-9]+)?)", text)
+    if m_max:
+        out["max_gamma"] = _to_float_safe(m_max.group(1))
+    return out
+
+
+def _parse_economic_calendar(text: str) -> dict:
+    import re
+    if not text:
+        return {"date": "", "events": []}
+    cal_date = ""
+    m_date = re.search(r"CALENDARIO ECONOMICO.*?-\s*(\d{2}/\d{2}/\d{4})", text)
+    if m_date:
+        cal_date = m_date.group(1)
+
+    impact_rank = {"ALTO": 0, "MEDIO": 1, "BAIXO": 2}
+    current_impact = "MEDIO"
+    parsed = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        upper = line.upper()
+        if "ALTO IMPACTO" in upper:
+            current_impact = "ALTO"
+            continue
+        if "MEDIO IMPACTO" in upper or "MÉDIO IMPACTO" in upper:
+            current_impact = "MEDIO"
+            continue
+        if "BAIXO IMPACTO" in upper:
+            current_impact = "BAIXO"
+            continue
+
+        m_ev = re.match(r"^-\s*\[(\d{2}:\d{2})\]\s*\[([A-Z]{2,4})\]\s*(.+)$", line)
+        if not m_ev:
+            continue
+        ev_time, ev_curr, rest = m_ev.group(1), m_ev.group(2), m_ev.group(3).strip()
+        detail = ""
+        title = rest
+        m_det = re.search(r"\s*(\[(?:Prev|Proj|Atual)[^\]]*\])$", rest)
+        if m_det:
+            detail = m_det.group(1).strip("[] ")
+            title = rest[:m_det.start()].strip()
+        parsed.append({
+            "time": ev_time,
+            "currency": ev_curr,
+            "title": title,
+            "impact": current_impact,
+            "detail": detail,
+        })
+
+    has_high_or_med = any(e["impact"] in ("ALTO", "MEDIO") for e in parsed)
+    filtered = []
+    for ev in parsed:
+        is_cftc = "CFTC" in ev["title"].upper() or "ESPECULADORES" in ev["title"].upper()
+        if has_high_or_med and ev["impact"] == "BAIXO" and is_cftc:
+            continue
+        filtered.append(ev)
+
+    if not filtered:
+        filtered = parsed
+
+    filtered.sort(key=lambda e: (impact_rank.get(e["impact"], 9), e["time"]))
+    return {"date": cal_date, "events": filtered[:8]}
+
+
+def _parse_morning_brief_files() -> dict:
+    win_cache = _read_json_safe(os.path.join("gex", "data", "win_walls_cache.json"))
+    wdo_cache = _read_json_safe(os.path.join("gex", "data", "usd_brl_walls_cache.json"))
+
+    win_report = _parse_win_report(_read_text_safe(os.path.join("gex", "docs", "DAILY_REPORT.txt")))
+    wdo_report = _parse_wdo_report(_read_text_safe(os.path.join("gex", "docs", "DAILY_REPORT_DOL.txt")))
+    calendar = _parse_economic_calendar(_read_text_safe(os.path.join("gex", "docs", "DAILY_ECONOMIC_CALENDAR.txt")))
+
+    global_assets = []
+    global_files = [
+        ("SP500_ES", os.path.join("gex", "data", "sp500_es_walls_cache.json")),
+        ("NASDAQ_NQ", os.path.join("gex", "data", "nasdaq_nq_walls_cache.json")),
+        ("GOLD_XAU", os.path.join("gex", "data", "gold_xau_walls_cache.json")),
+        ("BTC_USD", os.path.join("gex", "data", "btc_usd_walls_cache.json")),
+    ]
+    for fallback_ticker, fpath in global_files:
+        gdata = _read_json_safe(fpath)
+        if not gdata:
+            continue
+        cur = _to_float_safe(gdata.get("current_price"))
+        walls = gdata.get("walls") if isinstance(gdata.get("walls"), list) else []
+        gflip = None
+        for w in walls:
+            if isinstance(w, dict) and w.get("type") == "GammaFlip":
+                gflip = _to_float_safe(w.get("price"))
+                break
+        regime = None
+        if cur is not None and gflip is not None:
+            regime = "POSITIVE" if cur >= gflip else "NEGATIVE"
+        global_assets.append({
+            "ticker": gdata.get("ticker") or fallback_ticker,
+            "current_price": cur,
+            "gamma_flip": gflip,
+            "regime": regime,
+            "ref_date": gdata.get("ref_date") or "",
+        })
+
+    ref_date = (
+        wdo_report.get("report_date")
+        or win_report.get("report_date")
+        or calendar.get("date")
+        or wdo_cache.get("ref_date")
+        or win_cache.get("ref_date")
+        or datetime.now().strftime("%d/%m/%Y")
+    )
+
+    return {
+        "ok": True,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ref_date": ref_date,
+        "win": {**win_cache, "report": win_report},
+        "wdo": {**wdo_cache, "report": wdo_report},
+        "calendar": calendar,
+        "global_assets": global_assets,
+    }
+
+
+@app.get("/api/morning-brief")
+def get_morning_brief():
+    try:
+        return _parse_morning_brief_files()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/api/live-calendar")
@@ -2563,6 +2806,12 @@ def update_flow(
     return {"status": "success", "broker": brk, "symbol": sym, "net": net}
 
 # ─── Etapa 1, 2 & 3: Motor de Microestrutura + Caminho A (Dealers GEX) + Caminho B (Opções) ────
+def _compass_lock_for(date_str: str = None):
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    is_hist = isinstance(date_str, str) and bool(date_str.strip()) and date_str.strip() != today_str
+    return _compass_hist_lock if is_hist else _compass_live_lock
+
+
 @app.get("/api/compass/etapa1")
 @app.get("/api/compass/all")
 @app.get("/api/flow/microstructure")
@@ -2570,10 +2819,10 @@ def get_compass_etapa1(date_str: str = None, lite: bool = False):
     """Retorna o snapshot completo unificado das Etapas 1, 2 (Caminho A) e 3 (Caminho B) e sincroniza _broker_flow."""
     try:
         from core.profit_mt5_flow_engine import flow_engine_singleton
-        with _mt5_lock:
+        with _compass_lock_for(date_str):
             snap = flow_engine_singleton.update(date_str=date_str)
         win_b = snap.get("WIN", {}).get("brokers", {})
-        if win_b:
+        if win_b and not snap.get("is_historical"):
             any_vol = False
             for brk, bdata in win_b.items():
                 if bdata.get("vol", 0) > 0 or bdata.get("net", 0) != 0:
@@ -2610,7 +2859,8 @@ def get_compass_m1_series(date_str: str = None):
     """Retorna a série intradiária enriquecida de 1 Minuto (M1) para WIN e WDO (com NWE causal + Fluxo Smart Money)."""
     try:
         from core.gex_live_dealer_engine import gex_dealer_engine_singleton
-        return gex_dealer_engine_singleton.get_m1_chart_payload(sess_date=date_str)
+        with _compass_lock_for(date_str):
+            return gex_dealer_engine_singleton.get_m1_chart_payload(sess_date=date_str)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -2623,7 +2873,7 @@ def get_compass_etapa2(date_str: str = None):
     """Retorna a análise da Etapa 2 (Caminho A — Pressão de Hedge Dinâmico dos Dealers GEX cruzada com o Fluxo Profit/MT5)."""
     try:
         from core.profit_mt5_flow_engine import flow_engine_singleton
-        with _mt5_lock:
+        with _compass_lock_for(date_str):
             snap = flow_engine_singleton.update(date_str=date_str)
         return {
             "ok": snap.get("ok", True),
@@ -2647,7 +2897,7 @@ async def post_divergencias_motor(request: Request):
         from core.div_engines_view import detect
         asset = str(body.get("asset", "WIN")).upper()
         engine = str(body.get("engine", "v2.1"))
-        divs = detect(asset, body.get("bars") or [], body.get("walls") or [], engine)
+        divs = detect(asset, body.get("bars") or [], body.get("walls") or [], engine, trades=body.get("trades") or [])
         return {"ok": True, "asset": asset, "engine": engine, "divergences": divs}
     except Exception as e:
         return {"ok": False, "error": str(e)}

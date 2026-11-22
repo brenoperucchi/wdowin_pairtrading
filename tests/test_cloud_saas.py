@@ -102,6 +102,9 @@ class CloudSaasArchitectureTests(unittest.TestCase):
                     "gex_walls": [{"type": "Wall", "price": 168424}],
                     "history": {"history": [{"date": "2026-11-20", "z": 0.1}]},
                 },
+                "admin": {
+                    "morning_brief": {"ok": True, "win": {"symbol": "WINFUT"}, "wdo": {"symbol": "WDOFUT"}},
+                },
             },
         }
         return _signed_push_request(self.client, self.settings.push_hmac_secret, payload, producer_id=producer_id, role=role)
@@ -140,7 +143,7 @@ class CloudSaasArchitectureTests(unittest.TestCase):
         r_ok = self._seed_sample_push()
         self.assertEqual(r_ok.status_code, 200)
         self.assertTrue(r_ok.json()["accepted"])
-        self.assertEqual(r_ok.json()["stored_count"], 9)
+        self.assertEqual(r_ok.json()["stored_count"], 10)
 
         st = self.client.get("/api/v1/feed/status").json()
         self.assertEqual(st["status"], "live")
@@ -568,6 +571,66 @@ class CloudSaasArchitectureTests(unittest.TestCase):
             self.assertTrue(all(info.get("ok") for info in chk["tables"].values()))
         finally:
             mock_client.close()
+
+    def test_morning_brief_admin_only(self) -> None:
+        self._seed_sample_push()
+        self._create_user("core_mb@mw.com", "core")
+        self._create_user("pro_mb@mw.com", "pro")
+        self._create_user("admin_mb@mw.com", "admin")
+
+        r_unauth = self.client.get("/api/morning-brief")
+        self.assertEqual(r_unauth.status_code, 401)
+        self.assertEqual(r_unauth.json()["code"], "UNAUTHENTICATED")
+
+        tok_core = self.client.post("/auth/login", json={"email": "core_mb@mw.com", "password": "StrongPassword!123", "device_fp": "fp-core-mb"}).json()["access_token"]
+        tok_pro = self.client.post("/auth/login", json={"email": "pro_mb@mw.com", "password": "StrongPassword!123", "device_fp": "fp-pro-mb"}).json()["access_token"]
+        tok_admin = self.client.post("/auth/login", json={"email": "admin_mb@mw.com", "password": "StrongPassword!123", "device_fp": "fp-admin-mb"}).json()["access_token"]
+
+        r_core = self.client.get("/api/morning-brief", headers={"Authorization": f"Bearer {tok_core}"})
+        self.assertEqual(r_core.status_code, 403)
+        self.assertEqual(r_core.json()["code"], "PLAN_UPGRADE_REQUIRED")
+
+        r_pro = self.client.get("/api/morning-brief", headers={"Authorization": f"Bearer {tok_pro}"})
+        self.assertEqual(r_pro.status_code, 403)
+        self.assertEqual(r_pro.json()["code"], "PLAN_UPGRADE_REQUIRED")
+
+        r_admin = self.client.get("/api/morning-brief", headers={"Authorization": f"Bearer {tok_admin}"})
+        self.assertEqual(r_admin.status_code, 200)
+        self.assertTrue(r_admin.json()["ok"])
+        self.assertEqual(r_admin.json()["win"]["symbol"], "WINFUT")
+
+    def test_etapa1_historical_date_str_served_from_cache(self) -> None:
+        payload = {
+            "producer_id": "vps-01",
+            "producer_role": "primary",
+            "snapshots": {
+                "core": {
+                    "etapa1_lite": {"ok": True, "tier": "core", "selected_date": "2026-11-21"},
+                    "etapa1_day_2026-11-19": {"ok": True, "tier": "core", "selected_date": "2026-11-19"},
+                },
+                "pro": {
+                    "etapa1_lite": {"ok": True, "tier": "pro", "selected_date": "2026-11-21"},
+                    "etapa1_day_2026-11-19": {"ok": True, "tier": "pro", "selected_date": "2026-11-19"},
+                },
+            },
+        }
+        r_push = _signed_push_request(self.client, self.settings.push_hmac_secret, payload)
+        self.assertEqual(r_push.status_code, 200)
+
+        self._create_user("core_hist@mw.com", "core")
+        self._create_user("pro_hist@mw.com", "pro")
+        tok_core = self.client.post("/auth/login", json={"email": "core_hist@mw.com", "password": "StrongPassword!123", "device_fp": "fp-c"}).json()["access_token"]
+        tok_pro = self.client.post("/auth/login", json={"email": "pro_hist@mw.com", "password": "StrongPassword!123", "device_fp": "fp-p"}).json()["access_token"]
+
+        rc = self.client.get("/api/compass/etapa1?date_str=2026-11-19&lite=1", headers={"Authorization": f"Bearer {tok_core}"})
+        self.assertEqual(rc.status_code, 200)
+        self.assertEqual(rc.json()["selected_date"], "2026-11-19")
+        self.assertEqual(rc.json()["tier"], "core")
+
+        rp = self.client.get("/api/compass/etapa1?date_str=2026-11-19&lite=1", headers={"Authorization": f"Bearer {tok_pro}"})
+        self.assertEqual(rp.status_code, 200)
+        self.assertEqual(rp.json()["selected_date"], "2026-11-19")
+        self.assertEqual(rp.json()["tier"], "pro")
 
 
 if __name__ == "__main__":

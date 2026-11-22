@@ -241,6 +241,13 @@ def simulate_wdo_core_slot(
     end_date: str = "2026-11-04",
     cost_pts: float = 0.0,
     sig_filter=None,
+    entry_override: str = "CURRENT",
+    be_mode_override: int = -1,
+    wall_buf_override: float = -1.0,
+    tp_mode_override: int = 0,
+    max_trades_day: int = 0,
+    max_losses_day: int = 0,
+    window_override: str = "CURRENT",
 ):
     """
     Simula fielmente o slot `slot_id` (1..16) de `Jumba_WDO_GEX_NWE_Core.mqh`.
@@ -251,6 +258,7 @@ def simulate_wdo_core_slot(
     """
     # [ativo, data_b1, tmin_b1] durante a avaliação de sinais da barra
     _gate = [False, "", 0]
+    _b1_ctx = [0.0, 0.0, 0.0]  # [b1_h, b1_l, new_bar_open]
     dates = df["session_date"].values
     ts_arr = df["t"].values
     unix_ts = df["unix_ts"].values
@@ -311,6 +319,7 @@ def simulate_wdo_core_slot(
 
     loaded_date = ""
     trades_today = 0
+    losses_today = 0
     closed_pnl_today_brl = 0.0
     m_levels_all = np.array([], dtype=float)
     m_levels_walls = np.array([], dtype=float)
@@ -360,20 +369,54 @@ def simulate_wdo_core_slot(
             return round05(def_wall - buf) if d_pos == 1 else round05(def_wall + buf)
         return round05(avg_price + be_lock) if d_pos == 1 else round05(avg_price - be_lock)
 
+    def _entry_allowed(_dir: int) -> bool:
+        if not _gate[0]:
+            return True
+        if max_trades_day > 0 and trades_today >= max_trades_day:
+            return False
+        if max_losses_day > 0 and losses_today >= max_losses_day:
+            return False
+        if window_override != "CURRENT" and not window_ok(_gate[2], window_override):
+            return False
+        if sig_filter is not None and not sig_filter(_gate[1], _gate[2], _dir):
+            return False
+        return True
+
     def open_virtual_single(
         _dir: int, _entry_p: float, _bar_t: int, _tp_pts: float, _sl_pts: float,
         _be_trig: float, _be_lock: float, _tr_trig: float, _tr_dist: float,
         _max_hold: int = 16, _is_intrabar: bool = False,
         _pyr_trig: float = 0.0, _pyr_lock: float = 1.0,
-        _def_wall: float = 0.0, _be_mode: int = 0, _wall_buf: float = 0.0
+        _def_wall: float = 0.0, _be_mode: int = 0, _wall_buf: float = 0.0,
+        _bypass_override: bool = False
     ):
         nonlocal d_pos, lots, leg_stage, p1_entry, avg_price, curr_sl, curr_tp, max_fav_pts
         nonlocal be_active, be_stage2_active, opened_intrabar, bars_held, entry_bar_time
         nonlocal be_trig, be_lock, tr_trig, tr_dist, max_hold_bars, pyr_trig, pyr_lock
         nonlocal def_wall, be_mode, wall_shield_buf, step2_dist, step3_dist, lot1, lot2, lot3
         nonlocal tp_avg_pts, max_sl_pts, pend_dir, pend_bars_left, broker_order_active
-        if _gate[0] and sig_filter is not None and not sig_filter(_gate[1], _gate[2], _dir):
+        if not _bypass_override and not _entry_allowed(_dir):
             return
+        if _gate[0] and not _bypass_override:
+            if be_mode_override >= 0:
+                _be_mode = be_mode_override
+            if wall_buf_override >= 0.0:
+                _wall_buf = wall_buf_override
+            if entry_override in ("LIMIT_B1_MID", "LIMIT_B1_EXT", "STOP_B1_EXT") and not _is_intrabar:
+                bh, bl, nbo = _b1_ctx
+                if entry_override == "LIMIT_B1_MID":
+                    ov_p, ov_t = round05(0.5 * (bh + bl)), 1
+                elif entry_override == "LIMIT_B1_EXT":
+                    ov_p, ov_t = (round05(bl + 0.5) if _dir == 1 else round05(bh - 0.5)), 1
+                else:
+                    ov_p, ov_t = (round05(bh + 0.5) if _dir == 1 else round05(bl - 0.5)), 2
+                if tp_mode_override in (1, 2):
+                    _tp_pts = calc_wdo_target_pts(ov_p, _dir, tp_mode_override, _tp_pts, m_levels_walls, m_levels_all)
+                arm_pending_order(_dir, ov_t, ov_p, _bar_t, nbo, _tp_pts, _sl_pts, _be_trig, _be_lock,
+                                  _tr_trig, _tr_dist, _max_hold, _def_wall, _be_mode, _wall_buf, 2, _gate[1], True)
+                return
+            if tp_mode_override in (1, 2):
+                _tp_pts = calc_wdo_target_pts(round05(_entry_p), _dir, tp_mode_override, _tp_pts, m_levels_walls, m_levels_all)
         p05 = round05(_entry_p)
         d_pos = _dir
         lots = 1
@@ -423,7 +466,7 @@ def simulate_wdo_core_slot(
         nonlocal step2_dist, step3_dist, lot1, lot2, lot3, tp_avg_pts, max_sl_pts
         nonlocal be_trig, be_lock, tr_trig, tr_dist, max_hold_bars, pyr_trig
         nonlocal def_wall, be_mode, wall_shield_buf, pend_dir, pend_bars_left, broker_order_active
-        if _gate[0] and sig_filter is not None and not sig_filter(_gate[1], _gate[2], _dir):
+        if not _entry_allowed(_dir):
             return
         p05 = round05(_entry_p)
         d_pos = _dir
@@ -439,7 +482,8 @@ def simulate_wdo_core_slot(
             worst_off = 0.0
         init_sl_dist = max(_max_sl, worst_off + _max_sl)
         curr_sl = round05(p05 - init_sl_dist) if _dir == 1 else round05(p05 + init_sl_dist)
-        p1_tp_pts = calc_wdo_target_pts(p05, _dir, 1, _tp_avg, m_levels_walls, m_levels_all, 0.5)
+        tp_t = tp_mode_override if tp_mode_override in (1, 2) else 1
+        p1_tp_pts = calc_wdo_target_pts(p05, _dir, tp_t, _tp_avg, m_levels_walls, m_levels_all, 0.5)
         curr_tp = round05(p05 + p1_tp_pts) if _dir == 1 else round05(p05 - p1_tp_pts)
         max_fav_pts = 0.0
         be_active = False
@@ -472,14 +516,40 @@ def simulate_wdo_core_slot(
         _tp_pts: float, _sl_pts: float, _be_trig: float, _be_lock: float,
         _tr_trig: float, _tr_dist: float, _max_hold: int = 16,
         _def_wall: float = 0.0, _be_mode: int = 0, _wall_buf: float = 0.0, _valid_bars: int = 1,
-        _today_str: str = ""
+        _today_str: str = "", _bypass_override: bool = False
     ):
         nonlocal pend_dir, pend_type, pend_price, pend_bar_time, pend_tp_pts, pend_sl_pts
         nonlocal be_trig, be_lock, tr_trig, tr_dist, max_hold_bars
         nonlocal pend_def_wall, pend_be_mode, pend_wall_buf, pend_bars_left, broker_order_active
         nonlocal last_entry_bar_time, last_trade_date
-        if _gate[0] and sig_filter is not None and not sig_filter(_gate[1], _gate[2], _dir):
+        if not _bypass_override and not _entry_allowed(_dir):
             return
+        if _gate[0] and not _bypass_override:
+            if be_mode_override >= 0:
+                _be_mode = be_mode_override
+            if wall_buf_override >= 0.0:
+                _wall_buf = wall_buf_override
+            if entry_override == "MARKET":
+                if tp_mode_override in (1, 2):
+                    _tp_pts = calc_wdo_target_pts(round05(_new_bar_open), _dir, tp_mode_override, _tp_pts, m_levels_walls, m_levels_all)
+                open_virtual_single(_dir, _new_bar_open, _bar_t, _tp_pts, _sl_pts, _be_trig, _be_lock,
+                                    _tr_trig, _tr_dist, _max_hold, False, pyr_trig, pyr_lock,
+                                    _def_wall, _be_mode, _wall_buf, True)
+                last_entry_bar_time = _bar_t
+                if slot_id == 16:
+                    last_trade_date = _today_str
+                return
+            elif entry_override in ("LIMIT_B1_MID", "LIMIT_B1_EXT", "STOP_B1_EXT"):
+                bh, bl, _ = _b1_ctx
+                if entry_override == "LIMIT_B1_MID":
+                    _price, _ptype = round05(0.5 * (bh + bl)), 1
+                elif entry_override == "LIMIT_B1_EXT":
+                    _price, _ptype = (round05(bl + 0.5) if _dir == 1 else round05(bh - 0.5)), 1
+                else:
+                    _price, _ptype = (round05(bh + 0.5) if _dir == 1 else round05(bl - 0.5)), 2
+                _valid_bars = max(_valid_bars, 2)
+            if tp_mode_override in (1, 2):
+                _tp_pts = calc_wdo_target_pts(round05(_price), _dir, tp_mode_override, _tp_pts, m_levels_walls, m_levels_all)
         p05 = round05(_price)
         if _ptype == 1 and _dir == 1 and _new_bar_open < p05:
             return
@@ -513,7 +583,7 @@ def simulate_wdo_core_slot(
            (_ptype == 2 and _dir == -1 and _new_bar_open <= p05):
             pt_save = pyr_trig
             pl_save = pyr_lock
-            open_virtual_single(_dir, p05, _bar_t, _tp_pts, _sl_pts, _be_trig, _be_lock, _tr_trig, _tr_dist, _max_hold, True, pt_save, pl_save, _def_wall, _be_mode, _wall_buf)
+            open_virtual_single(_dir, p05, _bar_t, _tp_pts, _sl_pts, _be_trig, _be_lock, _tr_trig, _tr_dist, _max_hold, True, pt_save, pl_save, _def_wall, _be_mode, _wall_buf, True)
             last_entry_bar_time = _bar_t
             if slot_id == 16:
                 last_trade_date = _today_str
@@ -522,7 +592,7 @@ def simulate_wdo_core_slot(
         broker_order_active = True
 
     def close_virtual_slot(exit_px: float, reason: str, exit_time, today_s: str):
-        nonlocal trades_today, closed_pnl_today_brl
+        nonlocal trades_today, losses_today, closed_pnl_today_brl
         if d_pos == 0:
             return
         raw_pts = (exit_px - avg_price) * d_pos
@@ -531,6 +601,8 @@ def simulate_wdo_core_slot(
         pnl_net_brl = net_pts_lot * lots * 10.0
         closed_pnl_today_brl += pnl_raw_brl
         trades_today += 1
+        if pnl_net_brl < 0.0:
+            losses_today += 1
         trades.append({
             "date": today_s,
             "entry_time": pd.Timestamp(entry_bar_time, unit="s"),
@@ -564,6 +636,7 @@ def simulate_wdo_core_slot(
         # LoadDailyGexWalls(today_str) no início do dia
         if today_str != loaded_date:
             trades_today = 0
+            losses_today = 0
             closed_pnl_today_brl = 0.0
             if today_str in gex_by_date:
                 g = gex_by_date[today_str]
@@ -666,6 +739,7 @@ def simulate_wdo_core_slot(
 
             # 3. Avaliação de sinais de entrada (apenas se b1_date == today_str)
             _gate[0], _gate[1], _gate[2] = True, str(b1_date), int(b1_tmin)
+            _b1_ctx[0], _b1_ctx[1], _b1_ctx[2] = b1_h, b1_l, new_bar_open
             if b1_date == today_str and d_pos == 0 and pend_dir == 0:
                 d_l, lvl_s = find_nearest_level(m_levels_all, b1_l)
                 d_h, lvl_r = find_nearest_level(m_levels_all, b1_h)

@@ -70,8 +70,14 @@ def run_experiment(
     max_hold_bars: int = 32,
     max_sl_pts: float = 400.0,
     sig_filter=None,
+    be_mode: str = "BE_ZERO",     # "BE_ZERO" | "BE_WALL_SHIELD"
+    tp_mode: str = "TP_MIDWALL",  # "TP_MIDWALL" | "TP_MAIN_WALL"
+    max_trades_day: int = 0,
+    max_losses_day: int = 0,
+    cost_pts_override: float = -1.0,
+    strict_causal: bool = False,
 ):
-    cost_pts = WIN_COST_PTS if asset == "WIN" else WDO_COST_PTS
+    cost_pts = cost_pts_override if cost_pts_override >= 0.0 else (WIN_COST_PTS if asset == "WIN" else WDO_COST_PTS)
     pt_val = 0.20 if asset == "WIN" else 10.0
     
     opens = df["open"].values
@@ -80,6 +86,7 @@ def run_experiment(
     closes = df["close"].values
     dates = df["session_date"].values
     tmins = df["t_min"].values
+    ts_arr = df["t"].values if "t" in df.columns else None
     n = len(df)
     
     n_c = nwe_series["center"]
@@ -97,6 +104,9 @@ def run_experiment(
     be_active = False
     def_wall = 0.0
     i_entry = 0
+    cur_count_day = ""
+    trades_today = 0
+    losses_today = 0
     
     # Ordem pendente
     pend_active = False
@@ -116,6 +126,10 @@ def run_experiment(
         cur_h = highs[i]
         cur_l = lows[i]
         cur_c = closes[i]
+        if d != cur_count_day:
+            cur_count_day = d
+            trades_today = 0
+            losses_today = 0
 
         # 1. Checa preenchimento de ordem pendente
         if pend_active and not in_pos:
@@ -135,7 +149,8 @@ def run_experiment(
                     gex = gex_data.get(d)
                     if gex:
                         all_lvls = np.sort(np.unique(np.concatenate([gex["walls"], gex["mid_walls"]])))
-                        tp_target = find_target(fill_px, pend_side, all_lvls, asset, min_tp_dist, front_run)
+                        tgt_lvls = np.sort(gex["walls"]) if (tp_mode == "TP_MAIN_WALL" and len(gex["walls"]) > 0) else all_lvls
+                        tp_target = find_target(fill_px, pend_side, tgt_lvls, asset, min_tp_dist, front_run)
                         if tp_target is not None:
                             if pend_side == 1:
                                 def_lvls = all_lvls[all_lvls <= fill_px]
@@ -161,6 +176,30 @@ def run_experiment(
                                 def_wall = def_w
                                 be_active = False
                                 i_entry = i
+                                if strict_causal:
+                                    hit_sl = (side == 1 and cur_l <= sl) or (side == -1 and cur_h >= sl)
+                                    hit_tp = (side == 1 and cur_h >= tp) or (side == -1 and cur_l <= tp)
+                                    if hit_sl or hit_tp:
+                                        exit_px = sl if hit_sl else tp
+                                        pnl = (exit_px - ep) * side - cost_pts
+                                        brl_v = round(pnl * pt_val, 2)
+                                        trades_today += 1
+                                        if brl_v < 0:
+                                            losses_today += 1
+                                        trades.append({
+                                            "date": dates[i_entry],
+                                            "time": tmins[i_entry],
+                                            "entry_time": pd.Timestamp(ts_arr[i_entry]) if ts_arr is not None else None,
+                                            "exit_time": pd.Timestamp(ts_arr[i]) if ts_arr is not None else None,
+                                            "side": side,
+                                            "ep": ep,
+                                            "xp": exit_px,
+                                            "pts": pnl,
+                                            "brl": brl_v,
+                                            "reason": "SL" if hit_sl else "TP_WALL",
+                                            "bars": 0,
+                                        })
+                                        in_pos = False
                     pend_active = False
                 else:
                     pend_bars_left -= 1
@@ -171,14 +210,20 @@ def run_experiment(
             if tm >= 1060 or d != dates[i_entry] or bars_held >= max_hold_bars:
                 exit_px = cur_o
                 pnl = (exit_px - ep) * side - cost_pts
+                brl_v = round(pnl * pt_val, 2)
+                trades_today += 1
+                if brl_v < 0:
+                    losses_today += 1
                 trades.append({
                     "date": dates[i_entry],
                     "time": tmins[i_entry],
+                    "entry_time": pd.Timestamp(ts_arr[i_entry]) if ts_arr is not None else None,
+                    "exit_time": pd.Timestamp(ts_arr[i]) if ts_arr is not None else None,
                     "side": side,
                     "ep": ep,
                     "xp": exit_px,
                     "pts": pnl,
-                    "brl": round(pnl * pt_val, 2),
+                    "brl": brl_v,
                     "reason": "EOD_TIME",
                     "bars": bars_held,
                 })
@@ -186,21 +231,30 @@ def run_experiment(
                 continue
 
             if side == 1:
-                if not be_active and cur_h >= ep + (tp - ep) * be_ratio:
+                if not strict_causal and not be_active and cur_h >= ep + (tp - ep) * be_ratio:
                     be_active = True
-                    sl = max(sl, round_tick(ep + be_lock_pts, asset))
+                    if be_mode == "BE_WALL_SHIELD" and def_wall > 0:
+                        sl = max(sl, min(round_tick(def_wall - wall_buf * 0.5, asset), round_tick(ep + be_lock_pts, asset)))
+                    else:
+                        sl = max(sl, round_tick(ep + be_lock_pts, asset))
                 
                 if cur_l <= sl:
                     exit_px = sl
                     pnl = (exit_px - ep) - cost_pts
+                    brl_v = round(pnl * pt_val, 2)
+                    trades_today += 1
+                    if brl_v < 0:
+                        losses_today += 1
                     trades.append({
                         "date": dates[i_entry],
                         "time": tmins[i_entry],
+                        "entry_time": pd.Timestamp(ts_arr[i_entry]) if ts_arr is not None else None,
+                        "exit_time": pd.Timestamp(ts_arr[i]) if ts_arr is not None else None,
                         "side": 1,
                         "ep": ep,
                         "xp": exit_px,
                         "pts": pnl,
-                        "brl": round(pnl * pt_val, 2),
+                        "brl": brl_v,
                         "reason": "SL_BE" if be_active else "SL",
                         "bars": bars_held,
                     })
@@ -209,35 +263,56 @@ def run_experiment(
                 elif cur_h >= tp:
                     exit_px = tp
                     pnl = (exit_px - ep) - cost_pts
+                    brl_v = round(pnl * pt_val, 2)
+                    trades_today += 1
+                    if brl_v < 0:
+                        losses_today += 1
                     trades.append({
                         "date": dates[i_entry],
                         "time": tmins[i_entry],
+                        "entry_time": pd.Timestamp(ts_arr[i_entry]) if ts_arr is not None else None,
+                        "exit_time": pd.Timestamp(ts_arr[i]) if ts_arr is not None else None,
                         "side": 1,
                         "ep": ep,
                         "xp": exit_px,
                         "pts": pnl,
-                        "brl": round(pnl * pt_val, 2),
+                        "brl": brl_v,
                         "reason": "TP_WALL",
                         "bars": bars_held,
                     })
                     in_pos = False
                     continue
-            else:
-                if not be_active and cur_l <= ep - (ep - tp) * be_ratio:
+                if strict_causal and not be_active and cur_h >= ep + (tp - ep) * be_ratio:
                     be_active = True
-                    sl = min(sl, round_tick(ep - be_lock_pts, asset))
+                    if be_mode == "BE_WALL_SHIELD" and def_wall > 0:
+                        sl = max(sl, min(round_tick(def_wall - wall_buf * 0.5, asset), round_tick(ep + be_lock_pts, asset)))
+                    else:
+                        sl = max(sl, round_tick(ep + be_lock_pts, asset))
+            else:
+                if not strict_causal and not be_active and cur_l <= ep - (ep - tp) * be_ratio:
+                    be_active = True
+                    if be_mode == "BE_WALL_SHIELD" and def_wall > 0:
+                        sl = min(sl, max(round_tick(def_wall + wall_buf * 0.5, asset), round_tick(ep - be_lock_pts, asset)))
+                    else:
+                        sl = min(sl, round_tick(ep - be_lock_pts, asset))
                 
                 if cur_h >= sl:
                     exit_px = sl
                     pnl = (ep - exit_px) - cost_pts
+                    brl_v = round(pnl * pt_val, 2)
+                    trades_today += 1
+                    if brl_v < 0:
+                        losses_today += 1
                     trades.append({
                         "date": dates[i_entry],
                         "time": tmins[i_entry],
+                        "entry_time": pd.Timestamp(ts_arr[i_entry]) if ts_arr is not None else None,
+                        "exit_time": pd.Timestamp(ts_arr[i]) if ts_arr is not None else None,
                         "side": -1,
                         "ep": ep,
                         "xp": exit_px,
                         "pts": pnl,
-                        "brl": round(pnl * pt_val, 2),
+                        "brl": brl_v,
                         "reason": "SL_BE" if be_active else "SL",
                         "bars": bars_held,
                     })
@@ -246,21 +321,35 @@ def run_experiment(
                 elif cur_l <= tp:
                     exit_px = tp
                     pnl = (ep - exit_px) - cost_pts
+                    brl_v = round(pnl * pt_val, 2)
+                    trades_today += 1
+                    if brl_v < 0:
+                        losses_today += 1
                     trades.append({
                         "date": dates[i_entry],
                         "time": tmins[i_entry],
+                        "entry_time": pd.Timestamp(ts_arr[i_entry]) if ts_arr is not None else None,
+                        "exit_time": pd.Timestamp(ts_arr[i]) if ts_arr is not None else None,
                         "side": -1,
                         "ep": ep,
                         "xp": exit_px,
                         "pts": pnl,
-                        "brl": round(pnl * pt_val, 2),
+                        "brl": brl_v,
                         "reason": "TP_WALL",
                         "bars": bars_held,
                     })
                     in_pos = False
                     continue
+                if strict_causal and not be_active and cur_l <= ep - (ep - tp) * be_ratio:
+                    be_active = True
+                    if be_mode == "BE_WALL_SHIELD" and def_wall > 0:
+                        sl = min(sl, max(round_tick(def_wall + wall_buf * 0.5, asset), round_tick(ep - be_lock_pts, asset)))
+                    else:
+                        sl = min(sl, round_tick(ep - be_lock_pts, asset))
 
         # 3. Identificação de novo sinal
+        if (max_trades_day > 0 and trades_today >= max_trades_day) or (max_losses_day > 0 and losses_today >= max_losses_day):
+            continue
         if not in_pos and not pend_active and (time_window[0] <= tm <= time_window[1]):
             gex = gex_data.get(d)
             if not gex:
@@ -376,7 +465,8 @@ def run_experiment(
             if sig_side != 0:
                 if entry_mode == "MARKET":
                     entry_px = cur_o
-                    tp_target = find_target(entry_px, sig_side, all_lvls, asset, min_tp_dist, front_run)
+                    tgt_lvls = np.sort(walls) if (tp_mode == "TP_MAIN_WALL" and len(walls) > 0) else all_lvls
+                    tp_target = find_target(entry_px, sig_side, tgt_lvls, asset, min_tp_dist, front_run)
                     if tp_target is not None:
                         if sig_side == 1:
                             def_lvls = all_lvls[all_lvls <= entry_px]
@@ -402,6 +492,31 @@ def run_experiment(
                             def_wall = def_w
                             be_active = False
                             i_entry = i
+                            if strict_causal:
+                                # Checa SL/TP conservador (SL primeiro) na própria barra de entrada M15!
+                                hit_sl = (side == 1 and cur_l <= sl) or (side == -1 and cur_h >= sl)
+                                hit_tp = (side == 1 and cur_h >= tp) or (side == -1 and cur_l <= tp)
+                                if hit_sl or hit_tp:
+                                    exit_px = sl if hit_sl else tp
+                                    pnl = (exit_px - ep) * side - cost_pts
+                                    brl_v = round(pnl * pt_val, 2)
+                                    trades_today += 1
+                                    if brl_v < 0:
+                                        losses_today += 1
+                                    trades.append({
+                                        "date": dates[i_entry],
+                                        "time": tmins[i_entry],
+                                        "entry_time": pd.Timestamp(ts_arr[i_entry]) if ts_arr is not None else None,
+                                        "exit_time": pd.Timestamp(ts_arr[i]) if ts_arr is not None else None,
+                                        "side": side,
+                                        "ep": ep,
+                                        "xp": exit_px,
+                                        "pts": pnl,
+                                        "brl": brl_v,
+                                        "reason": "SL" if hit_sl else "TP_WALL",
+                                        "bars": 0,
+                                    })
+                                    in_pos = False
                 
                 elif entry_mode == "LIMIT_WALL":
                     # Coloca ordem limite exatamente no nível da Wall

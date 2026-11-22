@@ -139,6 +139,7 @@ private:
    double            m_flow_cache_inst_5m;
    double            m_flow_cache_inst_15m;
    double            m_flow_cache_delta_5m;
+   int               m_entry_cutoff_min;    // Corte anti-furia (minutos do dia, ex: 900 = 15:00; 0=desativado)
 
 public:
                      CJumbaWdoGexNweEngine()
@@ -169,6 +170,32 @@ public:
       m_flow_cache_inst_5m = 0.0;
       m_flow_cache_inst_15m = 0.0;
       m_flow_cache_delta_5m = 0.0;
+      m_entry_cutoff_min = 900; // Padrao B3 validado: WDO sem novas entradas a partir das 15:00
+     }
+
+   int               ParseEntryCutoffMinutes(string hhmm)
+     {
+      string s = hhmm;
+      StringTrimLeft(s);
+      StringTrimRight(s);
+      if(s == "" || s == "0" || s == "OFF" || s == "off")
+         return 0;
+      int colon = StringFind(s, ":");
+      if(colon > 0)
+        {
+         int h = (int)StringToInteger(StringSubstr(s, 0, colon));
+         int m = (int)StringToInteger(StringSubstr(s, colon + 1));
+         if(h >= 9 && h <= 18 && m >= 0 && m <= 59)
+            return h * 60 + m;
+         return 0;
+        }
+      int mins = (int)StringToInteger(s);
+      return (mins >= 540 && mins <= 1080) ? mins : 0;
+     }
+
+   void              SetMaxEntryTime(string hhmm)
+     {
+      m_entry_cutoff_min = ParseEntryCutoffMinutes(hhmm);
      }
 
    void              SetUseFlowFilter(bool use_flow)
@@ -1064,6 +1091,8 @@ public:
                           ArraySize(m_levels_all), ArraySize(m_levels_walls), m_gamma_flip, m_n50_s_1, m_rsi7_1);
       hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx | Filtro Fluxo: %s\n",
                           GetTotalDailyPnLBRL(), m_lot_mult, (m_use_flow_filter ? "ATIVO (CopyTicks)" : "OFF (Puro OHLC)"));
+      if(m_guard.IsDailyStopActive())
+         hud += " [TRAVADO HOJE: " + m_guard.DailyStopReason() + "]\n";
       hud += "----------------------------------------------------------\n";
       for(int k=1; k<=16; k++)
         {
@@ -1936,10 +1965,12 @@ public:
         }
 
       double total_day_pnl = GetTotalDailyPnLBRL();
-      if(t_min >= 1035 || (m_max_daily_loss_brl > 0.0 && total_day_pnl <= -m_max_daily_loss_brl))
+      bool ext_daily_stop = m_guard.IsDailyStopActive();
+      if(t_min >= 1035 || ext_daily_stop || (m_max_daily_loss_brl > 0.0 && total_day_pnl <= -m_max_daily_loss_brl))
         {
-         string rsn = (t_min >= 1035) ? "EOD_1715" : "MAX_DAILY_LOSS";
+         string rsn = (t_min >= 1035) ? "EOD_1715" : (ext_daily_stop ? "PORTFOLIO_DAILY_STOP" : "MAX_DAILY_LOSS");
          double px = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         bool changed = false;
          for(int k=1; k<=16; k++)
            {
             if(m_slots[k].pend_dir != 0)
@@ -1947,11 +1978,25 @@ public:
                DeletePendingOrdersForSlot(k);
                m_slots[k].pend_dir = 0;
                m_slots[k].pend_bars_left = 0;
+               changed = true;
               }
             if(m_slots[k].dir != 0)
+              {
                CloseVirtualSlot(k, px, rsn);
+               changed = true;
+              }
            }
          SyncRealPositionsWithVirtualSlots();
+         if(changed || ext_daily_stop)
+           {
+            static ulong s_last_wdo_hud_ms = 0;
+            ulong now_hud = GetTickCount64();
+            if(changed || now_hud - s_last_wdo_hud_ms >= 5000)
+              {
+               s_last_wdo_hud_ms = now_hud;
+               RenderHudComment();
+              }
+           }
          return;
         }
 
@@ -2127,7 +2172,8 @@ public:
          if(m_slots[k].pend_dir != 0)
            {
             m_slots[k].pend_bars_left -= 1;
-            if(m_slots[k].pend_bars_left <= 0 || b1_date != today_str || new_tmin >= 1005)
+            int pend_cut = (m_entry_cutoff_min > 0) ? MathMin(1005, m_entry_cutoff_min) : 1005;
+            if(m_slots[k].pend_bars_left <= 0 || b1_date != today_str || new_tmin >= pend_cut)
               {
                DeletePendingOrdersForSlot(k);
                m_slots[k].pend_dir = 0;
@@ -2242,6 +2288,10 @@ public:
         }
 
       if(b1_date != today_str)
+         return;
+
+      // Corte horario anti-furia (bloqueia apenas NOVAS entradas; posicoes abertas seguem gerenciadas ate 17:15)
+      if(m_entry_cutoff_min > 0 && new_tmin >= m_entry_cutoff_min)
          return;
 
       if(!MQLInfoInteger(MQL_TESTER))

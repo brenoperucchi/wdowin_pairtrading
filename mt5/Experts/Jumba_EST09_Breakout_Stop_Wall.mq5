@@ -3,8 +3,8 @@
 //| EST-09 [Mantido Original] Breakout Stop & Limit Wall NY (Ret/DD 4.53)
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "EST-09 [Mantido Original] Breakout Stop & Limit Wall NY (Ret/DD 4.53)"
-#property version   "2.00"
+#property description "EST-09 [Validado 5/5 · MaxTr=2/dia] Breakout Stop & Limit Wall NY (MT5 Ret/DD 3.93x)"
+#property version   "2.10"
 #property strict
 
 #include <Jumba_GEX_NWE_Core.mqh>
@@ -16,6 +16,7 @@ input ulong               InpMagicNumber   = 88009; // Magic Number Base
 input bool                InpDrawLevels    = true;   // Desenhar MagicWalls no Gráfico
 input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)
 input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)
+input string              InpMaxEntryTime  = "16:00"; // Horario Limite Novas Entradas (HH:MM, vazio=off)
 
 CJumbaGexNweEngine g_engine;
 
@@ -28,6 +29,7 @@ int OnInit()
       false,false,false,false,false,false,false,false
    );
    g_engine.SetUseFlowFilter(InpUseFlowFilter);
+   g_engine.SetMaxEntryTime(InpMaxEntryTime);
    return(INIT_SUCCEEDED);
   }
 

@@ -212,6 +212,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     auth_any_no_terms = _make_auth_dep(min_plan=None, require_terms=False)
     auth_core = _make_auth_dep(min_plan="core", require_terms=True)
     auth_pro = _make_auth_dep(min_plan="pro", require_terms=True)
+    auth_admin = _make_auth_dep(min_plan="admin", require_terms=True)
 
     # ── Health & Feed Status ──────────────────────────────────────────────────
 
@@ -311,7 +312,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         snapshots = payload.get("snapshots") or {}
         ttl = cfg.snapshot_ttl_sec
         stored_keys = []
-        for tier in ("core", "pro"):
+        for tier in ("core", "pro", "admin"):
             tier_map = snapshots.get(tier)
             if not isinstance(tier_map, dict):
                 continue
@@ -467,9 +468,22 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/api/compass/etapa1")
     def get_etapa1(
         lite: str = Query(default="0"),
+        date_str: Optional[str] = Query(default=None),
         user: dict = Depends(auth_core),
     ):
         tier = "pro" if PLAN_RANK.get(user["plan"].lower(), 0) >= PLAN_RANK["pro"] else "core"
+        clean_date = (date_str or "").strip()
+        if (
+            len(clean_date) == 10
+            and clean_date[4] == "-"
+            and clean_date[7] == "-"
+            and clean_date[:4].isdigit()
+            and clean_date[5:7].isdigit()
+            and clean_date[8:].isdigit()
+        ):
+            day_data = store.get_json(f"snap:{tier}:etapa1_day_{clean_date}")
+            if day_data is not None:
+                return day_data
         want_lite = lite in ("1", "true", "True")
         primary_key = f"snap:{tier}:etapa1_lite" if want_lite else f"snap:{tier}:etapa1_full"
         fallback_key = f"snap:{tier}:etapa1_full" if want_lite else f"snap:{tier}:etapa1_lite"
@@ -511,6 +525,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/api/gex-walls")
     def get_gex_walls(_user: dict = Depends(auth_pro)):
         return _serve_pro_snapshot("gex_walls")
+
+    @app.get("/api/morning-brief")
+    def get_morning_brief(_user: dict = Depends(auth_admin)):
+        data = store.get_json("snap:admin:morning_brief")
+        if data is None:
+            raise ApiRuleError(503, "FEED_UNAVAILABLE", "Morning brief ainda não publicado pelo produtor.")
+        return data
 
     @app.post("/api/compass/divergencias_motor")
     async def post_divergencias_motor(request: Request, _user: dict = Depends(auth_pro)):

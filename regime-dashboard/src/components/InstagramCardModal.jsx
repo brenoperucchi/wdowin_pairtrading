@@ -1,0 +1,2268 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+    buildInstagramCaption,
+    buildInstagramSignals,
+    computeCollisionFreeMarkers,
+    formatBrNumber,
+    formatPtsLabel,
+    formatSessionDateBr,
+} from "../utils/instagramSignalMetrics";
+
+const FONT_SANS = "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const FONT_MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace";
+
+// Paleta Oficial Magic Walls (Ink Azul)
+const INK = {
+    chrome: "#0a0c12",
+    bg: "#0e1118",
+    card: "#131720",
+    stopCard: "#191318",
+    raised: "#1b212e",
+    hairline: "#232836",
+    hairlineStrong: "#2e3545",
+    text1: "#eef0f5",
+    text2: "#a3a9b8",
+    text3: "#848da2",
+    accent: "#38bdf8",
+    accentInk: "#7dd3fc",
+    accentSoft: "#102333",
+    onAccent: "#070a10",
+    pos: "#4cc38a",
+    posSoft: "#10231b",
+    neg: "#e5484d",
+    negSoft: "#261316",
+    flip: "#d4a259",
+    flipSoft: "#211d17",
+};
+
+const STORAGE_KEY = "mw_instagram_card_prefs_v2";
+const LEGACY_STORAGE_KEY = "mw_instagram_card_prefs_v1";
+
+function loadPrefs() {
+    try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw) || {};
+            if (parsed.brandTitle === "MAGIC WALLS") parsed.brandTitle = "Magic Walls";
+            if (!parsed.handle || parsed.handle === "@magicwalls") parsed.handle = "@magicwallsb3";
+            return parsed;
+        }
+        const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (legacyRaw) {
+            const legacy = JSON.parse(legacyRaw) || {};
+            return {
+                brandTitle: legacy.brandTitle === "MAGIC WALLS" ? "Magic Walls" : legacy.brandTitle,
+                handle: legacy.handle === "@magicwalls" ? "@magicwallsb3" : legacy.handle,
+            };
+        }
+        return {};
+    } catch {
+        return {};
+    }
+}
+
+function savePrefs(next) {
+    try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+        // storage unavailable
+    }
+}
+
+function formatDuration(mins) {
+    const m = Math.round(Number(mins || 0));
+    if (m <= 0) return "—";
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem > 0 ? `${h}h${String(rem).padStart(2, "0")}` : `${h}h`;
+}
+
+function getNweValues(pt) {
+    const line = Number(pt?.nwe100_line ?? pt?.nwe30_line ?? pt?.nwe_line ?? 0);
+    const upper = Number(pt?.nwe100_upper ?? pt?.nwe30_upper ?? pt?.nwe_upper ?? 0);
+    const lower = Number(pt?.nwe100_lower ?? pt?.nwe30_lower ?? pt?.nwe_lower ?? 0);
+    return { line, upper, lower };
+}
+
+async function svgElementToPngBlob(svgEl, width, height) {
+    if (!svgEl) throw new Error("SVG não encontrado para exportação.");
+    const clone = svgEl.cloneNode(true);
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", String(width));
+    clone.setAttribute("height", String(height));
+    clone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const svgBlob = new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${xml}`], {
+        type: "image/svg+xml;charset=utf-8",
+    });
+    const url = URL.createObjectURL(svgBlob);
+
+    try {
+        const img = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.decoding = "sync";
+            image.onload = () => resolve(image);
+            image.onerror = (err) => reject(err || new Error("Falha ao rasterizar SVG."));
+            image.src = url;
+        });
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = INK.bg;
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const pngBlob = await new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => {
+                if (blob) resolve(blob);
+                else reject(new Error("Falha ao gerar PNG."));
+            }, "image/png", 1.0);
+        });
+        return pngBlob;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+}
+
+function triggerBlobDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/* ── Ícones UI planos (stroke 1.5) ── */
+function WallsMarkHtml() {
+    return (
+        <svg width="20" height="16" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+            <rect x="0" y="1" width="14" height="2.5" rx="1" fill={INK.text1} />
+            <rect x="0" y="6.75" width="20" height="2.5" rx="1" fill={INK.accent} />
+            <rect x="0" y="12.5" width="11" height="2.5" rx="1" fill={INK.text3} />
+        </svg>
+    );
+}
+
+function IconDownload() {
+    return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+    );
+}
+
+function IconShare() {
+    return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="18" cy="5" r="3" />
+            <circle cx="6" cy="12" r="3" />
+            <circle cx="18" cy="19" r="3" />
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+        </svg>
+    );
+}
+
+function IconCopy() {
+    return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+    );
+}
+
+function IconChevron({ open }) {
+    return (
+        <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+        >
+            <polyline points="6 9 12 15 18 9" />
+        </svg>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SUB-COMPONENTE SVG: GRÁFICO LIMPO INK AZUL (PREÇO + WALLS + GAUSS + SINAIS + FLUXO)
+   ══════════════════════════════════════════════════════════════════════════════ */
+function CleanChartSection({
+    x,
+    y,
+    w,
+    h,
+    bars,
+    walls,
+    activeSignals,
+    symKey,
+    showFlow,
+    showGauss,
+    showWalls,
+    showDivLines,
+    rulerMode,
+    clipPrefix,
+}) {
+    const isWdo = String(symKey || "").toUpperCase() === "WDO";
+    const dec = isWdo ? 1 : 0;
+
+    const innerPadL = 18;
+    const rightAxisW = 104;
+    const plotLeft = x + innerPadL;
+    const plotW = w - innerPadL - rightAxisW;
+    const plotRight = plotLeft + plotW;
+
+    const topBarH = 40;
+    const timeAxisH = 34;
+    const flowGap = showFlow ? 12 : 0;
+    const flowH = showFlow ? Math.round((h - topBarH - timeAxisH - flowGap) * 0.27) : 0;
+    const priceTop = y + topBarH;
+    const priceH = h - topBarH - timeAxisH - flowGap - flowH;
+    const priceBot = priceTop + priceH;
+    const flowTop = priceBot + flowGap;
+    const flowBot = flowTop + flowH;
+
+    // Domínio de preço com margem confortável para evitar corte nos marcadores
+    let minP = Infinity;
+    let maxP = -Infinity;
+    bars.forEach((b) => {
+        const hi = Number(b.high ?? b.close);
+        const lo = Number(b.low ?? b.close);
+        if (Number.isFinite(hi) && hi > maxP) maxP = hi;
+        if (Number.isFinite(lo) && lo < minP) minP = lo;
+    });
+    if (!Number.isFinite(minP) || !Number.isFinite(maxP) || maxP <= minP) {
+        minP = 0;
+        maxP = 100;
+    }
+    const rawSpan = Math.max(isWdo ? 5 : 120, maxP - minP);
+    const padP = rawSpan * 0.19;
+    const domMinP = minP - padP;
+    const domMaxP = maxP + padP;
+    const domSpanP = Math.max(1e-6, domMaxP - domMinP);
+
+    const toYPrice = (p) => priceTop + ((domMaxP - Number(p)) / domSpanP) * priceH;
+
+    const nBars = Math.max(1, bars.length);
+    const xPadInner = 20;
+    const usableW = Math.max(40, plotW - xPadInner * 2);
+    const stepX = nBars > 1 ? usableW / (nBars - 1) : usableW;
+    const toX = (idx) => plotLeft + xPadInner + idx * stepX;
+    const candleW = Math.max(2.4, Math.min(8.5, stepX * 0.62));
+    const flowBarW = Math.max(2.0, Math.min(7.5, stepX * 0.56));
+
+    // Walls dentro da faixa visível (Walls, MidWalls e FlipWall)
+    const visibleWalls = showWalls
+        ? (walls || []).filter((wl) => {
+            const px = Number(wl?.price);
+            if (!Number.isFinite(px)) return false;
+            const wt = String(wl?.type || "Wall");
+            const isFlip = wt === "GammaFlip" || /flip/i.test(String(wl?.label || ""));
+            const isMid = wt.toLowerCase().includes("mid") || String(wl?.label || "").toUpperCase() === "MIDLEWALL";
+            const isMain = wt === "Wall";
+            if (!isMain && !isMid && !isFlip) return false;
+            return px >= domMinP + domSpanP * 0.03 && px <= domMaxP - domSpanP * 0.03;
+        })
+        : [];
+
+    const priceTicks = [];
+    const tickCount = 5;
+    for (let i = 0; i < tickCount; i += 1) {
+        const val = domMinP + ((i + 0.5) / tickCount) * domSpanP;
+        const rounded = isWdo ? Math.round(val * 2) / 2 : Math.round(val / 50) * 50;
+        priceTicks.push({ val: rounded, y: toYPrice(rounded) });
+    }
+
+    // Domínio de fluxo
+    let minW = 0;
+    let maxW = 0;
+    bars.forEach((b) => {
+        const wv = Number(b?.smart_swing_wave || 0);
+        if (wv < minW) minW = wv;
+        if (wv > maxW) maxW = wv;
+    });
+    const absMaxW = Math.max(isWdo ? 120 : 1200, Math.abs(minW), Math.abs(maxW)) * 1.2;
+    const flowPlotTop = flowTop + 28;
+    const flowPlotBot = flowBot - 12;
+    const flowPlotH = Math.max(20, flowPlotBot - flowPlotTop);
+    const toYFlow = (v) => flowPlotTop + ((absMaxW - Number(v || 0)) / (2 * absMaxW)) * flowPlotH;
+    const yZeroFlow = toYFlow(0);
+
+    // Marcadores numerados sem colisão
+    const markerRadius = h >= 720 ? 17 : 15;
+    const markers = computeCollisionFreeMarkers(activeSignals, {
+        toX,
+        toY: toYPrice,
+        bars,
+        plotTop: priceTop + 8,
+        plotBot: priceBot - 8,
+        plotLeft: plotLeft + 6,
+        plotRight: plotRight - 6,
+        radius: markerRadius,
+    });
+
+    // Réguas no gráfico (âmbar #d4a259 para melhor pernada / moves vencedores)
+    const rulerSignals = rulerMode === "OFF"
+        ? []
+        : rulerMode === "ALL"
+            ? activeSignals.filter((s) => !s.isStopped && s.mfePts >= (isWdo ? 4 : 150))
+            : activeSignals.filter((s) => !s.isStopped && s.isBest && s.mfePts > 0);
+
+    // Eixo X de tempo
+    const timeTicks = [];
+    if (bars.length > 0) {
+        const desired = 6;
+        const stride = Math.max(1, Math.floor((bars.length - 1) / desired));
+        for (let idx = 0; idx < bars.length; idx += stride) {
+            timeTicks.push({ idx, x: toX(idx), label: String(bars[idx]?.time || "").slice(0, 5) });
+        }
+        const lastIdx = bars.length - 1;
+        if (timeTicks.length && lastIdx - timeTicks[timeTicks.length - 1].idx >= Math.max(2, Math.floor(stride * 0.55))) {
+            timeTicks.push({ idx: lastIdx, x: toX(lastIdx), label: String(bars[lastIdx]?.time || "").slice(0, 5) });
+        }
+    }
+
+    // Canal Gauss (NWE100)
+    const gaussPts = showGauss
+        ? bars.map((b, idx) => ({ idx, ...getNweValues(b) })).filter((g) => g.upper > 0 && g.lower > 0)
+        : [];
+
+    const flowLinePts = showFlow
+        ? bars.map((b, idx) => `${toX(idx).toFixed(1)},${toYFlow(b?.smart_swing_wave || 0).toFixed(1)}`).join(" ")
+        : "";
+
+    const lastBar = bars[bars.length - 1];
+    const lastClose = Number(lastBar?.close ?? 0);
+    const lastY = toYPrice(lastClose);
+
+    const headerSubParts = [];
+    if (showWalls) headerSubParts.push("Walls GEX · FlipWall");
+    if (showGauss) headerSubParts.push("Canal Gauss");
+    headerSubParts.push(activeSignals.length > 0 ? `Sinais 1–${activeSignals.length}` : "Sem sinais");
+    const assetName = isWdo ? "Mini-Dólar" : "Mini-Índice";
+
+    return (
+        <g>
+            <defs>
+                <clipPath id={`${clipPrefix}-price`}>
+                    <rect x={plotLeft} y={priceTop} width={plotW} height={priceH} />
+                </clipPath>
+                <clipPath id={`${clipPrefix}-flow`}>
+                    <rect x={plotLeft} y={flowTop} width={plotW} height={flowH} />
+                </clipPath>
+            </defs>
+
+            {/* Contorno externo fosco Ink Azul */}
+            <rect
+                x={x}
+                y={y}
+                width={w}
+                height={h}
+                rx="14"
+                fill={INK.card}
+                stroke={INK.hairline}
+                strokeWidth="1.2"
+            />
+
+            {/* Fundo limpo da área de plotagem */}
+            <rect
+                x={plotLeft}
+                y={priceTop}
+                width={plotW}
+                height={showFlow ? flowBot - priceTop : priceH}
+                fill={INK.bg}
+            />
+
+            {/* Cabeçalho superior dentro do card do gráfico */}
+            <text
+                x={plotLeft + 4}
+                y={y + 25}
+                fill={INK.text1}
+                fontSize="16"
+                fontWeight="500"
+                fontFamily={FONT_SANS}
+            >
+                {assetName} · M5
+                <tspan fill={INK.text3} fontSize="14.5" fontWeight="400">
+                    {"   "}{headerSubParts.join(" · ")}
+                </tspan>
+            </text>
+            <text
+                x={plotRight - 4}
+                y={y + 25}
+                fill={showDivLines ? INK.accentInk : INK.text3}
+                fontSize="13.5"
+                fontWeight="500"
+                fontFamily={FONT_MONO}
+                textAnchor="end"
+            >
+                Linhas div. {showDivLines ? "ON" : "OFF"}
+            </text>
+            <line x1={x + 1} y1={priceTop} x2={x + w - 1} y2={priceTop} stroke={INK.hairline} strokeWidth="1" />
+
+            {/* Linhas de grade horizontais discretas */}
+            {priceTicks.map((t, i) => (
+                <g key={`pgrid-${i}`}>
+                    <line
+                        x1={plotLeft}
+                        y1={t.y}
+                        x2={plotRight}
+                        y2={t.y}
+                        stroke={INK.card}
+                        strokeWidth="1"
+                    />
+                    {!visibleWalls.some((wl) => Math.abs(toYPrice(wl.price) - t.y) < 26) && Math.abs(lastY - t.y) > 24 && (
+                        <text
+                            x={plotRight + 10}
+                            y={t.y + 4.5}
+                            fill={INK.text3}
+                            fontSize="13"
+                            fontWeight="400"
+                            fontFamily={FONT_MONO}
+                        >
+                            {formatBrNumber(t.val, dec)}
+                        </text>
+                    )}
+                </g>
+            ))}
+
+            {/* Separador eixo Y */}
+            <line x1={plotRight} y1={priceTop} x2={plotRight} y2={priceBot} stroke={INK.hairline} strokeWidth="1" />
+
+            {/* PANE DE PREÇO CLIPPADA */}
+            <g clipPath={`url(#${clipPrefix}-price)`}>
+                {/* Walls, MidWalls e FlipWall (âmbar #d4a259) */}
+                {[...visibleWalls]
+                    .sort((a, b) => {
+                        const aFlip = String(a?.type || "") === "GammaFlip" || /flip/i.test(String(a?.label || ""));
+                        const bFlip = String(b?.type || "") === "GammaFlip" || /flip/i.test(String(b?.label || ""));
+                        return Number(aFlip) - Number(bFlip);
+                    })
+                    .map((wl, i) => {
+                        const yW = toYPrice(wl.price);
+                        const wt = String(wl.type || "Wall");
+                        const isFlip = wt === "GammaFlip" || /flip/i.test(String(wl.label || ""));
+                        const isMid = wt.toLowerCase().includes("mid") || String(wl.label || "").toUpperCase() === "MIDLEWALL";
+                        return (
+                            <line
+                                key={`ig-wall-${i}`}
+                                x1={plotLeft}
+                                y1={yW}
+                                x2={plotRight}
+                                y2={yW}
+                                stroke={isFlip ? INK.flip : isMid ? INK.hairlineStrong : INK.text3}
+                                strokeWidth={isFlip ? "1.6" : "1.1"}
+                                strokeDasharray={isFlip ? "5,4" : isMid ? "3,4" : "none"}
+                                strokeOpacity={isFlip ? "0.9" : isMid ? "0.55" : "0.65"}
+                            />
+                        );
+                    })}
+
+                {/* Canal Gauss */}
+                {gaussPts.length > 2 && (() => {
+                    const up = gaussPts.map((g) => `${toX(g.idx).toFixed(1)},${toYPrice(g.upper).toFixed(1)}`).join(" ");
+                    const lo = gaussPts.map((g) => `${toX(g.idx).toFixed(1)},${toYPrice(g.lower).toFixed(1)}`).join(" ");
+                    const loRev = [...gaussPts].reverse().map((g) => `${toX(g.idx).toFixed(1)},${toYPrice(g.lower).toFixed(1)}`).join(" ");
+                    const mid = gaussPts.filter((g) => g.line > 0).map((g) => `${toX(g.idx).toFixed(1)},${toYPrice(g.line).toFixed(1)}`).join(" ");
+                    return (
+                        <g>
+                            <polygon points={`${up} ${loRev}`} fill={INK.text3} fillOpacity="0.06" />
+                            <polyline points={up} fill="none" stroke={INK.hairlineStrong} strokeWidth="1.2" />
+                            <polyline points={lo} fill="none" stroke={INK.hairlineStrong} strokeWidth="1.2" />
+                            {mid && <polyline points={mid} fill="none" stroke={INK.text3} strokeWidth="1" strokeDasharray="4,4" strokeOpacity="0.6" />}
+                        </g>
+                    );
+                })()}
+
+                {/* Régua de melhor pernada — fundo tracejado âmbar */}
+                {rulerSignals.map((sig) => {
+                    const xEntry = toX(sig.entryIdx);
+                    const xPeak = toX(sig.bestIdx);
+                    const yEntry = toYPrice(sig.entryPrice);
+                    const yPeak = toYPrice(sig.bestPx);
+                    const bandX = Math.min(xEntry, xPeak);
+                    const bandW = Math.max(12, Math.abs(xPeak - xEntry));
+                    const bandTop = Math.min(yEntry, yPeak);
+                    const bandH = Math.max(8, Math.abs(yPeak - yEntry));
+                    return (
+                        <rect
+                            key={`ruler-bg-${sig.id}`}
+                            x={bandX}
+                            y={bandTop}
+                            width={bandW}
+                            height={bandH}
+                            fill={INK.flip}
+                            fillOpacity="0.06"
+                            stroke={INK.flip}
+                            strokeOpacity="0.45"
+                            strokeWidth="1.2"
+                            strokeDasharray="4,4"
+                            rx="4"
+                        />
+                    );
+                })}
+
+                {/* Candles neutros Ink Azul */}
+                {bars.map((b, idx) => {
+                    const cx = toX(idx);
+                    const o = Number(b.open ?? b.close);
+                    const c = Number(b.close);
+                    const hi = Number(b.high ?? Math.max(o, c));
+                    const lo = Number(b.low ?? Math.min(o, c));
+                    const isBullC = c >= o;
+                    const yH = toYPrice(hi);
+                    const yL = toYPrice(lo);
+                    const yO = toYPrice(o);
+                    const yC = toYPrice(c);
+                    const bodyTop = Math.min(yO, yC);
+                    const bodyH = Math.max(2, Math.abs(yC - yO));
+                    const fillCol = isBullC ? "#9aa5b6" : "#475266";
+                    return (
+                        <g key={`c-${idx}`}>
+                            <line x1={cx} y1={yH} x2={cx} y2={yL} stroke={fillCol} strokeWidth="1.3" />
+                            <rect
+                                x={cx - candleW / 2}
+                                y={bodyTop}
+                                width={candleW}
+                                height={bodyH}
+                                fill={fillCol}
+                                rx="1"
+                            />
+                        </g>
+                    );
+                })}
+
+                {/* Linhas de divergência opcionais (desligadas por padrão) */}
+                {showDivLines && activeSignals.map((sig) => {
+                    const x1 = toX(sig.prevIdx);
+                    const x2 = toX(sig.pivotIdx);
+                    const y1 = toYPrice(sig.prevPrice);
+                    const y2 = toYPrice(sig.pivotPrice);
+                    const col = sig.isStopped ? INK.neg : (sig.isBull ? INK.pos : INK.neg);
+                    return (
+                        <g key={`divline-${sig.id}`}>
+                            <line
+                                x1={x1}
+                                y1={y1}
+                                x2={x2}
+                                y2={y2}
+                                stroke={col}
+                                strokeWidth="1.8"
+                                strokeDasharray="4,3"
+                                strokeOpacity="0.82"
+                            />
+                            <circle cx={x1} cy={y1} r="3" fill={INK.bg} stroke={col} strokeWidth="1.5" />
+                            <circle cx={x2} cy={y2} r="3.5" fill={col} />
+                        </g>
+                    );
+                })}
+
+                {/* Tracejado de stop atingido */}
+                {activeSignals.filter((s) => s.isStopped && s.stopIdx >= 0).map((sig) => {
+                    const xEntry = toX(sig.entryIdx);
+                    const xStop = toX(sig.stopIdx);
+                    const yEntry = toYPrice(sig.entryPrice);
+                    const yStop = toYPrice(sig.stopPrice);
+                    return (
+                        <line
+                            key={`stophit-${sig.id}`}
+                            x1={xEntry}
+                            y1={yEntry}
+                            x2={xStop}
+                            y2={yStop}
+                            stroke={INK.neg}
+                            strokeWidth="1.6"
+                            strokeDasharray="3,3"
+                            strokeOpacity="0.78"
+                        />
+                    );
+                })}
+
+                {/* Marcadores circulares numerados 1..N */}
+                {markers.map((mk) => {
+                    const { sig, candleX, candleY, badgeX, badgeY } = mk;
+                    const dirCol = sig.isBull ? INK.pos : INK.neg;
+                    const circleFill = sig.isStopped ? INK.negSoft : dirCol;
+                    const circleStroke = sig.isStopped ? INK.neg : (sig.isBest ? INK.flip : INK.bg);
+                    const txtFill = sig.isStopped ? INK.neg : (sig.isBull ? INK.onAccent : INK.text1);
+                    const entryY = toYPrice(sig.entryPrice);
+                    return (
+                        <g key={`mk-${sig.id}`}>
+                            <line
+                                x1={candleX}
+                                y1={candleY}
+                                x2={badgeX}
+                                y2={badgeY}
+                                stroke={sig.isStopped ? INK.neg : dirCol}
+                                strokeWidth="1.3"
+                                strokeOpacity="0.7"
+                            />
+                            <circle cx={candleX} cy={entryY} r="3" fill={sig.isStopped ? INK.neg : dirCol} />
+                            {sig.isBest && !sig.isStopped && (
+                                <circle
+                                    cx={badgeX}
+                                    cy={badgeY}
+                                    r={markerRadius + 4}
+                                    fill="none"
+                                    stroke={INK.flip}
+                                    strokeWidth="1.6"
+                                />
+                            )}
+                            <circle
+                                cx={badgeX}
+                                cy={badgeY}
+                                r={markerRadius}
+                                fill={circleFill}
+                                stroke={circleStroke}
+                                strokeWidth={sig.isStopped ? "2" : "1.5"}
+                                strokeDasharray={sig.isStopped ? "4,2" : "none"}
+                            />
+                            <text
+                                x={badgeX}
+                                y={badgeY + 5.5}
+                                fill={txtFill}
+                                fontSize={markerRadius >= 17 ? "16" : "14.5"}
+                                fontWeight="600"
+                                fontFamily={FONT_MONO}
+                                textAnchor="middle"
+                            >
+                                {sig.num}
+                            </text>
+                        </g>
+                    );
+                })}
+
+                {/* Pílula da régua no topo do movimento */}
+                {rulerSignals.map((sig) => {
+                    const xEntry = toX(sig.entryIdx);
+                    const xPeak = toX(sig.bestIdx);
+                    const yEntry = toYPrice(sig.entryPrice);
+                    const yPeak = toYPrice(sig.bestPx);
+                    const bandX = Math.min(xEntry, xPeak);
+                    const bandW = Math.max(12, Math.abs(xPeak - xEntry));
+                    const bandTop = Math.min(yEntry, yPeak);
+                    const pillTxt = `#${sig.num} ${formatPtsLabel(sig.mfePts, isWdo)}`;
+                    const pillW = Math.max(132, pillTxt.length * 8.8 + 24);
+                    const pillH = 26;
+                    const pillX = Math.max(plotLeft + 8, Math.min(plotRight - pillW - 8, bandX + bandW / 2 - pillW / 2));
+                    const pillY = Math.max(priceTop + 8, bandTop - pillH - 6);
+
+                    return (
+                        <g key={`ruler-fg-${sig.id}`}>
+                            <rect
+                                x={pillX}
+                                y={pillY}
+                                width={pillW}
+                                height={pillH}
+                                rx="6"
+                                fill={INK.flipSoft}
+                                stroke={INK.flip}
+                                strokeWidth="1.2"
+                            />
+                            <text
+                                x={pillX + pillW / 2}
+                                y={pillY + 17.5}
+                                fill={INK.flip}
+                                fontSize="13.5"
+                                fontWeight="600"
+                                fontFamily={FONT_MONO}
+                                textAnchor="middle"
+                            >
+                                {pillTxt}
+                            </text>
+                        </g>
+                    );
+                })}
+            </g>
+
+            {/* Rótulos das Walls no eixo Y */}
+            {(() => {
+                const usedYs = [lastY];
+                const prio = (wl) => {
+                    const wt = String(wl?.type || "");
+                    if (wt === "GammaFlip" || /flip/i.test(String(wl?.label || ""))) return 0;
+                    if (wt === "Wall") return 1;
+                    return 2;
+                };
+                return visibleWalls
+                    .slice()
+                    .sort((a, b) => prio(a) - prio(b))
+                    .map((wl, i) => {
+                        const yW = toYPrice(wl.price);
+                        if (usedYs.some((uy) => Math.abs(uy - yW) < 23)) return null;
+                        usedYs.push(yW);
+                        const wt = String(wl.type || "");
+                        const isFlip = wt === "GammaFlip" || /flip/i.test(String(wl.label || ""));
+                        const isMid = wt.toLowerCase().includes("mid");
+                        return (
+                            <g key={`wtag-${i}`}>
+                                {(!isMid || isFlip) && (
+                                    <rect
+                                        x={plotRight + 6}
+                                        y={yW - 11}
+                                        width={rightAxisW - 14}
+                                        height={22}
+                                        rx="4"
+                                        fill={isFlip ? INK.flipSoft : INK.raised}
+                                        stroke={isFlip ? INK.flip : INK.hairlineStrong}
+                                        strokeWidth="1"
+                                    />
+                                )}
+                                <text
+                                    x={plotRight + 12}
+                                    y={yW + 4.5}
+                                    fill={isFlip ? INK.flip : isMid ? INK.text3 : INK.text1}
+                                    fontSize="12.5"
+                                    fontWeight="500"
+                                    fontFamily={FONT_MONO}
+                                >
+                                    {formatBrNumber(wl.price, dec)}
+                                </text>
+                            </g>
+                        );
+                    });
+            })()}
+
+            {/* Último preço em destaque azul com contraste escuro */}
+            {Number.isFinite(lastClose) && lastClose > 0 && (
+                <g>
+                    <rect
+                        x={plotRight + 6}
+                        y={Math.max(priceTop + 2, Math.min(priceBot - 26, lastY - 12))}
+                        width={rightAxisW - 14}
+                        height={24}
+                        rx="4"
+                        fill={INK.accent}
+                    />
+                    <text
+                        x={plotRight + 12}
+                        y={Math.max(priceTop + 18.5, Math.min(priceBot - 9.5, lastY + 4.5))}
+                        fill={INK.onAccent}
+                        fontSize="13"
+                        fontWeight="600"
+                        fontFamily={FONT_MONO}
+                    >
+                        {formatBrNumber(lastClose, dec)}
+                    </text>
+                </g>
+            )}
+
+            {/* SUBPAINEL FLUXO SMART MONEY */}
+            {showFlow && (
+                <g>
+                    <line x1={x + 1} y1={flowTop - 1} x2={x + w - 1} y2={flowTop - 1} stroke={INK.hairline} strokeWidth="1" />
+                    <text
+                        x={plotLeft + 4}
+                        y={flowTop + 18}
+                        fill={INK.accentInk}
+                        fontSize="13.5"
+                        fontWeight="500"
+                        fontFamily={FONT_SANS}
+                    >
+                        Fluxo Smart Money
+                    </text>
+                    <line x1={plotRight} y1={flowTop} x2={plotRight} y2={flowBot} stroke={INK.hairline} strokeWidth="1" />
+                    <line
+                        x1={plotLeft}
+                        y1={yZeroFlow}
+                        x2={plotRight}
+                        y2={yZeroFlow}
+                        stroke={INK.hairlineStrong}
+                        strokeWidth="1"
+                        strokeDasharray="4,4"
+                    />
+                    <text x={plotRight + 12} y={yZeroFlow + 4} fill={INK.text3} fontSize="12" fontFamily={FONT_MONO}>
+                        0
+                    </text>
+
+                    <g clipPath={`url(#${clipPrefix}-flow)`}>
+                        {/* Histograma de fluxo limpo */}
+                        {bars.map((b, idx) => {
+                            const val = Number(b?.smart_swing_wave || 0);
+                            const yVal = toYFlow(val);
+                            const barY = val >= 0 ? yVal : yZeroFlow;
+                            const barH = Math.max(1.5, Math.abs(yVal - yZeroFlow));
+                            return (
+                                <rect
+                                    key={`fbar-${idx}`}
+                                    x={toX(idx) - flowBarW / 2}
+                                    y={barY}
+                                    width={flowBarW}
+                                    height={barH}
+                                    fill={val >= 0 ? INK.accent : "#475266"}
+                                    fillOpacity="0.82"
+                                    rx="1"
+                                />
+                            );
+                        })}
+
+                        {/* Curva de fluxo contínua */}
+                        {flowLinePts && (
+                            <polyline
+                                points={flowLinePts}
+                                fill="none"
+                                stroke={INK.accentInk}
+                                strokeWidth="1.5"
+                                strokeLinejoin="round"
+                                strokeLinecap="round"
+                            />
+                        )}
+
+                        {/* Rótulos #N no subpainel sem sobreposição */}
+                        {activeSignals.map((sig) => {
+                            const xPos = Math.max(plotLeft + 14, Math.min(plotRight - 14, toX(sig.pivotIdx)));
+                            const waveVal = Number(bars[sig.pivotIdx]?.smart_swing_wave ?? sig.currWave ?? 0);
+                            const col = sig.isStopped ? INK.neg : (sig.isBull ? INK.pos : INK.neg);
+                            const lblY = waveVal >= 0
+                                ? Math.max(flowPlotTop + 2, Math.min(yZeroFlow - 6, toYFlow(waveVal) - 6))
+                                : Math.min(flowBot - 4, Math.max(yZeroFlow + 14, toYFlow(waveVal) + 14));
+                            return (
+                                <text
+                                    key={`fl-lbl-${sig.id}`}
+                                    x={xPos}
+                                    y={lblY}
+                                    fill={col}
+                                    fontSize="12.5"
+                                    fontWeight="600"
+                                    fontFamily={FONT_MONO}
+                                    textAnchor="middle"
+                                >
+                                    #{sig.num}
+                                </text>
+                            );
+                        })}
+                    </g>
+                </g>
+            )}
+
+            {/* Eixo de horário */}
+            <line
+                x1={x + 1}
+                y1={showFlow ? flowBot : priceBot}
+                x2={x + w - 1}
+                y2={showFlow ? flowBot : priceBot}
+                stroke={INK.hairline}
+                strokeWidth="1"
+            />
+            {timeTicks.map((tt, i) => (
+                <text
+                    key={`t-${i}`}
+                    x={tt.x}
+                    y={y + h - 11}
+                    fill={INK.text3}
+                    fontSize="13.5"
+                    fontWeight="400"
+                    fontFamily={FONT_MONO}
+                    textAnchor="middle"
+                >
+                    {tt.label}
+                </text>
+            ))}
+        </g>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SUB-COMPONENTE SVG: CABEÇALHO (WALLS MARK) + 3 KPIS SILENCIOSOS
+   ══════════════════════════════════════════════════════════════════════════════ */
+function CardHeaderAndKpis({
+    padX,
+    contentW,
+    topY,
+    compact = false,
+    brandTitle,
+    symKey,
+    dateInfo,
+    summary,
+    slideBadge = "",
+}) {
+    const isWdo = String(symKey || "").toUpperCase() === "WDO";
+    const headerH = compact ? 74 : 92;
+    const kpiTop = topY + headerH + (compact ? 12 : 16);
+    const kpiH = compact ? 92 : 108;
+    const kpiGap = 14;
+    const kpiW = (contentW - kpiGap * 2) / 3;
+
+    const bestSig = summary.bestSignal;
+    const bestPtsTxt = bestSig && bestSig.mfePts > 0
+        ? formatPtsLabel(bestSig.mfePts, isWdo)
+        : "—";
+    const bestSubTxt = bestSig && bestSig.mfePts > 0
+        ? `#${bestSig.num} ${bestSig.isBull ? "Compra" : "Venda"} às ${bestSig.entryTime}`
+        : "Sem movimento positivo";
+
+    const netPtsTxt = summary.totalSignals > 0
+        ? formatPtsLabel(summary.netPts, isWdo)
+        : "—";
+    const netIsNeg = summary.netPts < 0;
+    const netValCol = summary.totalSignals === 0 ? INK.text2 : (netIsNeg ? INK.neg : INK.pos);
+    const protTxt = isWdo ? "4 pts" : "150 pts";
+    const netSubTxt = summary.totalSignals === 0
+        ? "Aguardando sinais"
+        : summary.stopCount > 0
+            ? `Bruto ${formatPtsLabel(summary.grossMfePts, isWdo)} · Stop -${formatPtsLabel(summary.totalStopPts, isWdo, false)}`
+            : `Proteção ${protTxt} · 0 stops`;
+
+    const dateLabel = dateInfo.weekday ? `${dateInfo.weekday}, ${dateInfo.short}` : dateInfo.short;
+    const paidTotal = summary.winCount + summary.neutralCount;
+    const brandDisplay = String(brandTitle || "Magic Walls").trim() || "Magic Walls";
+
+    return (
+        <g>
+            {/* Marca plana WallsMark (3 barras horizontais) */}
+            <g transform={`translate(${padX}, ${topY + (compact ? 8 : 12)})`}>
+                <rect x="0" y="0" width="22" height="4" rx="1.5" fill={INK.text1} />
+                <rect x="0" y="8" width="32" height="4" rx="1.5" fill={INK.accent} />
+                <rect x="0" y="16" width="17" height="4" rx="1.5" fill={INK.text3} />
+            </g>
+
+            {/* Título & Subtítulo em sentence case */}
+            <text
+                x={padX + 46}
+                y={topY + (compact ? 25 : 31)}
+                fill={INK.text1}
+                fontSize={compact ? "28" : "34"}
+                fontWeight="600"
+                fontFamily={FONT_SANS}
+            >
+                {brandDisplay}
+            </text>
+            <text
+                x={padX + 46}
+                y={topY + (compact ? 54 : 64)}
+                fill={INK.text3}
+                fontSize={compact ? "16.5" : "18.5"}
+                fontWeight="400"
+                fontFamily={FONT_SANS}
+            >
+                Resumo do pregão · {dateLabel}
+            </text>
+
+            {/* Pill do ativo à direita */}
+            <g transform={`translate(${padX + contentW}, ${topY + (compact ? 8 : 12)})`}>
+                <rect
+                    x="-148"
+                    y="0"
+                    width="148"
+                    height={compact ? "38" : "42"}
+                    rx="19"
+                    fill={INK.card}
+                    stroke={INK.hairlineStrong}
+                    strokeWidth="1.2"
+                />
+                <circle cx="-122" cy={compact ? "19" : "21"} r="4" fill={INK.accent} />
+                <text
+                    x="-106"
+                    y={compact ? "25" : "27"}
+                    fill={INK.text1}
+                    fontSize={compact ? "18" : "20"}
+                    fontWeight="600"
+                    fontFamily={FONT_MONO}
+                >
+                    {symKey}
+                </text>
+                {slideBadge && (
+                    <text
+                        x="0"
+                        y={compact ? "58" : "66"}
+                        fill={INK.text3}
+                        fontSize="14.5"
+                        fontWeight="500"
+                        fontFamily={FONT_MONO}
+                        textAnchor="end"
+                    >
+                        {slideBadge}
+                    </text>
+                )}
+            </g>
+
+            {/* KPI 1: Sinais no dia */}
+            <g transform={`translate(${padX}, ${kpiTop})`}>
+                <rect x="0" y="0" width={kpiW} height={kpiH} rx="12" fill={INK.card} stroke={INK.hairline} strokeWidth="1.2" />
+                <rect x="16" y="0" width={kpiW - 32} height="2.5" rx="1" fill={INK.accent} />
+                <text x="18" y={compact ? "28" : "32"} fill={INK.text2} fontSize="14.5" fontWeight="500" fontFamily={FONT_SANS}>
+                    Sinais no dia
+                </text>
+                <text x="18" y={compact ? "60" : "70"} fill={INK.text1} fontSize={compact ? "29" : "35"} fontWeight="600" fontFamily={FONT_MONO}>
+                    {summary.totalSignals}
+                </text>
+                <text x="18" y={compact ? "80" : "94"} fill={INK.text3} fontSize="13.5" fontWeight="400" fontFamily={FONT_MONO}>
+                    {paidTotal} protegidos · {summary.stopCount} stop{summary.stopCount === 1 ? "" : "s"}
+                </text>
+            </g>
+
+            {/* KPI 2: Melhor pernada (sem estrela) */}
+            <g transform={`translate(${padX + kpiW + kpiGap}, ${kpiTop})`}>
+                <rect x="0" y="0" width={kpiW} height={kpiH} rx="12" fill={INK.card} stroke={INK.hairline} strokeWidth="1.2" />
+                <rect x="16" y="0" width={kpiW - 32} height="2.5" rx="1" fill={INK.flip} />
+                <text x="18" y={compact ? "28" : "32"} fill={INK.text2} fontSize="14.5" fontWeight="500" fontFamily={FONT_SANS}>
+                    Melhor pernada
+                </text>
+                <text x="18" y={compact ? "60" : "70"} fill={INK.flip} fontSize={compact ? "28" : "33"} fontWeight="600" fontFamily={FONT_MONO}>
+                    {bestPtsTxt}
+                </text>
+                <text x="18" y={compact ? "80" : "94"} fill={INK.text3} fontSize="13.5" fontWeight="400" fontFamily={FONT_MONO}>
+                    {bestSubTxt}
+                </text>
+            </g>
+
+            {/* KPI 3: Saldo máx. a favor */}
+            <g transform={`translate(${padX + (kpiW + kpiGap) * 2}, ${kpiTop})`}>
+                <rect x="0" y="0" width={kpiW} height={kpiH} rx="12" fill={INK.card} stroke={INK.hairline} strokeWidth="1.2" />
+                <rect x="16" y="0" width={kpiW - 32} height="2.5" rx="1" fill={netIsNeg ? INK.neg : INK.pos} />
+                <text x="18" y={compact ? "28" : "32"} fill={INK.text2} fontSize="14.5" fontWeight="500" fontFamily={FONT_SANS}>
+                    Saldo máx. a favor
+                </text>
+                <text x="18" y={compact ? "60" : "70"} fill={netValCol} fontSize={compact ? "28" : "33"} fontWeight="600" fontFamily={FONT_MONO}>
+                    {netPtsTxt}
+                </text>
+                <text x="18" y={compact ? "80" : "94"} fill={INK.text3} fontSize="13.5" fontWeight="400" fontFamily={FONT_SANS}>
+                    {netSubTxt}
+                </text>
+            </g>
+        </g>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SUB-COMPONENTE SVG: TABELA EDITORIAL INK AZUL (TRILHO ESQUERDO DE 2PX)
+   ══════════════════════════════════════════════════════════════════════════════ */
+function SignalListSection({
+    x,
+    y,
+    w,
+    h,
+    activeSignals,
+    summary,
+    symKey,
+    detailed = false,
+}) {
+    const isWdo = String(symKey || "").toUpperCase() === "WDO";
+    const dec = isWdo ? 1 : 0;
+    const count = activeSignals.length;
+    const maxMag = Math.max(
+        isWdo ? 10 : 200,
+        summary.bestSignal?.mfePts || 0,
+        ...activeSignals.map((s) => Math.abs(s.resultPts || 0)),
+    );
+
+    const headerH = 38;
+    const listTop = y + headerH;
+    const listH = Math.max(60, h - headerH);
+
+    const minRowH = detailed ? 62 : 54;
+    const useTwoCols = count > 0 && (listH / count) < minRowH;
+
+    return (
+        <g>
+            {/* Título e ordenação */}
+            <text
+                x={x + 2}
+                y={y + 24}
+                fill={INK.text1}
+                fontSize="18"
+                fontWeight="500"
+                fontFamily={FONT_SANS}
+            >
+                Entradas do pregão
+            </text>
+            <text
+                x={x + w - 2}
+                y={y + 24}
+                fill={INK.text3}
+                fontSize="14"
+                fontWeight="400"
+                fontFamily={FONT_MONO}
+                textAnchor="end"
+            >
+                Ordenado cronologicamente · {count} {count === 1 ? "sinal" : "sinais"}
+            </text>
+
+            {count === 0 ? (
+                <g>
+                    <rect x={x} y={listTop} width={w} height={Math.min(120, listH)} rx="12" fill={INK.card} stroke={INK.hairline} strokeWidth="1.2" />
+                    <text
+                        x={x + w / 2}
+                        y={listTop + Math.min(120, listH) / 2 + 6}
+                        fill={INK.text3}
+                        fontSize="18"
+                        fontWeight="500"
+                        fontFamily={FONT_SANS}
+                        textAnchor="middle"
+                    >
+                        Nenhum sinal selecionado para este pregão.
+                    </text>
+                </g>
+            ) : useTwoCols ? (
+                (() => {
+                    const cols = 2;
+                    const rowsPerCol = Math.ceil(count / cols);
+                    const gapX = 14;
+                    const gapY = 10;
+                    const cardW = (w - gapX) / 2;
+                    const cardH = Math.min(88, Math.max(58, (listH - gapY * (rowsPerCol - 1)) / rowsPerCol));
+
+                    return activeSignals.map((sig, idx) => {
+                        const colIdx = idx % 2;
+                        const rowIdx = Math.floor(idx / 2);
+                        const rx = x + colIdx * (cardW + gapX);
+                        const ry = listTop + rowIdx * (cardH + gapY);
+
+                        const dirCol = sig.isBull ? INK.pos : INK.neg;
+                        const outcomeCol = sig.isStopped
+                            ? INK.neg
+                            : sig.isBest
+                                ? INK.flip
+                                : sig.mfePts > 0
+                                    ? INK.pos
+                                    : INK.text2;
+                        const railCol = sig.isStopped ? INK.neg : (sig.isBest ? INK.flip : dirCol);
+                        const barRatio = Math.max(0.06, Math.min(1, Math.abs(sig.resultPts) / maxMag));
+
+                        return (
+                            <g key={`row2-${sig.id}`} transform={`translate(${rx}, ${ry})`}>
+                                <rect
+                                    x="0"
+                                    y="0"
+                                    width={cardW}
+                                    height={cardH}
+                                    rx="10"
+                                    fill={sig.isStopped ? INK.stopCard : INK.card}
+                                    stroke={sig.isStopped ? INK.negSoft : INK.hairline}
+                                    strokeWidth="1.2"
+                                />
+                                <rect x="0" y="10" width="2.5" height={cardH - 20} rx="1" fill={railCol} />
+
+                                <circle
+                                    cx="26"
+                                    cy={cardH / 2}
+                                    r="14"
+                                    fill={sig.isStopped ? INK.negSoft : dirCol}
+                                    stroke={sig.isStopped ? INK.neg : "none"}
+                                    strokeWidth={sig.isStopped ? "1.6" : "0"}
+                                />
+                                <text
+                                    x="26"
+                                    y={cardH / 2 + 5}
+                                    fill={sig.isStopped ? INK.neg : (sig.isBull ? INK.onAccent : INK.text1)}
+                                    fontSize="14"
+                                    fontWeight="600"
+                                    fontFamily={FONT_MONO}
+                                    textAnchor="middle"
+                                >
+                                    {sig.num}
+                                </text>
+
+                                <text x="50" y={cardH / 2 - 4} fill={INK.text1} fontSize="16.5" fontWeight="600" fontFamily={FONT_MONO}>
+                                    {sig.entryTime}
+                                    <tspan fill={dirCol} fontSize="14" fontWeight="500"> · {sig.anchorCode} {sig.isBull ? "Compra" : "Venda"}</tspan>
+                                </text>
+                                <text x="50" y={cardH / 2 + 16} fill={sig.isStopped ? INK.neg : INK.text3} fontSize="12.5" fontWeight="400" fontFamily={FONT_MONO}>
+                                    {sig.isStopped
+                                        ? `Stop ${sig.stopTime} · ${formatBrNumber(sig.stopPrice, dec)}`
+                                        : `Ent. ${formatBrNumber(sig.entryPrice, dec)} · Pico ${sig.peakTime}`}
+                                </text>
+
+                                <text x={cardW - 14} y={cardH / 2 + 2} fill={outcomeCol} fontSize="18" fontWeight="600" fontFamily={FONT_MONO} textAnchor="end">
+                                    {sig.isStopped
+                                        ? formatPtsLabel(sig.resultPts, isWdo)
+                                        : formatPtsLabel(sig.mfePts, isWdo)}
+                                </text>
+
+                                <rect x="50" y={cardH - 9} width={cardW - 64} height="4" rx="2" fill={INK.raised} />
+                                <rect x="50" y={cardH - 9} width={(cardW - 64) * barRatio} height="4" rx="2" fill={outcomeCol} />
+                            </g>
+                        );
+                    });
+                })()
+            ) : (
+                (() => {
+                    const gapY = count <= 6 ? 10 : 8;
+                    const maxRowH = detailed ? 96 : 74;
+                    const rowH = Math.min(maxRowH, Math.max(52, (listH - gapY * (count - 1)) / count));
+                    const isCompactRow = rowH < 64;
+
+                    return activeSignals.map((sig, idx) => {
+                        const ry = listTop + idx * (rowH + gapY);
+                        const dirCol = sig.isBull ? INK.pos : INK.neg;
+                        const dirSoft = sig.isBull ? INK.posSoft : INK.negSoft;
+                        const outcomeCol = sig.isStopped
+                            ? INK.neg
+                            : sig.isBest
+                                ? INK.flip
+                                : sig.mfePts > 0
+                                    ? INK.pos
+                                    : INK.text2;
+                        const railCol = sig.isStopped ? INK.neg : (sig.isBest ? INK.flip : INK.pos);
+                        const barRatio = Math.max(0.06, Math.min(1, Math.abs(sig.resultPts) / maxMag));
+                        const barW = detailed ? 190 : 156;
+
+                        return (
+                            <g key={`row1-${sig.id}`} transform={`translate(${x}, ${ry})`}>
+                                <rect
+                                    x="0"
+                                    y="0"
+                                    width={w}
+                                    height={rowH}
+                                    rx="10"
+                                    fill={sig.isStopped ? INK.stopCard : INK.card}
+                                    stroke={sig.isStopped ? INK.negSoft : INK.hairline}
+                                    strokeWidth="1.2"
+                                />
+                                {/* Trilho esquerdo de 2px */}
+                                <rect x="0" y="10" width="2.5" height={rowH - 20} rx="1" fill={railCol} />
+
+                                {/* Círculo numerado */}
+                                <circle
+                                    cx="32"
+                                    cy={rowH / 2}
+                                    r={isCompactRow ? "14" : "16"}
+                                    fill={sig.isStopped ? INK.negSoft : dirCol}
+                                    stroke={sig.isStopped ? INK.neg : "none"}
+                                    strokeWidth={sig.isStopped ? "1.6" : "0"}
+                                />
+                                <text
+                                    x="32"
+                                    y={rowH / 2 + (isCompactRow ? 5 : 5.5)}
+                                    fill={sig.isStopped ? INK.neg : (sig.isBull ? INK.onAccent : INK.text1)}
+                                    fontSize={isCompactRow ? "14" : "16"}
+                                    fontWeight="600"
+                                    fontFamily={FONT_MONO}
+                                    textAnchor="middle"
+                                >
+                                    {sig.num}
+                                </text>
+
+                                {/* Pill direcional limpa (F▲ Compra / F▼ Venda) */}
+                                <rect
+                                    x="62"
+                                    y={rowH / 2 - 15}
+                                    width={detailed ? "132" : "118"}
+                                    height="30"
+                                    rx="6"
+                                    fill={dirSoft}
+                                    stroke={dirCol}
+                                    strokeOpacity="0.45"
+                                    strokeWidth="1"
+                                />
+                                <text
+                                    x={62 + (detailed ? 66 : 59)}
+                                    y={rowH / 2 + 5}
+                                    fill={dirCol}
+                                    fontSize={detailed ? "14.5" : "13.5"}
+                                    fontWeight="600"
+                                    fontFamily={FONT_MONO}
+                                    textAnchor="middle"
+                                >
+                                    {sig.anchorCode} {sig.isBull ? "Compra" : "Venda"}
+                                </text>
+
+                                {/* Horário + Preço */}
+                                <text
+                                    x={detailed ? "214" : "196"}
+                                    y={isCompactRow ? rowH / 2 + 5 : rowH / 2 - 4}
+                                    fill={INK.text1}
+                                    fontSize={detailed ? "20" : "18.5"}
+                                    fontWeight="600"
+                                    fontFamily={FONT_MONO}
+                                >
+                                    {sig.entryTime}
+                                </text>
+                                {!isCompactRow && (
+                                    <text
+                                        x={detailed ? "214" : "196"}
+                                        y={rowH / 2 + 18}
+                                        fill={INK.text3}
+                                        fontSize="13.5"
+                                        fontWeight="400"
+                                        fontFamily={FONT_MONO}
+                                    >
+                                        Ent. {formatBrNumber(sig.entryPrice, dec)}
+                                    </text>
+                                )}
+
+                                {/* Pico ou Stop */}
+                                <text
+                                    x={detailed ? "386" : "356"}
+                                    y={isCompactRow ? rowH / 2 + 5 : rowH / 2 - 4}
+                                    fill={sig.isStopped ? INK.neg : INK.text2}
+                                    fontSize="15"
+                                    fontWeight="500"
+                                    fontFamily={FONT_MONO}
+                                >
+                                    {sig.isStopped
+                                        ? `Stop ${sig.stopTime} (${formatDuration(sig.durationMin)})`
+                                        : isCompactRow
+                                            ? `Ent. ${formatBrNumber(sig.entryPrice, dec)} · Pico ${sig.peakTime}`
+                                            : `Pico ${sig.peakTime} (${formatDuration(sig.durationMin)})`}
+                                </text>
+                                {!isCompactRow && (
+                                    <text
+                                        x={detailed ? "386" : "356"}
+                                        y={rowH / 2 + 18}
+                                        fill={INK.text3}
+                                        fontSize="13"
+                                        fontWeight="400"
+                                        fontFamily={FONT_MONO}
+                                    >
+                                        {sig.isStopped
+                                            ? `${sig.stopLabel} ${formatBrNumber(sig.stopPrice, dec)} · antes da proteção`
+                                            : `Máx. ${formatBrNumber(sig.bestPx, dec)} · ${sig.endedBy === "SINAL_OPOSTO" ? `até ${sig.windowEndTime}` : "até fech."}`}
+                                    </text>
+                                )}
+
+                                {/* Badge Melhor ou Stop */}
+                                {(sig.isBest && !sig.isStopped) && (
+                                    <g transform={`translate(${w - 20 - barW - 76}, ${rowH / 2 - 12})`}>
+                                        <rect x="0" y="0" width="64" height="22" rx="6" fill={INK.flipSoft} stroke={INK.flip} strokeOpacity="0.45" strokeWidth="1" />
+                                        <text x="32" y="15" fill={INK.flip} fontSize="12" fontWeight="500" fontFamily={FONT_SANS} textAnchor="middle">
+                                            Melhor
+                                        </text>
+                                    </g>
+                                )}
+                                {sig.isStopped && (
+                                    <g transform={`translate(${w - 20 - barW - 70}, ${rowH / 2 - 12})`}>
+                                        <rect x="0" y="0" width="58" height="22" rx="6" fill={INK.negSoft} stroke={INK.neg} strokeOpacity="0.5" strokeWidth="1" />
+                                        <text x="29" y="15" fill={INK.neg} fontSize="12" fontWeight="500" fontFamily={FONT_SANS} textAnchor="middle">
+                                            Stop
+                                        </text>
+                                    </g>
+                                )}
+
+                                {/* Valor em pontos + Barra de magnitude */}
+                                <text
+                                    x={w - 20}
+                                    y={isCompactRow ? rowH / 2 + 6 : rowH / 2 - 3}
+                                    fill={outcomeCol}
+                                    fontSize={detailed ? "24" : "22"}
+                                    fontWeight="600"
+                                    fontFamily={FONT_MONO}
+                                    textAnchor="end"
+                                >
+                                    {sig.isStopped
+                                        ? formatPtsLabel(sig.resultPts, isWdo)
+                                        : formatPtsLabel(sig.mfePts, isWdo)}
+                                </text>
+                                {!isCompactRow && (
+                                    <g>
+                                        <rect x={w - 20 - barW} y={rowH / 2 + 12} width={barW} height="4" rx="2" fill={INK.raised} />
+                                        <rect x={w - 20 - barW} y={rowH / 2 + 12} width={barW * barRatio} height="4" rx="2" fill={outcomeCol} />
+                                    </g>
+                                )}
+                            </g>
+                        );
+                    });
+                })()
+            )}
+        </g>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SUB-COMPONENTE SVG: RODAPÉ INK AZUL
+   ══════════════════════════════════════════════════════════════════════════════ */
+function CardFooter({ padX, contentW, y, handle, rightNote = "Estudo quantitativo educacional · Sem recomendação" }) {
+    const cleanHandle = handle ? handle.trim() : "@magicwallsb3";
+    return (
+        <g>
+            <line x1={padX} y1={y - 14} x2={padX + contentW} y2={y - 14} stroke={INK.hairline} strokeWidth="1" />
+            <text
+                x={padX}
+                y={y + 12}
+                fill={INK.text2}
+                fontSize="15.5"
+                fontWeight="500"
+                fontFamily={FONT_MONO}
+            >
+                {cleanHandle} · app.magicwalls.com.br
+            </text>
+            <text
+                x={padX + contentW}
+                y={y + 12}
+                fill={INK.text3}
+                fontSize="14"
+                fontWeight="400"
+                fontFamily={FONT_SANS}
+                textAnchor="end"
+            >
+                {rightNote}
+            </text>
+        </g>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   RENDERIZADOR DO CARD SVG COMPLETO (STORIES | FEED | CAROUSEL_1 | CAROUSEL_2)
+   ══════════════════════════════════════════════════════════════════════════════ */
+function InstagramCardSvg({
+    svgRef,
+    variant,
+    bars,
+    walls,
+    activeSignals,
+    summary,
+    symKey,
+    dateInfo,
+    brandTitle,
+    handle,
+    showFlow,
+    showGauss,
+    showWalls,
+    showDivLines,
+    rulerMode,
+}) {
+    const isStories = variant === "STORIES";
+    const W = 1080;
+    const H = isStories ? 1920 : 1350;
+    const padX = 44;
+    const contentW = W - padX * 2;
+    const isWdo = String(symKey || "").toUpperCase() === "WDO";
+    const clipPrefix = `ig-${variant.toLowerCase()}`;
+
+    return (
+        <svg
+            ref={svgRef}
+            width={W}
+            height={H}
+            viewBox={`0 0 ${W} ${H}`}
+            style={{
+                width: "100%",
+                height: "auto",
+                display: "block",
+                borderRadius: 12,
+                border: `1px solid ${INK.hairline}`,
+            }}
+        >
+            {/* Fundo sólido fosco Ink Azul (zero gradiente, zero brilho radial) */}
+            <rect x="0" y="0" width={W} height={H} fill={INK.bg} />
+
+            {/* ── LAYOUT 1: STORIES 9:16 (1080×1920) ── */}
+            {variant === "STORIES" && (
+                <>
+                    <CardHeaderAndKpis
+                        padX={padX}
+                        contentW={contentW}
+                        topY={72}
+                        compact={false}
+                        brandTitle={brandTitle}
+                        symKey={symKey}
+                        dateInfo={dateInfo}
+                        summary={summary}
+                    />
+                    <CleanChartSection
+                        x={padX}
+                        y={316}
+                        w={contentW}
+                        h={774}
+                        bars={bars}
+                        walls={walls}
+                        activeSignals={activeSignals}
+                        symKey={symKey}
+                        showFlow={showFlow}
+                        showGauss={showGauss}
+                        showWalls={showWalls}
+                        showDivLines={showDivLines}
+                        rulerMode={rulerMode}
+                        clipPrefix={clipPrefix}
+                    />
+                    <SignalListSection
+                        x={padX}
+                        y={1114}
+                        w={contentW}
+                        h={682}
+                        activeSignals={activeSignals}
+                        summary={summary}
+                        symKey={symKey}
+                        detailed={false}
+                    />
+                    <CardFooter padX={padX} contentW={contentW} y={1844} handle={handle} />
+                </>
+            )}
+
+            {/* ── LAYOUT 2: FEED ÚNICO 4:5 (1080×1350) ── */}
+            {variant === "FEED" && (
+                <>
+                    <CardHeaderAndKpis
+                        padX={padX}
+                        contentW={contentW}
+                        topY={32}
+                        compact={true}
+                        brandTitle={brandTitle}
+                        symKey={symKey}
+                        dateInfo={dateInfo}
+                        summary={summary}
+                    />
+                    <CleanChartSection
+                        x={padX}
+                        y={224}
+                        w={contentW}
+                        h={558}
+                        bars={bars}
+                        walls={walls}
+                        activeSignals={activeSignals}
+                        symKey={symKey}
+                        showFlow={showFlow}
+                        showGauss={showGauss}
+                        showWalls={showWalls}
+                        showDivLines={showDivLines}
+                        rulerMode={rulerMode}
+                        clipPrefix={clipPrefix}
+                    />
+                    <SignalListSection
+                        x={padX}
+                        y={800}
+                        w={contentW}
+                        h={472}
+                        activeSignals={activeSignals}
+                        summary={summary}
+                        symKey={symKey}
+                        detailed={false}
+                    />
+                    <CardFooter padX={padX} contentW={contentW} y={1308} handle={handle} />
+                </>
+            )}
+
+            {/* ── LAYOUT 3A: CARROSSEL SLIDE 1 — GRÁFICO HERO (1080×1350) ── */}
+            {variant === "CAROUSEL_1" && (
+                <>
+                    <CardHeaderAndKpis
+                        padX={padX}
+                        contentW={contentW}
+                        topY={32}
+                        compact={true}
+                        brandTitle={brandTitle}
+                        symKey={symKey}
+                        dateInfo={dateInfo}
+                        summary={summary}
+                        slideBadge="Slide 1 / 2"
+                    />
+                    <CleanChartSection
+                        x={padX}
+                        y={228}
+                        w={contentW}
+                        h={950}
+                        bars={bars}
+                        walls={walls}
+                        activeSignals={activeSignals}
+                        symKey={symKey}
+                        showFlow={showFlow}
+                        showGauss={showGauss}
+                        showWalls={showWalls}
+                        showDivLines={showDivLines}
+                        rulerMode={rulerMode}
+                        clipPrefix={clipPrefix}
+                    />
+                    <g transform={`translate(${padX}, 1198)`}>
+                        <rect x="0" y="0" width={contentW} height="64" rx="10" fill={INK.card} stroke={INK.hairline} strokeWidth="1.2" />
+                        <text x="20" y="38" fill={INK.text2} fontSize="17" fontWeight="500" fontFamily={FONT_SANS}>
+                            {summary.bestSignal && summary.bestSignal.mfePts > 0
+                                ? `Destaque: #${summary.bestSignal.num} ${summary.bestSignal.isBull ? "Compra" : "Venda"} às ${summary.bestSignal.entryTime} → ${formatPtsLabel(summary.bestSignal.mfePts, isWdo)}`
+                                : `${summary.totalSignals} sinais mapeados no pregão`}
+                        </text>
+                        <rect x={contentW - 236} y="12" width="216" height="40" rx="8" fill={INK.accent} />
+                        <text x={contentW - 128} y="37" fill={INK.onAccent} fontSize="15" fontWeight="600" fontFamily={FONT_MONO} textAnchor="middle">
+                            Ver horários e pts →
+                        </text>
+                    </g>
+                    <CardFooter padX={padX} contentW={contentW} y={1308} handle={handle} />
+                </>
+            )}
+
+            {/* ── LAYOUT 3B: CARROSSEL SLIDE 2 — TABELA DETALHADA (1080×1350) ── */}
+            {variant === "CAROUSEL_2" && (
+                <>
+                    <CardHeaderAndKpis
+                        padX={padX}
+                        contentW={contentW}
+                        topY={32}
+                        compact={true}
+                        brandTitle={brandTitle}
+                        symKey={symKey}
+                        dateInfo={dateInfo}
+                        summary={summary}
+                        slideBadge="Slide 2 / 2"
+                    />
+                    <SignalListSection
+                        x={padX}
+                        y={236}
+                        w={contentW}
+                        h={1028}
+                        activeSignals={activeSignals}
+                        summary={summary}
+                        symKey={symKey}
+                        detailed={true}
+                    />
+                    <CardFooter padX={padX} contentW={contentW} y={1308} handle={handle} />
+                </>
+            )}
+        </svg>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MODAL PRINCIPAL: GERADOR DE CARD INSTAGRAM (INK AZUL)
+   ══════════════════════════════════════════════════════════════════════════════ */
+export default function InstagramCardModal({
+    isOpen,
+    onClose,
+    symKey = "WIN",
+    sessionDate = "",
+    bars = [],
+    walls = [],
+    divergences = [],
+}) {
+    const initialPrefs = useMemo(() => loadPrefs(), []);
+    const [formatMode, setFormatMode] = useState(initialPrefs.formatMode || "FEED");
+    const [carouselSlide, setCarouselSlide] = useState(1);
+    const [showFlow, setShowFlow] = useState(initialPrefs.showFlow ?? true);
+    const [showGauss, setShowGauss] = useState(initialPrefs.showGauss ?? false);
+    const [showWalls, setShowWalls] = useState(initialPrefs.showWalls ?? true);
+    const [showDivLines, setShowDivLines] = useState(initialPrefs.showDivLines ?? false);
+    const [rulerMode, setRulerMode] = useState(initialPrefs.rulerMode || "BEST");
+    const [brandTitle, setBrandTitle] = useState(initialPrefs.brandTitle ?? "Magic Walls");
+    const [handle, setHandle] = useState(initialPrefs.handle || "@magicwallsb3");
+    const [excludedIds, setExcludedIds] = useState(() => new Set());
+    const [busyAction, setBusyAction] = useState("");
+    const [statusMsg, setStatusMsg] = useState("");
+    const [showSignalFilter, setShowSignalFilter] = useState(false);
+
+    const mainSvgRef = useRef(null);
+    const slide1SvgRef = useRef(null);
+    const slide2SvgRef = useRef(null);
+
+    useEffect(() => {
+        setExcludedIds(new Set());
+    }, [symKey, sessionDate]);
+
+    useEffect(() => {
+        savePrefs({
+            formatMode,
+            showFlow,
+            showGauss,
+            showWalls,
+            showDivLines,
+            rulerMode,
+            brandTitle,
+            handle,
+        });
+    }, [formatMode, showFlow, showGauss, showWalls, showDivLines, rulerMode, brandTitle, handle]);
+
+    useEffect(() => {
+        if (!isOpen) return undefined;
+        const onKey = (e) => {
+            if (e.key === "Escape") onClose?.();
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [isOpen, onClose]);
+
+    const dateInfo = useMemo(() => formatSessionDateBr(sessionDate), [sessionDate]);
+
+    const { allSignals, activeSignals, summary } = useMemo(
+        () => buildInstagramSignals(bars, divergences, symKey, excludedIds, walls),
+        [bars, divergences, symKey, excludedIds, walls],
+    );
+
+    const isWdo = String(symKey || "").toUpperCase() === "WDO";
+    const protTxt = isWdo ? "4 pts" : "150 pts";
+
+    const flashStatus = (msg) => {
+        setStatusMsg(msg);
+        setTimeout(() => {
+            setStatusMsg((cur) => (cur === msg ? "" : cur));
+        }, 3200);
+    };
+
+    const toggleSignalId = (id) => {
+        setExcludedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const buildExportFiles = async () => {
+        const baseName = `magic-walls-${symKey}-${dateInfo.iso}`;
+        if (formatMode === "STORIES") {
+            const blob = await svgElementToPngBlob(mainSvgRef.current, 1080, 1920);
+            return [{ blob, filename: `${baseName}-stories.png` }];
+        }
+        if (formatMode === "FEED") {
+            const blob = await svgElementToPngBlob(mainSvgRef.current, 1080, 1350);
+            return [{ blob, filename: `${baseName}-feed.png` }];
+        }
+        const blob1 = await svgElementToPngBlob(slide1SvgRef.current, 1080, 1350);
+        const blob2 = await svgElementToPngBlob(slide2SvgRef.current, 1080, 1350);
+        return [
+            { blob: blob1, filename: `${baseName}-carrossel-1-grafico.png` },
+            { blob: blob2, filename: `${baseName}-carrossel-2-sinais.png` },
+        ];
+    };
+
+    const handleDownloadPng = async () => {
+        setBusyAction("download");
+        try {
+            const files = await buildExportFiles();
+            files.forEach((f, idx) => {
+                setTimeout(() => triggerBlobDownload(f.blob, f.filename), idx * 240);
+            });
+            flashStatus(files.length > 1 ? "2 slides PNG baixados" : "PNG 1080px baixado");
+        } catch (err) {
+            flashStatus(`Erro ao exportar: ${err?.message || err}`);
+        } finally {
+            setBusyAction("");
+        }
+    };
+
+    const handleShareNative = async () => {
+        setBusyAction("share");
+        try {
+            const files = await buildExportFiles();
+            const shareFiles = files.map((f) => new File([f.blob], f.filename, { type: "image/png" }));
+            if (navigator.canShare && navigator.canShare({ files: shareFiles })) {
+                await navigator.share({
+                    files: shareFiles,
+                    title: `${brandTitle || "Magic Walls"} · ${symKey} (${dateInfo.short})`,
+                    text: buildInstagramCaption({ symKey, dateInfo, activeSignals, summary, handle }),
+                });
+                flashStatus("Compartilhado");
+            } else {
+                files.forEach((f, idx) => {
+                    setTimeout(() => triggerBlobDownload(f.blob, f.filename), idx * 240);
+                });
+                flashStatus("Compartilhamento indisponível aqui — PNG baixado");
+            }
+        } catch (err) {
+            if (err?.name !== "AbortError") {
+                flashStatus(`Erro ao compartilhar: ${err?.message || err}`);
+            }
+        } finally {
+            setBusyAction("");
+        }
+    };
+
+    const handleCopyCaption = async () => {
+        const caption = buildInstagramCaption({ symKey, dateInfo, activeSignals, summary, handle });
+        try {
+            await navigator.clipboard.writeText(caption);
+            flashStatus("Legenda copiada");
+        } catch {
+            flashStatus("Não foi possível copiar automaticamente");
+        }
+    };
+
+    if (!isOpen) return null;
+
+    const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+    const sharedCardProps = {
+        bars,
+        walls,
+        activeSignals,
+        summary,
+        symKey,
+        dateInfo,
+        brandTitle,
+        handle,
+        showFlow,
+        showGauss,
+        showWalls,
+        showDivLines,
+        rulerMode,
+    };
+
+    const inputStyle = {
+        width: "100%",
+        boxSizing: "border-box",
+        height: 36,
+        padding: "0 10px",
+        borderRadius: 6,
+        background: INK.chrome,
+        border: `1px solid ${INK.hairlineStrong}`,
+        color: INK.text1,
+        fontSize: 12,
+        fontFamily: FONT_MONO,
+    };
+
+    const modalContent = (
+        <div
+            onClick={(e) => {
+                if (e.target === e.currentTarget) onClose?.();
+            }}
+            style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 9999,
+                background: "rgba(10, 12, 18, 0.92)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 16,
+                overflowY: "auto",
+            }}
+        >
+            <div
+                data-testid="ig-card-modal"
+                style={{
+                    width: "min(1120px, 100%)",
+                    maxHeight: "94vh",
+                    background: INK.bg,
+                    border: `1px solid ${INK.hairlineStrong}`,
+                    borderRadius: 12,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                    color: INK.text1,
+                    fontFamily: FONT_SANS,
+                }}
+            >
+                {/* Cabeçalho sólido Ink Azul */}
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        padding: "12px 16px",
+                        borderBottom: `1px solid ${INK.hairline}`,
+                        background: INK.chrome,
+                        flexWrap: "wrap",
+                    }}
+                >
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <WallsMarkHtml />
+                        <div>
+                            <div style={{ fontWeight: 600, fontSize: 14, color: INK.text1, lineHeight: 1.25 }}>
+                                Gerador de Card Instagram · {symKey}
+                            </div>
+                            <div style={{ fontSize: 12, color: INK.text3, fontFamily: FONT_MONO, fontVariantNumeric: "tabular-nums" }}>
+                                {dateInfo.short} · {activeSignals.length} sinais ({summary.stopCount} stop{summary.stopCount === 1 ? "" : "s"}) · Protegido após +{protTxt}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {statusMsg && (
+                            <span
+                                style={{
+                                    fontSize: 12,
+                                    fontFamily: FONT_MONO,
+                                    color: INK.accentInk,
+                                    background: INK.accentSoft,
+                                    border: `1px solid rgba(56, 189, 248, 0.35)`,
+                                    padding: "4px 10px",
+                                    borderRadius: 6,
+                                }}
+                            >
+                                {statusMsg}
+                            </span>
+                        )}
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="mw-btn mw-btn-secondary"
+                            style={{ height: 32, padding: "0 12px" }}
+                        >
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+
+                {/* Corpo: Controles + Preview WYSIWYG */}
+                <div
+                    style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        flex: 1,
+                        overflowY: "auto",
+                        minHeight: 0,
+                    }}
+                >
+                    {/* Coluna Esquerda: Controles */}
+                    <div
+                        style={{
+                            flex: "1 1 320px",
+                            maxWidth: 380,
+                            padding: 16,
+                            borderRight: `1px solid ${INK.hairline}`,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 16,
+                            background: INK.bg,
+                        }}
+                    >
+                        {/* Formato do Post */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: INK.text2 }}>
+                                Formato do post
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, padding: 4, background: INK.chrome, borderRadius: 8, border: `1px solid ${INK.hairline}` }}>
+                                {[
+                                    { id: "FEED", label: "Feed", sub: "4:5" },
+                                    { id: "STORIES", label: "Stories", sub: "9:16" },
+                                    { id: "CAROUSEL", label: "Carrossel", sub: "2× 4:5" },
+                                ].map((opt) => {
+                                    const active = formatMode === opt.id;
+                                    return (
+                                        <button
+                                            key={opt.id}
+                                            type="button"
+                                            onClick={() => setFormatMode(opt.id)}
+                                            style={{
+                                                padding: "6px 8px",
+                                                borderRadius: 6,
+                                                cursor: "pointer",
+                                                background: active ? INK.raised : "transparent",
+                                                border: active ? `1px solid ${INK.hairlineStrong}` : "1px solid transparent",
+                                                color: active ? INK.text1 : INK.text3,
+                                                display: "flex",
+                                                flexDirection: "column",
+                                                alignItems: "center",
+                                                gap: 2,
+                                                fontFamily: FONT_SANS,
+                                            }}
+                                        >
+                                            <span style={{ fontSize: 12, fontWeight: 500 }}>{opt.label}</span>
+                                            <span style={{ fontSize: 11, fontFamily: FONT_MONO, color: active ? INK.accentInk : INK.text3 }}>{opt.sub}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {formatMode === "CAROUSEL" && (
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                    {[
+                                        { id: 1, label: "Slide 1 · Gráfico" },
+                                        { id: 2, label: "Slide 2 · Sinais" },
+                                    ].map((sl) => {
+                                        const active = carouselSlide === sl.id;
+                                        return (
+                                            <button
+                                                key={sl.id}
+                                                type="button"
+                                                onClick={() => setCarouselSlide(sl.id)}
+                                                style={{
+                                                    height: 32,
+                                                    padding: "0 8px",
+                                                    borderRadius: 6,
+                                                    fontSize: 12,
+                                                    fontWeight: 500,
+                                                    fontFamily: FONT_MONO,
+                                                    cursor: "pointer",
+                                                    background: active ? INK.raised : INK.card,
+                                                    border: active ? `1px solid ${INK.accent}` : `1px solid ${INK.hairline}`,
+                                                    color: active ? INK.accentInk : INK.text2,
+                                                }}
+                                            >
+                                                {sl.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Camadas do Gráfico */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: INK.text2 }}>
+                                Camadas do gráfico
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {[
+                                    { label: "Fluxo Smart Money", val: showFlow, set: setShowFlow },
+                                    { label: "Canal Gauss", val: showGauss, set: setShowGauss },
+                                    { label: "Walls", val: showWalls, set: setShowWalls },
+                                    { label: "Linhas div.", val: showDivLines, set: setShowDivLines },
+                                ].map((t) => (
+                                    <button
+                                        key={t.label}
+                                        type="button"
+                                        onClick={() => t.set((v) => !v)}
+                                        style={{
+                                            height: 28,
+                                            padding: "0 10px",
+                                            borderRadius: 6,
+                                            fontSize: 12,
+                                            fontWeight: 500,
+                                            fontFamily: FONT_SANS,
+                                            cursor: "pointer",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: 6,
+                                            background: t.val ? INK.accentSoft : INK.card,
+                                            border: t.val ? "1px solid rgba(56, 189, 248, 0.35)" : `1px solid ${INK.hairline}`,
+                                            color: t.val ? INK.accentInk : INK.text3,
+                                        }}
+                                    >
+                                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.val ? INK.accent : INK.text3 }} />
+                                        <span>{t.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Régua de pontos no gráfico */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: INK.text2 }}>
+                                Régua de pontos no gráfico
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, padding: 4, background: INK.chrome, borderRadius: 8, border: `1px solid ${INK.hairline}` }}>
+                                {[
+                                    { id: "BEST", label: "Melhor" },
+                                    { id: "ALL", label: "Todos" },
+                                    { id: "OFF", label: "Ocultar" },
+                                ].map((r) => {
+                                    const active = rulerMode === r.id;
+                                    return (
+                                        <button
+                                            key={r.id}
+                                            type="button"
+                                            onClick={() => setRulerMode(r.id)}
+                                            style={{
+                                                height: 28,
+                                                padding: "0 8px",
+                                                borderRadius: 6,
+                                                fontSize: 12,
+                                                fontWeight: 500,
+                                                fontFamily: FONT_SANS,
+                                                cursor: "pointer",
+                                                background: active ? INK.raised : "transparent",
+                                                border: active ? `1px solid ${INK.hairlineStrong}` : "1px solid transparent",
+                                                color: active ? INK.text1 : INK.text3,
+                                            }}
+                                        >
+                                            {r.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Título & Handle */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                            <div>
+                                <label style={{ display: "block", fontSize: 11.5, fontWeight: 500, color: INK.text3, marginBottom: 4 }}>
+                                    Título do card
+                                </label>
+                                <input
+                                    type="text"
+                                    value={brandTitle}
+                                    onChange={(e) => setBrandTitle(e.target.value)}
+                                    placeholder="Magic Walls"
+                                    maxLength={24}
+                                    style={inputStyle}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: "block", fontSize: 11.5, fontWeight: 500, color: INK.text3, marginBottom: 4 }}>
+                                    Seu @instagram
+                                </label>
+                                <input
+                                    type="text"
+                                    value={handle}
+                                    onChange={(e) => setHandle(e.target.value)}
+                                    placeholder="@magicwallsb3"
+                                    maxLength={32}
+                                    style={inputStyle}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Filtro por sinal */}
+                        <div style={{ border: `1px solid ${INK.hairline}`, borderRadius: 8, background: INK.card, overflow: "hidden" }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowSignalFilter((v) => !v)}
+                                style={{
+                                    width: "100%",
+                                    padding: "10px 12px",
+                                    background: "transparent",
+                                    border: "none",
+                                    color: INK.text2,
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    fontFamily: FONT_MONO,
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    cursor: "pointer",
+                                }}
+                            >
+                                <span>Filtrar sinais ({activeSignals.length}/{allSignals.length})</span>
+                                <IconChevron open={showSignalFilter} />
+                            </button>
+                            {showSignalFilter && (
+                                <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 4, maxHeight: 168, overflowY: "auto" }}>
+                                    {allSignals.length === 0 ? (
+                                        <div style={{ fontSize: 12, color: INK.text3 }}>Nenhum sinal detectado hoje.</div>
+                                    ) : (
+                                        allSignals.map((sig) => {
+                                            const enabled = !excludedIds.has(sig.id);
+                                            const dirCol = sig.isBull ? INK.pos : INK.neg;
+                                            const resCol = sig.isStopped ? INK.neg : INK.pos;
+                                            return (
+                                                <label
+                                                    key={sig.id}
+                                                    style={{
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "space-between",
+                                                        gap: 8,
+                                                        fontSize: 12,
+                                                        fontFamily: FONT_MONO,
+                                                        padding: "4px 8px",
+                                                        borderRadius: 6,
+                                                        background: enabled ? INK.chrome : "transparent",
+                                                        opacity: enabled ? 1 : 0.45,
+                                                        cursor: "pointer",
+                                                    }}
+                                                >
+                                                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={enabled}
+                                                            onChange={() => toggleSignalId(sig.id)}
+                                                        />
+                                                        <span style={{ color: INK.text1, fontWeight: 500 }}>{sig.entryTime}</span>
+                                                        <span style={{ color: dirCol, fontWeight: 500 }}>
+                                                            {sig.anchorCode} {sig.isBull ? "C" : "V"}
+                                                        </span>
+                                                    </span>
+                                                    <span style={{ color: resCol, fontWeight: 500 }}>
+                                                        {sig.isStopped ? `Stop ${formatPtsLabel(sig.resultPts, isWdo)}` : formatPtsLabel(sig.mfePts, isWdo)}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Botões de Exportação */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: "auto" }}>
+                            <button
+                                type="button"
+                                data-testid="export-ig-png-btn"
+                                onClick={handleDownloadPng}
+                                disabled={busyAction !== ""}
+                                style={{
+                                    width: "100%",
+                                    height: 40,
+                                    padding: "0 14px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${INK.accent}`,
+                                    background: INK.accent,
+                                    color: INK.onAccent,
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    fontFamily: FONT_SANS,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: 8,
+                                    cursor: busyAction ? "wait" : "pointer",
+                                }}
+                            >
+                                <IconDownload />
+                                <span>
+                                    {busyAction === "download"
+                                        ? "Gerando PNG..."
+                                        : formatMode === "CAROUSEL"
+                                            ? "Baixar 2 slides PNG (1080×1350)"
+                                            : formatMode === "STORIES"
+                                                ? "Baixar Stories PNG (1080×1920)"
+                                                : "Baixar Feed PNG (1080×1350)"}
+                                </span>
+                            </button>
+
+                            <div style={{ display: "grid", gridTemplateColumns: canNativeShare ? "1fr 1fr" : "1fr", gap: 8 }}>
+                                {canNativeShare && (
+                                    <button
+                                        type="button"
+                                        onClick={handleShareNative}
+                                        disabled={busyAction !== ""}
+                                        className="mw-btn mw-btn-secondary"
+                                        style={{ height: 36, justifyContent: "center" }}
+                                    >
+                                        <IconShare />
+                                        <span>Compartilhar</span>
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={handleCopyCaption}
+                                    className="mw-btn mw-btn-secondary"
+                                    style={{ height: 36, justifyContent: "center" }}
+                                >
+                                    <IconCopy />
+                                    <span>Copiar legenda</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Coluna Direita: Preview WYSIWYG */}
+                    <div
+                        style={{
+                            flex: "2 1 440px",
+                            padding: 20,
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "flex-start",
+                            background: INK.chrome,
+                            overflowY: "auto",
+                        }}
+                    >
+                        <div
+                            style={{
+                                width: "100%",
+                                maxWidth: formatMode === "STORIES" ? 375 : 460,
+                            }}
+                        >
+                            {formatMode === "STORIES" && (
+                                <InstagramCardSvg svgRef={mainSvgRef} variant="STORIES" {...sharedCardProps} />
+                            )}
+                            {formatMode === "FEED" && (
+                                <InstagramCardSvg svgRef={mainSvgRef} variant="FEED" {...sharedCardProps} />
+                            )}
+                            {formatMode === "CAROUSEL" && (
+                                <>
+                                    <div style={{ display: carouselSlide === 1 ? "block" : "none" }}>
+                                        <InstagramCardSvg svgRef={slide1SvgRef} variant="CAROUSEL_1" {...sharedCardProps} />
+                                    </div>
+                                    <div style={{ display: carouselSlide === 2 ? "block" : "none" }}>
+                                        <InstagramCardSvg svgRef={slide2SvgRef} variant="CAROUSEL_2" {...sharedCardProps} />
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    if (typeof document !== "undefined" && document.body) {
+        return createPortal(modalContent, document.body);
+    }
+    return modalContent;
+}

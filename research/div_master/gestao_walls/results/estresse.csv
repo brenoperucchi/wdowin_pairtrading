@@ -1,0 +1,91 @@
+sinais,gestao,estresse,ops,wr,pf,net,dd,rdd,rdd_is,rdd_oos,net_is,net_oos,meses,ct_med,media
+regra atual,ATUAL (SL200 · BE 180→20 · 12 barras),base,252,54.0,1.94,9214,656,14.05,7.5,9.99,4918,4296,11/11,2.0,36.6
+regra atual,ATUAL (SL200 · BE 180→20 · 12 barras),alvo +1 tick,252,54.0,1.94,9214,656,14.05,7.5,9.99,4918,4296,11/11,2.0,36.6
+regra atual,ATUAL (SL200 · BE 180→20 · 12 barras),stop 2 ticks,252,22.2,1.88,8828,684,12.91,6.8,9.49,4652,4176,11/11,2.0,35.0
+regra atual,ATUAL (SL200 · BE 180→20 · 12 barras),caminho ruim,252,54.0,1.94,9214,656,14.05,7.5,9.99,4918,4296,11/11,2.0,36.6
+regra atual,ATUAL (SL200 · BE 180→20 · 12 barras),entrada pior,252,52.0,1.6,6130,678,9.04,6.5,3.33,4410,1720,11/11,2.0,24.3
+regra atual,ATUAL (SL200 · BE 180→20 · 12 barras),tudo junto,252,20.6,1.55,5736,704,8.15,5.88,3.03,4138,1598,11/11,2.0,22.8
+regra atual,SL piv-30 · TP sem · BE atual · 24b,base,248,62.5,1.96,10488,692,15.16,9.93,7.2,6872,3616,10/11,2.0,42.3
+regra atual,SL piv-30 · TP sem · BE atual · 24b,alvo +1 tick,248,62.5,1.96,10488,692,15.16,9.93,7.2,6872,3616,10/11,2.0,42.3
+regra atual,SL piv-30 · TP sem · BE atual · 24b,stop 2 ticks,248,21.4,1.91,10102,710,14.23,9.3,6.83,6604,3498,10/11,2.0,40.7
+regra atual,SL piv-30 · TP sem · BE atual · 24b,caminho ruim,248,62.5,1.96,10488,692,15.16,9.93,7.2,6872,3616,10/11,2.0,42.3
+regra atual,SL piv-30 · TP sem · BE atual · 24b,entrada pior,247,61.9,1.9,10034,862,11.64,7.65,5.47,6590,3444,10/11,2.0,40.6
+regra atual,SL piv-30 · TP sem · BE atual · 24b,tudo junto,247,21.1,1.85,9648,892,10.82,7.09,5.2,6322,3326,10/11,2.0,39.1
+regra atual,SL piv-30 · TP W2 · BE atual · 12b,base,256,61.3,1.73,8173,630,12.97,9.18,4.77,5781,2392,11/11,2.0,31.9
+regra atual,SL piv-30 · TP W2 · BE atual · 12b,alvo +1 tick,256,61.3,1.73,8173,630,12.97,9.18,4.77,5781,2392,11/11,2.0,31.9
+regra atual,SL piv-30 · TP W2 · BE atual · 12b,stop 2 ticks,256,27.7,1.68,7815,644,12.13,8.6,4.45,5537,2278,10/11,2.0,30.5
+regra atual,SL piv-30 · TP W2 · BE atual · 12b,caminho ruim,256,61.3,1.73,8173,630,12.97,9.18,4.77,5781,2392,11/11,2.0,31.9
+regra atual,SL piv-30 · TP W2 · BE atual · 12b,entrada pior,255,60.4,1.72,8332,746,11.17,7.55,4.29,5631,2702,10/11,2.0,32.7
+regra atual,SL piv-30 · TP W2 · BE atual · 12b,tudo junto,255,27.8,1.68,7976,764,10.44,7.05,4.05,5385,2592,10/11,2.0,31.3
+regra atual,SL piv-30 · TP W2 · BE atual · 24b,base,255,62.4,1.79,8912,682,13.07,8.82,5.77,6017,2895,10/11,2.0,35.0
+regra atual,SL piv-30 · TP W2 · BE atual · 24b,alvo +1 tick,255,62.4,1.79,8877,682,13.02,8.77,5.77,5982,2895,10/11,2.0,34.8
+regra atual,SL piv-30 · TP W2 · BE atual · 24b,stop 2 ticks,255,25.5,1.74,8536,700,12.19,8.23,5.42,5761,2775,10/11,2.0,33.5
+regra atual,SL piv-30 · TP W2 · BE atual · 24b,caminho ruim,255,62.4,1.79,8912,682,13.07,8.82,5.77,6017,2895,10/11,2.0,35.0
+regra atual,SL piv-30 · TP W2 · BE atual · 24b,entrada pior,254,61.4,1.79,9189,746,12.32,7.84,5.3,5851,3337,10/11,2.0,36.2
+regra atual,SL piv-30 · TP W2 · BE atual · 24b,tudo junto,254,26.0,1.75,8781,764,11.49,7.28,5.02,5560,3221,10/11,2.0,34.6
+regra atual,SL wall_piv−20 · TP W2 · BE atual · 12b,base,257,53.7,1.69,6858,600,11.44,8.02,4.76,4812,2046,11/11,2.0,26.7
+regra atual,SL wall_piv−20 · TP W2 · BE atual · 12b,alvo +1 tick,257,53.7,1.69,6858,600,11.44,8.02,4.76,4812,2046,11/11,2.0,26.7
+regra atual,SL wall_piv−20 · TP W2 · BE atual · 12b,stop 2 ticks,257,24.9,1.64,6480,630,10.29,7.23,4.38,4554,1926,11/11,2.0,25.2
+regra atual,SL wall_piv−20 · TP W2 · BE atual · 12b,caminho ruim,257,53.7,1.69,6858,600,11.44,8.02,4.76,4812,2046,11/11,2.0,26.7
+regra atual,SL wall_piv−20 · TP W2 · BE atual · 12b,entrada pior,257,51.8,1.52,5434,683,7.96,6.27,2.24,4278,1157,11/11,2.0,21.1
+regra atual,SL wall_piv−20 · TP W2 · BE atual · 12b,tudo junto,257,23.3,1.47,5048,717,7.05,5.6,1.96,4014,1035,10/11,2.0,19.6
+sem super · 10–16h,ATUAL (SL200 · BE 180→20 · 12 barras),base,385,52.7,1.52,8036,1198,6.71,4.91,3.88,4704,3332,9/11,2.0,20.9
+sem super · 10–16h,ATUAL (SL200 · BE 180→20 · 12 barras),alvo +1 tick,385,52.7,1.52,8036,1198,6.71,4.91,3.88,4704,3332,9/11,2.0,20.9
+sem super · 10–16h,ATUAL (SL200 · BE 180→20 · 12 barras),stop 2 ticks,385,18.2,1.47,7412,1254,5.91,4.34,3.55,4286,3126,9/11,2.0,19.3
+sem super · 10–16h,ATUAL (SL200 · BE 180→20 · 12 barras),caminho ruim,385,52.7,1.52,8036,1198,6.71,4.91,3.88,4704,3332,9/11,2.0,20.9
+sem super · 10–16h,ATUAL (SL200 · BE 180→20 · 12 barras),entrada pior,386,51.0,1.3,4800,1368,3.51,4.26,0.52,4086,714,8/11,2.0,12.4
+sem super · 10–16h,ATUAL (SL200 · BE 180→20 · 12 barras),tudo junto,386,17.4,1.25,4168,1444,2.89,3.7,0.35,3660,508,8/11,2.0,10.8
+sem super · 10–16h,SL wall_ent−20 · TP sem · BE atual · 24b,base,380,49.5,1.46,6743,878,7.68,6.71,1.2,5695,1048,9/11,2.0,17.7
+sem super · 10–16h,SL wall_ent−20 · TP sem · BE atual · 24b,alvo +1 tick,380,49.5,1.46,6743,878,7.68,6.71,1.2,5695,1048,9/11,2.0,17.7
+sem super · 10–16h,SL wall_ent−20 · TP sem · BE atual · 24b,stop 2 ticks,380,13.7,1.41,6089,956,6.37,5.97,0.87,5253,836,9/11,2.0,16.0
+sem super · 10–16h,SL wall_ent−20 · TP sem · BE atual · 24b,caminho ruim,380,49.5,1.46,6743,878,7.68,6.71,1.2,5695,1048,9/11,2.0,17.7
+sem super · 10–16h,SL wall_ent−20 · TP sem · BE atual · 24b,entrada pior,381,48.0,1.3,4592,1858,2.47,5.19,-0.21,4981,-388,8/11,2.0,12.1
+sem super · 10–16h,SL wall_ent−20 · TP sem · BE atual · 24b,tudo junto,381,12.9,1.25,3930,1988,1.98,4.33,-0.3,4533,-602,8/11,2.0,10.3
+sem super · 10–16h,SL wall_ent−40 · TP sem · BE atual · 24b,base,380,49.7,1.39,5759,951,6.06,5.67,0.91,4897,862,9/11,2.0,15.2
+sem super · 10–16h,SL wall_ent−40 · TP sem · BE atual · 24b,alvo +1 tick,380,49.7,1.39,5759,951,6.06,5.67,0.91,4897,862,9/11,2.0,15.2
+sem super · 10–16h,SL wall_ent−40 · TP sem · BE atual · 24b,stop 2 ticks,380,13.4,1.33,5103,1031,4.95,4.97,0.63,4453,650,9/11,2.0,13.4
+sem super · 10–16h,SL wall_ent−40 · TP sem · BE atual · 24b,caminho ruim,380,49.7,1.39,5759,951,6.06,5.67,0.91,4897,862,9/11,2.0,15.2
+sem super · 10–16h,SL wall_ent−40 · TP sem · BE atual · 24b,entrada pior,381,48.3,1.23,3590,1988,1.81,3.99,-0.3,4177,-587,8/11,2.0,9.4
+sem super · 10–16h,SL wall_ent−40 · TP sem · BE atual · 24b,tudo junto,381,12.6,1.18,2926,2118,1.38,3.29,-0.38,3727,-801,8/11,2.0,7.7
+sem super · 10–16h,SL wall_ent−60 · TP sem · BE atual · 24b,base,380,50.5,1.36,5496,1040,5.28,5.41,0.68,4784,712,9/11,2.0,14.5
+sem super · 10–16h,SL wall_ent−60 · TP sem · BE atual · 24b,alvo +1 tick,380,50.5,1.36,5496,1040,5.28,5.41,0.68,4784,712,9/11,2.0,14.5
+sem super · 10–16h,SL wall_ent−60 · TP sem · BE atual · 24b,stop 2 ticks,380,13.7,1.31,4842,1120,4.32,4.74,0.45,4342,500,8/11,2.0,12.7
+sem super · 10–16h,SL wall_ent−60 · TP sem · BE atual · 24b,caminho ruim,380,50.5,1.36,5496,1040,5.28,5.41,0.68,4784,712,9/11,2.0,14.5
+sem super · 10–16h,SL wall_ent−60 · TP sem · BE atual · 24b,entrada pior,381,49.1,1.21,3306,2135,1.55,4.01,-0.35,4050,-744,8/11,2.0,8.7
+sem super · 10–16h,SL wall_ent−60 · TP sem · BE atual · 24b,tudo junto,381,12.9,1.16,2644,2265,1.17,3.28,-0.42,3602,-958,8/11,2.0,6.9
+sem super · 10–16h,SL piv-30 · TP sem · BE atual · 24b,base,374,61.8,1.5,8434,1268,6.65,5.21,1.81,6142,2292,9/11,2.0,22.6
+sem super · 10–16h,SL piv-30 · TP sem · BE atual · 24b,alvo +1 tick,374,61.8,1.5,8434,1268,6.65,5.21,1.81,6142,2292,9/11,2.0,22.6
+sem super · 10–16h,SL piv-30 · TP sem · BE atual · 24b,stop 2 ticks,374,15.5,1.46,7806,1316,5.93,4.72,1.59,5718,2088,8/11,2.0,20.9
+sem super · 10–16h,SL piv-30 · TP sem · BE atual · 24b,caminho ruim,374,61.8,1.5,8434,1268,6.65,5.21,1.81,6142,2292,9/11,2.0,22.6
+sem super · 10–16h,SL piv-30 · TP sem · BE atual · 24b,entrada pior,373,60.9,1.44,7534,1402,5.37,4.56,1.51,5420,2114,9/11,2.0,20.2
+sem super · 10–16h,SL piv-30 · TP sem · BE atual · 24b,tudo junto,373,15.0,1.39,6904,1450,4.76,4.09,1.32,4994,1910,8/11,2.0,18.5
+todos os gatilhos,ATUAL (SL200 · BE 180→20 · 12 barras),base,704,50.9,1.14,4236,2634,1.61,0.3,2.52,788,3448,4/11,2.0,6.0
+todos os gatilhos,ATUAL (SL200 · BE 180→20 · 12 barras),alvo +1 tick,704,50.9,1.14,4236,2634,1.61,0.3,2.52,788,3448,4/11,2.0,6.0
+todos os gatilhos,ATUAL (SL200 · BE 180→20 · 12 barras),stop 2 ticks,704,15.2,1.1,3052,2896,1.05,-0.01,2.19,-34,3086,4/11,2.0,4.3
+todos os gatilhos,ATUAL (SL200 · BE 180→20 · 12 barras),caminho ruim,704,50.9,1.14,4236,2634,1.61,0.3,2.52,788,3448,4/11,2.0,6.0
+todos os gatilhos,ATUAL (SL200 · BE 180→20 · 12 barras),entrada pior,705,49.2,1.0,134,2958,0.05,-0.23,0.59,-672,806,4/11,2.0,0.2
+todos os gatilhos,ATUAL (SL200 · BE 180→20 · 12 barras),tudo junto,705,14.6,0.97,-1058,3222,-0.33,-0.47,0.32,-1502,444,4/11,2.0,-1.5
+todos os gatilhos,SL wall_piv−40 · TP sem · BE cruzou W1 · 24b,base,675,44.7,1.23,7427,2538,2.93,1.85,1.72,4708,2720,8/11,2.0,11.0
+todos os gatilhos,SL wall_piv−40 · TP sem · BE cruzou W1 · 24b,alvo +1 tick,675,44.7,1.23,7427,2538,2.93,1.85,1.72,4708,2720,8/11,2.0,11.0
+todos os gatilhos,SL wall_piv−40 · TP sem · BE cruzou W1 · 24b,stop 2 ticks,675,17.3,1.19,6319,2640,2.39,1.49,1.4,3942,2378,8/11,2.0,9.4
+todos os gatilhos,SL wall_piv−40 · TP sem · BE cruzou W1 · 24b,caminho ruim,675,44.6,1.23,7339,2538,2.89,1.85,1.66,4708,2632,8/11,2.0,10.9
+todos os gatilhos,SL wall_piv−40 · TP sem · BE cruzou W1 · 24b,entrada pior,677,44.0,1.17,5641,2548,2.21,1.18,1.64,3016,2626,8/11,2.0,8.3
+todos os gatilhos,SL wall_piv−40 · TP sem · BE cruzou W1 · 24b,tudo junto,677,16.8,1.13,4435,2650,1.67,0.85,1.28,2240,2196,8/11,2.0,6.6
+todos os gatilhos,SL wall_piv−60 · TP sem · BE cruzou W1 · 24b,base,675,44.7,1.23,7306,2538,2.88,1.82,1.69,4615,2691,8/11,2.0,10.8
+todos os gatilhos,SL wall_piv−60 · TP sem · BE cruzou W1 · 24b,alvo +1 tick,675,44.7,1.23,7306,2538,2.88,1.82,1.69,4615,2691,8/11,2.0,10.8
+todos os gatilhos,SL wall_piv−60 · TP sem · BE cruzou W1 · 24b,stop 2 ticks,675,17.3,1.19,6198,2640,2.35,1.46,1.38,3849,2349,8/11,2.0,9.2
+todos os gatilhos,SL wall_piv−60 · TP sem · BE cruzou W1 · 24b,caminho ruim,675,44.6,1.22,7218,2538,2.84,1.82,1.64,4615,2603,8/11,2.0,10.7
+todos os gatilhos,SL wall_piv−60 · TP sem · BE cruzou W1 · 24b,entrada pior,677,44.0,1.17,5524,2548,2.17,1.15,1.62,2925,2599,8/11,2.0,8.2
+todos os gatilhos,SL wall_piv−60 · TP sem · BE cruzou W1 · 24b,tudo junto,677,16.8,1.13,4318,2650,1.63,0.81,1.26,2149,2169,8/11,2.0,6.4
+todos os gatilhos,SL wall_piv−20 · TP sem · BE cruzou W1 · 24b,base,676,44.7,1.23,7452,2650,2.81,1.77,1.74,4700,2752,8/11,2.0,11.0
+todos os gatilhos,SL wall_piv−20 · TP sem · BE cruzou W1 · 24b,alvo +1 tick,676,44.7,1.23,7452,2650,2.81,1.77,1.74,4700,2752,8/11,2.0,11.0
+todos os gatilhos,SL wall_piv−20 · TP sem · BE cruzou W1 · 24b,stop 2 ticks,676,17.3,1.19,6342,2754,2.3,1.43,1.43,3932,2410,8/11,2.0,9.4
+todos os gatilhos,SL wall_piv−20 · TP sem · BE cruzou W1 · 24b,caminho ruim,676,44.5,1.23,7364,2650,2.78,1.77,1.69,4700,2664,8/11,2.0,10.9
+todos os gatilhos,SL wall_piv−20 · TP sem · BE cruzou W1 · 24b,entrada pior,678,44.0,1.17,5660,2662,2.13,1.13,1.67,3003,2658,8/11,2.0,8.3
+todos os gatilhos,SL wall_piv−20 · TP sem · BE cruzou W1 · 24b,tudo junto,678,16.8,1.13,4452,2766,1.61,0.8,1.31,2225,2228,7/11,2.0,6.6
+todos os gatilhos,SL piv-30 · TP W2 · BE atual · 12b,base,735,59.2,1.17,5786,2443,2.37,1.74,0.94,4254,1532,7/11,2.0,7.9
+todos os gatilhos,SL piv-30 · TP W2 · BE atual · 12b,alvo +1 tick,735,59.2,1.17,5786,2443,2.37,1.74,0.94,4254,1532,7/11,2.0,7.9
+todos os gatilhos,SL piv-30 · TP W2 · BE atual · 12b,stop 2 ticks,735,20.8,1.13,4640,2551,1.82,1.36,0.68,3472,1168,7/11,2.0,6.3
+todos os gatilhos,SL piv-30 · TP W2 · BE atual · 12b,caminho ruim,735,59.2,1.17,5786,2443,2.37,1.74,0.94,4254,1532,7/11,2.0,7.9
+todos os gatilhos,SL piv-30 · TP W2 · BE atual · 12b,entrada pior,733,58.3,1.15,5296,2508,2.11,1.25,1.22,3138,2158,6/11,2.0,7.2
+todos os gatilhos,SL piv-30 · TP W2 · BE atual · 12b,tudo junto,733,20.6,1.12,4154,2739,1.52,0.86,0.97,2352,1802,6/11,2.0,5.7

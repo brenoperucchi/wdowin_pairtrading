@@ -16,6 +16,7 @@ input ulong               InpMagicNumber   = 88006; // Magic Number Base
 input bool                InpDrawLevels    = true;   // Desenhar MagicWalls no Gráfico
 input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)
 input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)
+input string              InpMaxEntryTime  = "16:00"; // Horario Limite Novas Entradas (HH:MM, vazio=off)
 
 CJumbaGexNweEngine g_engine;
 
@@ -28,6 +29,7 @@ int OnInit()
       false,false,false,false,false,false,false,false
    );
    g_engine.SetUseFlowFilter(InpUseFlowFilter);
+   g_engine.SetMaxEntryTime(InpMaxEntryTime);
    return(INIT_SUCCEEDED);
   }
 

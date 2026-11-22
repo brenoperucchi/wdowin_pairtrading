@@ -146,6 +146,7 @@ private:
    double            m_flow_cache_inst_5m;
    double            m_flow_cache_inst_15m;
    double            m_flow_cache_delta_5m;
+   int               m_entry_cutoff_min;    // Corte anti-furia (minutos do dia, ex: 960 = 16:00; 0=desativado)
 
    SVirtualSlot      m_slots[17]; // Index 1..16
 
@@ -182,6 +183,32 @@ public:
       m_flow_cache_inst_5m = 0.0;
       m_flow_cache_inst_15m = 0.0;
       m_flow_cache_delta_5m = 0.0;
+      m_entry_cutoff_min = 960; // Padrao B3 validado: WIN sem novas entradas a partir das 16:00
+     }
+
+   int               ParseEntryCutoffMinutes(string hhmm)
+     {
+      string s = hhmm;
+      StringTrimLeft(s);
+      StringTrimRight(s);
+      if(s == "" || s == "0" || s == "OFF" || s == "off")
+         return 0;
+      int colon = StringFind(s, ":");
+      if(colon > 0)
+        {
+         int h = (int)StringToInteger(StringSubstr(s, 0, colon));
+         int m = (int)StringToInteger(StringSubstr(s, colon + 1));
+         if(h >= 9 && h <= 18 && m >= 0 && m <= 59)
+            return h * 60 + m;
+         return 0;
+        }
+      int mins = (int)StringToInteger(s);
+      return (mins >= 540 && mins <= 1080) ? mins : 0;
+     }
+
+   void              SetMaxEntryTime(string hhmm)
+     {
+      m_entry_cutoff_min = ParseEntryCutoffMinutes(hhmm);
      }
 
    void              SetUseFlowFilter(bool use_flow)
@@ -313,8 +340,8 @@ public:
          "EST-06 [3Pil StopB1+BE_W15+MainW] Slope",
          "EST-07 [3Pil BE_Wall15] Breakout Mom NY",
          "EST-08 [3Pil TP_MainW] Breakout Core",
-         "EST-09 [DESATIVADO WF] Clone EST-01",
-         "EST-10 [DESATIVADO WF] WallsOnly GF",
+         "EST-09 [MaxTr=2/d] Breakout Stop/Lim NY",
+         "EST-10 [MaxTr=1/d] MainWalls Stop/Lim",
          "EST-11 [DESATIVADO <100tr] StopB1(2b)+MidW",
          "EST-12 [3Pil TP_MainW] Piramidacao 1+1L",
          "EST-13 [SmartGrid CrossWDO+NextWall 1+2L]",
@@ -395,10 +422,8 @@ public:
          m_slots[13].enabled = e13; m_slots[14].enabled = e14;
          m_slots[15].enabled = e15; m_slots[16].enabled = e16;
         }
-      // Auditoria Walk-Forward + Minimo 100 Trades (Nov/2026): EST-03 (M15 Trap Ret/DD 8.98) e EST-05 (M15 MidWall Ret/DD 6.46) APROVADOS!
-      // Apenas slots <100tr ou redundantes permanecem desativados (9, 10, 11).
-      m_slots[9].enabled  = false;
-      m_slots[10].enabled = false;
+      // Bateria Anti-Overfitting 5/5 (Nov/2026): EST-09 (MaxTr=2/d) e EST-10 (MaxTr=1/d) REATIVADOS!
+      // Apenas slot 11 permanece desativado por padrão.
       m_slots[11].enabled = false;
 
       int guard_slots = 0;
@@ -2151,12 +2176,14 @@ public:
            }
         }
 
-      // Trava de Perda Máxima Diária ou Encerramento de Fim de Dia (17h15 = 1035 min)
+      // Trava de Perda Máxima Diária (Monitor Global/WIN ou Individual) ou Encerramento de Fim de Dia (17h15 = 1035 min)
       double total_day_pnl = GetTotalDailyPnLBRL();
-      if(t_min >= 1035 || (m_max_daily_loss_brl > 0.0 && total_day_pnl <= -m_max_daily_loss_brl))
+      bool ext_daily_stop = m_guard.IsDailyStopActive();
+      if(t_min >= 1035 || ext_daily_stop || (m_max_daily_loss_brl > 0.0 && total_day_pnl <= -m_max_daily_loss_brl))
         {
-         string rsn = (t_min >= 1035) ? "EOD_1715" : "MAX_DAILY_LOSS";
+         string rsn = (t_min >= 1035) ? "EOD_1715" : (ext_daily_stop ? "PORTFOLIO_DAILY_STOP" : "MAX_DAILY_LOSS");
          double px = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         bool changed = false;
          for(int k=1; k<=16; k++)
            {
             if(m_slots[k].pend_dir != 0)
@@ -2164,11 +2191,25 @@ public:
                DeletePendingOrdersForSlot(k);
                m_slots[k].pend_dir = 0;
                m_slots[k].pend_bars_left = 0;
+               changed = true;
               }
             if(m_slots[k].dir != 0)
+              {
                CloseVirtualSlot(k, px, rsn);
+               changed = true;
+              }
            }
          SyncRealPositionsWithVirtualSlots();
+         if(changed || ext_daily_stop)
+           {
+            static ulong s_last_hud_ms = 0;
+            ulong now_hud = GetTickCount64();
+            if(changed || now_hud - s_last_hud_ms >= 5000)
+              {
+               s_last_hud_ms = now_hud;
+               RenderHudComment();
+              }
+           }
          return;
         }
 
@@ -2353,7 +2394,8 @@ public:
          if(m_slots[k].pend_dir != 0)
            {
             m_slots[k].pend_bars_left -= 1;
-            if(m_slots[k].pend_bars_left <= 0 || b1_date != today_str || new_tmin > 1000)
+            int pend_cut = (m_entry_cutoff_min > 0) ? MathMin(1000, m_entry_cutoff_min) : 1000;
+            if(m_slots[k].pend_bars_left <= 0 || b1_date != today_str || new_tmin >= pend_cut)
               {
                DeletePendingOrdersForSlot(k);
                m_slots[k].pend_dir = 0;
@@ -2507,6 +2549,10 @@ public:
 
       // Se estamos na mesma sessão, avalia sinais para as estratégias que estão FLAT
       if(b1_date != today_str)
+         return;
+
+      // Corte horario anti-furia (bloqueia apenas NOVAS entradas; posicoes abertas seguem gerenciadas ate 17:15)
+      if(m_entry_cutoff_min > 0 && new_tmin >= m_entry_cutoff_min)
          return;
 
       if(!MQLInfoInteger(MQL_TESTER))
@@ -2841,9 +2887,9 @@ public:
         }
 
       // =====================================================================
-      // EST-09: MANTIDO ORIGINAL (Breakout Stop & Limit Wall NY) | Ret/DD = 4.53
+      // EST-09: VALIDADO BATERIA 5/5 (Breakout Stop & Limit Wall NY + MaxTr=2/dia)
       // =====================================================================
-      if(false && m_slots[9].enabled && m_slots[9].dir == 0 && m_slots[9].pend_dir == 0 && WindowOk(new_tmin, "NY_1000_1630"))
+      if(m_slots[9].enabled && m_slots[9].dir == 0 && m_slots[9].pend_dir == 0 && m_slots[9].trades_today < 2 && WindowOk(new_tmin, "NY_1000_1630"))
         {
          bool armed9 = false;
          if(m_n30_s_1 >= 5.0 && b1.close > b1.open && body1 >= 35.0 && b1.close < (m_n30_u_1 - bw30 * 0.20))
@@ -2884,32 +2930,32 @@ public:
         }
 
       // =====================================================================
-      // EST-10: Matriz WDO (MainWalls Only pos50+GammaFlip + BE_177k(240/45)) | Ret/DD = 5.20
+      // EST-10: VALIDADO BATERIA 5/5 (MainWalls Breakout Stop & Limit + MaxTr=1/dia)
       // =====================================================================
-      if(false && m_slots[10].enabled && m_slots[10].dir == 0 && m_slots[10].pend_dir == 0 && WindowOk(new_tmin, "CORE_09_1615") && ArraySize(m_levels_walls) > 0)
+      if(m_slots[10].enabled && m_slots[10].dir == 0 && m_slots[10].pend_dir == 0 && m_slots[10].trades_today < 1 && WindowOk(new_tmin, "CORE_09_1615") && ArraySize(m_levels_walls) > 0)
         {
          bool armed10 = false;
-         if(m_n30_s_1 >= 4.0 && b1.close > b1.open && body1 >= 35.0 && pos30 < 0.85 && (m_gamma_flip <= 0.0 || b1.close >= m_gamma_flip))
+         if(m_n30_s_1 >= 4.5 && b1.close > b1.open && body1 >= 35.0 && b1.close < (m_n30_u_1 - bw30 * 0.18))
            {
             for(int i=0; i<ArraySize(m_levels_walls); i++)
               {
                double w = m_levels_walls[i];
-               if(w >= b1.close - 10.0 && (w - b1.close) <= 70.0)
+               if(w >= b1.close - 5.0 && (w - b1.close) <= 55.0)
                  {
-                  ArmPendingOrder(10, 1, 2, MathMax(w + 15.0, b1.high + 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w, 0, 0.0, 0.0, 0.0, false, 1, false);
+                  ArmPendingOrder(10, 1, 2, MathMax(w + 10.0, b1.high + 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16, 1, w, 0, 0.0, 0.0, 0.0, false, 1, false);
                   armed10 = true;
                   break;
                  }
               }
            }
-         if(!armed10 && m_n30_s_1 <= -4.0 && b1.close < b1.open && (-body1) >= 35.0 && pos30 > 0.15 && (m_gamma_flip <= 0.0 || b1.close <= m_gamma_flip))
+         if(!armed10 && m_n30_s_1 <= -4.5 && b1.close < b1.open && (-body1) >= 35.0 && b1.close > (m_n30_l_1 + bw30 * 0.18))
            {
             for(int i=ArraySize(m_levels_walls)-1; i>=0; i--)
               {
                double w = m_levels_walls[i];
-               if(w <= b1.close + 10.0 && (b1.close - w) <= 70.0)
+               if(w <= b1.close + 5.0 && (b1.close - w) <= 55.0)
                  {
-                  ArmPendingOrder(10, -1, 2, MathMin(w - 15.0, b1.low - 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w, 0, 0.0, 0.0, 0.0, false, 1, false);
+                  ArmPendingOrder(10, -1, 2, MathMin(w - 10.0, b1.low - 5.0), new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16, 1, w, 0, 0.0, 0.0, 0.0, false, 1, false);
                   armed10 = true;
                   break;
                  }
@@ -2917,10 +2963,10 @@ public:
            }
          if(!armed10)
            {
-            if(dw_l_main <= 70.0 && b1.close > (w_s_main + 10.0) && ((m_n50_s_1 >= 4.5 && pos50 <= 0.65) || (pos50 <= 0.35 && m_n50_s_1 >= -2.0)) && (m_gamma_flip <= 0.0 || b1.close >= m_gamma_flip))
-               ArmPendingOrder(10, 1, 1, w_s_main + 10.0, new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w_s_main, 0, 0.0, 0.0, 0.0, false, 1, false);
-            else if(dw_h_main <= 70.0 && b1.close < (w_r_main - 10.0) && ((m_n50_s_1 <= -4.5 && pos50 >= 0.35) || (pos50 >= 0.65 && m_n50_s_1 <= 2.0)) && (m_gamma_flip <= 0.0 || b1.close <= m_gamma_flip))
-               ArmPendingOrder(10, -1, 1, w_r_main - 10.0, new_bar_time, new_bar_open, 600.0, 250.0, 240.0, 45.0, 340.0, 120.0, 16, 1, w_r_main, 0, 0.0, 0.0, 0.0, false, 1, false);
+            if(m_n50_s_1 >= 5.5 && dw_l_main <= 60.0 && b1.close > w_s_main && b1.close <= (m_n50_c_1 + bw50 * 0.22))
+               ArmPendingOrder(10, 1, 1, w_s_main, new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16, 1, w_s_main, 0, 0.0, 0.0, 0.0, false, 1, false);
+            else if(m_n50_s_1 <= -5.5 && dw_h_main <= 60.0 && b1.close < w_r_main && b1.close >= (m_n50_c_1 - bw50 * 0.22))
+               ArmPendingOrder(10, -1, 1, w_r_main, new_bar_time, new_bar_open, 600.0, 250.0, 155.0, 20.0, 320.0, 115.0, 16, 1, w_r_main, 0, 0.0, 0.0, 0.0, false, 1, false);
            }
         }
 
@@ -3177,6 +3223,8 @@ public:
                           ArraySize(m_levels_all), ArraySize(m_levels_walls), m_gamma_flip, m_n50_s_1, m_rsi7_1);
       hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx | Filtro Fluxo: %s\n",
                           GetTotalDailyPnLBRL(), m_lot_mult, (m_use_flow_filter ? "ATIVO (CopyTicks)" : "OFF (Puro OHLC)"));
+      if(m_guard.IsDailyStopActive())
+         hud += " [TRAVADO HOJE: " + m_guard.DailyStopReason() + "]\n";
       hud += "----------------------------------------------------------\n";
       for(int k=1; k<=16; k++)
         {

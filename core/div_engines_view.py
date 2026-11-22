@@ -30,7 +30,48 @@ def _anchor_label(c: dict) -> str:
         return "WALL + EXTREMO"
     if wall:
         return "WALL (furo)" if c["c1"] is not None else "WALL"
-    return "EXTREMO DO DIA"
+    if day:
+        return "EXTREMO DO DIA"
+    return "SEM ÂNCORA (filtro do Sniper)"
+
+
+def _trade_divs(fb, levels, P, atr, cands_common, trig, trades):
+    """Para cada trade do dia, a divergência V3.2 que o liberou (12/11/2026: o painel mostra uma linha por perna e
+    a extensão apagava a linha do trade).
+      - Especialista: o candidato cujo gatilho Opção C tem a entrada na barra seguinte = horário do trade.
+      - Sniper (WIN/WDO_DIV_WALL): divergência sem exigência de âncora confirmada até 2 barras antes da entrada —
+        no histórico a entrada é a barra do trade (janela −3…−1); ao vivo é o fechamento da barra do sinal (−2…0).
+    Retorna {(dir, j, k): (candidato, [rótulos dos trades])}."""
+    tpos = {b["time"]: i for i, b in enumerate(fb)}
+    by_c = {(c["dir"], c["j"]): c for c in cands_common}
+    allc = None
+    out = {}
+    for tr in trades or []:
+        ti = tpos.get(str(tr.get("time", ""))[:5])
+        if ti is None:
+            continue
+        d = 1 if str(tr.get("direction", "")).upper() == "COMPRA" else -1
+        sid = str(tr.get("strategy_id", ""))
+        lbl = f"{sid} {fb[ti]['time']}"
+        c = None
+        if sid.startswith("ESP_"):
+            for x in trig:
+                if x["dir"] == d and x["idx"] + 1 == ti:
+                    c = by_c.get((x["dir"], x["j"]))
+                    break
+        elif sid.endswith("_DIV_WALL"):
+            if allc is None:
+                allc = _M.engine_v32(fb, [], P, "all", atr=atr, opt=_M.V32_PROD)
+            ok = [x for x in allc if x["dir"] == d and ti - 3 <= x["conf"] <= ti]
+            prior = [x for x in ok if x["conf"] <= ti - 1]
+            pick = prior or ok
+            if pick:
+                c = max(pick, key=lambda x: (x["conf"], x["j"]))
+                c = by_c.get((c["dir"], c["j"]), dict(c, **_M.anchors(fb, c["j"], c["dir"], levels, P)))
+        if c is not None:
+            key = (c["dir"], c["j"], c["k"])
+            out.setdefault(key, (c, []))[1].append(lbl)
+    return out
 
 
 def sniper_divs(asset: str, bars: List[dict]) -> List[tuple]:
@@ -46,9 +87,11 @@ def sniper_divs(asset: str, bars: List[dict]) -> List[tuple]:
     return [(int(c["conf"]), int(c["dir"])) for c in cands]
 
 
-def detect(asset: str, bars: List[dict], walls: List[dict], engine: str) -> List[Dict]:
+def detect(asset: str, bars: List[dict], walls: List[dict], engine: str, trades: List[dict] = None) -> List[Dict]:
     """bars: [{time, open, high, low, close, wave}] só do pregão (sem barras do dia anterior), em ordem.
-    walls: [{type, price}]. Retorna as divergências do motor com horários, preços, onda e âncora."""
+    walls: [{type, price}]. trades (opcional, só v3.2): [{strategy_id, time, direction}] do dia — a divergência
+    de cada trade também é devolvida (campo `trades`), mesmo que depois tenha sido estendida.
+    Retorna as divergências do motor com horários, preços, onda e âncora."""
     if asset not in _M.PARAMS:
         raise ValueError(f"ativo inválido: {asset}")
     if engine not in ENGINES:
@@ -75,9 +118,17 @@ def detect(asset: str, bars: List[dict], walls: List[dict], engine: str) -> List
         for c in allc:
             last[(c["dir"], c["k"])] = c
         cands = sorted(last.values(), key=lambda c: c["conf"])
+        trig_all, _ = _M.triggers(fb, allc, P)
+        tdiv = _trade_divs(fb, levels, P, atr, allc, trig_all, trades)
+        shown = {(c["dir"], c["j"], c["k"]) for c in cands}
+        for key, (c, _) in tdiv.items():
+            if key not in shown:
+                cands.append(c)
+        cands = sorted(cands, key=lambda c: c["conf"])
     else:
         cands = _M.engine_v31(fb, levels, P, "common", require_micro=False, atr=atr)
-    trig, _ = _M.triggers(fb, cands, P)
+        tdiv = {}
+    trig, _ = _M.triggers(fb, [c for c in cands if c.get("engine")], P)
     first_trig = {}
     for x in trig:
         key = (x["dir"], x["j"])
@@ -99,6 +150,7 @@ def detect(asset: str, bars: List[dict], walls: List[dict], engine: str) -> List
             trigger_time=fb[t["idx"]]["time"] if t else None,
             trigger_kind=(f"{t['esp']} {t['sub']}" if t else None),
             src=c.get("src"),
+            trades=tdiv.get((c["dir"], c["j"], c["k"]), (None, []))[1],
         ))
     out.sort(key=lambda d: (d["conf_time"], d["f2_time"]))
     return out

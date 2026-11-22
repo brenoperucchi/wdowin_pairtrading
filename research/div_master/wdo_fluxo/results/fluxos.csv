@@ -1,0 +1,41 @@
+fluxo,ancora,filtro,sinais,pf_mediano,rdd_mediano,positivas,melhor,melhor_ops,melhor_pf,melhor_net,melhor_rdd,melhor_is,melhor_oos,melhor_meses
+atual,wall+extremo,regra,224,0.68,-0.88,0/24,SL10 TP sem BE 4.0→0.5 12b,192,0.76,-1460,-0.7,-0.11,-0.84,5/11
+atual,wall+extremo,solto,1115,0.73,-0.92,0/24,SL10 TP sem BE sem 24b,510,0.93,-1835,-0.46,-0.49,-0.16,5/11
+atual,wall,regra,197,0.64,-0.89,0/24,SL10 TP wall BE 4.0→0.5 12b,179,0.88,-615,-0.49,-0.48,-0.01,4/11
+atual,wall,solto,1012,0.72,-0.91,0/24,SL10 TP wall BE 4.0→0.5 24b,610,0.87,-2488,-0.7,-0.66,-0.26,2/11
+wyckoff,wall+extremo,regra,221,0.64,-0.9,0/24,SL7 TP sem BE sem 12b,202,0.68,-2875,-0.89,-0.64,-0.73,4/11
+wyckoff,wall+extremo,solto,1086,0.76,-0.91,0/24,SL10 TP wall BE sem 24b,635,0.98,-568,-0.13,-0.54,2.35,7/11
+wyckoff,wall,regra,191,0.58,-0.92,0/24,SL10 TP sem BE 4.0→0.5 12b,166,0.53,-2655,-0.94,-0.87,-0.73,2/11
+wyckoff,wall,solto,973,0.73,-0.94,0/24,SL10 TP wall BE 4.0→0.5 24b,593,0.87,-2408,-0.64,-0.75,0.43,4/11
+porte,wall+extremo,regra,220,0.54,-0.94,0/24,SL10 TP wall BE 4.0→0.5 24b,200,0.74,-1630,-0.67,-0.78,-0.44,4/11
+porte,wall+extremo,solto,1150,0.74,-0.98,0/24,SL10 TP wall BE sem 24b,678,0.89,-3138,-0.76,-0.61,-0.33,5/11
+porte,wall,regra,205,0.52,-0.95,0/24,SL7 TP wall BE sem 24b,187,0.77,-1750,-0.76,-0.63,-0.51,5/11
+porte,wall,solto,1052,0.74,-0.94,0/24,SL10 TP wall BE 4.0→0.5 24b,632,0.9,-1878,-0.68,-0.59,-0.25,5/11
+inst,wall+extremo,regra,200,0.55,-0.91,0/24,SL7 TP wall BE sem 24b,181,0.66,-2620,-0.8,-0.73,-0.51,4/11
+inst,wall+extremo,solto,1077,0.75,-0.93,0/24,SL10 TP sem BE sem 24b,504,0.88,-3245,-0.55,-0.49,-0.34,5/11
+inst,wall,regra,185,0.56,-0.9,0/24,SL10 TP wall BE sem 24b,162,0.8,-1420,-0.65,-0.59,-0.15,6/11
+inst,wall,solto,990,0.76,-0.86,0/24,SL10 TP wall BE 4.0→0.5 24b,603,0.93,-1272,-0.54,-0.63,0.13,4/11
+delta,wall+extremo,regra,205,0.69,-0.82,0/24,SL10 TP sem BE sem 24b,176,0.85,-1480,-0.41,0.1,-0.86,3/11
+delta,wall+extremo,solto,999,0.78,-0.84,2/24,SL10 TP sem BE sem 24b,502,1.08,1930,0.86,0.02,1.1,8/11
+delta,wall,regra,181,0.6,-0.9,0/24,SL5 TP sem BE sem 24b,168,0.66,-2480,-0.78,-0.57,-0.76,3/11
+delta,wall,solto,915,0.77,-0.83,2/24,SL7 TP sem BE sem 24b,490,1.03,780,0.29,-0.67,1.7,6/11
+inst_aggr,wall+extremo,regra,200,0.62,-0.88,0/24,SL10 TP sem BE sem 24b,165,0.73,-2415,-0.74,-0.54,-0.74,3/11
+inst_aggr,wall+extremo,solto,1042,0.74,-0.94,0/24,SL5 TP sem BE sem 24b,603,0.86,-3565,-0.64,-0.51,-0.43,4/11
+inst_aggr,wall,regra,179,0.55,-0.92,0/24,SL7 TP wall BE sem 24b,166,0.77,-1505,-0.75,-0.8,-0.35,5/11
+inst_aggr,wall,solto,961,0.74,-0.9,0/24,SL5 TP sem BE sem 24b,551,0.83,-4025,-0.78,-0.73,-0.31,2/11
+inst_pass,wall+extremo,regra,213,0.61,-0.9,0/24,SL7 TP wall BE sem 24b,192,0.69,-2530,-0.89,-0.44,-0.85,4/11
+inst_pass,wall+extremo,solto,1255,0.78,-0.92,0/24,SL5 TP sem BE sem 24b,662,0.87,-3550,-0.62,-0.44,-0.5,5/11
+inst_pass,wall,regra,183,0.52,-0.97,0/24,SL7 TP sem BE sem 24b,159,0.58,-3745,-0.95,-0.46,-0.87,5/11
+inst_pass,wall,solto,1126,0.76,-0.94,0/24,SL5 TP sem BE sem 24b,587,0.84,-4030,-0.71,-0.57,-0.48,4/11
+varejo_inv,wall+extremo,regra,226,0.6,-0.92,0/24,SL7 TP sem BE sem 24b,192,0.61,-4095,-0.99,-0.62,-0.87,4/11
+varejo_inv,wall+extremo,solto,1298,0.82,-0.88,0/24,SL5 TP sem BE sem 24b,676,0.92,-2190,-0.48,-0.16,-0.65,6/11
+varejo_inv,wall,regra,192,0.56,-0.97,0/24,SL7 TP sem BE sem 24b,171,0.61,-3655,-0.97,-0.53,-0.87,4/11
+varejo_inv,wall,solto,1165,0.78,-0.94,0/24,SL5 TP sem BE sem 24b,602,0.89,-2860,-0.59,-0.35,-0.66,5/11
+aleatório,wall+extremo,regra,212,0.76,-0.76,0/24,SL10 TP wall BE 4.0→0.5 12b,189,0.91,-475,-0.46,-0.14,-0.34,5/11
+aleatório,wall+extremo,solto,1111,0.84,-0.77,1/24,SL10 TP wall BE sem 24b,644,1.01,182,0.07,-0.29,0.61,6/11
+aleatório,wall,regra,177,0.63,-0.8,0/24,SL7 TP wall BE 4.0→0.5 12b,165,0.87,-635,-0.55,-0.57,-0.12,6/11
+aleatório,wall,solto,1006,0.84,-0.73,1/24,SL10 TP wall BE sem 24b,580,1.05,1072,0.57,-0.37,1.49,5/11
+SÓ WALL,wall+extremo,regra,204,0.64,-0.94,0/24,SL7 TP sem BE sem 24b,169,0.65,-3275,-0.98,-0.44,-0.86,4/11
+SÓ WALL,wall+extremo,solto,1440,0.81,-0.8,0/24,SL7 TP sem BE sem 24b,659,0.97,-1005,-0.21,-0.62,0.79,5/11
+SÓ WALL,wall,regra,183,0.62,-0.96,0/24,SL7 TP sem BE sem 24b,157,0.64,-3165,-0.96,-0.41,-0.86,5/11
+SÓ WALL,wall,solto,1302,0.78,-0.94,0/24,SL7 TP sem BE sem 24b,587,0.94,-1620,-0.42,-0.58,0.27,5/11

@@ -11,5 +11,6 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = getDatabase(app);
+const hasFirebaseConfig = Boolean(firebaseConfig.apiKey && firebaseConfig.databaseURL);
+const app = hasFirebaseConfig ? initializeApp(firebaseConfig) : null;
+export const db = app ? getDatabase(app) : null;

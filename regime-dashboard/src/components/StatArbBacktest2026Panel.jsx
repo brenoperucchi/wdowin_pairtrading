@@ -210,13 +210,9 @@ export default function StatArbBacktest2026Panel({ onSelectDate }) {
     const hoveredDay = hoverIdx !== null ? chartData.series[hoverIdx] : null;
 
     return (
-        <div style={{
-            background: "#0b0f19",
-            border: "1px solid #1e293b",
-            borderRadius: 12,
-            padding: 16,
-            color: "#f8fafc",
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif',
+        <div className="mw-card" style={{
+            padding: "16px 18px",
+            color: "var(--mw-text-1)",
         }}>
             {/* Header */}
             <div style={{
@@ -227,34 +223,34 @@ export default function StatArbBacktest2026Panel({ onSelectDate }) {
                 flexWrap: "wrap",
                 marginBottom: 14,
                 paddingBottom: 12,
-                borderBottom: "1px solid #1e293b",
+                borderBottom: "1px solid var(--mw-hairline)",
             }}>
                 <div>
-                    <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-0.01em", color: "#f8fafc" }}>
-                        📈 Curvas de Capital, Dias Operados & Correlação — Histórico Completo 2026 (212 Pregões)
+                    <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--mw-text-1)" }}>
+                        Curvas de capital, dias operados e correlação — Histórico 2026 (212 pregões)
                     </div>
-                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 3 }}>
-                        Dados 100% Reais do Profit (WINFUT + WDOFUT + DI1FUT • 119.019 Barras M1 OHLC Fechadas Auditadas) • 02/01/2026 a 06/11/2026 • GEX Walls (SL/TP ≥ 200 pts, RR ≥ 1.4, BE +150→+15) • 2 Contratos WIN
+                    <div className="mw-mono" style={{ fontSize: 11.5, color: "var(--mw-text-3)", marginTop: 4 }}>
+                        Dados Profit (WINFUT + WDOFUT + DI1FUT · 119.019 barras M1 OHLC auditadas) · 02/01/2026 a 06/11/2026 · GEX Walls · 2 contratos WIN
                     </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <div className="mw-mono" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <span style={{
-                        fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6,
-                        background: "rgba(16,185,129,0.14)", color: "#34d399", border: "1px solid rgba(16,185,129,0.35)",
+                        fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 6,
+                        background: "rgba(76, 195, 138, 0.08)", color: "#4cc38a", border: "1px solid rgba(76, 195, 138, 0.25)",
                     }}>
-                        ✓ Auditado em 119.019 Barras M1 OHLC
+                        Auditado em 119.019 barras M1
                     </span>
                     <span style={{
-                        fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6,
-                        background: "rgba(16,185,129,0.14)", color: "#34d399", border: "1px solid rgba(16,185,129,0.35)",
+                        fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 6,
+                        background: "rgba(76, 195, 138, 0.08)", color: "#4cc38a", border: "1px solid rgba(76, 195, 138, 0.25)",
                     }}>
-                        10 de 11 Meses Positivos
+                        10/11 meses positivos
                     </span>
                     <span style={{
-                        fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6,
-                        background: "rgba(56,189,248,0.14)", color: "#38bdf8", border: "1px solid rgba(56,189,248,0.35)",
+                        fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: 6,
+                        background: "var(--mw-accent-soft)", color: "var(--mw-accent-ink)", border: "1px solid var(--mw-accent-border)",
                     }}>
-                        Operou em 163 / 212 Pregões (76,9%)
+                        Operou em 163/212 pregões (76,9%)
                     </span>
                 </div>
             </div>
@@ -262,66 +258,65 @@ export default function StatArbBacktest2026Panel({ onSelectDate }) {
             {/* 4 KPI Cards */}
             <div style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
                 gap: 10,
                 marginBottom: 14,
             }}>
                 {kpiCards.map((c) => (
                     <div key={c.id} style={{
-                        background: "#111827",
-                        border: "1px solid #1e293b",
-                        borderRadius: 10,
-                        padding: 12,
+                        background: "var(--mw-chrome)",
+                        border: "1px solid var(--mw-hairline)",
+                        borderLeft: `2px solid ${c.topColor}`,
+                        borderRadius: 8,
+                        padding: "12px 14px",
                         position: "relative",
                         overflow: "hidden",
                     }}>
                         <div style={{
-                            position: "absolute", top: 0, left: 0, right: 0, height: 3, background: c.topColor,
-                        }} />
-                        <div style={{
-                            display: "flex", justifyContent: "space-between", alignItems: "center",
-                            fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6,
+                            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
+                            fontSize: 11.5, fontWeight: 600, marginBottom: 6,
                         }}>
                             <span style={{ color: c.topColor }}>{c.title}</span>
-                            <span style={{
-                                fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
+                            <span className="mw-mono" style={{
+                                fontSize: 10.5, fontWeight: 500, padding: "2px 7px", borderRadius: 5,
                                 background: c.badgeBg, color: c.badgeColor, border: `1px solid ${c.badgeBorder}`,
+                                whiteSpace: "nowrap",
                             }}>
                                 {c.badge}
                             </span>
                         </div>
-                        <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", color: c.topColor }}>
+                        <div className="mw-mono" style={{ fontSize: 21, fontWeight: 600, letterSpacing: "-0.02em", color: "var(--mw-text-1)", whiteSpace: "nowrap" }}>
                             {unit === "brl"
                                 ? `+R$ ${c.valBrl.toLocaleString("pt-BR")}`
                                 : `+${c.valPts.toLocaleString("pt-BR")} pts`}
                         </div>
-                        <div style={{ fontSize: 11.5, color: "#94a3b8", marginTop: 2 }}>
+                        <div className="mw-mono" style={{ fontSize: 11, color: "var(--mw-text-3)", marginTop: 3 }}>
                             {unit === "brl"
-                                ? `+${c.valPts.toLocaleString("pt-BR")} pts • Max DD: R$ ${c.ddBrl.toLocaleString("pt-BR")} (${c.ddPts.toLocaleString("pt-BR")} pts)`
-                                : `+R$ ${c.valBrl.toLocaleString("pt-BR")} • Max DD: ${c.ddPts.toLocaleString("pt-BR")} pts (R$ ${c.ddBrl.toLocaleString("pt-BR")})`}
+                                ? `+${c.valPts.toLocaleString("pt-BR")} pts · Max DD R$ ${c.ddBrl.toLocaleString("pt-BR")} (${c.ddPts.toLocaleString("pt-BR")} pts)`
+                                : `+R$ ${c.valBrl.toLocaleString("pt-BR")} · Max DD ${c.ddPts.toLocaleString("pt-BR")} pts (R$ ${c.ddBrl.toLocaleString("pt-BR")})`}
                         </div>
-                        <div style={{
-                            marginTop: 9, paddingTop: 8, borderTop: "1px dashed #263248", fontSize: 11.5,
+                        <div className="mw-mono" style={{
+                            marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--mw-hairline)", fontSize: 11,
                         }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                                <span>📅 <b>Dias Operados:</b></span>
-                                <span style={{ color: "#f8fafc", fontWeight: 800 }}>{c.daysText}</span>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                                <span style={{ color: "var(--mw-text-2)", fontWeight: 500, whiteSpace: "nowrap" }}>Dias operados</span>
+                                <span style={{ color: "var(--mw-text-1)", fontWeight: 600, whiteSpace: "nowrap" }}>{c.daysText}</span>
                             </div>
                             <div style={{
-                                height: 6, background: "#1e293b", borderRadius: 999, overflow: "hidden", display: "flex", margin: "5px 0",
+                                height: 5, background: "var(--mw-card)", borderRadius: 999, overflow: "hidden", display: "flex", margin: "5px 0",
                             }}>
-                                <div style={{ width: `${c.wWin}%`, background: "#10b981", height: "100%" }} />
-                                <div style={{ width: `${c.wLoss}%`, background: "#f43f5e", height: "100%" }} />
-                                <div style={{ width: `${c.wFlat}%`, background: "#334155", height: "100%" }} />
+                                <div style={{ width: `${c.wWin}%`, background: "#4cc38a", height: "100%" }} />
+                                <div style={{ width: `${c.wLoss}%`, background: "#e5484d", height: "100%" }} />
+                                <div style={{ width: `${c.wFlat}%`, background: "#2a3346", height: "100%" }} />
                             </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#94a3b8" }}>
-                                <span>🟢 {c.posText}</span>
-                                <span>🔴 {c.negText}</span>
-                                <span>⚪ {c.flatText}</span>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--mw-text-3)" }}>
+                                <span style={{ color: "#4cc38a" }}>{c.posText}</span>
+                                <span style={{ color: "#e5484d" }}>{c.negText}</span>
+                                <span>{c.flatText}</span>
                             </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#cbd5e1", marginTop: 3 }}>
-                                <span>Total: <b>{c.tradesTotal}</b></span>
-                                <span><b>{c.tradesAvg}</b></span>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--mw-text-2)", marginTop: 4 }}>
+                                <span>Total: <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{c.tradesTotal}</strong></span>
+                                <span style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{c.tradesAvg}</span>
                             </div>
                         </div>
                     </div>
@@ -333,54 +328,41 @@ export default function StatArbBacktest2026Panel({ onSelectDate }) {
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 gap: 8, flexWrap: "wrap", marginBottom: 12,
             }}>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <div className="mw-track" style={{ flexWrap: "wrap" }}>
                     {[
-                        { id: "chart", label: "📈 4 Curvas de Capital & Drawdown" },
-                        { id: "corr", label: "🔗 Matriz de Correlação & Hedge" },
-                        { id: "monthly", label: "📊 Resultado Mensal & Dias Operados (Jan–Nov)" },
-                        { id: "daily", label: "📅 Histórico dos 212 Pregões" },
-                    ].map((t) => {
-                        const isAct = activeTab === t.id;
-                        return (
-                            <button
-                                key={t.id}
-                                onClick={() => setActiveTab(t.id)}
-                                style={{
-                                    background: isAct ? "#1e293b" : "#111827",
-                                    color: isAct ? "#38bdf8" : "#94a3b8",
-                                    border: `1px solid ${isAct ? "#38bdf8" : "#1e293b"}`,
-                                    padding: "7px 13px",
-                                    borderRadius: 8,
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    cursor: "pointer",
-                                }}
-                            >
-                                {t.label}
-                            </button>
-                        );
-                    })}
+                        { id: "chart", label: "4 curvas e drawdown" },
+                        { id: "corr", label: "Correlação e hedge" },
+                        { id: "monthly", label: "Mensal e dias operados" },
+                        { id: "daily", label: "Histórico (212 pregões)" },
+                    ].map((t) => (
+                        <button
+                            key={t.id}
+                            type="button"
+                            className="mw-btn"
+                            data-active={activeTab === t.id ? "true" : "false"}
+                            onClick={() => setActiveTab(t.id)}
+                            style={{ height: 28, padding: "0 11px", fontSize: 12 }}
+                        >
+                            {t.label}
+                        </button>
+                    ))}
                 </div>
-                <div style={{
-                    display: "flex", gap: 4, background: "#111827", padding: 3, borderRadius: 8, border: "1px solid #1e293b",
-                }}>
+                <div className="mw-track">
                     <button
+                        type="button"
+                        className="mw-btn mw-mono"
+                        data-active={unit === "brl" ? "true" : "false"}
                         onClick={() => setUnit("brl")}
-                        style={{
-                            background: unit === "brl" ? "#38bdf8" : "transparent",
-                            color: unit === "brl" ? "#0b0f19" : "#94a3b8",
-                            border: "none", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer",
-                        }}
+                        style={{ height: 26, padding: "0 10px", fontSize: 11 }}
                     >
-                        R$ (2 Contratos)
+                        R$ (2 contratos)
                     </button>
                     <button
+                        type="button"
+                        className="mw-btn mw-mono"
+                        data-active={unit === "pts" ? "true" : "false"}
                         onClick={() => setUnit("pts")}
-                        style={{
-                            background: unit === "pts" ? "#38bdf8" : "transparent",
-                            color: unit === "pts" ? "#0b0f19" : "#94a3b8",
-                            border: "none", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer",
-                        }}
+                        style={{ height: 26, padding: "0 10px", fontSize: 11 }}
                     >
                         Pontos (WIN)
                     </button>

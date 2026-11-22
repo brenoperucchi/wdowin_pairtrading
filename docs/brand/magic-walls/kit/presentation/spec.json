@@ -1,0 +1,64 @@
+{
+  "brand": "Magic Walls",
+  "deck_title": "Identidade Visual Final · Flip Strata",
+  "tagline": "Exposição Gamma e fluxo institucional · WIN × WDO",
+  "brief": "Terminal quantitativo de Gamma Exposure (GEX), Walls e Fluxo Smart Money para mini-índice (WIN) e mini-dólar (WDO) na B3. Superfície Ink Azul escura e silenciosa (#0a0c12 / #0e1118), com sotaque ciano contido (#38bdf8) apenas no dado e sem ornamento artificial.",
+  "adjectives": [
+    "preciso",
+    "quantitativo",
+    "silencioso",
+    "institucional"
+  ],
+  "criteria": "Sucesso: evoluir a Walls Mark de 3 barras já presente no site eliminando a leitura ambígua de menu hambúrguer, mantendo legibilidade absoluta a 16 px em 1 cor e harmonia total com a paleta Ink Azul.",
+  "industry": "finance",
+  "mockups": [
+    "website",
+    "favicon-tab",
+    "app-icon",
+    "social",
+    "terminal",
+    "business-card"
+  ],
+  "nav": [
+    "Regimes",
+    "Dias reais",
+    "Método",
+    "FAQ"
+  ],
+  "brand_color": "#38bdf8",
+  "tile_color": "#0a0c12",
+  "greyscale": false,
+  "final": true,
+  "label": "Identidade Final · Flip Strata",
+  "designer": "Magic Walls Brand Kit",
+  "date": "2026-11-21",
+  "concepts": [
+    {
+      "name": "Flip Strata",
+      "symbol": "../masters/magic-walls-symbol-light.svg",
+      "lockup": "../masters/magic-walls-horizontal-light.svg",
+      "stacked": "../masters/magic-walls-stacked-light.svg",
+      "avatar": "../masters/magic-walls-symbol-small-light.svg",
+      "symbol_on_tile": "../masters/magic-walls-symbol-small-dark.svg",
+      "lockup_on_tile": "../masters/magic-walls-horizontal-dark.svg",
+      "stacked_on_tile": "../masters/magic-walls-stacked-dark.svg",
+      "symbol_on_dark": "../masters/magic-walls-symbol-dark.svg",
+      "lockup_on_dark": "../masters/magic-walls-horizontal-dark.svg",
+      "stacked_on_dark": "../masters/magic-walls-stacked-dark.svg",
+      "idea": "Três estratos de liquidez com chanfros opostos a 45° em simetria invertida de 180°, ancorados na FlipWall central.",
+      "rationale": [
+        "Evolui diretamente a WallsMark de 3 barras já visível em app.magicwalls.com.br",
+        "Chanfros a 45° traduzem deflexão nas paredes (Call Wall / Put Wall) e acabam com a ambiguidade de menu",
+        "Corte óptico dedicado para 16 px (44u) e compensação de irradiação para fundo escuro (36u)",
+        "Wordmark traçado em curvas vetoriais puras de IBM Plex Sans SemiBold com kerning óptico"
+      ]
+    }
+  ],
+  "recommendation": "Sistema aprovado na direção A (Flip Strata) e calibrado para a paleta oficial Ink Azul (#0a0c12 / #0e1118 / #eef0f5 / #38bdf8 / #848da2) com variante complementar #0284c7 para superfícies claras e impressão.",
+  "next_steps": [
+    "Substituir a WallsMark atual em SaasWelcomePortal.jsx e App.jsx pelo SVG Flip Strata Dark",
+    "Publicar o novo favicon.svg / favicon.ico / apple-touch-icon.png e site.webmanifest em regime-dashboard/public/",
+    "Atualizar os geradores de cards do Instagram e vídeo pré-pregão 08h30",
+    "Realizar pesquisa prévia de marca (INPI / busca reversa) antes de registro comercial"
+  ]
+}

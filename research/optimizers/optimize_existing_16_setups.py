@@ -72,6 +72,8 @@ def window_ok(t_min: int, wm: str) -> bool:
         return 600 <= t_min <= 990
     if wm == "NO_LUNCH":
         return (545 <= t_min <= 720) or (810 <= t_min <= 980)
+    if wm == "MORNING_09_12":
+        return 545 <= t_min <= 720
     return True
 
 
@@ -150,11 +152,16 @@ def simulate_single_est_slot(
     cost_pts: float = 10.0,
     sig_filter=None,                   # callable(date, b1_tmin, dir) -> bool (filtros de fluxo/janela do dashboard)
     start_date: str = "2026-05-11",
+    end_date: str = "2099-12-31",
+    max_trades_day: int = 0,
+    max_losses_day: int = 0,
+    window_override: str = "CURRENT",
 ):
     """
     Executa a simulação fiel do slot `est_id` (1..16) de `Jumba_GEX_NWE_Core.mqh`.
     """
     dates = df["session_date"].values
+    ts_col = df["t"].values if "t" in df.columns else None
     opens = df["open"].values
     highs = df["high"].values
     lows = df["low"].values
@@ -171,6 +178,9 @@ def simulate_single_est_slot(
     idx = 2
     last_trade_date = ""
     last_entry_bar_idx = -1
+    cur_count_day = ""
+    trades_today = 0
+    losses_today = 0
 
     while idx < n - 1:
         # No MT5, `OnNewM5Bar` roda na abertura da barra `idx`, olhando a barra fechada `b1 = idx - 1`
@@ -178,7 +188,16 @@ def simulate_single_est_slot(
         b1_date = dates[b1_idx]
         today_str = dates[idx]
 
-        if today_str < start_date or today_str not in gex_by_date or b1_date != today_str:
+        if today_str != cur_count_day:
+            cur_count_day = today_str
+            trades_today = 0
+            losses_today = 0
+
+        if today_str < start_date or today_str > end_date or today_str not in gex_by_date or b1_date != today_str:
+            idx += 1
+            continue
+
+        if (max_trades_day > 0 and trades_today >= max_trades_day) or (max_losses_day > 0 and losses_today >= max_losses_day):
             idx += 1
             continue
 
@@ -486,6 +505,9 @@ def simulate_single_est_slot(
                 if sig_dir != 0:
                     tp_pts, sl_pts, be_trig, be_lock, tr_trig, tr_dist, max_hold = 1500.0, 400.0, 260.0, 25.0, 500.0, 200.0, 120
 
+        if sig_dir != 0 and window_override != "CURRENT" and not window_ok(b1_tmin, window_override):
+            sig_dir = 0
+
         if sig_dir != 0 and sig_filter is not None and not sig_filter(b1_date, b1_tmin, sig_dir):
             sig_dir = 0
 
@@ -496,8 +518,11 @@ def simulate_single_est_slot(
         # ======================================================================
         # PILAR 3: OVERRIDE DE ENTRADA PELA BARRA ANTERIOR (SE ATIVADO)
         # ======================================================================
-        if entry_override != "CURRENT" and action_kind in ("MKT", "PEND_LIMIT"):
-            if entry_override == "STOP_B1_EXT":
+        if entry_override != "CURRENT" and action_kind in ("MKT", "PEND_LIMIT", "PEND_STOP"):
+            if entry_override == "MARKET":
+                action_kind = "MKT"
+                trig_px = new_bar_open
+            elif entry_override == "STOP_B1_EXT":
                 action_kind = "PEND_STOP"
                 trig_px = round5(b1_h + 5.0) if sig_dir == 1 else round5(b1_l - 5.0)
             elif entry_override == "LIMIT_B1_EXT":
@@ -669,13 +694,21 @@ def simulate_single_est_slot(
                 exit_px = closes[min(j, n - 1)]
 
             net_pts_per_lot = (exit_px - avg_price) * sig_dir - cost_pts
+            pnl_b = net_pts_per_lot * lots * 0.20
+            trades_today += 1
+            if pnl_b < 0:
+                losses_today += 1
+            j_cl = int(min(j, n - 1))
             trades.append({
-                "date": today_str, "i_sig": int(idx), "j_exit": int(min(j, n - 1)), "exit_px": float(exit_px), "avg_px": float(avg_price), "tp_px": float(tp2_px), "sl_last": float(curr_sl), "sl0": float(sl0),
+                "date": today_str, "i_sig": int(idx), "j_exit": j_cl,
+                "entry_time": pd.Timestamp(ts_col[idx]) if ts_col is not None else None,
+                "exit_time": pd.Timestamp(ts_col[j_cl]) if ts_col is not None else None,
+                "exit_px": float(exit_px), "avg_px": float(avg_price), "tp_px": float(tp2_px), "sl_last": float(curr_sl), "sl0": float(sl0),
                 "est_id": est_id,
                 "side": int(sig_dir),
                 "pnl_pts": net_pts_per_lot * lots,
                 "contracts": lots,
-                "pnl_brl": net_pts_per_lot * lots * 0.20,
+                "pnl_brl": pnl_b,
             })
             idx = max(idx + 1, j + 1)
 
@@ -867,13 +900,21 @@ def simulate_single_est_slot(
             if touched_zero_after_shield and net_pts_unit > 30.0:
                 wall_saves += 1
 
+            pnl_b = net_pts_unit * lots * 0.20
+            trades_today += 1
+            if pnl_b < 0:
+                losses_today += 1
+            j_cl = int(min(j, n - 1))
             trades.append({
-                "date": today_str, "i_sig": int(idx), "j_exit": int(min(j, n - 1)), "exit_px": float(exit_px), "avg_px": float(avg_price), "tp_px": float(tp2_px), "sl_last": float(curr_sl), "sl0": float(sl0),
+                "date": today_str, "i_sig": int(idx), "j_exit": j_cl,
+                "entry_time": pd.Timestamp(ts_col[idx]) if ts_col is not None else None,
+                "exit_time": pd.Timestamp(ts_col[j_cl]) if ts_col is not None else None,
+                "exit_px": float(exit_px), "avg_px": float(avg_price), "tp_px": float(tp2_px), "sl_last": float(curr_sl), "sl0": float(sl0),
                 "est_id": est_id,
                 "side": int(sig_dir),
                 "pnl_pts": net_pts_unit * lots,
                 "contracts": lots,
-                "pnl_brl": net_pts_unit * lots * 0.20,
+                "pnl_brl": pnl_b,
             })
             idx = max(idx + 1, j + 1)
 

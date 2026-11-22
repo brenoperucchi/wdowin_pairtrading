@@ -79,7 +79,7 @@ class Settings:
             heartbeat_stale_sec=_env_int("MW_HEARTBEAT_STALE_SEC", 15),
             terms_version=os.environ.get("MW_TERMS_VERSION", "2026.11").strip() or "2026.11",
             jwt_ttl_sec=_env_int("MW_JWT_TTL_SEC", 43200),
-            snapshot_ttl_sec=_env_int("MW_SNAPSHOT_TTL_SEC", 300),
+            snapshot_ttl_sec=_env_int("MW_SNAPSHOT_TTL_SEC", 604800),
             supabase_url=os.environ.get("SUPABASE_URL", "").strip().rstrip("/"),
             supabase_service_role_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
         )

@@ -73,11 +73,13 @@ def open_pos(s, k, lv_all, t, fill):
     p5 = s["pend_px"]
     s2 = next_wall_behind(p5, d, lv_all)
     be_trig_val = float(s.get("pend_be_trig", 130.0))
+    be_mode_val = int(s.get("pend_be_mode", 1))
+    buf_val = float(s.get("pend_buf", 20.0))
     s.update(
         dir=d, p1=p5, avg=p5, lots=1, leg=1,
         sl=r5(p5 - d * (s2 + 175.0)), tp=r5(p5 + d * s["pend_tp"]),
         mfe=0.0, be_active=False, intrabar=True, bars=0,
-        be_trig=be_trig_val, be_lock=20.0, be_mode=1, buf=20.0,
+        be_trig=be_trig_val, be_lock=20.0, be_mode=be_mode_val, buf=buf_val,
         max_hold=18, step2=s2, pend=0,
         fills=[(fill, 1)], t_in=t, t_leg2=None,
     )
@@ -96,6 +98,8 @@ def close_pos(s, k, px, t, why, trades, cost_pts: float = 0.0):
     ))
     s["dir"] = 0
     s["trades_today"] += 1
+    if brl < 0.0:
+        s["losses_today"] = s.get("losses_today", 0) + 1
 
 
 # Ligado só pelo runner ao vivo (core/setups_runner.py) quando há corte de dados; o BT não muda.
@@ -105,7 +109,19 @@ EMIT_OPEN_AT_END = False
 _PRE: dict = {}
 
 
-def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_filter=None):
+def run(
+    slots=(13, 14, 15, 16),
+    start="2026-05-11",
+    cost_pts: float = 0.0,
+    sig_filter=None,
+    end: str = "2099-12-31",
+    entry_override: str = "CURRENT",
+    be_mode_override: int = -1,
+    wall_buf_override: float = -1.0,
+    max_trades_day: int = 0,
+    max_losses_day: int = 0,
+    window_override: str = "CURRENT",
+):
     m5, m1, wdo, gex = load_m5_m1_wdo_gex()
     # pré-cálculo depende só dos dados carregados (cache do loader): reaproveitado entre chamadas
     pre_key = (id(m5), id(m1), id(wdo), len(m5), len(m1),
@@ -128,12 +144,12 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_f
           "open": _df5["open"].to_numpy(), "high": _df5["high"].to_numpy(), "low": _df5["low"].to_numpy(),
           "close": _df5["close"].to_numpy()}
     trades = []
-    S = {k: dict(dir=0, pend=0, trades_today=0, day="") for k in slots}
+    S = {k: dict(dir=0, pend=0, trades_today=0, losses_today=0, day="") for k in slots}
     for i in range(1, len(_df5)):
         t_new = m5["t"][i]
         day = m5["date"][i]
         b1 = i - 1
-        if day < start or day not in gex:
+        if day < start or day > end or day not in gex:
             continue
         g = gex[day]
         lv_all = np.sort(np.r_[g["walls"], g["mid_walls"]])
@@ -144,7 +160,7 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_f
         for k in slots:
             s = S[k]
             if s["day"] != day:
-                s.update(trades_today=0, day=day)
+                s.update(trades_today=0, losses_today=0, day=day)
             if s["pend"] != 0:
                 s["pend_left"] -= 1
                 if s["pend_left"] <= 0 or m5["date"][b1] != day or new_tmin > 1000:
@@ -226,6 +242,16 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_f
                         sig, wall = -1, lvl_r
                 if sig == 0:
                     continue
+                if max_trades_day > 0 and s["trades_today"] >= max_trades_day:
+                    continue
+                if max_losses_day > 0 and s.get("losses_today", 0) >= max_losses_day:
+                    continue
+                if window_override == "NO_LUNCH" and not ((545 <= b1_tmin <= 720) or (810 <= b1_tmin <= 980)):
+                    continue
+                if window_override == "NY_1000_1630" and not (600 <= b1_tmin <= 990):
+                    continue
+                if window_override == "MORNING_09_12" and not (545 <= b1_tmin <= 720):
+                    continue
                 if sig_filter is not None and not sig_filter(day, b1_tmin, sig):
                     continue  # filtro de fluxo/janela do dashboard na barra de sinal b1
                 # Escalonamento Curto / Médio / Longo de Entrada e Saída (idêntico a Jumba_GEX_NWE_Core.mqh)
@@ -241,6 +267,12 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_f
                 else:
                     ent_px = mid_b1
                     tp_cap, tp_min, be_trig_val = 220.0, 140.0, 130.0
+                if entry_override == "LIMIT_B1_35":
+                    ent_px = r5(l1 + 0.35 * rng1) if sig == 1 else r5(h1 - 0.35 * rng1)
+                elif entry_override == "LIMIT_B1_EXT":
+                    ent_px = r5(l1 + 5.0) if sig == 1 else r5(h1 - 5.0)
+                elif entry_override == "LIMIT_B1_MID":
+                    ent_px = mid_b1
                 s2 = next_wall_behind(ent_px, sig, lv_all)
                 tp_mid, raw_mid = structural_mid(ent_px, sig, lv_all)
                 tp_pts = min(tp_cap, max(tp_min, abs(tp_mid - ent_px)))
@@ -250,6 +282,8 @@ def run(slots=(13, 14, 15, 16), start="2026-05-11", cost_pts: float = 0.0, sig_f
                 s.update(
                     pend=sig, pend_px=p5, pend_ord=(p5 + 5.0 if sig == 1 else p5),
                     pend_left=2, pend_tp=tp_pts, pend_sl=s2 + 175.0, pend_be_trig=be_trig_val,
+                    pend_be_mode=(be_mode_override if be_mode_override >= 0 else 1),
+                    pend_buf=(wall_buf_override if wall_buf_override >= 0.0 else 20.0),
                     def_wall=wall, raw_mid=raw_mid, pend_bar=t_new,
                 )
                 # executa já na abertura se o preço já está no nível (ask<=ord p/ compra, bid>=ord p/ venda)

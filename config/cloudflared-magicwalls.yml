@@ -1,0 +1,10 @@
+# Local config for the Magic Walls named tunnel only.
+# Do not use as ~/.cloudflared/config.yml (that could affect other tunnels).
+tunnel: c608dbf5-0b8d-438c-86d9-090d8557250e
+credentials-file: C:\Users\ryzen\.cloudflared\c608dbf5-0b8d-438c-86d9-090d8557250e.json
+ingress:
+  - hostname: walls.css-pro.com.br
+    service: http://127.0.0.1:5199
+  - hostname: roboswalls.css-pro.com.br
+    service: http://127.0.0.1:5198
+  - service: http_status:404

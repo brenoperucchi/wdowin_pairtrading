@@ -42,3 +42,13 @@ gex/data/*.csv
 
 # Cloudflare named-tunnel token (never commit)
 config/cloudflared_tunnel_token.txt
+
+# Temporary screenshots, scratch copies, Vite dist builds & research pickle caches
+_tmp_*/
+regime-dashboard/_shot.cjs
+regime-dashboard/dist-publico/
+regime-dashboard/dist-publico-5176/
+regime-dashboard/dist-saas/
+research/**/*.pkl
+research/**/variations_log.csv
+

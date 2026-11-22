@@ -21,6 +21,8 @@
 #ifndef JUMBA_SAFETY_GUARD_MQH
 #define JUMBA_SAFETY_GUARD_MQH
 
+#include "Jumba_LicenseGuard.mqh"
+
 class CJumbaSafetyGuard
   {
 private:
@@ -31,10 +33,30 @@ private:
    double            m_max_gross_vol;  // teto de exposicao bruta Jumba no simbolo
    int               m_max_orders_60s; // teto de ordens enviadas por este EA em 60s
    ulong             m_order_ms[];     // timestamps (ms) das ultimas ordens
+   ulong             m_last_stop_log_ms;
    bool              m_halted;
    string            m_reason;
+   bool              m_license_enabled;
+   CJumbaLicenseGuard m_license;
 
-   string            KillName()  { return "JUMBA_KILL_" + _Symbol; }
+   string            KillName()            { return "JUMBA_KILL_" + _Symbol; }
+   string            DailyStopGlobalKey()  { return "JUMBA_DAILY_STOP_GLOBAL"; }
+   string            DailyStopAssetKey()   { return (StringFind(m_tag, "WDO") >= 0) ? "JUMBA_DAILY_STOP_WDO" : "JUMBA_DAILY_STOP_WIN"; }
+
+   bool              IsDateGvActive(const string gv_name)
+     {
+      if(MQLInfoInteger(MQL_TESTER))
+         return false;
+      if(!GlobalVariableCheck(gv_name))
+         return false;
+      double val = GlobalVariableGet(gv_name);
+      double today = TodayKey();
+      if(MathAbs(val - today) < 0.5)
+         return true;
+      if(val > 0.0 && val < today - 0.5)
+         GlobalVariableDel(gv_name); // dia anterior: limpa automaticamente
+      return false;
+     }
 
    double            TodayKey()
      {
@@ -52,8 +74,10 @@ public:
       m_max_order_vol = 3.0;
       m_max_gross_vol = 48.0;
       m_max_orders_60s = 8;
+      m_last_stop_log_ms = 0;
       m_halted = false;
       m_reason = "";
+      m_license_enabled = false;
       ArrayResize(m_order_ms, 0);
      }
 
@@ -66,13 +90,35 @@ public:
       m_max_order_vol = 3.0 * lm;                  // maior lote base de qualquer slot = 3
       m_max_gross_vol = 3.0 * 16.0 * lm;           // 16 slots x 3 lotes x multiplicador
       m_max_orders_60s = 6 + 3 * MathMax(1, active_slots);
+      m_last_stop_log_ms = 0;
       m_halted = false;
       m_reason = "";
+      m_license_enabled = false;
       ArrayResize(m_order_ms, 0);
+     }
+
+   // Opt-in para versoes comerciais (Tier QUANT): ativa verificacao de conta + expiracao via API Cloud
+   bool              EnableLicenseCheck(const string api_url, const string license_token, const long expected_login = 0)
+     {
+      m_license_enabled = true;
+      m_license.Configure(api_url, license_token, expected_login);
+      return m_license.VerifyRemote();
      }
 
    bool              IsHalted()   { return m_halted; }
    string            Reason()     { return m_reason; }
+   bool              IsDailyStopGlobalActive() { return IsDateGvActive(DailyStopGlobalKey()); }
+   bool              IsDailyStopAssetActive()  { return IsDateGvActive(DailyStopAssetKey()); }
+   bool              IsDailyStopActive()       { return IsDailyStopGlobalActive() || IsDailyStopAssetActive(); }
+
+   string            DailyStopReason()
+     {
+      if(IsDailyStopGlobalActive())
+         return "STOP DIARIO GLOBAL ATINGIDO";
+      if(IsDailyStopAssetActive())
+         return (StringFind(m_tag, "WDO") >= 0) ? "STOP DIARIO WDO ATINGIDO" : "STOP DIARIO WIN ATINGIDO";
+      return "";
+     }
 
    // Exposicao bruta (soma de |volume|) de todas as posicoes Jumba deste motor no simbolo
    double            JumbaGrossExposure()
@@ -158,6 +204,26 @@ public:
      {
       if(CheckGlobalKill())
          return false;
+      if(!reduces_only && IsDailyStopActive())
+        {
+         ulong now_log = GetTickCount64();
+         if(now_log - m_last_stop_log_ms >= 60000)
+           {
+            m_last_stop_log_ms = now_log;
+            PrintFormat("[%s DAILY-STOP] %s | Nova ordem bloqueada: %s", m_tag, _Symbol, DailyStopReason());
+           }
+         return false;
+        }
+      if(!reduces_only && m_license_enabled && !m_license.IsAuthorized())
+        {
+         ulong now_lic_log = GetTickCount64();
+         if(now_lic_log - m_last_stop_log_ms >= 60000)
+           {
+            m_last_stop_log_ms = now_lic_log;
+            PrintFormat("[%s LICENSE] %s | Nova ordem bloqueada (%s). Renove sua licenca QUANT.", m_tag, _Symbol, m_license.LastReason());
+           }
+         return false;
+        }
       if(vol <= 0.0)
          return false;
       if(vol > m_max_order_vol + 0.01)

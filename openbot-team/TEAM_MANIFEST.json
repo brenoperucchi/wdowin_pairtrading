@@ -1,0 +1,364 @@
+{
+  "project": "MagicWalls SaaS & Instagram Growth Team",
+  "version": "1.0.0",
+  "repo_root": "C:\\Users\\ryzen\\Downloads\\Antigravity\\wdo win pair trading",
+  "shared_root": "C:\\Users\\ryzen\\OpenBot\\Shared\\magicwalls",
+  "brand_bible": "BRAND_BIBLE_CVM.md",
+  "readme": "README.md",
+  "provisioning_prompts": "PROVISIONING_PROMPTS.md",
+  "agents": [
+    {
+      "id": "01-ceo-magicwalls",
+      "name": "CEO MagicWalls",
+      "role": "CEO & Orquestrador Geral",
+      "reports_to": "Fundador",
+      "description": "Orquestra toda a equipe MagicWalls, define prioridades diárias e semanais, cobra SLAs (08h30 e 17h15), exige o gate de Compliance CVM 20 e consolida pacotes executivos para aprovação do Fundador.",
+      "agents_md_path": "agents/01-ceo-magicwalls/AGENTS.md",
+      "skills": [
+        "mw-ceo-orchestrator",
+        "mw-growth-weekly-report",
+        "mw-brand-cvm-guard"
+      ],
+      "workflows": [
+        "WF-01",
+        "WF-02",
+        "WF-03",
+        "WF-04",
+        "WF-05"
+      ],
+      "schedule": [
+        "Seg-Sex 07:50 BRT (Abertura Pré-Pregão)",
+        "Seg-Sex 17:05 BRT (Fechamento Pós-Pregão)",
+        "Sex 18:05 BRT (Reunião Semanal)"
+      ],
+      "approval_required": [
+        "Publicação externa no Instagram",
+        "Alteração de orçamento ou subida de anúncios Meta Ads",
+        "Disparo em lote de recuperação/cobrança"
+      ]
+    },
+    {
+      "id": "02-brand-compliance",
+      "name": "Brand & Compliance MagicWalls",
+      "role": "Gerente de Marca, Identidade Visual & Blindagem CVM 20 / Meta Ads",
+      "reports_to": "01-ceo-magicwalls",
+      "description": "Gate obrigatório com poder de veto. Audita 100% dos vídeos, cards, roteiros, legendas, scripts de DM, anúncios Meta Ads e réguas de recuperação contra a BRAND_BIBLE_CVM.md e a Resolução CVM 20/2021.",
+      "agents_md_path": "agents/02-brand-compliance/AGENTS.md",
+      "skills": [
+        "mw-brand-cvm-guard",
+        "mw-video-creative-qc"
+      ],
+      "workflows": [
+        "WF-01",
+        "WF-02",
+        "WF-03",
+        "WF-04",
+        "WF-05"
+      ],
+      "schedule": [
+        "Seg-Sex 08:15 BRT (Gate Manhã)",
+        "Seg-Sex 17:25 BRT (Gate Fechamento)",
+        "Sob demanda <= 5 min"
+      ],
+      "approval_required": [
+        "Alteração de regras na BRAND_BIBLE_CVM.md"
+      ]
+    },
+    {
+      "id": "03-instagram-content-head",
+      "name": "Head de Conteúdo IG MagicWalls",
+      "role": "Head de Marketing & Conteúdo (Instagram Prioritário)",
+      "reports_to": "01-ceo-magicwalls",
+      "description": "Define a pauta semanal do Instagram, cria ganchos de 3s, roteiros de Reels, carrosséis salváveis, legendas CVM-safe e CTAs por palavra-chave para alimentar o funil do Direct.",
+      "agents_md_path": "agents/03-instagram-content-head/AGENTS.md",
+      "skills": [
+        "mw-ig-editorial-engine",
+        "mw-ig-morning-video-prod",
+        "mw-ig-closing-proof-card"
+      ],
+      "workflows": [
+        "WF-01",
+        "WF-02",
+        "WF-03",
+        "WF-05"
+      ],
+      "schedule": [
+        "Seg-Sex 08:00 BRT (Copy 08h30)",
+        "Seg-Sex 17:15 BRT (Copy Fechamento)",
+        "Qui 14:00 BRT (Planejamento Semanal)"
+      ],
+      "approval_required": [
+        "Gate 02-brand-compliance + Aprovação do Fundador antes de publicar"
+      ]
+    },
+    {
+      "id": "04-editor-motion",
+      "name": "Editor & Motion MagicWalls",
+      "role": "Diretor de Edição, Vídeo 08h30 (30s), Cards 17h15 & Criativos Ads",
+      "reports_to": "03-instagram-content-head",
+      "description": "Opera o Estúdio 30s (?mode=morning_video) pela manhã, gera os cards pós-pregão via Card IG após as 17h e produz variações de gancho visual para Meta Ads.",
+      "agents_md_path": "agents/04-editor-motion/AGENTS.md",
+      "skills": [
+        "mw-ig-morning-video-prod",
+        "mw-ig-closing-proof-card",
+        "mw-video-creative-qc"
+      ],
+      "workflows": [
+        "WF-01",
+        "WF-02",
+        "WF-03"
+      ],
+      "schedule": [
+        "Seg-Sex 08:00 BRT (Export Vídeo 30s + Capa PNG)",
+        "Seg-Sex 17:15 BRT (Export Card IG)",
+        "Sex 10:00 BRT (Lote Semanal + Hooks Ads)"
+      ],
+      "approval_required": [
+        "QC + Gate 02-brand-compliance antes da entrega final"
+      ]
+    },
+    {
+      "id": "05-traffic-manager",
+      "name": "Gestor de Tráfego MagicWalls",
+      "role": "Gestor de Tráfego Pago (Meta Ads & YouTube Ads)",
+      "reports_to": "01-ceo-magicwalls",
+      "description": "Gerencia o flywheel Orgânico -> Pago no Meta Ads (TOF, MOF Click-to-DM / Passe 7 Dias, BOF Remarketing), aplica regras rígidas de corte/escala e solicita variações de hooks ao Editor.",
+      "agents_md_path": "agents/05-traffic-manager/AGENTS.md",
+      "skills": [
+        "mw-meta-ads-manager",
+        "mw-brand-cvm-guard"
+      ],
+      "workflows": [
+        "WF-03",
+        "WF-05"
+      ],
+      "schedule": [
+        "Seg e Qui 10:00 BRT (Otimização Meta Ads)",
+        "Qua 14:00 BRT (Briefing de Novos Hooks)"
+      ],
+      "approval_required": [
+        "Qualquer mudança de orçamento, novo anúncio ou pausa de conjunto exige [APROVADO_FUNDADOR]"
+      ]
+    },
+    {
+      "id": "06-social-dm-closer",
+      "name": "Social & DM Closer MagicWalls",
+      "role": "Social Media, Engajamento Stories/Comentários & Closer de Direct IG",
+      "reports_to": "03-instagram-content-head",
+      "description": "Opera fluxos Comment-to-DM, sequências interativas de Stories, qualificação consultiva em 4 perguntas (CORE vs PRO vs QUANT vs Passe 7d) e repasse de links não pagos para Recuperação.",
+      "agents_md_path": "agents/06-social-dm-closer/AGENTS.md",
+      "skills": [
+        "mw-ig-dm-conversion",
+        "mw-ig-editorial-engine"
+      ],
+      "workflows": [
+        "WF-01",
+        "WF-02",
+        "WF-04",
+        "WF-05"
+      ],
+      "schedule": [
+        "Seg-Sex 10:30 e 14:00 BRT (Stories & Comentários)",
+        "Seg-Sex 18:30 BRT (Handoff de Pipeline DM)"
+      ],
+      "approval_required": [
+        "Scripts novos validados por 02-brand-compliance; descontos fora da tabela proibidos"
+      ]
+    },
+    {
+      "id": "07-recovery-retention",
+      "name": "Recuperação & Retenção MagicWalls",
+      "role": "Gerente de Recuperação (Pix/Carrinho), Dunning & Anti-Churn",
+      "reports_to": "01-ceo-magicwalls",
+      "description": "Executa réguas de recuperação de Pix expirado e carrinho abandonado, Dunning (D-2 a D+4), Onboarding D0-D7, resgate de inativos (5 pregões) e Save Offer anti-cancelamento.",
+      "agents_md_path": "agents/07-recovery-retention/AGENTS.md",
+      "skills": [
+        "mw-cart-pix-recovery",
+        "mw-dunning-churn-shield"
+      ],
+      "workflows": [
+        "WF-01",
+        "WF-04",
+        "WF-05"
+      ],
+      "schedule": [
+        "Seg-Sex 08:40 BRT (Onboarding D+1 e Inativos)",
+        "Seg-Sex 11:30, 16:30 e 19:00 BRT (Fila Pix/Carrinho/Dunning)"
+      ],
+      "approval_required": [
+        "Templates aprovados por 02-brand-compliance; disparos em lote autorizados pelo Fundador"
+      ]
+    },
+    {
+      "id": "08-growth-analytics",
+      "name": "Analytics & Auditoria MagicWalls",
+      "role": "Analista de Dados, Auditoria Pré×Pós-Pregão & Growth KPIs",
+      "reports_to": "01-ceo-magicwalls",
+      "description": "Audita às 07h50 os níveis GEX e agenda do /api/morning-brief, verifica às 17h05 o que aconteceu nas MagicWalls e consolida toda sexta os KPIs de Instagram, Ads, Recuperação e SaaS.",
+      "agents_md_path": "agents/08-growth-analytics/AGENTS.md",
+      "skills": [
+        "mw-gex-accuracy-audit",
+        "mw-growth-weekly-report"
+      ],
+      "workflows": [
+        "WF-01",
+        "WF-02",
+        "WF-03",
+        "WF-05"
+      ],
+      "schedule": [
+        "Seg-Sex 07:50 BRT (Briefing Factual 08h30)",
+        "Seg-Sex 17:05 BRT (Auditoria Pré×Pós)",
+        "Sex 17:45 BRT (Relatório Semanal Executivo)"
+      ],
+      "approval_required": [
+        "Somente leitura no repositório e bancos"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "id": "mw-ceo-orchestrator",
+      "name": "mw-ceo-orchestrator",
+      "path": "skills/mw-ceo-orchestrator/SKILL.md",
+      "owner_agent": "01-ceo-magicwalls"
+    },
+    {
+      "id": "mw-brand-cvm-guard",
+      "name": "mw-brand-cvm-guard",
+      "path": "skills/mw-brand-cvm-guard/SKILL.md",
+      "owner_agent": "02-brand-compliance"
+    },
+    {
+      "id": "mw-ig-editorial-engine",
+      "name": "mw-ig-editorial-engine",
+      "path": "skills/mw-ig-editorial-engine/SKILL.md",
+      "owner_agent": "03-instagram-content-head"
+    },
+    {
+      "id": "mw-ig-morning-video-prod",
+      "name": "mw-ig-morning-video-prod",
+      "path": "skills/mw-ig-morning-video-prod/SKILL.md",
+      "owner_agent": "04-editor-motion"
+    },
+    {
+      "id": "mw-ig-closing-proof-card",
+      "name": "mw-ig-closing-proof-card",
+      "path": "skills/mw-ig-closing-proof-card/SKILL.md",
+      "owner_agent": "04-editor-motion"
+    },
+    {
+      "id": "mw-video-creative-qc",
+      "name": "mw-video-creative-qc",
+      "path": "skills/mw-video-creative-qc/SKILL.md",
+      "owner_agent": "04-editor-motion"
+    },
+    {
+      "id": "mw-meta-ads-manager",
+      "name": "mw-meta-ads-manager",
+      "path": "skills/mw-meta-ads-manager/SKILL.md",
+      "owner_agent": "05-traffic-manager"
+    },
+    {
+      "id": "mw-ig-dm-conversion",
+      "name": "mw-ig-dm-conversion",
+      "path": "skills/mw-ig-dm-conversion/SKILL.md",
+      "owner_agent": "06-social-dm-closer"
+    },
+    {
+      "id": "mw-cart-pix-recovery",
+      "name": "mw-cart-pix-recovery",
+      "path": "skills/mw-cart-pix-recovery/SKILL.md",
+      "owner_agent": "07-recovery-retention"
+    },
+    {
+      "id": "mw-dunning-churn-shield",
+      "name": "mw-dunning-churn-shield",
+      "path": "skills/mw-dunning-churn-shield/SKILL.md",
+      "owner_agent": "07-recovery-retention"
+    },
+    {
+      "id": "mw-gex-accuracy-audit",
+      "name": "mw-gex-accuracy-audit",
+      "path": "skills/mw-gex-accuracy-audit/SKILL.md",
+      "owner_agent": "08-growth-analytics"
+    },
+    {
+      "id": "mw-growth-weekly-report",
+      "name": "mw-growth-weekly-report",
+      "path": "skills/mw-growth-weekly-report/SKILL.md",
+      "owner_agent": "08-growth-analytics"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "WF-01",
+      "name": "Rotina Diária do Instagram (08:30 x 17:15)",
+      "trigger": "Seg-Sex 07:50 BRT e 17:05 BRT",
+      "path": "workflows/WF-01-ROTINA-DIARIA-INSTAGRAM.md",
+      "participants": [
+        "01-ceo-magicwalls",
+        "08-growth-analytics",
+        "03-instagram-content-head",
+        "04-editor-motion",
+        "02-brand-compliance",
+        "06-social-dm-closer",
+        "07-recovery-retention"
+      ]
+    },
+    {
+      "id": "WF-02",
+      "name": "Produção Semanal de Conteúdo Instagram",
+      "trigger": "Qui 14:00 BRT",
+      "path": "workflows/WF-02-PRODUCAO-SEMANAL-CONTEUDO.md",
+      "participants": [
+        "03-instagram-content-head",
+        "04-editor-motion",
+        "06-social-dm-closer",
+        "02-brand-compliance",
+        "08-growth-analytics"
+      ]
+    },
+    {
+      "id": "WF-03",
+      "name": "Tráfego Pago & Esteira de Criativos Meta Ads",
+      "trigger": "Seg/Qui 10:00 BRT e Qua 14:00 BRT",
+      "path": "workflows/WF-03-TRAFEGO-PAGO-CRIATIVOS.md",
+      "participants": [
+        "05-traffic-manager",
+        "08-growth-analytics",
+        "03-instagram-content-head",
+        "04-editor-motion",
+        "02-brand-compliance",
+        "01-ceo-magicwalls"
+      ]
+    },
+    {
+      "id": "WF-04",
+      "name": "Recuperação de Vendas, Dunning & Anti-Churn",
+      "trigger": "Seg-Sex 08:40, 11:30, 16:30 e 19:00 BRT",
+      "path": "workflows/WF-04-RECUPERACAO-VENDAS-E-CHURN.md",
+      "participants": [
+        "07-recovery-retention",
+        "06-social-dm-closer",
+        "02-brand-compliance",
+        "01-ceo-magicwalls"
+      ]
+    },
+    {
+      "id": "WF-05",
+      "name": "Reunião Executiva Semanal do CEO",
+      "trigger": "Sex 17:40 BRT",
+      "path": "workflows/WF-05-REUNIAO-SEMANAL-CEO.md",
+      "participants": [
+        "01-ceo-magicwalls",
+        "08-growth-analytics",
+        "05-traffic-manager",
+        "06-social-dm-closer",
+        "07-recovery-retention",
+        "03-instagram-content-head",
+        "02-brand-compliance"
+      ]
+    }
+  ]
+}

@@ -1,14 +1,17 @@
 //+------------------------------------------------------------------+
 //|                                 Jumba_Portfolio_Live_Monitor.mq5 |
 //|     Jumba Quant / Antigravity - Monitor de Operações & Histórico |
-//|     Acompanha 11 Robôs OOS+ Validados (Walls+NWE): WIN(8)+WDO(3) |
+//|     Acompanha 10 Robôs Elite (Walls+NWE B3): WIN(7) + WDO(3)     |
 //|     Guarda e Compara MaxDD (BT vs Live) e Loss Streak (BT vs Live)|
 //+------------------------------------------------------------------+
 #property copyright "Jumba Quant / Antigravity"
-#property description "Monitor em Tempo Real e Historico dos 11 Robos OOS+ Validados (8 WIN + 3 WDO - Proposta B - Walls TP/SL/BE + NWE)."
-#property description "Compara Operacoes Abertas, PnL, MaxDD (BT vs Live) e Sequencia de Loss (BT vs Live)."
-#property version   "3.00"
+#property description "Monitor em Tempo Real e Historico dos 10 Robos Elite (7 WIN + 3 WDO | B3 WDO<15h WIN<16h)."
+#property description "Compara Operacoes Abertas, PnL, MaxDD (BT vs Live) e Sequencia de Loss (BT vs Live) + Stop Diario Maximo."
+#property version   "4.20"
 #property strict
+
+#include <Trade\Trade.mqh>
+CTrade g_trade;
 
 enum ENUM_BT_DD_MODE
   {
@@ -37,11 +40,28 @@ input int             InpPanelX           = 12;             // Posição X do Pa
 input int             InpPanelY           = 24;             // Posição Y do Painel no Gráfico
 input int             InpFontSize         = 8;              // Tamanho da Fonte da Tabela
 
-#define TOTAL_MONITORED_ROBOTS 11
-#define IDX_SUMMARY_WIN        11
-#define IDX_SUMMARY_WDO        12
-#define IDX_SUMMARY_PORTFOLIO  13
-#define TOTAL_ROWS             14
+input group "=== GERENCIA DE STOP DIARIO MAXIMO ==="
+input bool            InpEnableDailyStop      = true;       // Ativar Gerência de Stop Diário Máximo
+input double          InpMaxDailyLossGlobal   = 950.0;      // Stop Diário Global WIN+WDO (R$, 0=Desativado)
+input double          InpMaxDailyLossWin      = 400.0;      // Sub-limite Diário WIN (R$, 0=Desativado)
+input double          InpMaxDailyLossWdo      = 0.0;        // Sub-limite Diário WDO (R$, 0=Desativado)
+input double          InpStopWarningPct       = 70.0;       // Percentual para Alerta Amarelo (%)
+input bool            InpClosePositionsOnStop = true;       // Fechar Posições Abertas ao Atingir Stop
+input bool            InpCancelPendingOnStop  = true;       // Cancelar Ordens Pendentes ao Atingir Stop
+input bool            InpIncludeAllJumbaMagics= true;       // Somar Todos Magics Jumba (88000..88016 e 89000..89016)
+input bool            InpUseAuctionFilter     = true;       // Suspender Disparo Durante Leilão/Spread Anômalo
+input string          InpBlockFrom1           = "08:55";    // Início Janela Leilão Abertura
+input string          InpBlockTo1             = "09:02";    // Fim Janela Leilão Abertura
+input string          InpBlockFrom2           = "17:55";    // Início Janela Leilão Fechamento
+input string          InpBlockTo2             = "18:35";    // Fim Janela Leilão Fechamento
+input bool            InpSendPushOnStop       = false;      // Enviar Notificação Push ao Atingir Stop
+input bool            InpClearStopOnRemove    = false;      // Limpar Trava Global ao Remover o Monitor (F3 mantém)
+
+#define TOTAL_MONITORED_ROBOTS 10
+#define IDX_SUMMARY_WIN        10
+#define IDX_SUMMARY_WDO        11
+#define IDX_SUMMARY_PORTFOLIO  12
+#define TOTAL_ROWS             13
 
 struct SRobotMonitorRow
   {
@@ -94,6 +114,29 @@ struct SDealRecord
 SRobotMonitorRow g_rows[TOTAL_ROWS];
 string           g_prefix = "JMB_MON_";
 datetime         g_last_update = 0;
+datetime         g_last_full_refresh = 0;
+ulong            g_last_stop_check_ms = 0;
+datetime         g_last_state_export = 0;
+
+// --- Estado da Gerência de Stop Diário Máximo ---
+double           g_stop_day_key      = 0.0;
+bool             g_stop_global_hit   = false;
+bool             g_stop_win_hit      = false;
+bool             g_stop_wdo_hit      = false;
+bool             g_warn_global_sent  = false;
+bool             g_warn_win_sent     = false;
+bool             g_warn_wdo_sent     = false;
+datetime         g_last_retry_close  = 0;
+double           g_day_closed_win    = 0.0;
+double           g_day_closed_wdo    = 0.0;
+double           g_day_float_win     = 0.0;
+double           g_day_float_wdo     = 0.0;
+double           g_day_total_win     = 0.0;
+double           g_day_total_wdo     = 0.0;
+double           g_day_total_global  = 0.0;
+double           g_day_mae_win       = 0.0;
+double           g_day_mae_wdo       = 0.0;
+double           g_day_mae_global    = 0.0;
 
 //+------------------------------------------------------------------+
 //| Inicializa os Benchmarks Oficiais de Backtest dos 18 Robôs       |
@@ -126,26 +169,26 @@ void InitBenchmarks()
 
    datetime dt_orig = D'2025.01.01 00:00';
    datetime dt_nov  = D'2026.11.01 00:00'; // Data em que os novos modelos (>=100tr + WF + Rollover Fix) substituíram os slots antigos
+   datetime dt_19   = D'2026.11.19 00:00'; // Data de inclusão EST-09 (MaxTr=2/d) e EST-10 (MaxTr=1/d) validados 5/5
 
-   // --- 8 ROBÔS WIN OOS+ VALIDADOS (Magic 88001, 88003, 88004, 88005, 88007, 88013..88015) · 212 Pregões 2026 ---
-   SetRowConfig(0,  "EST-01", "WIN_PA_PINBAR_WALL",      false, 1,  InpWinBaseMagic + 1,  dt_orig,  828, 32.4, 1.10,  1844.0,  891.0,  951.0, 24);
-   SetRowConfig(1,  "EST-03", "WIN_M15_FAKEOUT_TRAP",    false, 3,  InpWinBaseMagic + 3,  dt_nov,  1713, 53.5, 1.27,  7091.0, 1279.0, 1289.0, 12);
-   SetRowConfig(2,  "EST-04", "WIN_PB_WDO_ALIGNED",      false, 4,  InpWinBaseMagic + 4,  dt_orig,  364, 43.4, 1.30,  2149.0,  594.0,  694.0, 10);
-   SetRowConfig(3,  "EST-05", "WIN_M15_MIDWALL_PULLBACK",false, 5,  InpWinBaseMagic + 5,  dt_nov,   198, 42.4, 2.47,  2253.0,  204.0,  215.0,  9);
-   SetRowConfig(4,  "EST-07", "WIN_OF_CLIMAX_WALL",      false, 7,  InpWinBaseMagic + 7,  dt_orig,  554, 37.2, 1.17,  2127.0,  675.0,  742.0, 11);
-   SetRowConfig(5,  "EST-13", "WIN_SG_SCALPER_3C",       false, 13, InpWinBaseMagic + 13, dt_nov,   454, 63.0, 1.35,  4660.0,  791.0,  875.0,  4);
-   SetRowConfig(6,  "EST-14", "WIN_SG_MOMENTUM_3C",      false, 14, InpWinBaseMagic + 14, dt_nov,   504, 64.1, 1.35,  5334.0, 1052.0, 1155.0,  4);
-   SetRowConfig(7,  "EST-15", "WIN_SG_Z30_REV_WALL",     false, 15, InpWinBaseMagic + 15, dt_nov,   488, 63.3, 1.26,  3951.0, 1080.0, 1080.0,  5);
+   // --- 7 ROBÔS WIN ATIVOS (Magic 88004, 07, 09, 10, 13, 14, 15) · MT5 Tester B3 (WIN<16h) ---
+   SetRowConfig(0,  "EST-04", "WIN_PB_WDO_ALIGNED",      false, 4,  InpWinBaseMagic + 4,  dt_orig,  323, 44.9, 1.40,  2525.0,  482.0,  582.0, 10);
+   SetRowConfig(1,  "EST-07", "WIN_OF_CLIMAX_WALL",      false, 7,  InpWinBaseMagic + 7,  dt_orig,  521, 33.6, 1.17,  2048.0,  580.0,  654.0, 16);
+   SetRowConfig(2,  "EST-09", "WIN_BO_STOP_LIM_NY_2D",   false, 9,  InpWinBaseMagic + 9,  dt_19,    363, 59.8, 1.36,  2689.0,  608.0,  659.0,  5);
+   SetRowConfig(3,  "EST-10", "WIN_MAINWALL_STOP_1D",    false, 10, InpWinBaseMagic + 10, dt_19,    168, 60.7, 1.39,  1310.0,  552.0,  552.0,  6);
+   SetRowConfig(4,  "EST-13", "WIN_SG_SCALPER_3C",       false, 13, InpWinBaseMagic + 13, dt_nov,   653, 56.2, 1.65,  8620.0, 1202.0, 1310.0, 10);
+   SetRowConfig(5,  "EST-14", "WIN_SG_MOMENTUM_3C",      false, 14, InpWinBaseMagic + 14, dt_nov,   685, 54.9, 1.34,  5216.0,  806.0,  806.0,  8);
+   SetRowConfig(6,  "EST-15", "WIN_SG_Z30_REV_WALL",     false, 15, InpWinBaseMagic + 15, dt_nov,   629, 61.0, 1.41,  5170.0,  574.0,  670.0, 10);
 
-   // --- 3 ROBÔS WDO OOS+ VALIDADOS (Magic 89001, 89005, 89007) · 212 Pregões 2026 ---
-   SetRowConfig(8,  "WDO-01", "WDO_PA_WALL_SCALPER_NY",  true,  1,  InpWdoBaseMagic + 1,  dt_nov,   705, 51.3, 1.17,  3940.0, 1325.0, 1330.0,  6);
-   SetRowConfig(9,  "WDO-05", "WDO_PA_CLUSTER_NWE",      true,  5,  InpWdoBaseMagic + 5,  dt_nov,   745, 61.9, 1.24,  5995.0,  880.0, 1170.0,  6);
-   SetRowConfig(10, "WDO-07", "WDO_OF_CLIMAX_WALL",      true,  7,  InpWdoBaseMagic + 7,  dt_orig,  475, 54.7, 1.26,  3685.0, 1225.0, 1255.0,  5);
+   // --- 3 ROBÔS WDO ATIVOS (Magic 89001, 89005, 89007) · MT5 Tester B3 (WDO<15h) ---
+   SetRowConfig(7,  "WDO-01", "WDO_PA_WALL_SCALPER_NY",  true,  1,  InpWdoBaseMagic + 1,  dt_nov,   613, 63.8, 1.34,  6610.0,  720.0,  815.0,  4);
+   SetRowConfig(8,  "WDO-05", "WDO_PA_CLUSTER_NWE",      true,  5,  InpWdoBaseMagic + 5,  dt_nov,   657, 64.4, 1.29,  6515.0, 1005.0, 1105.0,  5);
+   SetRowConfig(9,  "WDO-07", "WDO_OF_CLIMAX_WALL",      true,  7,  InpWdoBaseMagic + 7,  dt_orig,  389, 56.0, 1.37,  4295.0,  960.0,  960.0,  4);
 
-   // --- 3 LINHAS DE CONSOLIDAÇÃO (WIN 08, WDO 03, PORTFÓLIO TOTAL 11 - PROPOSTA B) ---
-   SetRowConfig(IDX_SUMMARY_WIN,       "WIN 08",   "SUBTOTAL INDICE (08 ROBOS)",  false, 99,  0, dt_orig, 5103, 50.0, 1.27, 29409.0, 2848.0, 3090.0, 20);
-   SetRowConfig(IDX_SUMMARY_WDO,       "WDO 03",   "SUBTOTAL DOLAR (03 ROBOS)",   true,  99,  0, dt_orig, 1925, 56.3, 1.22, 13620.0, 3235.0, 3265.0,  6);
-   SetRowConfig(IDX_SUMMARY_PORTFOLIO, "TOTAL 11", "PORTFOLIO ELITE (11 ROBOS)",  false, 100, 0, dt_orig, 7028, 51.7, 1.25, 43029.0, 3384.0, 3852.0, 15);
+   // --- 3 LINHAS DE CONSOLIDAÇÃO (WIN 07, WDO 03, PORTFÓLIO TOTAL 10) ---
+   SetRowConfig(IDX_SUMMARY_WIN,       "WIN 07",   "SUBTOTAL INDICE (07 ROBOS)",  false, 99,  0, dt_orig, 3342, 52.8, 1.39, 27578.0, 1178.0, 1307.0, 15);
+   SetRowConfig(IDX_SUMMARY_WDO,       "WDO 03",   "SUBTOTAL DOLAR (03 ROBOS)",   true,  99,  0, dt_orig, 1659, 62.2, 1.32, 17420.0, 1960.0, 2240.0,  9);
+   SetRowConfig(IDX_SUMMARY_PORTFOLIO, "TOTAL",    "PORTFOLIO ELITE (10 ROBOS)",  false, 100, 0, dt_orig, 5001, 55.9, 1.36, 44998.0, 1697.0, 2053.0, 12);
   }
 
 //+------------------------------------------------------------------+
@@ -631,30 +674,97 @@ void RenderDashboardPanel()
    int x0    = InpPanelX;
    int y0    = InpPanelY;
    int row_h = InpFontSize + 10;
-   int hdr_h = 46;
-   int tbl_w = 1135;
+   int hdr_h = 66;
+   int tbl_w = 1170;
    int tbl_h = hdr_h + (TOTAL_ROWS + 2) * row_h + 14;
+
+   color hdr_bd = C'45,65,90';
+   if(g_stop_global_hit)
+      hdr_bd = C'255,75,75';
+   else if(g_stop_win_hit || g_stop_wdo_hit)
+      hdr_bd = C'255,180,60';
 
    // Fundo Principal
    UpsertRect(g_prefix + "BG_MAIN", x0, y0, tbl_w, tbl_h, C'15,20,28', C'55,70,95');
-   UpsertRect(g_prefix + "BG_HDR",  x0 + 2, y0 + 2, tbl_w - 4, hdr_h - 4, C'22,32,46', C'45,65,90');
+   UpsertRect(g_prefix + "BG_HDR",  x0 + 2, y0 + 2, tbl_w - 4, hdr_h - 4, C'22,32,46', hdr_bd);
 
-   string dd_mode_str = (InpBtDdReference == BT_DD_BY_DAY) ? "MaxDD Diario (212d 2026)" : "MaxDD Trade-a-Trade (212d 2026)";
-   string title = StringFormat("JUMBA QUANT MONITOR LIVE vs BACKTEST  |  11 ROBOS OOS+ ELITE (8 WIN + 3 WDO · PROPOSTA B)  |  Ref BT: %s  |  Atualizado: %s",
-                               dd_mode_str, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
-   UpsertLabel(g_prefix + "LBL_TITLE", x0 + 10, y0 + 6, title, C'100,210,255', InpFontSize + 1);
+   // Labels divididos em Esquerda/Direita (<60 chars cada) para nunca truncar no limite de 63 chars do MT5
+   string dd_mode_str = (InpBtDdReference == BT_DD_BY_DAY) ? "DD Diario 2026" : "DD Trade 2026";
+   string title_l = "JUMBA QUANT MONITOR LIVE vs BT | PORTFOLIO ELITE (10 ROBOS)";
+   string title_r = StringFormat("Ref BT: %s | Atualizado: %s",
+                                 dd_mode_str, TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+   UpsertLabel(g_prefix + "LBL_TITLE",   x0 + 10,  y0 + 6, title_l, C'100,210,255', InpFontSize + 1);
+   UpsertLabel(g_prefix + "LBL_TITLE_R", x0 + 575, y0 + 6, title_r, C'155,215,245', InpFontSize);
 
-   string subtitle = StringFormat("Conta: %I64d  |  PNL Hoje Total: R$ %+.0f  |  PNL Acum Live: R$ %+.0f  |  DD Atual/Max Live: R$ %.0f / R$ %.0f (BT: R$ %.0f)  |  Loss Streak Atual/Max Live: %d / %d (BT: %d)",
-                                  AccountInfoInteger(ACCOUNT_LOGIN),
-                                  g_rows[IDX_SUMMARY_PORTFOLIO].live_day_brl + g_rows[IDX_SUMMARY_PORTFOLIO].open_floating_brl,
-                                  g_rows[IDX_SUMMARY_PORTFOLIO].live_net_brl,
-                                  g_rows[IDX_SUMMARY_PORTFOLIO].live_curr_dd_brl,
-                                  g_rows[IDX_SUMMARY_PORTFOLIO].live_max_dd_brl,
-                                  GetBtMaxDD(IDX_SUMMARY_PORTFOLIO),
-                                  g_rows[IDX_SUMMARY_PORTFOLIO].live_curr_loss_streak,
-                                  g_rows[IDX_SUMMARY_PORTFOLIO].live_max_loss_streak,
-                                  g_rows[IDX_SUMMARY_PORTFOLIO].bt_max_loss_streak);
-   UpsertLabel(g_prefix + "LBL_SUBTITLE", x0 + 10, y0 + 24, subtitle, C'220,230,242', InpFontSize);
+   string sub_l = StringFormat("Conta: %I64d | Hoje: R$ %+.0f | Acum Live: R$ %+.0f",
+                               AccountInfoInteger(ACCOUNT_LOGIN),
+                               g_rows[IDX_SUMMARY_PORTFOLIO].live_day_brl + g_rows[IDX_SUMMARY_PORTFOLIO].open_floating_brl,
+                               g_rows[IDX_SUMMARY_PORTFOLIO].live_net_brl);
+   string sub_r = StringFormat("DD Atu/Max: R$ %.0f/%.0f (BT %.0f) | Streak: %d/%d (BT %d)",
+                               g_rows[IDX_SUMMARY_PORTFOLIO].live_curr_dd_brl,
+                               g_rows[IDX_SUMMARY_PORTFOLIO].live_max_dd_brl,
+                               GetBtMaxDD(IDX_SUMMARY_PORTFOLIO),
+                               g_rows[IDX_SUMMARY_PORTFOLIO].live_curr_loss_streak,
+                               g_rows[IDX_SUMMARY_PORTFOLIO].live_max_loss_streak,
+                               g_rows[IDX_SUMMARY_PORTFOLIO].bt_max_loss_streak);
+   UpsertLabel(g_prefix + "LBL_SUBTITLE",   x0 + 10,  y0 + 24, sub_l, C'220,230,242', InpFontSize);
+   UpsertLabel(g_prefix + "LBL_SUBTITLE_R", x0 + 575, y0 + 24, sub_r, C'220,230,242', InpFontSize);
+
+   // 3a Linha: Barra de Stop Diário Máximo em Tempo Real
+   string stop_badge = "OK";
+   color  stop_clr   = C'90,235,145';
+   if(!InpEnableDailyStop)
+     {
+      stop_badge = "DESATIVADO";
+      stop_clr   = C'150,165,180';
+     }
+   else if(g_stop_global_hit)
+     {
+      stop_badge = "TRAVA GLOBAL";
+      stop_clr   = C'255,85,85';
+     }
+   else if(g_stop_win_hit && g_stop_wdo_hit)
+     {
+      stop_badge = "TRAVA WIN+WDO";
+      stop_clr   = C'255,85,85';
+     }
+   else if(g_stop_win_hit)
+     {
+      stop_badge = "TRAVA WIN";
+      stop_clr   = C'255,195,85';
+     }
+   else if(g_stop_wdo_hit)
+     {
+      stop_badge = "TRAVA WDO";
+      stop_clr   = C'255,195,85';
+     }
+   else if(IsInAuctionBlockWindow())
+     {
+      stop_badge = "PAUSA LEILAO";
+      stop_clr   = C'255,210,90';
+     }
+   else if(g_warn_global_sent || g_warn_win_sent || g_warn_wdo_sent)
+     {
+      stop_badge = StringFormat("ALERTA >=%.0f%%", InpStopWarningPct);
+      stop_clr   = C'255,205,85';
+     }
+
+   double pct_glob = (InpMaxDailyLossGlobal > 0.0 && g_day_total_global < 0.0) ? (100.0 * MathAbs(g_day_total_global) / InpMaxDailyLossGlobal) : 0.0;
+   string str_glob = (InpMaxDailyLossGlobal > 0.0)
+                     ? StringFormat("R$ %+.0f / -R$ %.0f (%.0f%%)", g_day_total_global, InpMaxDailyLossGlobal, pct_glob)
+                     : StringFormat("R$ %+.0f (OFF)", g_day_total_global);
+   string str_win  = (InpMaxDailyLossWin > 0.0)
+                     ? StringFormat("%+.0f/-%.0f", g_day_total_win, InpMaxDailyLossWin)
+                     : StringFormat("%+.0f(OFF)", g_day_total_win);
+   string str_wdo  = (InpMaxDailyLossWdo > 0.0)
+                     ? StringFormat("%+.0f/-%.0f", g_day_total_wdo, InpMaxDailyLossWdo)
+                     : StringFormat("%+.0f(OFF)", g_day_total_wdo);
+   string stop_l = StringFormat("STOP DIARIO [%s] | GLOBAL: %s", stop_badge, str_glob);
+   string stop_r = StringFormat("WIN: %s | WDO: %s | MAE G/W/D: %.0f/%.0f/%.0f",
+                                str_win, str_wdo,
+                                g_day_mae_global, g_day_mae_win, g_day_mae_wdo);
+   UpsertLabel(g_prefix + "LBL_STOPBAR",   x0 + 10,  y0 + 43, stop_l, stop_clr, InpFontSize);
+   UpsertLabel(g_prefix + "LBL_STOPBAR_R", x0 + 575, y0 + 43, stop_r, stop_clr, InpFontSize);
 
    // Posições X das Colunas
    int cx_code   = x0 + 10;
@@ -665,8 +775,8 @@ void RenderDashboardPanel()
    int cx_wr     = x0 + 545;
    int cx_pnl    = x0 + 645;
    int cx_dd     = x0 + 795;
-   int cx_streak = x0 + 960;
-   int cx_status = x0 + 1055;
+   int cx_streak = x0 + 955;
+   int cx_status = x0 + 1085;
 
    int y_col = y0 + hdr_h + 2;
    UpsertRect(g_prefix + "BG_COLHDR", x0 + 4, y_col - 2, tbl_w - 8, row_h, C'30,42,58', C'50,65,85');
@@ -882,17 +992,464 @@ void ExportLiveDealsHistory(bool force = false)
   }
 
 //+------------------------------------------------------------------+
+//| GERENCIA DE STOP DIARIO MAXIMO (GLOBAL + WIN + WDO)              |
+//+------------------------------------------------------------------+
+datetime SafeNow()
+  {
+   datetime t = TimeCurrent();
+   return (t > 0) ? t : TimeLocal();
+  }
+
+double TodayDateKey()
+  {
+   MqlDateTime dt;
+   TimeToStruct(SafeNow(), dt);
+   return (double)(dt.year * 10000 + dt.mon * 100 + dt.day);
+  }
+
+datetime TodayStartDatetime()
+  {
+   MqlDateTime dt;
+   TimeToStruct(SafeNow(), dt);
+   dt.hour = 0;
+   dt.min  = 0;
+   dt.sec  = 0;
+   return StructToTime(dt);
+  }
+
+int ParseHHMMSeconds(const string hhmm)
+  {
+   if(StringLen(hhmm) < 5)
+      return -1;
+   int h = (int)StringToInteger(StringSubstr(hhmm, 0, 2));
+   int m = (int)StringToInteger(StringSubstr(hhmm, 3, 2));
+   return h * 3600 + m * 60;
+  }
+
+bool IsTimeInWindow(int now_sec, const string from_s, const string to_s)
+  {
+   int w_from = ParseHHMMSeconds(from_s);
+   int w_to   = ParseHHMMSeconds(to_s);
+   if(w_from < 0 || w_to < 0)
+      return false;
+   if(w_from <= w_to)
+      return (now_sec >= w_from && now_sec <= w_to);
+   return (now_sec >= w_from || now_sec <= w_to);
+  }
+
+bool IsInAuctionBlockWindow()
+  {
+   if(!InpUseAuctionFilter)
+      return false;
+   MqlDateTime dt;
+   TimeToStruct(SafeNow(), dt);
+   int now_sec = dt.hour * 3600 + dt.min * 60 + dt.sec;
+   if(IsTimeInWindow(now_sec, InpBlockFrom1, InpBlockTo1))
+      return true;
+   if(IsTimeInWindow(now_sec, InpBlockFrom2, InpBlockTo2))
+      return true;
+   return false;
+  }
+
+// Retorna 0 = fora do escopo, 1 = WIN, 2 = WDO
+int ClassifyJumbaMagic(ulong magic)
+  {
+   if(!InpIncludeAllJumbaMagics)
+     {
+      int idx = FindRowByMagic(magic);
+      if(idx < 0)
+         return 0;
+      return g_rows[idx].is_wdo ? 2 : 1;
+     }
+   if(magic >= InpWinBaseMagic && magic <= InpWinBaseMagic + 16)
+      return 1;
+   if(magic >= InpWdoBaseMagic && magic <= InpWdoBaseMagic + 16)
+      return 2;
+   return 0;
+  }
+
+void SyncDailyStopGvFlag(const string gv_name, double today_key, bool &hit_flag)
+  {
+   if(!GlobalVariableCheck(gv_name))
+      return;
+   double val = GlobalVariableGet(gv_name);
+   if(MathAbs(val - today_key) < 0.5)
+      hit_flag = true;
+   else if(val > 0.0 && MathAbs(val - today_key) >= 0.5)
+      GlobalVariableDel(gv_name);
+  }
+
+void ResetDailyStopIfNewDay()
+  {
+   double today_key = TodayDateKey();
+   if(MathAbs(today_key - g_stop_day_key) < 0.5)
+      return;
+
+   g_stop_day_key     = today_key;
+   g_stop_global_hit  = false;
+   g_stop_win_hit     = false;
+   g_stop_wdo_hit     = false;
+   g_warn_global_sent = false;
+   g_warn_win_sent    = false;
+   g_warn_wdo_sent    = false;
+   g_day_mae_win      = 0.0;
+   g_day_mae_wdo      = 0.0;
+   g_day_mae_global   = 0.0;
+
+   SyncDailyStopGvFlag("JUMBA_DAILY_STOP_GLOBAL", today_key, g_stop_global_hit);
+   SyncDailyStopGvFlag("JUMBA_DAILY_STOP_WIN",    today_key, g_stop_win_hit);
+   SyncDailyStopGvFlag("JUMBA_DAILY_STOP_WDO",    today_key, g_stop_wdo_hit);
+  }
+
+void ComputeTodayStopMetrics()
+  {
+   g_day_closed_win = 0.0;
+   g_day_closed_wdo = 0.0;
+   g_day_float_win  = 0.0;
+   g_day_float_wdo  = 0.0;
+
+   datetime now_t       = SafeNow();
+   datetime today_start = TodayStartDatetime();
+
+   // 1. P&L Fechado de Hoje por Ativo (inclui saídas manuais via POSITION_ID)
+   if(HistorySelect(today_start - 7 * 86400, now_t + 86400))
+     {
+      int total = HistoryDealsTotal();
+      ulong pos_win[];
+      ulong pos_wdo[];
+      int nw = 0;
+      int nd = 0;
+
+      for(int d = 0; d < total; d++)
+        {
+         ulong tk = HistoryDealGetTicket(d);
+         if(tk == 0)
+            continue;
+         int cls = ClassifyJumbaMagic((ulong)HistoryDealGetInteger(tk, DEAL_MAGIC));
+         if(cls == 0)
+            continue;
+         ulong pid = (ulong)HistoryDealGetInteger(tk, DEAL_POSITION_ID);
+         if(pid == 0)
+            continue;
+         if(cls == 1)
+           {
+            ArrayResize(pos_win, nw + 1, 64);
+            pos_win[nw++] = pid;
+           }
+         else
+           {
+            ArrayResize(pos_wdo, nd + 1, 64);
+            pos_wdo[nd++] = pid;
+           }
+        }
+
+      for(int d = 0; d < total; d++)
+        {
+         ulong tk = HistoryDealGetTicket(d);
+         if(tk == 0)
+            continue;
+         datetime dtime = (datetime)HistoryDealGetInteger(tk, DEAL_TIME);
+         if(dtime < today_start)
+            continue;
+         long entry = HistoryDealGetInteger(tk, DEAL_ENTRY);
+         if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT && entry != DEAL_ENTRY_OUT_BY)
+            continue;
+
+         ulong magic = (ulong)HistoryDealGetInteger(tk, DEAL_MAGIC);
+         int cls = ClassifyJumbaMagic(magic);
+         if(cls == 0)
+           {
+            ulong pid = (ulong)HistoryDealGetInteger(tk, DEAL_POSITION_ID);
+            for(int k = 0; k < nw; k++)
+               if(pos_win[k] == pid) { cls = 1; break; }
+            if(cls == 0)
+               for(int k = 0; k < nd; k++)
+                  if(pos_wdo[k] == pid) { cls = 2; break; }
+           }
+         if(cls == 0)
+            continue;
+
+         double net = HistoryDealGetDouble(tk, DEAL_PROFIT)
+                    + HistoryDealGetDouble(tk, DEAL_SWAP)
+                    + HistoryDealGetDouble(tk, DEAL_COMMISSION)
+                    + HistoryDealGetDouble(tk, DEAL_FEE);
+         if(cls == 1)
+            g_day_closed_win += net;
+         else
+            g_day_closed_wdo += net;
+        }
+     }
+
+   // 2. P&L Flutuante Aberto por Ativo
+   for(int p = 0; p < PositionsTotal(); p++)
+     {
+      ulong tk = PositionGetTicket(p);
+      if(tk == 0)
+         continue;
+      int cls = ClassifyJumbaMagic((ulong)PositionGetInteger(POSITION_MAGIC));
+      if(cls == 0)
+         continue;
+      double fl = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      if(cls == 1)
+         g_day_float_win += fl;
+      else
+         g_day_float_wdo += fl;
+     }
+
+   g_day_total_win    = g_day_closed_win + g_day_float_win;
+   g_day_total_wdo    = g_day_closed_wdo + g_day_float_wdo;
+   g_day_total_global = g_day_total_win + g_day_total_wdo;
+
+   g_day_mae_win    = MathMax(g_day_mae_win,    MathMax(0.0, -g_day_total_win));
+   g_day_mae_wdo    = MathMax(g_day_mae_wdo,    MathMax(0.0, -g_day_total_wdo));
+   g_day_mae_global = MathMax(g_day_mae_global, MathMax(0.0, -g_day_total_global));
+  }
+
+// target_scope: 0=ALL, 1=WIN, 2=WDO
+int CloseAndCancelScope(int target_scope)
+  {
+   int ops = 0;
+   if(InpCancelPendingOnStop)
+     {
+      for(int o = OrdersTotal() - 1; o >= 0; o--)
+        {
+         ulong ot = OrderGetTicket(o);
+         if(ot == 0)
+            continue;
+         int cls = ClassifyJumbaMagic((ulong)OrderGetInteger(ORDER_MAGIC));
+         if(cls == 0 || (target_scope != 0 && cls != target_scope))
+            continue;
+         if(g_trade.OrderDelete(ot))
+            ops++;
+         else
+            PrintFormat("[DAILY STOP] Erro ao cancelar ordem #%I64u (ret=%u)", ot, g_trade.ResultRetcode());
+        }
+     }
+
+   if(InpClosePositionsOnStop)
+     {
+      g_trade.SetDeviationInPoints(50);
+      for(int p = PositionsTotal() - 1; p >= 0; p--)
+        {
+         ulong pt = PositionGetTicket(p);
+         if(pt == 0)
+            continue;
+         ulong pmagic = (ulong)PositionGetInteger(POSITION_MAGIC);
+         int cls = ClassifyJumbaMagic(pmagic);
+         if(cls == 0 || (target_scope != 0 && cls != target_scope))
+            continue;
+         g_trade.SetExpertMagicNumber((long)pmagic);
+         if(g_trade.PositionClose(pt))
+            ops++;
+         else
+            PrintFormat("[DAILY STOP] Erro ao fechar posicao #%I64u magic=%I64u (ret=%u)", pt, pmagic, g_trade.ResultRetcode());
+        }
+     }
+   return ops;
+  }
+
+bool HasOpenOrPendingInScope(int target_scope)
+  {
+   if(InpClosePositionsOnStop)
+     {
+      for(int p = PositionsTotal() - 1; p >= 0; p--)
+        {
+         ulong pt = PositionGetTicket(p);
+         if(pt == 0)
+            continue;
+         int cls = ClassifyJumbaMagic((ulong)PositionGetInteger(POSITION_MAGIC));
+         if(cls != 0 && (target_scope == 0 || cls == target_scope))
+            return true;
+        }
+     }
+   if(InpCancelPendingOnStop)
+     {
+      for(int o = OrdersTotal() - 1; o >= 0; o--)
+        {
+         ulong ot = OrderGetTicket(o);
+         if(ot == 0)
+            continue;
+         int cls = ClassifyJumbaMagic((ulong)OrderGetInteger(ORDER_MAGIC));
+         if(cls != 0 && (target_scope == 0 || cls == target_scope))
+            return true;
+        }
+     }
+   return false;
+  }
+
+void LogDailyStopEvent(const string scope_name, double limit_val, double pnl_val, double mae_val)
+  {
+   string fn = StringFormat("jumba_daily_stop_events_%I64d.csv", AccountInfoInteger(ACCOUNT_LOGIN));
+   bool exists = FileIsExist(fn, FILE_COMMON);
+   int h = FileOpen(fn, FILE_COMMON | FILE_READ | FILE_WRITE | FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_TXT | FILE_ANSI);
+   if(h == INVALID_HANDLE)
+      return;
+   if(!exists || FileSize(h) == 0)
+      FileWriteString(h, "time;login;scope;limit_brl;pnl_brl;mae_brl;win_pnl_brl;wdo_pnl_brl\r\n");
+   else
+      FileSeek(h, 0, SEEK_END);
+   FileWriteString(h, StringFormat("%s;%I64d;%s;%.2f;%.2f;%.2f;%.2f;%.2f\r\n",
+                                   TimeToString(SafeNow(), TIME_DATE | TIME_SECONDS),
+                                   AccountInfoInteger(ACCOUNT_LOGIN),
+                                   scope_name, limit_val, pnl_val, mae_val,
+                                   g_day_total_win, g_day_total_wdo));
+   FileClose(h);
+  }
+
+void ExportDailyStopStateCsv()
+  {
+   string fn = StringFormat("jumba_daily_stop_state_%I64d.csv", AccountInfoInteger(ACCOUNT_LOGIN));
+   int h = FileOpen(fn, FILE_COMMON | FILE_WRITE | FILE_SHARE_READ | FILE_TXT | FILE_ANSI);
+   if(h == INVALID_HANDLE)
+      return;
+   FileWriteString(h, "updated_at;day_key;enabled;auction_pause;stop_global_hit;stop_win_hit;stop_wdo_hit;"
+                      "limit_global;limit_win;limit_wdo;total_global;total_win;total_wdo;"
+                      "closed_win;closed_wdo;float_win;float_wdo;mae_global;mae_win;mae_wdo\r\n");
+   FileWriteString(h, StringFormat("%s;%.0f;%d;%d;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f\r\n",
+                                   TimeToString(SafeNow(), TIME_DATE | TIME_SECONDS),
+                                   g_stop_day_key,
+                                   (InpEnableDailyStop ? 1 : 0),
+                                   (IsInAuctionBlockWindow() ? 1 : 0),
+                                   (g_stop_global_hit ? 1 : 0),
+                                   (g_stop_win_hit ? 1 : 0),
+                                   (g_stop_wdo_hit ? 1 : 0),
+                                   InpMaxDailyLossGlobal, InpMaxDailyLossWin, InpMaxDailyLossWdo,
+                                   g_day_total_global, g_day_total_win, g_day_total_wdo,
+                                   g_day_closed_win, g_day_closed_wdo,
+                                   g_day_float_win, g_day_float_wdo,
+                                   g_day_mae_global, g_day_mae_win, g_day_mae_wdo));
+   FileClose(h);
+  }
+
+bool EnforceDailyStop()
+  {
+   ResetDailyStopIfNewDay();
+   ComputeTodayStopMetrics();
+
+   bool triggered_now = false;
+   double today_key = g_stop_day_key;
+
+   if(InpEnableDailyStop && !IsInAuctionBlockWindow())
+     {
+      // 1) Gatilho Global WIN + WDO
+      if(InpMaxDailyLossGlobal > 0.0 && !g_stop_global_hit && g_day_total_global <= -InpMaxDailyLossGlobal)
+        {
+         g_stop_global_hit = true;
+         GlobalVariableSet("JUMBA_DAILY_STOP_GLOBAL", today_key);
+         CloseAndCancelScope(0);
+         string msg = StringFormat("[JUMBA DAILY STOP GLOBAL] Conta %I64d atingiu R$ %.2f (Limite -R$ %.2f). Posicoes encerradas e travadas hoje.",
+                                   AccountInfoInteger(ACCOUNT_LOGIN), g_day_total_global, InpMaxDailyLossGlobal);
+         Print(msg);
+         Alert(msg);
+         if(InpSendPushOnStop)
+            SendNotification(msg);
+         LogDailyStopEvent("GLOBAL", InpMaxDailyLossGlobal, g_day_total_global, g_day_mae_global);
+         triggered_now = true;
+        }
+
+      // 2) Sub-limite WIN
+      if(InpMaxDailyLossWin > 0.0 && !g_stop_win_hit && g_day_total_win <= -InpMaxDailyLossWin)
+        {
+         g_stop_win_hit = true;
+         GlobalVariableSet("JUMBA_DAILY_STOP_WIN", today_key);
+         CloseAndCancelScope(1);
+         string msg = StringFormat("[JUMBA DAILY STOP WIN] Conta %I64d WIN atingiu R$ %.2f (Limite -R$ %.2f). WIN encerrado/travado hoje; WDO livre.",
+                                   AccountInfoInteger(ACCOUNT_LOGIN), g_day_total_win, InpMaxDailyLossWin);
+         Print(msg);
+         Alert(msg);
+         if(InpSendPushOnStop)
+            SendNotification(msg);
+         LogDailyStopEvent("WIN", InpMaxDailyLossWin, g_day_total_win, g_day_mae_win);
+         triggered_now = true;
+        }
+
+      // 3) Sub-limite WDO
+      if(InpMaxDailyLossWdo > 0.0 && !g_stop_wdo_hit && g_day_total_wdo <= -InpMaxDailyLossWdo)
+        {
+         g_stop_wdo_hit = true;
+         GlobalVariableSet("JUMBA_DAILY_STOP_WDO", today_key);
+         CloseAndCancelScope(2);
+         string msg = StringFormat("[JUMBA DAILY STOP WDO] Conta %I64d WDO atingiu R$ %.2f (Limite -R$ %.2f). WDO encerrado/travado hoje; WIN livre.",
+                                   AccountInfoInteger(ACCOUNT_LOGIN), g_day_total_wdo, InpMaxDailyLossWdo);
+         Print(msg);
+         Alert(msg);
+         if(InpSendPushOnStop)
+            SendNotification(msg);
+         LogDailyStopEvent("WDO", InpMaxDailyLossWdo, g_day_total_wdo, g_day_mae_wdo);
+         triggered_now = true;
+        }
+
+      // Warnings amarelos (one-shot por dia)
+      double warn_ratio = MathMax(0.10, MathMin(0.99, InpStopWarningPct / 100.0));
+      if(InpMaxDailyLossGlobal > 0.0 && !g_stop_global_hit && !g_warn_global_sent && g_day_total_global <= -InpMaxDailyLossGlobal * warn_ratio)
+        {
+         g_warn_global_sent = true;
+         string wmsg = StringFormat("[JUMBA MONITOR] ATENCAO %.0f%% STOP GLOBAL: PnL Hoje R$ %.2f / Limite -R$ %.2f",
+                                    InpStopWarningPct, g_day_total_global, InpMaxDailyLossGlobal);
+         Print(wmsg);
+         Alert(wmsg);
+        }
+      if(InpMaxDailyLossWin > 0.0 && !g_stop_win_hit && !g_warn_win_sent && g_day_total_win <= -InpMaxDailyLossWin * warn_ratio)
+        {
+         g_warn_win_sent = true;
+         PrintFormat("[JUMBA MONITOR] ATENCAO %.0f%% STOP WIN: WIN Hoje R$ %.2f / Limite -R$ %.2f",
+                     InpStopWarningPct, g_day_total_win, InpMaxDailyLossWin);
+        }
+      if(InpMaxDailyLossWdo > 0.0 && !g_stop_wdo_hit && !g_warn_wdo_sent && g_day_total_wdo <= -InpMaxDailyLossWdo * warn_ratio)
+        {
+         g_warn_wdo_sent = true;
+         PrintFormat("[JUMBA MONITOR] ATENCAO %.0f%% STOP WDO: WDO Hoje R$ %.2f / Limite -R$ %.2f",
+                     InpStopWarningPct, g_day_total_wdo, InpMaxDailyLossWdo);
+        }
+     }
+
+   // Retry automático a cada 2s enquanto houver trava ativa hoje (garante zero exposição residual)
+   if(InpEnableDailyStop && (g_stop_global_hit || g_stop_win_hit || g_stop_wdo_hit))
+     {
+      if(g_stop_global_hit) GlobalVariableSet("JUMBA_DAILY_STOP_GLOBAL", today_key);
+      if(g_stop_win_hit)    GlobalVariableSet("JUMBA_DAILY_STOP_WIN",    today_key);
+      if(g_stop_wdo_hit)    GlobalVariableSet("JUMBA_DAILY_STOP_WDO",    today_key);
+
+      datetime now_r = SafeNow();
+      if(now_r - g_last_retry_close >= 2)
+        {
+         g_last_retry_close = now_r;
+         if(g_stop_global_hit && HasOpenOrPendingInScope(0))
+            CloseAndCancelScope(0);
+         else
+           {
+            if(g_stop_win_hit && HasOpenOrPendingInScope(1))
+               CloseAndCancelScope(1);
+            if(g_stop_wdo_hit && HasOpenOrPendingInScope(2))
+               CloseAndCancelScope(2);
+           }
+        }
+     }
+
+   datetime now_exp = SafeNow();
+   if(triggered_now || (now_exp - g_last_state_export >= MathMax(1, InpRefreshSeconds)))
+     {
+      g_last_state_export = now_exp;
+      ExportDailyStopStateCsv();
+     }
+   return triggered_now;
+  }
+
+//+------------------------------------------------------------------+
 //| Ciclo Completo de Atualização do Monitor                         |
 //+------------------------------------------------------------------+
-void RefreshMonitor()
+void RefreshMonitor(bool run_stop_check = true)
   {
+   if(run_stop_check)
+      EnforceDailyStop();
    UpdateOpenPositionsAndOrders();
    UpdateTradeHistoryAndMetrics();
    SavePersistentRecords();
    ExportCsvSnapshot();
    ExportLiveDealsHistory();
    RenderDashboardPanel();
-   g_last_update = TimeCurrent();
+   g_last_update       = TimeCurrent();
+   g_last_full_refresh = SafeNow();
   }
 
 //+------------------------------------------------------------------+
@@ -903,9 +1460,10 @@ int OnInit()
    ObjectsDeleteAll(0, g_prefix);
    InitBenchmarks();
    LoadPersistentRecords();
-   EventSetTimer(MathMax(1, InpRefreshSeconds));
-   RefreshMonitor();
-   Print("[JUMBA MONITOR] Inicializado com sucesso para 11 Robos OOS+ Validados (8 WIN + 3 WDO - Proposta B · Walls TP/SL/BE + NWE).");
+   EventSetTimer(1); // Checagem de Stop Diário a cada 1 segundo
+   RefreshMonitor(true);
+   PrintFormat("[JUMBA MONITOR v4.20] Inicializado (10 Robos B3) | Stop Diário: %s | Global=-R$ %.0f | WIN=-R$ %.0f | WDO=-R$ %.0f",
+               (InpEnableDailyStop ? "ON" : "OFF"), InpMaxDailyLossGlobal, InpMaxDailyLossWin, InpMaxDailyLossWdo);
    return(INIT_SUCCEEDED);
   }
 
@@ -916,25 +1474,39 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    SavePersistentRecords();
+   if(InpClearStopOnRemove && reason == REASON_REMOVE)
+     {
+      GlobalVariableDel("JUMBA_DAILY_STOP_GLOBAL");
+      GlobalVariableDel("JUMBA_DAILY_STOP_WIN");
+      GlobalVariableDel("JUMBA_DAILY_STOP_WDO");
+     }
    ObjectsDeleteAll(0, g_prefix);
    ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
-//| Timer event                                                      |
+//| Timer event (1s para Stop Diário + Refresh completo periódico)   |
 //+------------------------------------------------------------------+
 void OnTimer()
   {
-   RefreshMonitor();
+   bool trig = EnforceDailyStop();
+   if(trig || (SafeNow() - g_last_full_refresh >= MathMax(1, InpRefreshSeconds)))
+      RefreshMonitor(false);
   }
 
 //+------------------------------------------------------------------+
-//| Tick event                                                       |
+//| Tick event (com throttle de 500ms para evitar I/O por tick)      |
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   if(TimeCurrent() - g_last_update >= InpRefreshSeconds)
-      RefreshMonitor();
+   ulong now_ms = GetTickCount64();
+   if(now_ms - g_last_stop_check_ms < 500)
+      return;
+   g_last_stop_check_ms = now_ms;
+
+   bool trig = EnforceDailyStop();
+   if(trig || (TimeCurrent() - g_last_update >= MathMax(1, InpRefreshSeconds)))
+      RefreshMonitor(false);
   }
 
 //+------------------------------------------------------------------+
@@ -948,7 +1520,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       trans.type == TRADE_TRANSACTION_ORDER_ADD ||
       trans.type == TRADE_TRANSACTION_ORDER_DELETE)
      {
-      RefreshMonitor();
+      g_last_stop_check_ms = GetTickCount64();
+      EnforceDailyStop();
+      RefreshMonitor(false);
      }
   }
 //+------------------------------------------------------------------+

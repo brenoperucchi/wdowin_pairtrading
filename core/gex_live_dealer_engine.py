@@ -1955,6 +1955,10 @@ class GexLiveDealerEngine:
                 "WDO_S2": "WDO Lunch",
                 "WDO_DIV_WALL": "WDO Div 1L MidWall",
                 "ESP_DIV_V22_WIN": "WIN Especialista V3.2",
+                "C1a_BRK_WIN": "WIN Brk Conv C1a",
+                "V1a_DIV_WDO": "WDO Div V3.2 V1a",
+                "SYM_DIV_WIN": "WIN Simétrica V3.2",
+                "SYM_DIV_WDO": "WDO Simétrica V3.2",
             }
             if cached_bt_trades is not None:
                 signals_log = []
@@ -1983,10 +1987,20 @@ class GexLiveDealerEngine:
                     w_ref_obj = eb.get("sup_w") if s_dir > 0 else eb.get("res_w")
                     w_ref_px = float(w_ref_obj["price"]) if (w_ref_obj and w_ref_obj.get("price") is not None) else None
                     sl_px = float(tr.get("stop_price") or (epx - s_dir * (260.0 if sid == "WIN_DIV_WALL" else (240.0 if is_win else 10.0))))
-                    if w_ref_px is not None and sid not in ("WIN_DIV_WALL", "ESP_DIV_V22_WIN"):
+                    _cart_v32_ids = ("C1a_BRK_WIN", "V1a_DIV_WDO", "SYM_DIV_WIN", "SYM_DIV_WDO")
+                    _no_snap_ids = ("WIN_DIV_WALL", "ESP_DIV_V22_WIN") + _cart_v32_ids
+                    _walls_flow_ids = ("WIN_DIV_WALL", "WDO_DIV_WALL", "ESP_DIV_V22_WIN") + _cart_v32_ids
+                    if w_ref_px is not None and sid not in _no_snap_ids:
                         w_buf = 60.0 if is_win else 3.0
                         sl_px = min(sl_px, w_ref_px - w_buf) if s_dir > 0 else max(sl_px, w_ref_px + w_buf)
-                    tp_px = None if sid == "ESP_DIV_V22_WIN" else float(tr.get("tp_price") or (epx + s_dir * (750.0 if sid == "WIN_DIV_WALL" else (350.0 if is_win else 15.0))))
+                    tp_px = (
+                        None
+                        if sid == "ESP_DIV_V22_WIN"
+                        else float(
+                            tr.get("tp_price")
+                            or (epx + s_dir * (750.0 if sid == "WIN_DIV_WALL" else (350.0 if is_win else 15.0)))
+                        )
+                    )
                     tp1_px = tr.get("tp1_price")
                     sl1_px = tr.get("sl1_price")
                     lbl = str(tr.get("label", ""))
@@ -2015,7 +2029,7 @@ class GexLiveDealerEngine:
                         "sl1_price": round(float(sl1_px), 2) if sl1_px is not None else None,
                         "tp_price": round(tp_px, 2) if tp_px is not None else None,
                         "tp1_price": round(float(tp1_px), 2) if tp1_px is not None else None,
-                        "tp_tag": "TP2 (+750)" if sid == "WIN_DIV_WALL" else ("SEM ALVO · 60 MIN" if sid == "ESP_DIV_V22_WIN" else "TP"),
+                        "tp_tag": "TP2 (+750)" if sid == "WIN_DIV_WALL" else ("SEM ALVO · 60 MIN" if sid == "ESP_DIV_V22_WIN" else str(tr.get("tp_tag") or "TP")),
                         "contracts": int(tr.get("contracts", 2 if sid in ("WIN_DIV_WALL", "ESP_DIV_V22_WIN") else 1)),
                         "pts_l1": tr.get("pts_l1"),
                         "pts_l2": tr.get("pts_l2"),
@@ -2043,7 +2057,7 @@ class GexLiveDealerEngine:
                         "closed_bar_confirmed": True,
                     }
                     signals_log.append(sig_obj)
-                    if sid not in ("WIN_DIV_WALL", "WDO_DIV_WALL", "ESP_DIV_V22_WIN") or m5_enriched[b_idx].get("signal") is None:
+                    if sid not in _walls_flow_ids or m5_enriched[b_idx].get("signal") is None:
                         m5_enriched[b_idx]["signal"] = sig_obj
                 signals_log.sort(key=lambda s: s["bar_index"])
                 # Sniper da 5176 (WIN/WDO_DIV_WALL): histórico até last_bt_date vem do JSON; qualquer pregão
@@ -2063,6 +2077,10 @@ class GexLiveDealerEngine:
                             m5_enriched=m5_enriched, today_closed_bars=today_closed_bars, signals_log=signals_log,
                             is_live_session=is_live_session, walls_clean=walls_clean,
                         )
+                    self._append_live_carteira_4_v32(
+                        asset=asset.upper(), m5_enriched=m5_enriched, today_closed_bars=today_closed_bars,
+                        signals_log=signals_log, is_live_session=is_live_session, walls_clean=walls_clean,
+                    )
             elif is_win:
                 signals_log = self._evaluate_live_mt5_win_strategies(
                     sess_date=str(sess_date or ""),
@@ -2086,6 +2104,10 @@ class GexLiveDealerEngine:
                     m5_enriched=m5_enriched, today_closed_bars=today_closed_bars, signals_log=signals_log,
                     is_live_session=is_live_session, walls_clean=walls_clean,
                 )
+                self._append_live_carteira_4_v32(
+                    asset="WIN", m5_enriched=m5_enriched, today_closed_bars=today_closed_bars,
+                    signals_log=signals_log, is_live_session=is_live_session, walls_clean=walls_clean,
+                )
             else:
                 signals_log = self._evaluate_live_mt5_wdo_strategies(
                     sess_date=str(sess_date or ""),
@@ -2103,6 +2125,10 @@ class GexLiveDealerEngine:
                     today_closed_bars=today_closed_bars,
                     signals_log=signals_log,
                     is_live_session=is_live_session,
+                )
+                self._append_live_carteira_4_v32(
+                    asset="WDO", m5_enriched=m5_enriched, today_closed_bars=today_closed_bars,
+                    signals_log=signals_log, is_live_session=is_live_session, walls_clean=walls_clean,
                 )
 
         closed_sigs = [s for s in signals_log if s["is_valid"] is not None]
@@ -3397,6 +3423,103 @@ class GexLiveDealerEngine:
             signals_log.append(sig)
         signals_log.sort(key=lambda x: x["bar_index"])
 
+    def _append_live_carteira_4_v32(
+        self,
+        asset: str,
+        m5_enriched: list,
+        today_closed_bars: list,
+        signals_log: list,
+        is_live_session: bool,
+        walls_clean: list,
+    ) -> None:
+        """
+        Adiciona de forma independente (Opção A — sem compartilhamento de bloqueio entre estratégias)
+        as 4 estratégias auditadas V3.2 do painel 5176 (`core/carteira_v32_estrategias.py`):
+          WIN: C1a_BRK_WIN, SYM_DIV_WIN | WDO: V1a_DIV_WDO, SYM_DIV_WDO
+        """
+        if not today_closed_bars:
+            return
+        from core import carteira_v32_estrategias as C32
+
+        a = asset.upper()
+        idx_list = [b_i for b_i, _ in today_closed_bars]
+        bars = [dict(eb) for _, eb in today_closed_bars]
+        if idx_list[0] > 0:
+            bars[0]["nwe50_prev_line"] = m5_enriched[idx_list[0] - 1].get("nwe50_line")
+        sig_bars = bars[:-1] if (is_live_session and len(bars) > 1) else bars
+        try:
+            trades = C32.run_all_for_asset(a, sig_bars, walls_clean or [], exec_bars=bars, is_live=is_live_session)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[carteira_v32_4s] {exc!r}")
+            return
+        is_win = a == "WIN"
+        for k_t, t in enumerate(trades):
+            sid = t["strategy_id"]
+            cfg = C32.STRAT_CFGS[sid]
+            short_nm = cfg["short"]
+            b_idx = idx_list[t["entry_idx"]]
+            ex_idx = idx_list[t["exit_idx"]]
+            eb = m5_enriched[b_idx]
+            d = int(t["dir_num"])
+            pts = float(t["pts"])
+            fmt_p = ".0f" if is_win else ".1f"
+            if t["is_open"]:
+                val_st, is_val = "EM_ANDAMENTO", None
+                lbl = f"⏳ EM ABERTO ({pts:+{fmt_p}}p · R$ {t['brl_1c']:+.0f})"
+            else:
+                is_val = pts > 0
+                val_st = "VALIDO_ALVO" if (t["exit_reason"] == "ALVO" and is_val) else ("VALIDO_FAVORAVEL" if is_val else "INVALIDO_STOP")
+                why = {
+                    "STOP": "❌ STOP",
+                    "ALVO": "🎯 ALVO",
+                    "TEMPO": f"⏱️ SAÍDA {cfg['tmax'] * 5}M",
+                    "17:25": "⏱️ SAÍDA 17:25",
+                }.get(t["exit_reason"], t["exit_reason"])
+                lbl = f"{why} ({pts:+{fmt_p}}p · R$ {t['brl_1c']:+.0f})"
+            tp_pts_val = t.get("tp_pts")
+            tp_tag = f"TP {tp_pts_val:{fmt_p}}p" if tp_pts_val is not None else cfg["tp_tag_fmt"]
+            sig = {
+                "id": f"{a}_{t['time']}_{sid}_{k_t}",
+                "strategy_id": sid,
+                "strategy_short": short_nm,
+                "bar_index": b_idx,
+                "timestamp": eb.get("timestamp"),
+                "time": t["time"],
+                "direction": t["direction"],
+                "dir_num": d,
+                "type": f"{short_nm} · {t['direction']}",
+                "entry_price": t["entry_price"],
+                "exit_bar_index": ex_idx,
+                "exit_time": t["exit_time"],
+                "exit_price": t["exit_price"],
+                "exit_reason": "ABERTA" if t["is_open"] else t["exit_reason"],
+                "stop_price": t["stop_price"],
+                "tp_price": t["tp_price"],
+                "tp1_price": None,
+                "tp_tag": tp_tag,
+                "contracts": int(t.get("contracts", 1)),
+                "be_triggered": False,
+                "be_trigger_price": None,
+                "be_stop_price": None,
+                "time_limit": t["time_limit"],
+                "reason": f"{t.get('reason_detail', short_nm)} · {lbl}",
+                "pnl_5m": pts,
+                "pnl_15m": pts,
+                "pnl_30m": pts,
+                "mfe_30m": max(0.0, pts),
+                "mae_30m": min(0.0, pts),
+                "realized_pts": pts,
+                "unrealized_pts": pts if t["is_open"] else None,
+                "brl_1c": t["brl_1c"],
+                "validation_status": val_st,
+                "validation_label": lbl,
+                "is_valid": is_val,
+                "is_prev_day": False,
+                "closed_bar_confirmed": True,
+            }
+            signals_log.append(sig)
+        signals_log.sort(key=lambda x: (x["bar_index"], str(x.get("strategy_id", ""))))
+
     def _append_live_unified_divergence_signals(
         self,
         asset: str,
@@ -3868,7 +3991,7 @@ class GexLiveDealerEngine:
                     strat_ids = [
                         "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2", "WIN_DIV_WALL",
                         "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2", "WDO_DIV_WALL",
-                        "ESP_DIV_V22_WIN",
+                        "ESP_DIV_V22_WIN", "C1a_BRK_WIN", "V1a_DIV_WDO", "SYM_DIV_WIN", "SYM_DIV_WDO",
                     ]
                     stats_acc = {
                         k: {"wins": 0, "ops": 0, "gross_win_1c": 0.0, "gross_loss_1c": 0.0}
@@ -3956,8 +4079,17 @@ class GexLiveDealerEngine:
             print(f"[setups_live] {sess_date} {asset}: {exc!r}")
             trades = []
         if not is_live_session:
+            legacy_ids = (
+                "WIN_DIV_WALL",
+                "WDO_DIV_WALL",
+                "ESP_DIV_V22_WIN",
+                "C1a_BRK_WIN",
+                "V1a_DIV_WDO",
+                "SYM_DIV_WIN",
+                "SYM_DIV_WDO",
+            )
             legacy = [t for t in self._get_portfolio_6_cached_trades(sess_date, asset)
-                      if t.get("strategy_id") in ("WIN_DIV_WALL", "WDO_DIV_WALL", "ESP_DIV_V22_WIN")]
+                      if t.get("strategy_id") in legacy_ids]
             trades = trades + legacy
         return trades
 
@@ -4001,16 +4133,17 @@ class GexLiveDealerEngine:
         strat_ids = (
             "EST_01", "EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "EST_16", "WIN_E2", "WIN_DIV_WALL",
             "WDO_01", "WDO_02", "WDO_05", "WDO_07", "WDO_09", "WDO_10", "WDO_11", "WDO_S2", "WDO_DIV_WALL",
-            "ESP_DIV_V22_WIN",
+            "ESP_DIV_V22_WIN", "C1a_BRK_WIN", "V1a_DIV_WDO", "SYM_DIV_WIN", "SYM_DIV_WDO",
         )
 
-        # Limpa registros legados (pré-Sniper v2, sem WIN_DIV_WALL ou <= last_bt_date)
+        # Limpa registros legados (pré-Sniper v2, sem WIN_DIV_WALL, pré-carteira 4s V3.2 ou <= last_bt_date)
         for k_old in list(self._live_days_map.keys()):
             if (
                 k_old <= last_bt_date
                 or "EST_01_pts" not in self._live_days_map[k_old]
                 or "WIN_DIV_WALL_pts" not in self._live_days_map[k_old]
                 or not self._live_days_map[k_old].get("sniper_v32")
+                or not self._live_days_map[k_old].get("carteira_v32_4s")
             ):
                 del self._live_days_map[k_old]
 
@@ -4021,6 +4154,7 @@ class GexLiveDealerEngine:
                 "month": sel_date[:7],
                 "is_live": True,
                 "sniper_v32": True,
+                "carteira_v32_4s": True,
                 "trades": [],
                 "open_trades": [],
             }
@@ -4141,8 +4275,9 @@ class GexLiveDealerEngine:
         m1_dates = sorted(d for d, r in idx_map.items() if r.get("m1") is not None)
 
         target_date = (sess_date or "").strip()
+        explicit_date = bool(target_date)
         if not target_date:
-            target_date = m1_dates[-1] if m1_dates else today_str
+            target_date = today_str
 
         is_live_day = (target_date == today_str)
         cache_key = (asset_up, target_date)
@@ -4200,7 +4335,10 @@ class GexLiveDealerEngine:
             except Exception:
                 pass
 
-        if not raw_bars and m1_dates:
+        if not raw_bars and is_live_day and hasattr(self, "_m1_live_last_good") and cache_key in self._m1_live_last_good:
+            return self._m1_live_last_good[cache_key]
+
+        if not raw_bars and not explicit_date and m1_dates:
             target_date = m1_dates[-1]
             rec = idx_map.get(target_date)
             if rec is not None and rec.get("m1") is not None:
@@ -4263,12 +4401,12 @@ class GexLiveDealerEngine:
         curr_window = None
         sm_win_forces = []
 
-        # Onda 3-Motores (5176) em M1
+        # Onda 3-Motores (5176) em M1 calibrada no mesmo horizonte temporal do M5 (15m rápido / 50m lento)
         cum_eff_3m = 0.0
         ema_eff_f3 = 0.0
         ema_eff_s3 = 0.0
-        alpha_f3 = 2.0 / (9.0 + 1.0)
-        alpha_s3 = 2.0 / (30.0 + 1.0)
+        alpha_f3 = 2.0 / (15.0 + 1.0)
+        alpha_s3 = 2.0 / (50.0 + 1.0)
         forces_3m = []
 
         m1_enriched = []
@@ -4373,13 +4511,14 @@ class GexLiveDealerEngine:
                 if fav_now > curr_window["max_favor_pts"]:
                     curr_window["max_favor_pts"] = round(fav_now, 1)
 
-            # 2) Onda Smart Money 3-Motores (5176) em M1
+            # 2) Onda Smart Money 3-Motores (5176) em M1 alinhada à escala de 15m (3 barras M5)
             phi_inst_3m = round(0.55 * ia + 1.15 * ip - 0.85 * rd, 0)
             bf_3m = round(0.45 * phi_wyk + 0.25 * phi_port + 0.30 * phi_inst_3m, 0)
             forces_3m.append(bf_3m)
-            f3_p1 = forces_3m[idx - 1] if idx >= 1 else bf_3m
-            f3_p2 = forces_3m[idx - 2] if idx >= 2 else f3_p1
-            imp3_3m = round(0.45 * bf_3m + 0.35 * f3_p1 + 0.20 * f3_p2, 0)
+            sum5_0 = sum(forces_3m[max(0, idx - 4): idx + 1])
+            sum5_1 = sum(forces_3m[max(0, idx - 9): max(0, idx - 4)]) if idx >= 5 else sum5_0
+            sum5_2 = sum(forces_3m[max(0, idx - 14): max(0, idx - 9)]) if idx >= 10 else sum5_1
+            imp3_3m = round(0.45 * sum5_0 + 0.35 * sum5_1 + 0.20 * sum5_2, 0)
             cum_eff_3m += bf_3m
             if idx == 0:
                 ema_eff_f3 = cum_eff_3m
@@ -4430,6 +4569,11 @@ class GexLiveDealerEngine:
                 "nwe_upper": round(float(nwe_u[idx]), 2),
                 "nwe_lower": round(float(nwe_l[idx]), 2),
                 "nwe_is_up": bool(float(nwe_s[idx]) >= 0),
+                "nwe100_line": round(float(nwe_c[idx]), 2),
+                "nwe100_mae": round(float(nwe_mae[idx]), 2),
+                "nwe100_upper": round(float(nwe_u[idx]), 2),
+                "nwe100_lower": round(float(nwe_l[idx]), 2),
+                "nwe100_is_up": bool(float(nwe_s[idx]) >= 0),
                 "nwe30_line": round(float(n30_c[idx]), 2),
                 "nwe30_upper": round(float(n30_u[idx]), 2),
                 "nwe30_lower": round(float(n30_l[idx]), 2),
@@ -4453,15 +4597,20 @@ class GexLiveDealerEngine:
             "m1_series": m1_enriched,
             "flow_windows": flow_windows,
         }
-        if not is_live_day and len(m1_enriched) >= 200:
+        if is_live_day and len(m1_enriched) > 0:
+            if not hasattr(self, "_m1_live_last_good"):
+                self._m1_live_last_good = {}
+            self._m1_live_last_good[cache_key] = res
+        elif not is_live_day and len(m1_enriched) >= 200:
             self._m1_series_cache[cache_key] = res
         return res
 
     def get_m1_chart_payload(self, sess_date: str = None) -> dict:
         win_m1 = self.build_m1_asset_series("WIN", sess_date)
         wdo_m1 = self.build_m1_asset_series("WDO", win_m1.get("date") or sess_date)
+        has_bars = bool((win_m1.get("m1_series") or []) or (wdo_m1.get("m1_series") or []))
         return {
-            "ok": True,
+            "ok": has_bars,
             "date": win_m1.get("date") or wdo_m1.get("date") or sess_date,
             "WIN": win_m1,
             "WDO": wdo_m1,
