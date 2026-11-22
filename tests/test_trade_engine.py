@@ -3,7 +3,11 @@ import os
 import pytest
 from datetime import datetime
 from core.trade_engine import TradeEngine
-from core.config import BUY_SL, BUY_TP, SELL_SL, SELL_TP, Z_ENTRY, Z_ANOMALY
+from core.config import (
+    BUY_BE_ACT, BUY_BE_LOCK, BUY_SL, BUY_TP,
+    CONS_WDO_ENTRY, CONS_Z_ATTENTION,
+    SELL_SL, SELL_TP, WALL_MIN_PTS, Z_ENTRY, Z_ANOMALY,
+)
 
 
 @pytest.fixture
@@ -28,9 +32,50 @@ def test_no_entry_below_threshold(engine):
 
 
 def test_consensus_buy_entry(engine):
-    """z_wdo <= -1.4 and z_di <= -1.2 should open consensus BUY WIN."""
-    result = engine.evaluate(
+    """z_wdo <= -CONS_WDO_ENTRY (-1.8) and z_di <= -CONS_Z_ATTENTION (-1.2) inside NWE lower band opens CONS_BASE BUY WIN."""
+    # Below CONS_WDO_ENTRY (1.8) must remain WAIT even inside CONS_BASE 15% NWE band
+    below_res = engine.evaluate(
         z_wdo=-1.5, z_di=-1.3,
+        win_price=129620, wdo_price=5800,
+        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        hour=11, minute=0,
+        beta_value=-22.5,
+        nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
+        bar_close_confirmed=True
+    )
+    assert below_res["strategies"]["CONS_BASE"]["action"] == "WAIT"
+    assert below_res["strategies"]["WDO_NWE"]["action"] == "WAIT"
+
+    # Meeting CONS_WDO_ENTRY (-1.9 <= -1.8) + attention (-1.3 <= -1.2) inside 15% NWE tolerance (<= 129650) opens CONS_BASE
+    result = engine.evaluate(
+        z_wdo=-1.9, z_di=-1.3,
+        win_price=129620, wdo_price=5800,
+        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        hour=11, minute=5,
+        beta_value=-22.5,
+        nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
+        bar_close_confirmed=True
+    )
+    assert result["action"] == "BUY_WIN"
+    assert result["holding"]
+
+    # Verify consensus slot has open trade while WDO_NWE (> 10% NWE tolerance 129600) stayed WAIT
+    cons_strat = result["strategies"]["CONS_BASE"]
+    assert cons_strat["action"] == "BUY_WIN"
+    assert cons_strat["open_trade"]["direction"] == "BUY"
+    assert cons_strat["open_trade"]["z_source"] == "CONSENSO"
+    assert result["strategies"]["WDO_NWE"]["action"] == "WAIT"
+
+
+def test_nwe_band_filter_and_broker_flow_and_time_align(engine, tmp_path):
+    """Test CONS_BASE (15% NWE) & WDO_NWE (10% NWE) band filters, broker flow preservation, and bar time alignment."""
+    import numpy as np
+    from core.mt5_client import align_series_by_time
+    from core.profit_mt5_flow_engine import ProfitMt5FlowEngine
+
+    # 1a. At center of NWE band (130000), CONS_USE_NWE=True blocks CONS_BASE and WDO_NWE
+    res_center = engine.evaluate(
+        z_wdo=-1.9, z_di=-1.3,
         win_price=130000, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=0,
@@ -38,28 +83,15 @@ def test_consensus_buy_entry(engine):
         nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
         bar_close_confirmed=True
     )
-    assert result["action"] == "BUY_WIN"
-    assert result["holding"]
-    
-    # Verify consensus slot has open trade
-    cons_strat = result["strategies"]["CONS_BASE"]
-    assert cons_strat["action"] == "BUY_WIN"
-    assert cons_strat["open_trade"]["direction"] == "BUY"
+    assert res_center["strategies"]["CONS_BASE"]["action"] == "WAIT"
+    assert res_center["strategies"]["WDO_NWE"]["action"] == "WAIT"
 
-
-def test_nwe_band_filter_and_broker_flow_and_time_align(engine, tmp_path):
-    """Test WDO_NWE band filter, broker flow institutional preservation, and bar timestamp alignment."""
-    import numpy as np
-    from core.mt5_client import align_series_by_time
-    from core.profit_mt5_flow_engine import ProfitMt5FlowEngine
-
-    # 1. WDO_NWE requires price inside 10% NWE band tolerance
-    # When price is at the center (130000), WDO_NWE should WAIT while CONS_BASE opens
+    # 1b. Between 10% (129600) and 15% (129650) of lower NWE band, CONS_BASE opens while WDO_NWE stays WAIT
     res_mid = engine.evaluate(
-        z_wdo=-1.5, z_di=-1.3,
-        win_price=130000, wdo_price=5800,
+        z_wdo=-1.9, z_di=-1.3,
+        win_price=129620, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
-        hour=11, minute=0,
+        hour=11, minute=5,
         beta_value=-22.5,
         nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
         bar_close_confirmed=True
@@ -67,12 +99,12 @@ def test_nwe_band_filter_and_broker_flow_and_time_align(engine, tmp_path):
     assert res_mid["strategies"]["CONS_BASE"]["action"] == "BUY_WIN"
     assert res_mid["strategies"]["WDO_NWE"]["action"] == "WAIT"
 
-    # When price touches lower NWE band (129520 <= 129500 + 100), WDO_NWE opens BUY_WIN
+    # 1c. When price touches lower NWE band (129520 <= 129500 + 100), WDO_NWE opens BUY_WIN
     res_band = engine.evaluate(
         z_wdo=-1.5, z_di=0.0,
         win_price=129520, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
-        hour=11, minute=5,
+        hour=11, minute=10,
         beta_value=-22.5,
         nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
         bar_close_confirmed=True
@@ -112,8 +144,8 @@ def test_nwe_band_filter_and_broker_flow_and_time_align(engine, tmp_path):
 def test_outside_session_no_entry(engine):
     """Outside 09:00-15:00 should not open."""
     result = engine.evaluate(
-        z_wdo=-1.5, z_di=-1.5,
-        win_price=130000, wdo_price=5800,
+        z_wdo=-1.9, z_di=-1.5,
+        win_price=129550, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=8, minute=0,
         beta_value=-22.5,
@@ -124,22 +156,37 @@ def test_outside_session_no_entry(engine):
 
 
 def test_stop_loss_buy(engine):
-    """BUY trade should close on SL when price drops 300pts."""
-    # Open trade first
-    engine.evaluate(
-        z_wdo=-1.5, z_di=-1.5,
-        win_price=130000, wdo_price=5800,
+    """BUY trade without GEX walls uses fallback SL (WALL_MIN_PTS=200) and closes on STOP_LOSS."""
+    entry_px = 129550
+    open_res = engine.evaluate(
+        z_wdo=-1.9, z_di=-1.3,
+        win_price=entry_px, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=0,
         beta_value=-22.5,
         nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
         bar_close_confirmed=True
     )
-    
-    # Price drops by 300 points
+    assert open_res["action"] == "BUY_WIN"
+    sl_pts = open_res["strategies"]["CONS_BASE"]["open_trade"]["sl_pts"]
+    assert sl_pts == WALL_MIN_PTS
+
+    # Just above SL -> still HOLDING
+    hold_res = engine.evaluate(
+        z_wdo=-0.5, z_di=-0.5,
+        win_price=entry_px - (sl_pts - 5), wdo_price=5800,
+        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        hour=11, minute=2,
+        beta_value=-22.5,
+        nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
+        bar_close_confirmed=False
+    )
+    assert hold_res["action"] == "HOLDING"
+
+    # Price drops to SL (200 pts) -> STOP_LOSS
     result = engine.evaluate(
         z_wdo=-0.5, z_di=-0.5,
-        win_price=130000 - BUY_SL, wdo_price=5800,
+        win_price=entry_px - sl_pts, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=5,
         beta_value=-22.5,
@@ -148,56 +195,74 @@ def test_stop_loss_buy(engine):
     )
     assert result["action"] == "CLOSE"
     assert result["exit_reason"] == "STOP_LOSS"
+    assert result["pnl"] == -80.0
 
 
 def test_take_profit_sell(engine):
-    """SELL trade should close on TP when price drops 800pts (since SELL WIN gains on drop? No, SELL WIN gains when price drops? 
-    Wait, in pair trading:
-    SELL WIN / BUY WDO.
-    If WIN price drops, the short WIN position gains! So points in favor is entry_px - win_price.
-    So if entry is 130000, and price drops to 129200 (800pts drop), points in favor is +800, which hits TP!
-    """
-    # Open sell trade
-    engine.evaluate(
-        z_wdo=1.5, z_di=1.5,
-        win_price=130000, wdo_price=5800,
+    """SELL trade with GEX walls sets wall-based TP (800 pts) and closes on TARGET."""
+    entry_px = 130450
+    walls = [129640, 130720]  # SL behind 130720 + 30 = 300 pts; TP before 129640 + 10 = 800 pts
+    open_res = engine.evaluate(
+        z_wdo=1.9, z_di=1.3,
+        win_price=entry_px, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=0,
         beta_value=-22.5,
         nwe_is_up=True, nwe_upper=130500, nwe_lower=129500,
-        bar_close_confirmed=True
+        bar_close_confirmed=True,
+        walls=walls,
     )
-    
-    # Price drops to 129200
+    assert open_res["action"] == "SELL_WIN"
+    assert open_res["strategies"]["CONS_BASE"]["open_trade"]["tp_pts"] == SELL_TP
+    assert open_res["strategies"]["CONS_BASE"]["open_trade"]["sl_pts"] == SELL_SL
+
+    # Halfway to TP -> still HOLDING (z stays >= 0.5 so mean-reversion exit does not trigger)
+    hold_res = engine.evaluate(
+        z_wdo=0.5, z_di=0.5,
+        win_price=entry_px - 400, wdo_price=5800,
+        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        hour=11, minute=2,
+        beta_value=-22.5,
+        nwe_is_up=True, nwe_upper=130500, nwe_lower=129500,
+        bar_close_confirmed=False,
+        walls=walls,
+    )
+    assert hold_res["action"] == "HOLDING"
+
+    # Price drops to 129650 (800 pts in favor) -> TARGET
     result = engine.evaluate(
         z_wdo=0.5, z_di=0.5,
-        win_price=130000 - SELL_TP, wdo_price=5800,
+        win_price=entry_px - SELL_TP, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=5,
         beta_value=-22.5,
         nwe_is_up=True, nwe_upper=130500, nwe_lower=129500,
-        bar_close_confirmed=False
+        bar_close_confirmed=False,
+        walls=walls,
     )
     assert result["action"] == "CLOSE"
     assert result["exit_reason"] == "TARGET"
+    assert result["pnl"] == 320.0
 
 
 def test_breakeven_activation_buy(engine):
-    """BUY trade should activate BE after 300pts (BUY_BE_ACT), then close on retrace to 0pts (BUY_BE_LOCK)."""
-    engine.evaluate(
-        z_wdo=-1.5, z_di=-1.5,
-        win_price=130000, wdo_price=5800,
+    """BUY trade activates BE after BUY_BE_ACT (150 pts), holds above BUY_BE_LOCK (15 pts), and closes at +15 pts."""
+    entry_px = 129550
+    open_res = engine.evaluate(
+        z_wdo=-1.9, z_di=-1.3,
+        win_price=entry_px, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=0,
         beta_value=-22.5,
         nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
         bar_close_confirmed=True
     )
-    
-    # Price rises 300pts -> BE activates
+    assert open_res["action"] == "BUY_WIN"
+
+    # Price rises by BUY_BE_ACT (150 pts) -> BE activates, stays HOLDING
     result = engine.evaluate(
         z_wdo=-0.5, z_di=-0.5,
-        win_price=130000 + 300, wdo_price=5800,
+        win_price=entry_px + BUY_BE_ACT, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=5,
         beta_value=-22.5,
@@ -206,10 +271,22 @@ def test_breakeven_activation_buy(engine):
     )
     assert result["action"] == "HOLDING"
 
-    # Price retraces to entry -> BE_STOP
+    # Price retraces to +20 pts (above BUY_BE_LOCK=15) -> still HOLDING
+    hold_res = engine.evaluate(
+        z_wdo=0.0, z_di=0.0,
+        win_price=entry_px + BUY_BE_LOCK + 5, wdo_price=5800,
+        rho=-0.75, beta_safe=True, hmm_state="CHOP",
+        hour=11, minute=8,
+        beta_value=-22.5,
+        nwe_is_up=False, nwe_upper=130500, nwe_lower=129500,
+        bar_close_confirmed=False
+    )
+    assert hold_res["action"] == "HOLDING"
+
+    # Price retraces to BUY_BE_LOCK (+15 pts) -> BE_STOP
     result = engine.evaluate(
         z_wdo=0.0, z_di=0.0,
-        win_price=130000, wdo_price=5800,
+        win_price=entry_px + BUY_BE_LOCK, wdo_price=5800,
         rho=-0.75, beta_safe=True, hmm_state="CHOP",
         hour=11, minute=10,
         beta_value=-22.5,
@@ -218,3 +295,4 @@ def test_breakeven_activation_buy(engine):
     )
     assert result["action"] == "CLOSE"
     assert result["exit_reason"] == "BE_STOP"
+    assert result["pnl"] == 6.0

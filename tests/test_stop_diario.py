@@ -5,11 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from research.stop_diario.data_loader import (
     DEFAULT_HTM_DIR,
     PORTFOLIO_PRESETS,
     ROBOT_METADATA,
+    WDO_HIST_M1_CSV,
+    WDO_MT5_M1_CSV,
+    WIN_M1_CSV,
     enrich_trades_with_m1_mae_mfe,
     load_m1_bars,
     parse_mt5_htm_trades,
@@ -29,6 +33,20 @@ from research.stop_diario.report_html import generate_html_report
 from research.stop_diario.report_md import generate_markdown_report
 
 
+def _has_proposta_b_data() -> bool:
+    has_win = WIN_M1_CSV.exists()
+    has_wdo = WDO_MT5_M1_CSV.exists() or WDO_HIST_M1_CSV.exists()
+    has_htms = all(
+        (DEFAULT_HTM_DIR / f"{ROBOT_METADATA[c].htm_code}_P1.htm").exists()
+        for c in PORTFOLIO_PRESETS["proposta_b_11"]["robots"]
+    )
+    return bool(has_win and has_wdo and has_htms)
+
+
+@pytest.mark.skipif(
+    not (DEFAULT_HTM_DIR / "EST13_P1.htm").exists(),
+    reason="Local MT5 Strategy Tester HTM files (data/) not present",
+)
 def test_parse_htm_exact_smartgrid_matching() -> None:
     """SmartGrid multi-leg (EST-13) deve parear 100% dos deals com erro 0,00."""
     spec = ROBOT_METADATA["EST-13"]
@@ -132,6 +150,10 @@ def test_combined_stops_independent_asset_locking() -> None:
     assert sim_glob["stopped_global"] == 1
 
 
+@pytest.mark.skipif(
+    not _has_proposta_b_data(),
+    reason="Local M1/HTM backtest data (data/) not present",
+)
 def test_full_proposta_b_pipeline_and_reports(tmp_path: Path) -> None:
     """Executa análise completa Proposta B (11 robôs) e valida WFA, MC, Robôs, HTML e MD."""
     m1_cache = load_m1_bars()

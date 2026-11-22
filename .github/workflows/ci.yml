@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            cloud_saas/requirements.txt
+
+      - name: Install Python dependencies (excluding Windows-only MetaTrader5)
+        run: |
+          python -m pip install --upgrade pip
+          grep -viE '^(metatrader5|pywin32)\b' requirements.txt > /tmp/requirements-ci.txt
+          pip install -r /tmp/requirements-ci.txt -r cloud_saas/requirements.txt firebase-admin pytest
+
+      - name: Run pytest suite
+        run: pytest -p no:cacheprovider tests/ -v
+
+  dashboard-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: regime-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: regime-dashboard/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        # Pre-existing lint debt in regime-dashboard/src/ (119 errors, 10 warnings)
+        # kept non-blocking until the frontend components are cleaned up.
+        continue-on-error: true
+        run: npm run lint
