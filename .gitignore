@@ -32,8 +32,8 @@ logs/
 gex/logs/
 scratch/
 gex/scratch/
+backups/
 *.log
-=
 regime-dashboard/check_console.cjs
 gex_out*.txt
 uvicorn_*.txt

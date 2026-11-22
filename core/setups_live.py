@@ -9,8 +9,9 @@ Resultados ficam em cache por (data, corte), então cada barra M5 é calculada u
 from __future__ import annotations
 
 import copy
+import os
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -19,7 +20,85 @@ from research import mt5_loader
 from research.flow_window_asg.flow_filters import load_flow_tables
 
 WARMUP_DAYS = 7
-CSV_END = "2026-11-11"   # último pregão nos caches data/mt5_rates (research/append_mt5_rates.py); depois disso vem do MT5 ao vivo
+_DEFAULT_CSV_END = "2026-11-11"
+_CSV_END_TAIL_BYTES = 16384
+_csv_end_lock = threading.Lock()
+_csv_end_cache: Dict[str, object] = {"key": None, "value": _DEFAULT_CSV_END}
+
+
+def _read_csv_max_date(path: str) -> Optional[str]:
+    """Lê a cauda do CSV e retorna a maior data válida (YYYY-MM-DD) da coluna `t`, sem carregar o arquivo inteiro."""
+    try:
+        if not os.path.isfile(path):
+            return None
+        size = os.path.getsize(path)
+        if size <= 0:
+            return None
+        with open(path, "rb") as f:
+            header_raw = f.readline()
+            header_cols = [c.strip() for c in header_raw.decode("utf-8", "replace").strip().split(",")]
+            if "t" not in header_cols:
+                return None
+            t_idx = header_cols.index("t")
+
+            seek_pos = max(0, size - _CSV_END_TAIL_BYTES)
+            f.seek(seek_pos)
+            chunk = f.read().decode("utf-8", "replace")
+        lines = chunk.splitlines()
+        data_lines = lines[1:]
+        max_day: Optional[str] = None
+        for line in data_lines:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(",")
+            if t_idx >= len(parts):
+                continue
+            day_str = parts[t_idx].strip()[:10]
+            if len(day_str) != 10:
+                continue
+            try:
+                date.fromisoformat(day_str)
+            except ValueError:
+                continue
+            if max_day is None or day_str > max_day:
+                max_day = day_str
+        return max_day
+    except OSError:
+        return None
+
+
+def _get_csv_end() -> str:
+    """Descobre dinamicamente a data máxima comum da coluna `t` nos caches M5 de WIN e WDO."""
+    rates_dir = getattr(
+        mt5_loader,
+        "RATES_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "mt5_rates"),
+    )
+    win_path = os.path.join(rates_dir, "mt5_WIN_N_M5.csv")
+    wdo_path = os.path.join(rates_dir, "mt5_WDO_N_M5.csv")
+
+    def _safe_mtime(p: str) -> Optional[float]:
+        try:
+            return os.path.getmtime(p) if os.path.isfile(p) else None
+        except OSError:
+            return None
+
+    key = (win_path, wdo_path, _safe_mtime(win_path), _safe_mtime(wdo_path))
+    with _csv_end_lock:
+        if _csv_end_cache["key"] == key:
+            return str(_csv_end_cache["value"])
+
+    dates = [d for d in (_read_csv_max_date(win_path), _read_csv_max_date(wdo_path)) if d is not None]
+    value = min(dates) if dates else _DEFAULT_CSV_END
+
+    with _csv_end_lock:
+        _csv_end_cache["key"] = key
+        _csv_end_cache["value"] = value
+    return value
+
+
+CSV_END = _get_csv_end()   # último pregão nos caches data/mt5_rates (research/append_mt5_rates.py); depois disso vem do MT5 ao vivo
 _lock = threading.Lock()
 _cache: Dict[tuple, Dict[str, List[dict]]] = {}
 _base_flow = None
@@ -77,9 +156,10 @@ def _fetch_mt5_extension(now: datetime):
     if not connect_mt5():
         raise RuntimeError("MT5 indisponível para barras do pregão")
     tf = {"M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5}
+    csv_end = _get_csv_end()
     for sym, tfs in (("WIN$N", ("M5", "M1")), ("WDO$N", ("M5",))):
         for tfn in tfs:
-            base = mt5_loader._get_mt5_rates_raw(sym, tfn, "2026-04-01", CSV_END, False)
+            base = mt5_loader._get_mt5_rates_raw(sym, tfn, "2026-04-01", csv_end, False)
             start = pd.Timestamp(base["t"].max()).to_pydatetime() + timedelta(minutes=1)
             with mt5_lock:
                 raw = mt5.copy_rates_range(sym, tf[tfn], start, now + timedelta(days=1))
@@ -97,7 +177,7 @@ def trades_for(day: str, asset: str, is_live: bool, now: Optional[datetime] = No
     """Trades do runner único para `asset` em `day` (mesmo formato dos trades do JSON do BT)."""
     from core.setups_runner import run_setups
 
-    csv_end = CSV_END
+    csv_end = _get_csv_end()
     with _lock:
         now = now or datetime.now()
         if not is_live:

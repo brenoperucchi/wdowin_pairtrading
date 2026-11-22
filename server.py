@@ -10,6 +10,7 @@ import MetaTrader5 as mt5
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import math
 from statsmodels.tsa.stattools import coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
@@ -63,7 +64,9 @@ from core.signals import (
 )
 from core.kalman_filter import KalmanBetaFilter
 from core.trade_engine import TradeEngine, calc_wall_tp_sl
-import core.hmm_background as hmm
+
+# HMM background thread disabled; keep static contract value for response payloads/DB
+_HMM_REGIME_PLACEHOLDER = "CALCULANDO"
 
 
 
@@ -325,50 +328,8 @@ def _seed_flow_history():
 
 
 def _seed_realtime_flow():
-    global _realtime_flow_cache, _realtime_factors_cache
-    if len(_realtime_flow_cache) > 0:
-        return
-        
-    now_dt = datetime.now()
-    start_dt = now_dt.replace(hour=9, minute=0, second=0, microsecond=0)
-    
-    # If it is before 09:00 AM, don't seed
-    if now_dt < start_dt:
-        return
-        
-    start_time = start_dt.timestamp()
-    end_time = now_dt.timestamp()
-    
-    curr_time = start_time
-    score = 0.0
-    
-    # Seed up to the current time, leaving at least the last few minutes for live data
-    while curr_time < end_time:
-        score = score * 0.96 + random.uniform(-12.0, 12.0)
-        score = max(-100.0, min(100.0, score))
-        
-        if score >= 40.0:
-            color = "#00e87a"
-        elif score <= -40.0:
-            color = "#ff3860"
-        else:
-            color = "#f5a623"
-            
-        _realtime_flow_cache.append({
-            "time": int(curr_time),
-            "value": round(score, 2),
-            "color": color
-        })
-        
-        val_norm = score / 100.0
-        _realtime_factors_cache.append({
-            "time": int(curr_time),
-            "fln": val_norm,
-            "pers": val_norm,
-            "conc_dir": val_norm,
-            "abs_dir": val_norm
-        })
-        curr_time += 5.0
+    """Disabled: _realtime_flow_cache starts empty and only accumulates real data."""
+    return
 
 async def flow_snapshot_loop():
     print("[INFO] Real WIN Broker Flow Snapshot Loop iniciado.")
@@ -482,15 +443,20 @@ async def lifespan(app: FastAPI):
     if firebase_initialized:
         asyncio.create_task(firebase_push_loop())
     
-    _seed_realtime_flow()  # Pre-populate real-time flow indicator cache for today
     # _seed_flow_history()  # Pre-populate flow chart with full-day simulated data
     asyncio.create_task(flow_snapshot_loop())
+    health_task = asyncio.create_task(_health_mt5_refresh_loop())
     
     # Run backfill on the single MT5 worker thread
     asyncio.create_task(asyncio.to_thread(do_backfill_if_empty))
     
     yield
     # Shutdown
+    health_task.cancel()
+    try:
+        await health_task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(title="WIN×WDO Regime Monitor", lifespan=lifespan)
 app.add_middleware(
@@ -1255,7 +1221,7 @@ def _build_response(current_z, current_rho, half_life, strength,
         "current_z":       round(current_z, 3),
         "current_rho":     round(current_rho, 3),
         "half_life":       round(half_life, 2) if half_life != float("inf") else 0.0,
-        "signal":          get_signal(current_z, hmm_state=hmm.current_hmm_regime),
+        "signal":          get_signal(current_z, hmm_state=_HMM_REGIME_PLACEHOLDER),
         "strength":        round(strength, 1),
         "beta_ols":        round(beta_ols, 4),
         "beta_ref_5d":     round(beta_ols, 4),
@@ -1300,7 +1266,7 @@ def _build_response(current_z, current_rho, half_life, strength,
             "beta":       round(beta_ols, 4),
             "window":     WINDOW if version == "v1" else "KALMAN",
             "timeframe":  TF_NAMES.get(TIMEFRAME, str(TIMEFRAME)),
-            "hmm_regime": hmm.current_hmm_regime,
+            "hmm_regime": _HMM_REGIME_PLACEHOLDER,
         },
         "trade_engine": {
             "action": trade_result["action"],
@@ -1336,7 +1302,7 @@ def _regime_v1_impl():
         _last_win_price = float(closes_a[-1])
 
     if closes_a is None or closes_b is None:
-        return {"error": "Sem dados para 'WINFUT'/'WDOFUT' no Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
+        return {"error": "Sem dados para 'WINFUT'/'WDOFUT' no Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=_HMM_REGIME_PLACEHOLDER), "history": []}
 
     closes_a, closes_b, times_a = align_profit_series_with_ffill(closes_a, times_a, closes_b, times_b)
 
@@ -1398,7 +1364,7 @@ def _regime_v2_impl():
         _last_win_price = float(closes_a[-1])
 
     if closes_a is None or closes_b is None:
-        return {"error": "Sem dados do Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=hmm.current_hmm_regime), "history": []}
+        return {"error": "Sem dados do Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=_HMM_REGIME_PLACEHOLDER), "history": []}
 
     ac_full, bc_full, tc_full = align_profit_series_with_ffill(closes_a, times_a, closes_b, times_b)
     idx_anchor = int(np.searchsorted(tc_full, ANCHOR_2026_TS))
@@ -1531,7 +1497,7 @@ def _regime_v2_impl():
     trade_result = _trade_engine.evaluate(
         z_wdo=eval_z_wdo, z_di=eval_z_di,
         win_price=eval_win_px, wdo_price=eval_wdo_px,
-        rho=current_rho, beta_safe=safe_to_trade, hmm_state=hmm.current_hmm_regime,
+        rho=current_rho, beta_safe=safe_to_trade, hmm_state=_HMM_REGIME_PLACEHOLDER,
         hour=now_dt.hour, minute=now_dt.minute, beta_value=beta_current,
         nwe_is_up=eval_nwe_up, nwe_upper=eval_nwe_upper, nwe_lower=eval_nwe_lower,
         bar_close_confirmed=bar_close_confirmed,
@@ -1639,7 +1605,7 @@ def _regime_v2_impl():
 
     day_trades = simulate_day_statarb_trades(history, active_walls)
 
-    sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=hmm.current_hmm_regime)
+    sig_data = get_signal(current_z, current_spread_sd, beta_current, hmm_state=_HMM_REGIME_PLACEHOLDER)
 
     res = _build_response(
         current_z, current_rho, 0, min(100.0, abs(current_z) / 4.0 * 100.0),
@@ -1898,21 +1864,44 @@ _last_health_mt5 = {
 }
 
 
-@app.get("/health")
-def health():
+def _probe_mt5_health_nonblocking() -> None:
+    """Atualiza status do MT5 em background sem bloquear se _mt5_lock estiver ocupado."""
     global _last_health_mt5
-    acquired = _mt5_lock.acquire(timeout=0.4)
-    if acquired:
-        try:
-            connected = connect_mt5()
-            info = mt5.terminal_info() if connected else None
-            _last_health_mt5 = {
-                "mt5_connected": connected,
-                "terminal_name": info.name if info else "Profit Native DB + RTD",
-                "terminal_path": info.path if info else "Nelogica/Scalper & Profit",
-            }
-        finally:
-            _mt5_lock.release()
+    acquired = _mt5_lock.acquire(blocking=False)
+    if not acquired:
+        return
+    try:
+        connected = connect_mt5()
+        info = mt5.terminal_info() if connected else None
+        _last_health_mt5 = {
+            "mt5_connected": connected,
+            "terminal_name": info.name if info else "Profit Native DB + RTD",
+            "terminal_path": info.path if info else "Nelogica/Scalper & Profit",
+        }
+    except Exception:
+        pass
+    finally:
+        _mt5_lock.release()
+
+
+async def _health_mt5_refresh_loop() -> None:
+    """Atualiza _last_health_mt5 periodicamente em background sem bloquear /health."""
+    try:
+        await asyncio.sleep(1.0)
+        while True:
+            try:
+                await asyncio.to_thread(_probe_mt5_health_nonblocking)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"[AVISO] Erro no loop de health MT5: {e}")
+            await asyncio.sleep(20.0)
+    except asyncio.CancelledError:
+        return
+
+
+@app.get("/health")
+async def health():
     return {
         **_last_health_mt5,
         "profit_connected": True,
@@ -2744,6 +2733,8 @@ def get_flow(date_str: str = None):
 @app.post("/api/flow/inject-history")
 async def inject_flow_history(request: Request):
     """Debug: inject simulated flow history for chart testing."""
+    if os.environ.get("MW_ALLOW_FLOW_INJECT") != "1":
+        return JSONResponse(status_code=403, content={"ok": False, "error": "flow inject disabled"})
     global _flow_history_bars
     data = await request.json()
     if isinstance(data, list):
@@ -2916,20 +2907,14 @@ def get_compass_etapa3():
         traceback.print_exc()
         return {"ok": False, "error": str(e)}
 
-# ─── Startup ─────────────────────────────────────────────────────────────────
-# NOTE: HMM background thread DISABLED — no longer used in this project.
-# It was calling mt5.initialize() from a background thread, which is NOT
-# thread-safe and caused Python segfaults (crashing all Python on the machine).
-# hmm.start()
-
 if __name__ == "__main__":
     import uvicorn
     print("=" * 55)
     print("  WIN×WDO+DI Regime Monitor — Servidor local")
-    print("  WDO:    http://localhost:8080/api/regime")
-    print("  DI:     http://localhost:8080/api/di-regime")
-    print("  Fluxo:  http://localhost:8080/api/flow")
-    print("  Saude:  http://localhost:8080/health")
-    print("  Docs:   http://localhost:8080/docs")
+    print("  WDO:    http://127.0.0.1:8080/api/regime")
+    print("  DI:     http://127.0.0.1:8080/api/di-regime")
+    print("  Fluxo:  http://127.0.0.1:8080/api/flow")
+    print("  Saude:  http://127.0.0.1:8080/health")
+    print("  Docs:   http://127.0.0.1:8080/docs")
     print("=" * 55)
-    uvicorn.run("server:app", host="0.0.0.0", port=8080, reload=False)
+    uvicorn.run("server:app", host="127.0.0.1", port=8080, reload=False)
