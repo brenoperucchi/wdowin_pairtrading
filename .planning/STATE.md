@@ -2,24 +2,38 @@
 
 ## Project Reference
 
-See: [`STATARB_2026_KNOWLEDGE.md`](../STATARB_2026_KNOWLEDGE.md), [`docs/PAINEL_5176_SNIPER_DIVERGENCIA_SMART_MONEY.md`](../docs/PAINEL_5176_SNIPER_DIVERGENCIA_SMART_MONEY.md) & [`.planning/PROJECT.md`](PROJECT.md). Documento de estado atualizado em 10/11/2026.
+See: [`STATARB_2026_KNOWLEDGE.md`](../STATARB_2026_KNOWLEDGE.md), [`docs/MAPA_GERAL_DO_PROJETO.md`](../docs/MAPA_GERAL_DO_PROJETO.md), [`docs/PLANO_COMERCIAL_SAAS_MAGICWALLS.md`](../docs/PLANO_COMERCIAL_SAAS_MAGICWALLS.md) & [`.planning/PROJECT.md`](PROJECT.md). Documento de estado atualizado em **22/11/2026**.
 
-**Core value:** Arquitetura dual de painéis em produção local: **`5174`** (Carteira Top 8 EAs M5 com fluxo para robôs MT5), **`5176`** (Painel minimalista Sniper 1:1 de Divergência `F1➔F2 / T1➔T2` na Wall + `Fluxo Smart Money` + `Visão Dupla` padrão) e Aba 3 **`STAT_ARB`** (`WIN × WDO × DI`) preservada em ambos.
-**Current focus:** Operação ao vivo do Sniper de Divergência na `5176` (`2c WIN Mix + 1c WDO MidWall`) e preparação da próxima fase de pesquisa de fluxo (Absorção na Wall com filtros rigorosos de seletividade + estratégias no timeframe `M1`).
+**Core value:** Ecossistema quantitativo completo para `WIN` e `WDO` na B3 combinando: (1) cálculo diário GEX/Walls (`gex/`), (2) execução automatizada no MetaTrader 5 com a carteira **Top 10 EAs** na XP (`2004051`), (3) cockpit analítico local em `127.0.0.1:8080` + painéis Vite `5174` / `5176` / `5178`, e (4) plataforma SaaS **MagicWalls** (`app.magicwalls.com.br` + `api.magicwalls.com.br`).
+**Current focus:** Operação live da carteira **Top 10 MT5** com Monitor v4.20 (`Stop G 950 / W 400 / D 0` + push ligado) e reconciliação diária (`scripts/reconcile_mt5_vs_bt.py`), paper trading no painel `5176` (`ESP_DIV_V22_WIN` + Carteira V3.2) e operação/estabilização do SaaS MagicWalls em produção.
 
 ## Current Position
 
-Status: **Em Produção Local Dual-Stack (`5174`, `5176`, `8080` via `keep_dashboards_alive.py`)**
-Last activity: **10/11/2026** — Consolidação completa do **Painel `5176` Sniper de Divergência na Wall & Fluxo Smart Money** (`WIN_DIV_WALL` 2c Mix `[L1 NWE30 Din + L2 750p]` + `WDO_DIV_WALL` 1c MidWall, com sobreposição permitida, filtro de horário `s/ 12h WIN` e `s/ 11h WDO` e Meta Diária causal `+R$ 180` / `+R$ 120` ➔ **`+R$ 12.827` líquidos em 212 pregões, `WR 70,0%`, `PF 2,49`, `MDD R$ 380`, `Ret/DD 33,76x`, `11/11` meses +**); redesign visual monocromático na `5176` (`Visão Dupla` padrão, Walls brancas/cinzas, candles neutros, sub-painel `2. FLUXO SMART MONEY` apenas com linha azul e cor viva restrita às divergências e caixas de trade); watchdog ajustado para dual-stack IPv4+IPv6 (`--host ::`); `5174` mantida 100% intacta.
+Status: **Em Produção (Stack Local + Túnel Cloudflare + SaaS Cloud + MT5 Top 10 XP `2004051`)**
+Last activity: **22/11/2026** — Consolidação operacional da infraestrutura, segurança e governança:
 
-**Em andamento (não commitado):** saldo em lotes de RLP/HFT no cockpit — `regime-dashboard/src/components/IntradayCompassPanel.jsx` e os motores `core/gex_live_dealer_engine.py`, `core/profit_mt5_flow_engine.py` e `core/profit_wall_players_engine.py`. Riscos em aberto: `importlib.reload` de `profit_wall_players_engine` em `profit_mt5_flow_engine.py` (hot-reload no caminho de produção) e fallbacks inconsistentes de `rlp_delta` entre engine e UI.
+1. **Backend & Painéis Locais (supervisionados por `keep_dashboards_alive.py` / tarefa `JumbaDashboardsWatchdog`):**
+   - **Backend FastAPI (`server.py`):** `http://127.0.0.1:8080` (bind restrito a `127.0.0.1`, `/health` assíncrono não-bloqueante, `/api/flow/inject-history` travado por padrão e sem semente aleatória de fluxo).
+   - **Frontends Vite locais:** `5174` (Robôs MT5 / Carteiras), `5176` (Sniper Divergência `ESP_DIV_V22_WIN` + Carteira V3.2), `5178` (Gráfico Diário Manual WIN/WDO).
+   - **Proxies públicos somente-leitura (`scripts/painel_publico.py`):** `127.0.0.1:5199` (modo `5178`) e `127.0.0.1:5198` (modo `5176`), expostos via `cloudflared` nomeado `magicwalls` (`config/cloudflared-magicwalls.yml` -> `walls.css-pro.com.br` e `roboswalls.css-pro.com.br`).
+2. **Plataforma SaaS MagicWalls (`cloud_saas/`):**
+   - **Frontend Edge (Cloudflare Pages):** `https://app.magicwalls.com.br` (build `regime-dashboard/build-saas.mjs` -> `dist-saas/`).
+   - **Cloud API (Railway):** `https://api.magicwalls.com.br` (`cloud_saas/app.py`, FastAPI + JWT/entitlements server-side + sessões únicas).
+   - **Dados & Cache:** **Supabase** (6 tabelas com RLS: `profiles`, `subscriptions`, `active_sessions`, `terms_acceptance`, `audit_logs`, `producer_heartbeats`) + **Upstash Redis** (sessões ativas e snapshots `core`/`pro`).
+   - **Produtor Push (`scripts/cloud_publisher.py`):** lê `127.0.0.1:8080`, sanitiza payloads `core`/`pro`, assina via HMAC-SHA256 e publica na Cloud API; supervisionado automaticamente pelo watchdog `keep_dashboards_alive.py` (`--role primary --producer-id pc-local-01`).
+3. **Carteira MT5 Live (XP `2004051`):**
+   - Migração em **19/11/2026** para a carteira **Top 10 (`Campeões + EST-09/10`)**: 7 robôs WIN (`88004, 88007, 88009, 88010, 88013, 88014, 88015`) + 3 robôs WDO (`89001, 89005, 89007`).
+   - Fonte única canônica no repositório em `mt5/Experts/Jumba_GEX_NWE/` (duplicatas da raiz `mt5/Experts/Jumba_*` removidas).
+   - **`Jumba_Portfolio_Live_Monitor.mq5` v4.20:** Stop Diário configurado em **`Global R$ 950 / WIN R$ 400 / WDO R$ 0`** e `InpSendPushOnStop = true` (requer compilação F7 no MetaEditor do terminal para atualizar `.ex5` em produção).
+   - Reconciliação diária Live vs Backtest disponível via `scripts/reconcile_mt5_vs_bt.py`.
+4. **Paper Trading (`5176`):**
+   - **`ESP_DIV_V22_WIN`** (`core/especialista_v22.py`, motor de divergência v3.2) + **Carteira V3.2** (`core/carteira_v32_estrategias.py`: `C1a_BRK_WIN`, `V1a_DIV_WDO`, `SYM_DIV_WIN`, `SYM_DIV_WDO`) operando em **paper trading**.
+   - **Execução Python -> MT5:** não existe `core/mt5_executor.py` nem chamadas `mt5.order_send()` no backend Python; toda execução live ocorre diretamente pelos Expert Advisors MQL5 no MetaTrader 5.
 
-**Execução real MT5:** ainda não implementada — não existe `core/mt5_executor.py` e não há chamada a `mt5.order_send()` no backend.
+## Key Decisions (Consolidated 22/11/2026)
 
-## Key Decisions (Consolidated 10/11/2026)
-
-- **Manutenção do Sistema Atual de Saída (`BE +150/200p → +15p` + Alvo Wall/Z-Rev):** Entregou `+R$ 10.135` (`+25.338 pts`), Max DD `R$ 764` e `Ret/DD = 13,27x` nos 212 pregões de 2026 (488 trades).
-- **Stop Loss Sempre Atrás da Wall Anterior:** `calc_wall_tp_sl` posiciona o stop `30 pts` atrás da Wall anterior (mín. `200 pts`, máx. `300 pts`). Se a Wall exigir `> 300 pts`, o setup é abortado (nunca truncado para antes da Wall).
-- **Sinais Sem Repintura:** Barras M5 fechadas têm seus sinais (`sig_wdo`, `sig_di`, `sig_cons`) congelados no SQLite (`bar_history`).
-- **Isolamento de Abas:** Aba 1 exclusiva para Cockpit GEX + 4 sistemáticas (`WIN_1` / `WIN_2` / `WDO_1` / `WDO_2`) e o calendário das carteiras 11 EAs (com filtro de fluxo) e 8 EAs (sem filtro), perfis MT5 XP (`LiveTradingCalendar.jsx`); Aba 3 exclusiva para Arbitragem `WIN × WDO × DI`. As antigas “6 Estratégias Campeãs” foram substituídas por esse recorte no código e nos commits de 05/11 e 10/11/2026.
-- **Blindagem MT5:** Toda comunicação com a DLL do MetaTrader 5 roda em thread única de SO (`_single_mt5_executor` + `core.mt5_client.mt5_lock`). Isso serializa chamadas à DLL; não é execução real de ordens.
+- **Watchdog Nativo (`keep_dashboards_alive.py`) substitui PM2 (`ecosystem.config.js`):** supervisão única via tarefa `JumbaDashboardsWatchdog` com rotação de logs, período de carência de startup na porta `8080` e supervisão de `cloud_publisher.py`.
+- **Fonte Única Canônica de EAs Jumba:** todos os fontes `.mq5` e binários `.ex5` `Jumba_*` no repositório residem exclusivamente em `mt5/Experts/Jumba_GEX_NWE/` (`mt5/build_and_compile_mt5_eas.py` atualizado para não duplicar na raiz).
+- **Stop Diário Oficial em Produção (Top 10):** `InpMaxDailyLossGlobal = 950.0`, `InpMaxDailyLossWin = 400.0`, `InpMaxDailyLossWdo = 0.0`, com `InpSendPushOnStop = true` no Monitor v4.20.
+- **Sinais Sem Repintura:** barras M5 fechadas têm seus sinais congelados no histórico e regras de `ESP_DIV_V22_WIN` / Carteira V3.2 compartilham implementação causal única entre histórico e ao vivo.
+- **Blindagem MT5:** toda comunicação Python com a DLL do MetaTrader 5 permanece serializada em thread única (`_single_mt5_executor` + `_mt5_lock`), exclusivamente para leitura de cotações/histórico/posições (zero envio de ordens pelo backend).

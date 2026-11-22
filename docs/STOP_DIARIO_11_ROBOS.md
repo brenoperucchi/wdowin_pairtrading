@@ -1,6 +1,23 @@
-# Sistema de Simulação e Gerência de Stop Diário Máximo — 11 Robôs Jumba
+# Sistema de Simulação e Gerência de Stop Diário Máximo — Robôs Jumba
 
-- **Carteira Padrão:** Proposta B · 11 Robôs (Oficial) (8 WIN (EST-01, 03, 04, 05, 07, 13, 14, 15) + 3 WDO (WDO-01, 05, 07))
+> [!IMPORTANT]
+> **Atualização Oficial de Produção (19/11/2026 — Atualizado em 22/11/2026):**
+> - **Migração para a Carteira Top 10 (`Campeões + EST-09/10`):** em **19/11/2026**, a conta de produção XP (`2004051`) migrou oficialmente para os **10 robôs elite**:
+>   - **7 WIN:** `EST-04` (`88004`), `EST-07` (`88007`), `EST-09` (`88009`), `EST-10` (`88010`), `EST-13` (`88013`), `EST-14` (`88014`), `EST-15` (`88015`)
+>   - **3 WDO:** `WDO-01` (`89001`), `WDO-05` (`89005`), `WDO-07` (`89007`)
+> - **Stop Diário Oficial em Produção (`Jumba_Portfolio_Live_Monitor.mq5` v4.20):**
+>   - **`InpMaxDailyLossGlobal = 950.0`** (Global `WIN + WDO`: `-R$ 950`)
+>   - **`InpMaxDailyLossWin = 400.0`** (Sub-limite isolado `WIN`: `-R$ 400`)
+>   - **`InpMaxDailyLossWdo = 0.0`** (Sub-limite isolado `WDO`: desativado — controlado pelo Global)
+>   - **`InpSendPushOnStop = true`** (notificação Push habilitada ao disparar trava)
+> - **Acompanhamento Diário:** reconciliação automatizada Live vs Backtest via `scripts/reconcile_mt5_vs_bt.py` (lendo `jumba_portfolio_live_monitor_<login>.csv`, `jumba_daily_stop_state_<login>.csv`, `jumba_live_deals_<login>.csv` e `jumba_live_trades_audit_<login>.csv`).
+> - *O estudo histórico comparativo original das 4 carteiras (`Proposta B · 11 Robôs`, `XP M5 · 11 Robôs`, `Campeões · 8 Robôs` e `Campeões + EST-09/10 · 10 Robôs`) permanece preservado integralmente abaixo para referência.*
+
+---
+
+## Estudo Histórico Original (Base 212 Pregões · 11 Robôs & Comparativo)
+
+- **Carteira Padrão do Estudo Original:** Proposta B · 11 Robôs (Oficial) (8 WIN (EST-01, 03, 04, 05, 07, 13, 14, 15) + 3 WDO (WDO-01, 05, 07))
 - **Base Auditada:** Deals reais do MT5 Strategy Tester (`OHLC 1-Min`, `data/reports/mt5_tester_ohlc_2026/*_P1.htm`) + séries M1 reais de WIN e WDO (2026-01-02 a 2026-11-06, **212 pregões**).
 - **Divisão OOS / IS:** **OOS cego** (`02/01`–`06/05/2026`, 84 pregões) · **IS** (`07/05`–`06/11/2026`, 128 pregões).
 - **Custos B3 embutidos:** WIN `R\$ 2,00/contrato` (`-R\$ 1,00/lote` adicional sobre o spread MT5) · WDO `R\$ 5,00/contrato`.

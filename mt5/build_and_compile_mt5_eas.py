@@ -148,13 +148,6 @@ void OnTick()
 """
     with open(os.path.join(MT5_EXP_DIR, f"{fname}.mq5"), "w", encoding="utf-8-sig") as f:
         f.write(indiv_code)
-    with open(os.path.join(MT5_PROJ_DIR, "Experts", f"{fname}.mq5"), "w", encoding="utf-8-sig") as f:
-        f.write(indiv_code)
-
-# Copy all Experts from mt5/Experts to MT5_EXP_DIR so WDO and Monitor are synchronized
-for f in os.listdir(os.path.join(MT5_PROJ_DIR, "Experts")):
-    if f.endswith(".mq5"):
-        shutil.copy2(os.path.join(MT5_PROJ_DIR, "Experts", f), os.path.join(MT5_EXP_DIR, f))
 
 # 4. Copy to ALL MT5 Terminal Data Folders and Compile with metaeditor64.exe
 TERM_BASE = os.path.expandvars(r"%APPDATA%\MetaQuotes\Terminal")
@@ -202,7 +195,6 @@ for mq5 in mq5_files:
     ex5_src = src.replace(".mq5", ".ex5")
     if os.path.exists(ex5_dst):
         shutil.copy2(ex5_dst, ex5_src)
-        shutil.copy2(ex5_dst, os.path.join(MT5_PROJ_DIR, "Experts", os.path.basename(ex5_dst)))
         compiled_ok += 1
         print(f"[COMPILED OK] {os.path.basename(ex5_src)} ({os.path.getsize(ex5_src):,} bytes)")
     else:

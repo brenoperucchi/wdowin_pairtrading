@@ -54,7 +54,7 @@ input string          InpBlockFrom1           = "08:55";    // Início Janela Le
 input string          InpBlockTo1             = "09:02";    // Fim Janela Leilão Abertura
 input string          InpBlockFrom2           = "17:55";    // Início Janela Leilão Fechamento
 input string          InpBlockTo2             = "18:35";    // Fim Janela Leilão Fechamento
-input bool            InpSendPushOnStop       = false;      // Enviar Notificação Push ao Atingir Stop
+input bool            InpSendPushOnStop       = true;       // Enviar Notificação Push ao Atingir Stop
 input bool            InpClearStopOnRemove    = false;      // Limpar Trava Global ao Remover o Monitor (F3 mantém)
 
 #define TOTAL_MONITORED_ROBOTS 10
