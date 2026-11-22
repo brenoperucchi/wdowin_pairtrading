@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MagicWallsMark from "./MagicWallsMark";
 
 const FONT_SANS = "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -119,25 +119,27 @@ const REGIME_DETAILS = {
         flowReading:
             "Na marcação 1, o preço renova máxima na Call Wall enquanto o Fluxo Smart Money faz topo menor (divergência de baixa). Na marcação 2, novo fundo próximo à FlipWall vem com fundo maior no fluxo (divergência de alta).",
         candles: [
-            { x: 194, o: 158, c: 138, h: 132, l: 164 },
-            { x: 222, o: 138, c: 108, h: 100, l: 144 },
-            { x: 250, o: 108, c: 76, h: 66, l: 112 },
-            { x: 278, o: 76, c: 92, h: 72, l: 100 },
-            { x: 306, o: 92, c: 62, h: 52, l: 96, pin: "1", pinTone: "#e5484d", pinPos: "top" },
-            { x: 334, o: 62, c: 98, h: 58, l: 106 },
-            { x: 362, o: 98, c: 132, h: 94, l: 140 },
-            { x: 390, o: 132, c: 162, h: 126, l: 168 },
-            { x: 418, o: 162, c: 178, h: 158, l: 184 },
-            { x: 446, o: 178, c: 166, h: 160, l: 182 },
-            { x: 474, o: 166, c: 186, h: 164, l: 194, pin: "2", pinTone: "#4cc38a", pinPos: "bottom" },
-            { x: 502, o: 186, c: 156, h: 150, l: 190 },
-            { x: 530, o: 156, c: 134, h: 128, l: 160 },
-            { x: 558, o: 134, c: 120, h: 114, l: 140 },
+            { x: 194, o: 158, c: 138, h: 132, l: 164, time: "09:05", flowY: 344, activeLayer: 1 },
+            { x: 222, o: 138, c: 108, h: 100, l: 144, time: "09:35", flowY: 322, activeLayer: 1 },
+            { x: 250, o: 108, c: 76, h: 66, l: 112, time: "10:05", flowY: 298, activeLayer: 1 },
+            { x: 278, o: 76, c: 92, h: 72, l: 100, time: "10:35", flowY: 318, activeLayer: 1 },
+            { x: 306, o: 92, c: 62, h: 52, l: 96, time: "11:10", flowY: 314, activeLayer: 3, pin: "1", pinTone: "#e5484d", pinPos: "top" },
+            { x: 334, o: 62, c: 98, h: 58, l: 106, time: "11:45", flowY: 334, activeLayer: 2 },
+            { x: 362, o: 98, c: 132, h: 94, l: 140, time: "12:20", flowY: 352, activeLayer: 2 },
+            { x: 390, o: 132, c: 162, h: 126, l: 168, time: "13:00", flowY: 362, activeLayer: 2 },
+            { x: 418, o: 162, c: 178, h: 158, l: 184, time: "13:40", flowY: 368, activeLayer: 2 },
+            { x: 446, o: 178, c: 166, h: 160, l: 182, time: "14:15", flowY: 352, activeLayer: 2 },
+            { x: 474, o: 166, c: 186, h: 164, l: 194, time: "14:55", flowY: 346, activeLayer: 3, pin: "2", pinTone: "#4cc38a", pinPos: "bottom" },
+            { x: 502, o: 186, c: 156, h: 150, l: 190, time: "15:30", flowY: 326, activeLayer: 2 },
+            { x: 530, o: 156, c: 134, h: 128, l: 160, time: "16:05", flowY: 314, activeLayer: 2 },
+            { x: 558, o: 134, c: 120, h: 114, l: 140, time: "16:40", flowY: 308, activeLayer: 2 },
         ],
         flowPath: "M 194 344 L 222 322 L 250 298 L 278 318 L 306 314 L 334 334 L 362 352 L 390 362 L 418 368 L 446 352 L 474 346 L 502 326 L 530 314 L 558 308",
         divergences: [
             {
                 id: "div-bear",
+                startIdx: 2,
+                triggerIdx: 4,
                 tone: "#e5484d",
                 priceLine: { x1: 250, y1: 66, x2: 306, y2: 52 },
                 flowLine: { x1: 250, y1: 298, x2: 306, y2: 314 },
@@ -148,6 +150,8 @@ const REGIME_DETAILS = {
             },
             {
                 id: "div-bull",
+                startIdx: 8,
+                triggerIdx: 10,
                 tone: "#4cc38a",
                 priceLine: { x1: 418, y1: 184, x2: 474, y2: 194 },
                 flowLine: { x1: 418, y1: 368, x2: 474, y2: 346 },
@@ -158,8 +162,8 @@ const REGIME_DETAILS = {
             },
         ],
         flowPins: [
-            { x: 306, y: 314, label: "1", tone: "#e5484d" },
-            { x: 474, y: 346, label: "2", tone: "#4cc38a" },
+            { x: 306, y: 314, label: "1", tone: "#e5484d", triggerIdx: 4 },
+            { x: 474, y: 346, label: "2", tone: "#4cc38a", triggerIdx: 10 },
         ],
         ladderBars: [
             { y: 56, label: "Call Wall", price: "132.000", w: 96, color: "#e5484d" },
@@ -167,6 +171,13 @@ const REGIME_DETAILS = {
             { y: 144, label: "Preço ref.", price: "131.480", w: 38, color: "#38bdf8", isRef: true },
             { y: 192, label: "FlipWall", price: "131.100", w: 68, color: "#d4a259", dashed: true },
             { y: 244, label: "Put Wall", price: "130.500", w: 86, color: "#4cc38a" },
+        ],
+        timelineEvents: [
+            { from: 0, to: 3, text: "Abertura acima da FlipWall · Escada GEX mapeada", level: "Preço ref.", tone: "#38bdf8", layer: 1 },
+            { from: 4, to: 4, text: "Sinal #1 confirmado · Divergência de baixa na Call Wall (132.000)", level: "Call Wall", tone: "#e5484d", layer: 3 },
+            { from: 5, to: 9, text: "Defesa na Call Wall · Preço recua em direção à FlipWall", level: "MidWall", tone: "#a3a9b8", layer: 2 },
+            { from: 10, to: 10, text: "Sinal #2 confirmado · Divergência de alta próxima à FlipWall", level: "FlipWall", tone: "#4cc38a", layer: 3 },
+            { from: 11, to: 13, text: "Absorção compradora confirmada · Retorno controlado ao centro", level: "MidWall", tone: "#4cc38a", layer: 2 },
         ],
     },
     negative: {
@@ -181,25 +192,27 @@ const REGIME_DETAILS = {
         flowReading:
             "Na marcação 1, o rompimento da FlipWall tem confirmação vendedora no fluxo. Ao testar a Put Wall em fundo menor (marcação 2), o Fluxo Smart Money desenha fundo mais alto (divergência na Put Wall), marcando absorção.",
         candles: [
-            { x: 194, o: 108, c: 118, h: 102, l: 124 },
-            { x: 222, o: 118, c: 130, h: 114, l: 138 },
-            { x: 250, o: 130, c: 148, h: 126, l: 156 },
-            { x: 278, o: 148, c: 174, h: 144, l: 182, pin: "1", pinTone: "#e5484d", pinPos: "top" },
-            { x: 306, o: 174, c: 204, h: 170, l: 212 },
-            { x: 334, o: 204, c: 226, h: 198, l: 234 },
-            { x: 362, o: 226, c: 236, h: 220, l: 242 },
-            { x: 390, o: 236, c: 224, h: 218, l: 240 },
-            { x: 418, o: 224, c: 244, h: 220, l: 252, pin: "2", pinTone: "#4cc38a", pinPos: "bottom" },
-            { x: 446, o: 244, c: 222, h: 216, l: 248 },
-            { x: 474, o: 222, c: 204, h: 198, l: 228 },
-            { x: 502, o: 204, c: 190, h: 184, l: 210 },
-            { x: 530, o: 190, c: 182, h: 176, l: 196 },
-            { x: 558, o: 182, c: 186, h: 178, l: 192 },
+            { x: 194, o: 108, c: 118, h: 102, l: 124, time: "09:05", flowY: 308, activeLayer: 1 },
+            { x: 222, o: 118, c: 130, h: 114, l: 138, time: "09:35", flowY: 316, activeLayer: 1 },
+            { x: 250, o: 130, c: 148, h: 126, l: 156, time: "10:05", flowY: 326, activeLayer: 1 },
+            { x: 278, o: 148, c: 174, h: 144, l: 182, time: "10:35", flowY: 342, activeLayer: 3, pin: "1", pinTone: "#e5484d", pinPos: "top" },
+            { x: 306, o: 174, c: 204, h: 170, l: 212, time: "11:10", flowY: 356, activeLayer: 2 },
+            { x: 334, o: 204, c: 226, h: 198, l: 234, time: "11:45", flowY: 366, activeLayer: 2 },
+            { x: 362, o: 226, c: 236, h: 220, l: 242, time: "12:20", flowY: 374, activeLayer: 2 },
+            { x: 390, o: 236, c: 224, h: 218, l: 240, time: "13:00", flowY: 358, activeLayer: 2 },
+            { x: 418, o: 224, c: 244, h: 220, l: 252, time: "13:40", flowY: 350, activeLayer: 3, pin: "2", pinTone: "#4cc38a", pinPos: "bottom" },
+            { x: 446, o: 244, c: 222, h: 216, l: 248, time: "14:15", flowY: 332, activeLayer: 2 },
+            { x: 474, o: 222, c: 204, h: 198, l: 228, time: "14:55", flowY: 320, activeLayer: 2 },
+            { x: 502, o: 204, c: 190, h: 184, l: 210, time: "15:30", flowY: 312, activeLayer: 2 },
+            { x: 530, o: 190, c: 182, h: 176, l: 196, time: "16:05", flowY: 308, activeLayer: 2 },
+            { x: 558, o: 182, c: 186, h: 178, l: 192, time: "16:40", flowY: 312, activeLayer: 2 },
         ],
         flowPath: "M 194 308 L 222 316 L 250 326 L 278 342 L 306 356 L 334 366 L 362 374 L 390 358 L 418 350 L 446 332 L 474 320 L 502 312 L 530 308 L 558 312",
         divergences: [
             {
                 id: "div-putwall",
+                startIdx: 6,
+                triggerIdx: 8,
                 tone: "#4cc38a",
                 priceLine: { x1: 362, y1: 242, x2: 418, y2: 252 },
                 flowLine: { x1: 362, y1: 374, x2: 418, y2: 350 },
@@ -210,8 +223,8 @@ const REGIME_DETAILS = {
             },
         ],
         flowPins: [
-            { x: 278, y: 342, label: "1", tone: "#e5484d" },
-            { x: 418, y: 350, label: "2", tone: "#4cc38a" },
+            { x: 278, y: 342, label: "1", tone: "#e5484d", triggerIdx: 3 },
+            { x: 418, y: 350, label: "2", tone: "#4cc38a", triggerIdx: 8 },
         ],
         ladderBars: [
             { y: 56, label: "Call Wall", price: "132.000", w: 74, color: "#e5484d" },
@@ -220,8 +233,91 @@ const REGIME_DETAILS = {
             { y: 192, label: "Preço ref.", price: "130.820", w: 42, color: "#38bdf8", isRef: true },
             { y: 244, label: "Put Wall", price: "130.200", w: 98, color: "#4cc38a" },
         ],
+        timelineEvents: [
+            { from: 0, to: 2, text: "Pressão vendedora aproximando da FlipWall (131.100)", level: "FlipWall", tone: "#d4a259", layer: 1 },
+            { from: 3, to: 3, text: "Sinal #1 confirmado · Rompimento da FlipWall com fluxo vendedor", level: "FlipWall", tone: "#e5484d", layer: 3 },
+            { from: 4, to: 7, text: "Aceleração direcional em Gamma negativo rumo à Put Wall", level: "Preço ref.", tone: "#e5484d", layer: 2 },
+            { from: 8, to: 8, text: "Sinal #2 confirmado · Divergência compradora na Put Wall (130.200)", level: "Put Wall", tone: "#4cc38a", layer: 3 },
+            { from: 9, to: 13, text: "Absorção institucional na Put Wall · Alívio da queda", level: "Put Wall", tone: "#4cc38a", layer: 2 },
+        ],
     },
 };
+
+const STATS_30D = {
+    period: "07/10 a 19/11/2026",
+    sessions: 30,
+    win: {
+        posDays: 28,
+        negDays: 2,
+        totalSignals: 122,
+        paidCount: 88,
+        paidPct: 72.1,
+        neutralCount: 6,
+        neutralPct: 4.9,
+        stopCount: 28,
+        stopPct: 23.0,
+        grossPts: 107005,
+        stopPts: -10540,
+        netPts: 96465,
+        avgPerDay: 3216,
+        avgPerSignal: 791,
+        bestDayLabel: "26/10",
+        bestDayPts: 10729,
+        worstDayLabel: "17/11",
+        worstDayPts: -919,
+        maxLegPts: 7180,
+        maxLegMeta: "26/10 · 11:25",
+    },
+    wdo: {
+        posDays: 29,
+        negDays: 1,
+        totalSignals: 122,
+        paidCount: 87,
+        paidPct: 71.3,
+        neutralCount: 8,
+        neutralPct: 6.6,
+        stopCount: 27,
+        stopPct: 22.1,
+        grossPts: 1869.5,
+        stopPts: -276.0,
+        netPts: 1593.5,
+        avgPerDay: 53.1,
+        avgPerSignal: 13.1,
+        bestDayLabel: "29/10",
+        bestDayPts: 216.5,
+        worstDayLabel: "11/11",
+        worstDayPts: -12.0,
+        maxLegPts: 71.5,
+        maxLegMeta: "29/10 · 10:10",
+    },
+};
+
+function easeOutCubic(t) {
+    const x = Math.max(0, Math.min(1, t));
+    return 1 - (1 - x) ** 3;
+}
+
+function fmtPtInt(val) {
+    return Math.round(val).toLocaleString("pt-BR");
+}
+
+function fmtPtDec1(val) {
+    return Number(val).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function fmtSignedInt(val) {
+    const r = Math.round(val);
+    if (r > 0) return `+${fmtPtInt(r)}`;
+    if (r < 0) return `-${fmtPtInt(Math.abs(r))}`;
+    return "0";
+}
+
+function fmtSignedDec1(val) {
+    const r = Math.round(val * 10) / 10;
+    if (r > 0) return `+${fmtPtDec1(r)}`;
+    if (r < 0) return `-${fmtPtDec1(Math.abs(r))}`;
+    return fmtPtDec1(0);
+}
 
 function WallsMark() {
     return <MagicWallsMark size={20} variant="small" />;
@@ -290,10 +386,28 @@ export default function SaasWelcomePortal({
     cloudReachable,
     onSubmit,
 }) {
+    const [prefersReducedMotion] = useState(
+        () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
+    );
     const [regimeMode, setRegimeMode] = useState("positive");
     const [activePrint, setActivePrint] = useState(null);
     const [openFaqIdx, setOpenFaqIdx] = useState(0);
+
+    // Simulação animada na Anatomia do Método (#regimes-gex)
+    const anatomyRef = useRef(null);
+    const [anatomyInView, setAnatomyInView] = useState(true);
+    const [simPlaying, setSimPlaying] = useState(() => !prefersReducedMotion);
+    const [simProgress, setSimProgress] = useState(() => (prefersReducedMotion ? 13 : 0));
+
+    // Contagem progressiva / regressiva na tabela de 30 pregões (#resultados-30d)
+    const statsRef = useRef(null);
+    const statsTriggeredRef = useRef(false);
+    const [countMode, setCountMode] = useState("progressive");
+    const [statsRunId, setStatsRunId] = useState(0);
+    const [statsT, setStatsT] = useState(() => (prefersReducedMotion ? 1 : 0));
+
     const activeRegime = REGIME_DETAILS[regimeMode];
+    const maxCandleIdx = activeRegime.candles.length - 1;
     const featuredPrint = REAL_SESSION_PRINTS[0];
     const secondaryPrints = REAL_SESSION_PRINTS.slice(1);
 
@@ -305,6 +419,153 @@ export default function SaasWelcomePortal({
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [activePrint]);
+
+    // Pausa animação da Anatomia quando fora da viewport
+    useEffect(() => {
+        const el = anatomyRef.current;
+        if (!el || typeof IntersectionObserver === "undefined") return undefined;
+        const io = new IntersectionObserver(
+            (entries) => {
+                if (entries[0]) setAnatomyInView(entries[0].isIntersecting);
+            },
+            { threshold: 0.12 }
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, []);
+
+    // Loop suave rAF da Anatomia do Método (~0.48s por candle + 2.6s de pausa no fechamento)
+    useEffect(() => {
+        if (prefersReducedMotion || !simPlaying || !anatomyInView) return undefined;
+        let rafId = 0;
+        let lastTs = null;
+        let holdUntil = 0;
+        const BAR_DUR_SEC = 0.48;
+        const END_HOLD_MS = 2600;
+
+        const tick = (nowTs) => {
+            if (lastTs === null) lastTs = nowTs;
+            const dtSec = Math.min(0.1, Math.max(0, (nowTs - lastTs) / 1000));
+            lastTs = nowTs;
+
+            setSimProgress((prev) => {
+                if (holdUntil > 0) {
+                    if (nowTs < holdUntil) return maxCandleIdx;
+                    holdUntil = 0;
+                    return 0;
+                }
+                const next = prev + dtSec / BAR_DUR_SEC;
+                if (next >= maxCandleIdx) {
+                    holdUntil = nowTs + END_HOLD_MS;
+                    return maxCandleIdx;
+                }
+                return next;
+            });
+            rafId = requestAnimationFrame(tick);
+        };
+
+        rafId = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafId);
+    }, [prefersReducedMotion, simPlaying, anatomyInView, maxCandleIdx, regimeMode]);
+
+    // Dispara contagem dos 30 pregões ao entrar na viewport (uma vez automaticamente)
+    useEffect(() => {
+        if (prefersReducedMotion) return undefined;
+        const el = statsRef.current;
+        if (!el || typeof IntersectionObserver === "undefined") {
+            const id = requestAnimationFrame(() => setStatsRunId((r) => (r === 0 ? 1 : r)));
+            return () => cancelAnimationFrame(id);
+        }
+        const io = new IntersectionObserver(
+            (entries) => {
+                if (entries[0]?.isIntersecting && !statsTriggeredRef.current) {
+                    statsTriggeredRef.current = true;
+                    setStatsRunId((r) => r + 1);
+                }
+            },
+            { threshold: 0.18 }
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, [prefersReducedMotion]);
+
+    // Animação rAF de 2200ms da contagem progressiva / regressiva
+    useEffect(() => {
+        if (prefersReducedMotion || statsRunId === 0) return undefined;
+        let rafId = 0;
+        let startTs = null;
+        const DURATION_MS = 2200;
+
+        const step = (nowTs) => {
+            if (startTs === null) startTs = nowTs;
+            const t = Math.min(1, (nowTs - startTs) / DURATION_MS);
+            setStatsT(t);
+            if (t < 1) {
+                rafId = requestAnimationFrame(step);
+            }
+        };
+        rafId = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(rafId);
+    }, [prefersReducedMotion, statsRunId]);
+
+    const handleRegimeChange = (mode) => {
+        setRegimeMode(mode);
+        setSimProgress(prefersReducedMotion ? REGIME_DETAILS[mode].candles.length - 1 : 0);
+        if (!prefersReducedMotion) setSimPlaying(true);
+    };
+
+    const handleReplayAnatomy = () => {
+        setSimProgress(0);
+        if (!prefersReducedMotion) setSimPlaying(true);
+    };
+
+    const handleTriggerStats = (nextMode) => {
+        if (nextMode) setCountMode(nextMode);
+        statsTriggeredRef.current = true;
+        if (prefersReducedMotion) {
+            setStatsT(1);
+            return;
+        }
+        setStatsT(0);
+        setStatsRunId((r) => r + 1);
+    };
+
+    // Variáveis derivadas do quadro atual da simulação
+    const currentIdx = Math.max(0, Math.min(maxCandleIdx, Math.floor(simProgress)));
+    const barFrac = currentIdx >= maxCandleIdx ? 1 : Math.max(0.18, simProgress - Math.floor(simProgress));
+    const activeCandle = activeRegime.candles[currentIdx] || activeRegime.candles[0];
+    const nextCandle = activeRegime.candles[Math.min(maxCandleIdx, currentIdx + 1)] || activeCandle;
+    const partialFrac = currentIdx >= maxCandleIdx ? 0 : Math.max(0, simProgress - Math.floor(simProgress));
+    const cursorX = activeCandle.x + (nextCandle.x - activeCandle.x) * partialFrac;
+    const cursorFlowY = activeCandle.flowY + (nextCandle.flowY - activeCandle.flowY) * partialFrac;
+
+    const activeFlowPath = useMemo(() => {
+        const pts = activeRegime.candles.slice(0, currentIdx + 1).map((c) => `${c.x} ${c.flowY}`);
+        if (currentIdx < maxCandleIdx && partialFrac > 0.02) {
+            pts.push(`${cursorX.toFixed(1)} ${cursorFlowY.toFixed(1)}`);
+        }
+        return pts.length > 0 ? `M ${pts.join(" L ")}` : "";
+    }, [activeRegime.candles, currentIdx, maxCandleIdx, partialFrac, cursorX, cursorFlowY]);
+
+    const activeTimeline =
+        activeRegime.timelineEvents.find((ev) => currentIdx >= ev.from && currentIdx <= ev.to) ||
+        activeRegime.timelineEvents[0];
+
+    // Variáveis derivadas da contagem de 30 pregões
+    const easedP = easeOutCubic(statsT);
+    const isRegressive = countMode === "regressive";
+    // No modo progressivo: constrói do 0 -> final; no regressivo: parte do bruto (+107.005 / +1.869,5) descontando stops até travar no saldo líquido
+    const sessionProgressCount = Math.max(1, Math.min(30, Math.round(1 + easedP * 29)));
+    const sessionsRemaining = Math.max(0, Math.min(30, Math.round((1 - easedP) * 30)));
+
+    const winNetAnim = isRegressive
+        ? STATS_30D.win.grossPts + STATS_30D.win.stopPts * easedP
+        : STATS_30D.win.netPts * easedP;
+    const wdoNetAnim = isRegressive
+        ? STATS_30D.wdo.grossPts + STATS_30D.wdo.stopPts * easedP
+        : STATS_30D.wdo.netPts * easedP;
+
+    const animScalar = isRegressive ? 1 : easedP;
 
     const statusLabel =
         cloudReachable === null
@@ -559,13 +820,89 @@ export default function SaasWelcomePortal({
                     font-size: 11px;
                     color: #a3a9b8;
                 }
+                @keyframes mw-pin-ring {
+                    0% {
+                        transform: scale(1);
+                        opacity: 0.75;
+                    }
+                    100% {
+                        transform: scale(1.85);
+                        opacity: 0;
+                    }
+                }
+                @keyframes mw-pulse-dot {
+                    0%, 100% {
+                        opacity: 1;
+                    }
+                    50% {
+                        opacity: 0.45;
+                    }
+                }
+                .mw-pin-ring {
+                    transform-box: fill-box;
+                    transform-origin: center;
+                    animation: mw-pin-ring 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+                }
+                .mw-cursor-dot {
+                    animation: mw-pulse-dot 1.4s ease-in-out infinite;
+                }
+                .mw-stats-cards-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 16px;
+                }
+                .mw-stats-table-wrap {
+                    width: 100%;
+                    overflow-x: auto;
+                    border: 1px solid rgba(238, 240, 245, 0.08);
+                    border-radius: 10px;
+                    background: #0e1118;
+                }
+                .mw-stats-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 13px;
+                }
+                .mw-stats-table th,
+                .mw-stats-table td {
+                    padding: 11px 16px;
+                    border-bottom: 1px solid rgba(238, 240, 245, 0.06);
+                    text-align: left;
+                }
+                .mw-stats-table th {
+                    background: #0a0c12;
+                    color: #848da2;
+                    font-size: 12px;
+                    font-weight: 500;
+                    white-space: nowrap;
+                }
+                .mw-stats-table th:not(:first-child),
+                .mw-stats-table td:not(:first-child) {
+                    text-align: center;
+                    font-family: ${FONT_MONO};
+                    font-variant-numeric: tabular-nums;
+                    white-space: nowrap;
+                }
+                .mw-stats-table tbody tr:nth-child(even) {
+                    background: rgba(255, 255, 255, 0.015);
+                }
+                .mw-stats-table tbody tr:last-child td {
+                    border-bottom: none;
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .mw-pin-ring,
+                    .mw-cursor-dot {
+                        animation: none;
+                    }
+                }
                 @media (max-width: 960px) {
                     .mw-portal-hero,
                     .mw-anatomy-grid,
                     .mw-featured-print,
                     .mw-prints-secondary,
                     .mw-layers-grid,
-                    .mw-product-grid {
+                    .mw-product-grid,
+                    .mw-stats-cards-grid {
                         grid-template-columns: 1fr;
                         gap: 24px;
                     }
@@ -618,6 +955,7 @@ export default function SaasWelcomePortal({
 
                     <nav className="mw-nav-links" aria-label="Navegação técnica">
                         <a href="#regimes-gex" className="mw-p-nav-link">Regimes GEX</a>
+                        <a href="#resultados-30d" className="mw-p-nav-link">30 pregões</a>
                         <a href="#dias-reais" className="mw-p-nav-link">Dias reais</a>
                         <a href="#como-funciona" className="mw-p-nav-link">Como funciona</a>
                         <a href="#o-que-inclui" className="mw-p-nav-link">O que inclui</a>
@@ -857,6 +1195,7 @@ export default function SaasWelcomePortal({
                 {/* Faixa 2: Momento #1 — Anatomia Interativa GEX + Fluxo e Divergências */}
                 <section
                     id="regimes-gex"
+                    ref={anatomyRef}
                     style={{
                         background: "#131720",
                         border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -873,7 +1212,7 @@ export default function SaasWelcomePortal({
                                 Anatomia do método: GEX e Fluxo Smart Money na prática
                             </h2>
                             <p style={{ margin: 0, fontSize: 14, color: "#a3a9b8" }}>
-                                Alterne o regime de Gamma para ver como o preço reage nas Walls e onde surgem as divergências
+                                Simulação contínua do pregão mostrando o avanço do fluxo institucional e a formação das divergências nas Walls
                             </p>
                         </div>
 
@@ -893,7 +1232,7 @@ export default function SaasWelcomePortal({
                                 type="button"
                                 role="tab"
                                 aria-selected={regimeMode === "positive"}
-                                onClick={() => setRegimeMode("positive")}
+                                onClick={() => handleRegimeChange("positive")}
                                 className="mw-p-tab"
                             >
                                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4cc38a" }} />
@@ -903,7 +1242,7 @@ export default function SaasWelcomePortal({
                                 type="button"
                                 role="tab"
                                 aria-selected={regimeMode === "negative"}
-                                onClick={() => setRegimeMode("negative")}
+                                onClick={() => handleRegimeChange("negative")}
                                 className="mw-p-tab"
                             >
                                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#e5484d" }} />
@@ -913,7 +1252,7 @@ export default function SaasWelcomePortal({
                     </div>
 
                     <div className="mw-anatomy-grid">
-                        {/* Diagrama Vetorial Plano */}
+                        {/* Diagrama Vetorial Animado */}
                         <div
                             style={{
                                 background: "#0e1118",
@@ -926,9 +1265,26 @@ export default function SaasWelcomePortal({
                             }}
                         >
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2" }}>
-                                    Exemplo ilustrativo · WINFUT · M5
-                                </span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2" }}>
+                                        Simulação M5 · WINFUT
+                                    </span>
+                                    <span
+                                        data-testid="anatomy-sim-clock"
+                                        style={{
+                                            padding: "2px 8px",
+                                            borderRadius: 6,
+                                            background: "#131720",
+                                            border: "1px solid rgba(238, 240, 245, 0.1)",
+                                            fontFamily: FONT_MONO,
+                                            fontSize: 12,
+                                            fontVariantNumeric: "tabular-nums",
+                                            color: "#eef0f5",
+                                        }}
+                                    >
+                                        {activeCandle.time} BRT
+                                    </span>
+                                </div>
                                 <span
                                     style={{
                                         padding: "2px 8px",
@@ -949,7 +1305,7 @@ export default function SaasWelcomePortal({
                                 width="100%"
                                 style={{ display: "block", height: "auto" }}
                                 role="img"
-                                aria-label="Diagrama esquemático de Escada GEX e Divergências no Fluxo Smart Money"
+                                aria-label="Simulação animada de Escada GEX e Divergências no Fluxo Smart Money ao longo do pregão"
                             >
                                 {/* Escada GEX */}
                                 <rect x="6" y="12" width="154" height="252" rx="6" fill="#131720" stroke="#232836" />
@@ -968,43 +1324,104 @@ export default function SaasWelcomePortal({
                                 <line x1="178" y1="332" x2="586" y2="332" stroke="#232836" strokeDasharray="3 3" />
 
                                 {/* Níveis da Escada + Linhas */}
-                                {activeRegime.ladderBars.map((lvl) => (
-                                    <g key={lvl.label}>
-                                        <text x="16" y={lvl.y - 6} fill="#848da2" fontSize="10.5" fontFamily={FONT_SANS}>
-                                            {lvl.label}
-                                        </text>
-                                        <text x="150" y={lvl.y - 6} textAnchor="end" fill={lvl.color} fontSize="10.5" fontWeight="500" fontFamily={FONT_MONO}>
-                                            {lvl.price}
-                                        </text>
-                                        <rect x="16" y={lvl.y} width="134" height="4" rx="2" fill="#1b212e" />
-                                        <rect x="16" y={lvl.y} width={lvl.w} height="4" rx="2" fill={lvl.color} />
-
-                                        <line
-                                            x1="176"
-                                            y1={lvl.y}
-                                            x2="586"
-                                            y2={lvl.y}
-                                            stroke={lvl.color}
-                                            strokeOpacity={lvl.isRef ? 0.55 : 0.42}
-                                            strokeWidth={lvl.isRef ? "1.2" : "1"}
-                                            strokeDasharray={lvl.dashed ? "5 4" : lvl.isRef ? "2 3" : "4 4"}
-                                        />
-                                    </g>
-                                ))}
-
-                                {/* Candles + pinos 1 e 2 */}
-                                {activeRegime.candles.map((cd, idx) => {
-                                    const bullish = cd.c < cd.o;
-                                    const topBody = Math.min(cd.o, cd.c);
-                                    const bodyH = Math.max(4, Math.abs(cd.c - cd.o));
-                                    const fill = bullish ? "#9aa5b6" : "#475266";
-                                    const pinY = cd.pinPos === "top" ? cd.h - 14 : cd.l + 15;
+                                {activeRegime.ladderBars.map((lvl) => {
+                                    const isFocusLvl = lvl.label === activeTimeline.level;
                                     return (
-                                        <g key={idx}>
-                                            <line x1={cd.x} y1={cd.h} x2={cd.x} y2={cd.l} stroke={fill} strokeWidth="1.5" />
+                                        <g key={lvl.label}>
+                                            <text
+                                                x="16"
+                                                y={lvl.y - 6}
+                                                fill={isFocusLvl ? "#eef0f5" : "#848da2"}
+                                                fontSize="10.5"
+                                                fontWeight={isFocusLvl ? "500" : "400"}
+                                                fontFamily={FONT_SANS}
+                                            >
+                                                {lvl.label}
+                                            </text>
+                                            <text x="150" y={lvl.y - 6} textAnchor="end" fill={lvl.color} fontSize="10.5" fontWeight="500" fontFamily={FONT_MONO}>
+                                                {lvl.price}
+                                            </text>
+                                            <rect x="16" y={lvl.y} width="134" height={isFocusLvl ? 5 : 4} rx="2" fill="#1b212e" />
+                                            <rect x="16" y={lvl.y} width={lvl.w} height={isFocusLvl ? 5 : 4} rx="2" fill={lvl.color} fillOpacity={isFocusLvl ? 1 : 0.72} />
+
+                                            <line
+                                                x1="176"
+                                                y1={lvl.y}
+                                                x2="586"
+                                                y2={lvl.y}
+                                                stroke={lvl.color}
+                                                strokeOpacity={isFocusLvl ? 0.75 : lvl.isRef ? 0.5 : 0.36}
+                                                strokeWidth={isFocusLvl ? "1.5" : lvl.isRef ? "1.2" : "1"}
+                                                strokeDasharray={lvl.dashed ? "5 4" : lvl.isRef ? "2 3" : "4 4"}
+                                            />
+                                        </g>
+                                    );
+                                })}
+
+                                {/* Cursor vertical de avanço do pregão */}
+                                <line
+                                    x1={cursorX}
+                                    y1="20"
+                                    x2={cursorX}
+                                    y2="258"
+                                    stroke="#38bdf8"
+                                    strokeOpacity="0.3"
+                                    strokeWidth="1"
+                                    strokeDasharray="2 3"
+                                />
+                                <line
+                                    x1={cursorX}
+                                    y1="280"
+                                    x2={cursorX}
+                                    y2="386"
+                                    stroke="#38bdf8"
+                                    strokeOpacity="0.3"
+                                    strokeWidth="1"
+                                    strokeDasharray="2 3"
+                                />
+
+                                {/* Rastro sutil da curva completa futura no Fluxo */}
+                                <path
+                                    d={activeRegime.flowPath}
+                                    fill="none"
+                                    stroke="#38bdf8"
+                                    strokeOpacity="0.12"
+                                    strokeWidth="1.25"
+                                    strokeDasharray="2 4"
+                                />
+
+                                {/* Candles progressivos até currentIdx */}
+                                {activeRegime.candles.slice(0, currentIdx + 1).map((cd, idx) => {
+                                    const isLatest = idx === currentIdx && currentIdx < maxCandleIdx;
+                                    const interpC = isLatest ? cd.o + (cd.c - cd.o) * barFrac : cd.c;
+                                    const interpH = isLatest ? cd.o + (cd.h - cd.o) * barFrac : cd.h;
+                                    const interpL = isLatest ? cd.o + (cd.l - cd.o) * barFrac : cd.l;
+                                    const topWick = Math.min(interpH, cd.o, interpC);
+                                    const botWick = Math.max(interpL, cd.o, interpC);
+                                    const bullish = interpC < cd.o;
+                                    const topBody = Math.min(cd.o, interpC);
+                                    const bodyH = Math.max(4, Math.abs(interpC - cd.o));
+                                    const fill = isLatest ? "#cbd5e1" : bullish ? "#9aa5b6" : "#475266";
+                                    const pinY = cd.pinPos === "top" ? cd.h - 14 : cd.l + 15;
+                                    const showPin = Boolean(cd.pin) && (!isLatest || barFrac >= 0.55);
+
+                                    return (
+                                        <g key={cd.time}>
+                                            <line x1={cd.x} y1={topWick} x2={cd.x} y2={botWick} stroke={fill} strokeWidth="1.5" />
                                             <rect x={cd.x - 5} y={topBody} width="10" height={bodyH} rx="1.5" fill={fill} />
-                                            {cd.pin && (
+                                            {showPin && (
                                                 <g>
+                                                    {idx === currentIdx && (
+                                                        <circle
+                                                            cx={cd.x}
+                                                            cy={pinY}
+                                                            r="9.5"
+                                                            fill="none"
+                                                            stroke={cd.pinTone}
+                                                            strokeWidth="1.5"
+                                                            className="mw-pin-ring"
+                                                        />
+                                                    )}
                                                     <circle cx={cd.x} cy={pinY} r="9.5" fill="#131720" stroke={cd.pinTone} strokeWidth="1.5" />
                                                     <text
                                                         x={cd.x}
@@ -1023,61 +1440,187 @@ export default function SaasWelcomePortal({
                                     );
                                 })}
 
-                                {/* Linhas de divergência */}
-                                {activeRegime.divergences.map((div) => (
-                                    <g key={div.id}>
-                                        <line
-                                            x1={div.priceLine.x1}
-                                            y1={div.priceLine.y1}
-                                            x2={div.priceLine.x2}
-                                            y2={div.priceLine.y2}
-                                            stroke={div.tone}
-                                            strokeWidth="1.75"
-                                            strokeDasharray="4 3"
-                                        />
-                                        <circle cx={div.priceLine.x1} cy={div.priceLine.y1} r="2.8" fill={div.tone} />
-                                        <circle cx={div.priceLine.x2} cy={div.priceLine.y2} r="2.8" fill={div.tone} />
+                                {/* Linhas de divergência reveladas no gatilho */}
+                                {activeRegime.divergences
+                                    .filter((div) => currentIdx >= div.triggerIdx)
+                                    .map((div) => (
+                                        <g key={div.id}>
+                                            <line
+                                                x1={div.priceLine.x1}
+                                                y1={div.priceLine.y1}
+                                                x2={div.priceLine.x2}
+                                                y2={div.priceLine.y2}
+                                                stroke={div.tone}
+                                                strokeWidth="1.75"
+                                                strokeDasharray="4 3"
+                                            />
+                                            <circle cx={div.priceLine.x1} cy={div.priceLine.y1} r="2.8" fill={div.tone} />
+                                            <circle cx={div.priceLine.x2} cy={div.priceLine.y2} r="2.8" fill={div.tone} />
 
-                                        <line
-                                            x1={div.flowLine.x1}
-                                            y1={div.flowLine.y1}
-                                            x2={div.flowLine.x2}
-                                            y2={div.flowLine.y2}
-                                            stroke={div.tone}
-                                            strokeWidth="1.8"
-                                            strokeDasharray="4 3"
-                                        />
-                                        <circle cx={div.flowLine.x1} cy={div.flowLine.y1} r="3" fill={div.tone} />
-                                        <text
-                                            x={div.labelX}
-                                            y={div.labelY}
-                                            textAnchor={div.anchor}
-                                            fill={div.tone}
-                                            fontSize="10.5"
-                                            fontWeight="500"
-                                            fontFamily={FONT_MONO}
-                                        >
-                                            {div.label}
-                                        </text>
-                                    </g>
-                                ))}
+                                            <line
+                                                x1={div.flowLine.x1}
+                                                y1={div.flowLine.y1}
+                                                x2={div.flowLine.x2}
+                                                y2={div.flowLine.y2}
+                                                stroke={div.tone}
+                                                strokeWidth="1.8"
+                                                strokeDasharray="4 3"
+                                            />
+                                            <circle cx={div.flowLine.x1} cy={div.flowLine.y1} r="3" fill={div.tone} />
+                                            <text
+                                                x={div.labelX}
+                                                y={div.labelY}
+                                                textAnchor={div.anchor}
+                                                fill={div.tone}
+                                                fontSize="10.5"
+                                                fontWeight="500"
+                                                fontFamily={FONT_MONO}
+                                            >
+                                                {div.label}
+                                            </text>
+                                        </g>
+                                    ))}
 
-                                {/* Curva Fluxo Smart Money */}
-                                <path d={activeRegime.flowPath} fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                {/* Curva progressiva Fluxo Smart Money */}
+                                {activeFlowPath && (
+                                    <path
+                                        d={activeFlowPath}
+                                        fill="none"
+                                        stroke="#38bdf8"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                )}
 
-                                {activeRegime.flowPins.map((fp) => (
-                                    <g key={fp.label}>
-                                        <line x1={fp.x} y1="276" x2={fp.x} y2="388" stroke={fp.tone} strokeOpacity="0.28" strokeDasharray="3 3" />
-                                        <circle cx={fp.x} cy={fp.y} r="8" fill="#131720" stroke={fp.tone} strokeWidth="1.5" />
-                                        <text x={fp.x} y={fp.y + 3.5} textAnchor="middle" fill={fp.tone} fontSize="10" fontWeight="600" fontFamily={FONT_MONO}>
-                                            {fp.label}
-                                        </text>
-                                    </g>
-                                ))}
+                                {/* Ponto vivo na extremidade da curva de fluxo */}
+                                <circle
+                                    cx={cursorX}
+                                    cy={cursorFlowY}
+                                    r="3.5"
+                                    fill="#38bdf8"
+                                    stroke="#0e1118"
+                                    strokeWidth="1.2"
+                                    className="mw-cursor-dot"
+                                />
+
+                                {activeRegime.flowPins
+                                    .filter((fp) => currentIdx >= fp.triggerIdx)
+                                    .map((fp) => (
+                                        <g key={fp.label}>
+                                            <line x1={fp.x} y1="276" x2={fp.x} y2="388" stroke={fp.tone} strokeOpacity="0.28" strokeDasharray="3 3" />
+                                            {currentIdx === fp.triggerIdx && (
+                                                <circle
+                                                    cx={fp.x}
+                                                    cy={fp.y}
+                                                    r="8"
+                                                    fill="none"
+                                                    stroke={fp.tone}
+                                                    strokeWidth="1.4"
+                                                    className="mw-pin-ring"
+                                                />
+                                            )}
+                                            <circle cx={fp.x} cy={fp.y} r="8" fill="#131720" stroke={fp.tone} strokeWidth="1.5" />
+                                            <text x={fp.x} y={fp.y + 3.5} textAnchor="middle" fill={fp.tone} fontSize="10" fontWeight="600" fontFamily={FONT_MONO}>
+                                                {fp.label}
+                                            </text>
+                                        </g>
+                                    ))}
                             </svg>
+
+                            {/* Barra de telemetria + controles da simulação */}
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: 12,
+                                    flexWrap: "wrap",
+                                    paddingTop: 10,
+                                    borderTop: "1px solid rgba(238, 240, 245, 0.08)",
+                                }}
+                            >
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 280px", minWidth: 0 }}>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                        <span
+                                            data-testid="anatomy-sim-status"
+                                            style={{
+                                                fontSize: 12.5,
+                                                fontWeight: 500,
+                                                color: activeTimeline.tone,
+                                                whiteSpace: "nowrap",
+                                                overflow: "hidden",
+                                                textOverflow: "ellipsis",
+                                            }}
+                                        >
+                                            {activeTimeline.text}
+                                        </span>
+                                        <span style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: "#848da2", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                                            {currentIdx + 1}/{maxCandleIdx + 1}
+                                        </span>
+                                    </div>
+
+                                    <div
+                                        style={{
+                                            display: "grid",
+                                            gridTemplateColumns: `repeat(${activeRegime.candles.length}, minmax(0, 1fr))`,
+                                            gap: 3,
+                                        }}
+                                        aria-label="Linha do tempo do pregão ilustrativo"
+                                    >
+                                        {activeRegime.candles.map((cd, idx) => {
+                                            const active = idx <= currentIdx;
+                                            const barTone = cd.pin ? cd.pinTone : active ? "#38bdf8" : "#1b212e";
+                                            return (
+                                                <button
+                                                    key={cd.time}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSimPlaying(false);
+                                                        setSimProgress(idx);
+                                                    }}
+                                                    title={cd.pin ? `${cd.time} BRT · Sinal #${cd.pin}` : `${cd.time} BRT`}
+                                                    aria-label={`Ir para barra ${cd.time}${cd.pin ? ` (Sinal #${cd.pin})` : ""}`}
+                                                    style={{
+                                                        height: cd.pin ? 7 : 4,
+                                                        alignSelf: "center",
+                                                        borderRadius: 2,
+                                                        border: "none",
+                                                        padding: 0,
+                                                        background: barTone,
+                                                        opacity: active ? 1 : 0.45,
+                                                        cursor: "pointer",
+                                                    }}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                                    <button
+                                        type="button"
+                                        data-testid="anatomy-sim-toggle"
+                                        onClick={() => setSimPlaying((p) => !p)}
+                                        className="mw-p-btn-secondary"
+                                        style={{ height: 30, padding: "0 11px", fontFamily: FONT_MONO, fontSize: 12 }}
+                                    >
+                                        {simPlaying ? "Pausar" : "Simular"}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        data-testid="anatomy-sim-replay"
+                                        onClick={handleReplayAnatomy}
+                                        className="mw-p-btn-secondary"
+                                        style={{ height: 30, padding: "0 11px", fontFamily: FONT_MONO, fontSize: 12 }}
+                                    >
+                                        Reiniciar
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
-                        {/* Leitura Editorial Única (Trilho de assinatura reservado apenas ao regime ativo) */}
+                        {/* Leitura Editorial Única Sincronizada com a Simulação */}
                         <div
                             style={{
                                 background: "#0e1118",
@@ -1098,8 +1641,17 @@ export default function SaasWelcomePortal({
                             </div>
 
                             <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 500, color: "#eef0f5" }}>
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: 4,
+                                        paddingLeft: 10,
+                                        borderLeft: `2px solid ${activeTimeline.layer === 1 ? activeRegime.accent : "transparent"}`,
+                                        transition: "border-color 220ms var(--p-ease)",
+                                    }}
+                                >
+                                    <div style={{ fontSize: 13, fontWeight: 500, color: activeTimeline.layer === 1 ? "#eef0f5" : "#a3a9b8" }}>
                                         01 · Mecânica do regime Gamma
                                     </div>
                                     <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: "#a3a9b8" }}>
@@ -1107,8 +1659,19 @@ export default function SaasWelcomePortal({
                                     </p>
                                 </div>
 
-                                <div style={{ borderTop: "1px solid rgba(238, 240, 245, 0.08)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 500, color: "#eef0f5" }}>
+                                <div
+                                    style={{
+                                        borderTop: "1px solid rgba(238, 240, 245, 0.08)",
+                                        paddingTop: 16,
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: 4,
+                                        paddingLeft: 10,
+                                        borderLeft: `2px solid ${activeTimeline.layer === 2 ? activeRegime.accent : "transparent"}`,
+                                        transition: "border-color 220ms var(--p-ease)",
+                                    }}
+                                >
+                                    <div style={{ fontSize: 13, fontWeight: 500, color: activeTimeline.layer === 2 ? "#eef0f5" : "#a3a9b8" }}>
                                         02 · Comportamento estatístico nas Walls
                                     </div>
                                     <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: "#a3a9b8" }}>
@@ -1116,8 +1679,19 @@ export default function SaasWelcomePortal({
                                     </p>
                                 </div>
 
-                                <div style={{ borderTop: "1px solid rgba(238, 240, 245, 0.08)", paddingTop: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 500, color: "#eef0f5" }}>
+                                <div
+                                    style={{
+                                        borderTop: "1px solid rgba(238, 240, 245, 0.08)",
+                                        paddingTop: 16,
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: 4,
+                                        paddingLeft: 10,
+                                        borderLeft: `2px solid ${activeTimeline.layer === 3 ? activeRegime.accent : "transparent"}`,
+                                        transition: "border-color 220ms var(--p-ease)",
+                                    }}
+                                >
+                                    <div style={{ fontSize: 13, fontWeight: 500, color: activeTimeline.layer === 3 ? "#eef0f5" : "#a3a9b8" }}>
                                         03 · Divergência no Fluxo Smart Money
                                     </div>
                                     <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: "#a3a9b8" }}>
@@ -1126,6 +1700,333 @@ export default function SaasWelcomePortal({
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </section>
+
+                {/* Faixa 2.5: Resumo Acumulado — Últimos 30 Pregões (Contagem Progressiva & Regressiva) */}
+                <section
+                    id="resultados-30d"
+                    ref={statsRef}
+                    data-testid="stats-30d-section"
+                    style={{
+                        background: "#131720",
+                        border: "1px solid rgba(238, 240, 245, 0.08)",
+                        borderRadius: 16,
+                        padding: 24,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 20,
+                    }}
+                >
+                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                <h2 style={{ margin: 0, fontSize: 20, fontWeight: 500, color: "#eef0f5", letterSpacing: "-0.015em" }}>
+                                    Resumo acumulado — Últimos 30 pregões
+                                </h2>
+                                <span
+                                    style={{
+                                        padding: "2px 9px",
+                                        borderRadius: 6,
+                                        background: "#1b212e",
+                                        border: "1px solid rgba(56, 189, 248, 0.25)",
+                                        fontFamily: FONT_MONO,
+                                        fontSize: 12,
+                                        fontVariantNumeric: "tabular-nums",
+                                        color: "#7dd3fc",
+                                    }}
+                                >
+                                    {STATS_30D.period}
+                                </span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: 14, color: "#a3a9b8" }}>
+                                Consolidação histórica sinal a sinal em WIN e WDO com proteção na outra Wall (critério alvo ≥150 / ≥4 pts)
+                            </p>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <div
+                                role="tablist"
+                                aria-label="Modo de contagem"
+                                data-testid="stats-30d-mode"
+                                style={{
+                                    display: "inline-flex",
+                                    background: "#0a0c12",
+                                    border: "1px solid rgba(238, 240, 245, 0.08)",
+                                    borderRadius: 8,
+                                    padding: 4,
+                                    gap: 4,
+                                }}
+                            >
+                                <button
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={countMode === "progressive"}
+                                    onClick={() => handleTriggerStats("progressive")}
+                                    className="mw-p-tab"
+                                >
+                                    Progressiva
+                                </button>
+                                <button
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={countMode === "regressive"}
+                                    onClick={() => handleTriggerStats("regressive")}
+                                    className="mw-p-tab"
+                                >
+                                    Regressiva
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                data-testid="stats-30d-replay"
+                                onClick={() => handleTriggerStats()}
+                                className="mw-p-btn-secondary"
+                                style={{ height: 34, padding: "0 12px", fontFamily: FONT_MONO, fontSize: 12 }}
+                            >
+                                Reexecutar
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Barra de progresso + contagem regressiva simultânea dos 30 pregões */}
+                    <div
+                        style={{
+                            background: "#0e1118",
+                            border: "1px solid rgba(238, 240, 245, 0.08)",
+                            borderRadius: 8,
+                            padding: "10px 14px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 8,
+                        }}
+                    >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                            <span style={{ color: "#eef0f5" }}>
+                                {isRegressive
+                                    ? `Contagem regressiva · Bruto − Stops`
+                                    : `Evolução progressiva · Pregão ${String(sessionProgressCount).padStart(2, "0")} / ${STATS_30D.sessions}`}
+                            </span>
+                            <span
+                                data-testid="stats-30d-countdown"
+                                style={{ color: statsT >= 1 ? "#4cc38a" : "#7dd3fc" }}
+                            >
+                                {statsT >= 1
+                                    ? "30/30 pregões · Período consolidado"
+                                    : `Restam ${String(sessionsRemaining).padStart(2, "0")} pregões para consolidação`}
+                            </span>
+                        </div>
+                        <div style={{ width: "100%", height: 3, borderRadius: 999, background: "#1b212e", overflow: "hidden" }}>
+                            <div
+                                style={{
+                                    width: `${(easedP * 100).toFixed(1)}%`,
+                                    height: "100%",
+                                    background: "#38bdf8",
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* 2 Cards-Resumo Lado a Lado (WIN e WDO) */}
+                    <div className="mw-stats-cards-grid">
+                        {[
+                            {
+                                id: "win",
+                                title: "WIN · Mini-Índice",
+                                netTxt: `${fmtSignedInt(winNetAnim)} pts`,
+                                grossTxt: `${fmtSignedInt(STATS_30D.win.grossPts * (isRegressive ? 1 : easedP))}`,
+                                stopTxt: `${fmtSignedInt(STATS_30D.win.stopPts * easedP)}`,
+                                paidPct: STATS_30D.win.paidPct,
+                                neutralPct: STATS_30D.win.neutralPct,
+                                stopPct: STATS_30D.win.stopPct,
+                                posDays: Math.round(STATS_30D.win.posDays * animScalar),
+                                negDays: Math.round(STATS_30D.win.negDays * animScalar),
+                            },
+                            {
+                                id: "wdo",
+                                title: "WDO · Mini-Dólar",
+                                netTxt: `${fmtSignedDec1(wdoNetAnim)} pts`,
+                                grossTxt: `${fmtSignedDec1(STATS_30D.wdo.grossPts * (isRegressive ? 1 : easedP))}`,
+                                stopTxt: `${fmtSignedDec1(STATS_30D.wdo.stopPts * easedP)}`,
+                                paidPct: STATS_30D.wdo.paidPct,
+                                neutralPct: STATS_30D.wdo.neutralPct,
+                                stopPct: STATS_30D.wdo.stopPct,
+                                posDays: Math.round(STATS_30D.wdo.posDays * animScalar),
+                                negDays: Math.round(STATS_30D.wdo.negDays * animScalar),
+                            },
+                        ].map((card) => (
+                            <div
+                                key={card.id}
+                                style={{
+                                    background: "#0e1118",
+                                    border: "1px solid rgba(238, 240, 245, 0.08)",
+                                    borderRadius: 10,
+                                    padding: 18,
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 12,
+                                }}
+                            >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                    <span style={{ fontSize: 13, fontWeight: 500, color: "#a3a9b8" }}>
+                                        {card.title}
+                                    </span>
+                                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2", fontVariantNumeric: "tabular-nums" }}>
+                                        {card.posDays} pos · {card.negDays} neg
+                                    </span>
+                                </div>
+
+                                <div
+                                    data-testid={`stats-30d-net-${card.id}`}
+                                    style={{
+                                        fontFamily: FONT_MONO,
+                                        fontSize: "clamp(26px, 2.8vw, 32px)",
+                                        fontWeight: 600,
+                                        lineHeight: 1.15,
+                                        fontVariantNumeric: "tabular-nums",
+                                        color: "#4cc38a",
+                                    }}
+                                >
+                                    {card.netTxt}
+                                </div>
+
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                                    <span style={{ color: "#4cc38a" }}>Bruto {card.grossTxt} pts</span>
+                                    <span style={{ color: "#848da2" }}>·</span>
+                                    <span style={{ color: "#e5484d" }}>
+                                        {isRegressive ? `Desconto stops ${card.stopTxt} pts` : `Stops ${card.stopTxt} pts`}
+                                    </span>
+                                </div>
+
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
+                                    <div style={{ display: "flex", height: 4, borderRadius: 999, background: "#1b212e", overflow: "hidden" }}>
+                                        <div style={{ width: `${(card.paidPct * animScalar).toFixed(1)}%`, background: "#4cc38a" }} />
+                                        <div style={{ width: `${(card.neutralPct * animScalar).toFixed(1)}%`, background: "#848da2" }} />
+                                        <div style={{ width: `${(card.stopPct * animScalar).toFixed(1)}%`, background: "#e5484d" }} />
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_MONO, fontSize: 11.5, color: "#848da2", fontVariantNumeric: "tabular-nums" }}>
+                                        <span style={{ color: "#4cc38a" }}>Pagaram {fmtPtDec1(card.paidPct * animScalar)}%</span>
+                                        <span>Neutros {fmtPtDec1(card.neutralPct * animScalar)}%</span>
+                                        <span style={{ color: "#e5484d" }}>Stops {fmtPtDec1(card.stopPct * animScalar)}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Tabela Completa (11 linhas da amostra de 30 pregões) */}
+                    <div className="mw-stats-table-wrap">
+                        <table className="mw-stats-table" data-testid="stats-30d-table">
+                            <thead>
+                                <tr>
+                                    <th>Métrica</th>
+                                    <th>WIN (Índice)</th>
+                                    <th>WDO (Dólar)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Pregões analisados</td>
+                                    <td style={{ color: "#eef0f5" }}>
+                                        {fmtPtInt(STATS_30D.sessions * animScalar)} <span style={{ color: "#848da2", fontStyle: "italic" }}>({fmtPtInt(STATS_30D.win.posDays * animScalar)} pos · {fmtPtInt(STATS_30D.win.negDays * animScalar)} neg)</span>
+                                    </td>
+                                    <td style={{ color: "#eef0f5" }}>
+                                        {fmtPtInt(STATS_30D.sessions * animScalar)} <span style={{ color: "#848da2", fontStyle: "italic" }}>({fmtPtInt(STATS_30D.wdo.posDays * animScalar)} pos · {fmtPtInt(STATS_30D.wdo.negDays * animScalar)} neg)</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Total de sinais</td>
+                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>{fmtPtInt(STATS_30D.win.totalSignals * animScalar)}</td>
+                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>{fmtPtInt(STATS_30D.wdo.totalSignals * animScalar)}</td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Pagaram (≥150 / ≥4 pts)</td>
+                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
+                                        {fmtPtInt(STATS_30D.win.paidCount * animScalar)} ({fmtPtDec1(STATS_30D.win.paidPct * animScalar)}%)
+                                    </td>
+                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
+                                        {fmtPtInt(STATS_30D.wdo.paidCount * animScalar)} ({fmtPtDec1(STATS_30D.wdo.paidPct * animScalar)}%)
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Neutros (sem stop e &lt; limiar)</td>
+                                    <td style={{ color: "#a3a9b8" }}>
+                                        {fmtPtInt(STATS_30D.win.neutralCount * animScalar)} ({fmtPtDec1(STATS_30D.win.neutralPct * animScalar)}%)
+                                    </td>
+                                    <td style={{ color: "#a3a9b8" }}>
+                                        {fmtPtInt(STATS_30D.wdo.neutralCount * animScalar)} ({fmtPtDec1(STATS_30D.wdo.neutralPct * animScalar)}%)
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Stops (na outra Wall)</td>
+                                    <td style={{ fontWeight: 600, color: "#e5484d" }}>
+                                        {fmtPtInt(STATS_30D.win.stopCount * animScalar)} ({fmtPtDec1(STATS_30D.win.stopPct * animScalar)}%)
+                                    </td>
+                                    <td style={{ fontWeight: 600, color: "#e5484d" }}>
+                                        {fmtPtInt(STATS_30D.wdo.stopCount * animScalar)} ({fmtPtDec1(STATS_30D.wdo.stopPct * animScalar)}%)
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Soma Bruta (máx. a favor)</td>
+                                    <td style={{ fontWeight: 500, color: "#4cc38a" }}>
+                                        {fmtSignedInt(STATS_30D.win.grossPts * animScalar)} pts
+                                    </td>
+                                    <td style={{ fontWeight: 500, color: "#4cc38a" }}>
+                                        {fmtSignedDec1(STATS_30D.wdo.grossPts * animScalar)} pts
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Soma dos Stops</td>
+                                    <td style={{ fontWeight: 500, color: "#e5484d" }}>
+                                        {fmtSignedInt(STATS_30D.win.stopPts * easedP)} pts
+                                    </td>
+                                    <td style={{ fontWeight: 500, color: "#e5484d" }}>
+                                        {fmtSignedDec1(STATS_30D.wdo.stopPts * easedP)} pts
+                                    </td>
+                                </tr>
+                                <tr style={{ background: "#111824" }}>
+                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>Saldo Líquido (30 pregões)</td>
+                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
+                                        {fmtSignedInt(winNetAnim)} pts
+                                    </td>
+                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
+                                        {fmtSignedDec1(wdoNetAnim)} pts
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Média por pregão / por sinal</td>
+                                    <td style={{ color: "#eef0f5" }}>
+                                        {fmtSignedInt(STATS_30D.win.avgPerDay * animScalar)} pts/dia · {fmtSignedInt(STATS_30D.win.avgPerSignal * animScalar)} pts/sinal
+                                    </td>
+                                    <td style={{ color: "#eef0f5" }}>
+                                        {fmtSignedDec1(STATS_30D.wdo.avgPerDay * animScalar)} pts/dia · {fmtSignedDec1(STATS_30D.wdo.avgPerSignal * animScalar)} pts/sinal
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Melhor dia / Pior dia</td>
+                                    <td style={{ color: "#eef0f5" }}>
+                                        {STATS_30D.win.bestDayLabel} ({fmtSignedInt(STATS_30D.win.bestDayPts * animScalar)}) / {STATS_30D.win.worstDayLabel} ({fmtSignedInt(STATS_30D.win.worstDayPts * animScalar)})
+                                    </td>
+                                    <td style={{ color: "#eef0f5" }}>
+                                        {STATS_30D.wdo.bestDayLabel} ({fmtSignedDec1(STATS_30D.wdo.bestDayPts * animScalar)}) / {STATS_30D.wdo.worstDayLabel} ({fmtSignedDec1(STATS_30D.wdo.worstDayPts * animScalar)})
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style={{ color: "#a3a9b8" }}>Maior pernada única</td>
+                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>
+                                        {fmtSignedInt(STATS_30D.win.maxLegPts * animScalar)} pts <span style={{ fontWeight: 400, color: "#848da2" }}>({STATS_30D.win.maxLegMeta})</span>
+                                    </td>
+                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>
+                                        {fmtSignedDec1(STATS_30D.wdo.maxLegPts * animScalar)} pts <span style={{ fontWeight: 400, color: "#848da2" }}>({STATS_30D.wdo.maxLegMeta})</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: 12, color: "#848da2" }}>
+                        <span>Amostra auditada dos pregões de 07/10 a 19/11/2026 com motor oficial de divergências V3.2 nas Walls.</span>
+                        <span style={{ fontFamily: FONT_MONO }}>Resultados históricos não garantem retornos futuros (CVM 20).</span>
                     </div>
                 </section>
 
