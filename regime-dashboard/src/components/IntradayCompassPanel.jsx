@@ -73,6 +73,13 @@ function fmtAbsorptionState(raw) {
     return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 
+function stripUiEmoji(raw) {
+    return String(raw || "")
+        .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F]/gu, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+}
+
 // Posicionamento sem colisão para marcadores circulares numerados (alinhado ao InstagramCardModal)
 function computeChartDivMarkers(divs, { toX, toY, series, plotTop, plotBot, plotLeft, plotRight, radius }) {
     const placed = [];
@@ -935,40 +942,40 @@ function FluxoRealAsgChart({
         const sweepSell = ia5 < (isWinSym ? -1600 : -220) && nr5 < 0 && lotImb <= 0.97;
 
         let divType = null;
-        let divLabel = "⚪ Fluxo Alinhado";
-        let divColor = "#7f96a8";
+        let divLabel = "Fluxo alinhado";
+        let divColor = "#848da2";
         let divShort = "";
 
         if (fomoBuyTrap) {
             divType = "TRAP_FOMO_BUY";
-            divLabel = "⚠️ ARMADILHA FOMO COMPRA (Varejo Comprando Topo vs Inst Absorvendo na Venda)";
-            divColor = "#ffd600";
-            divShort = "⚠️FOMO";
+            divLabel = "Armadilha FOMO compra (varejo comprando topo vs Inst absorvendo na venda)";
+            divColor = "#d4a259";
+            divShort = "FOMO";
         } else if (fomoSellTrap) {
             divType = "TRAP_FOMO_SELL";
-            divLabel = "🪤 ARMADILHA VENDA VAREJO (Varejo Vendendo Fundo vs Inst Absorvendo na Compra)";
-            divColor = "#00e87a";
-            divShort = "🪤TRAP";
+            divLabel = "Armadilha venda varejo (varejo vendendo fundo vs Inst absorvendo na compra)";
+            divColor = "#4cc38a";
+            divShort = "TRAP";
         } else if (bullDiv) {
             divType = "BULL_DIV";
-            divLabel = "🟢 DIVERGÊNCIA COMPRA (Preço/Varejo Caindo vs Absorção Wyckoff / Não-Varejo Compradora)";
-            divColor = "#00e87a";
-            divShort = "🛡️DIV▲";
+            divLabel = "Divergência compra (preço/varejo caindo vs absorção não-varejo compradora)";
+            divColor = "#4cc38a";
+            divShort = "DIV▲";
         } else if (bearDiv) {
             divType = "BEAR_DIV";
-            divLabel = "🔴 DIVERGÊNCIA VENDA (Preço/Varejo Subindo vs Absorção Wyckoff / Distribuição Vendedora)";
-            divColor = "#ff3860";
-            divShort = "🛡️DIV▼";
+            divLabel = "Divergência venda (preço/varejo subindo vs distribuição vendedora)";
+            divColor = "#e5484d";
+            divShort = "DIV▼";
         } else if (sweepBuy) {
             divType = "SWEEP_BUY";
-            divLabel = "💥 SWEEP INSTITUCIONAL COMPRA (Tomada Agressiva Não-Varejo + Ticket Alto)";
-            divColor = "#00d4ff";
-            divShort = "💥SWP▲";
+            divLabel = "Sweep institucional compra (tomada agressiva não-varejo + ticket alto)";
+            divColor = "#38bdf8";
+            divShort = "SWP▲";
         } else if (sweepSell) {
             divType = "SWEEP_SELL";
-            divLabel = "💥 SWEEP INSTITUCIONAL VENDA (Batida Agressiva Não-Varejo + Ticket Alto)";
-            divColor = "#fb7185";
-            divShort = "💥SWP▼";
+            divLabel = "Sweep institucional venda (batida agressiva não-varejo + ticket alto)";
+            divColor = "#e5484d";
+            divShort = "SWP▼";
         }
 
         return {
@@ -1059,17 +1066,17 @@ function FluxoRealAsgChart({
                 const tS = String(ptS.time || "");
                 if (dailyCapHitTime && tS > dailyCapHitTime) {
                     sb.divType = null;
-                    sb.divColor = "#00d4ff";
-                    sb.divLabel = `🔒 Meta Diária Atingida (+R$ ${fmtNum(dailyRealizedSum, 0)}) · Novas entradas bloqueadas`;
+                    sb.divColor = "#38bdf8";
+                    sb.divLabel = `Meta diária atingida (+R$ ${fmtNum(dailyRealizedSum, 0)}) · novas entradas bloqueadas`;
                 } else if (!isInSniperHours(tS)) {
                     sb.divType = null;
-                    sb.divColor = "#6b8599";
-                    sb.divLabel = `⏸️ Fora do Horário Operacional (${isWinSym ? "09:05–16:45 s/ 12h" : "09:00–17:00 s/ 11h NY"})`;
+                    sb.divColor = "#848da2";
+                    sb.divLabel = `Fora do horário operacional (${isWinSym ? "09:05–16:45 s/ 12h" : "09:00–17:00 s/ 11h NY"})`;
                 } else if (sb.divType === "BULL_DIV" || sb.divType === "BEAR_DIV") {
                     // Evita exibir divergência de 1 barra no HUD se não for divergência F1->F2 / T1->T2 confirmada
                     sb.divType = null;
-                    sb.divColor = "#7f96a8";
-                    sb.divLabel = "⚪ Monitorando Fluxo na Wall";
+                    sb.divColor = "#848da2";
+                    sb.divLabel = "Monitorando fluxo na Wall";
                 }
             });
         }
@@ -1156,8 +1163,8 @@ function FluxoRealAsgChart({
                                 swingDivergences.push(divObj);
                                 sb.swingDiv = divObj;
                                 sb.divType = "BULL_DIV";
-                                sb.divColor = "#00e87a";
-                                sb.divLabel = `🟢 DIV. COMPRA DE FUNDO (${bestP1.time} ➔ ${series[i]?.time}): Preço ${fmtNum(bestP1.price, dec)} ➔ ${fmtNum(l2, dec)} ↘ | Fluxo Subiu ↗ (${driverTxt})`;
+                                sb.divColor = "#4cc38a";
+                                sb.divLabel = `Div. compra de fundo (${bestP1.time} → ${series[i]?.time}): preço ${fmtNum(bestP1.price, dec)} → ${fmtNum(l2, dec)} | fluxo subiu (${driverTxt})`;
                             }
                         }
                     }
@@ -1220,8 +1227,8 @@ function FluxoRealAsgChart({
                                 swingDivergences.push(divObj);
                                 sb.swingDiv = divObj;
                                 sb.divType = "BEAR_DIV";
-                                sb.divColor = "#ff3860";
-                                sb.divLabel = `🔴 DIV. VENDA DE TOPO (${bestT1.time} ➔ ${series[i]?.time}): Preço ${fmtNum(bestT1.price, dec)} ➔ ${fmtNum(h2, dec)} ↗ | Fluxo Caiu ↘ (${driverTxt})`;
+                                sb.divColor = "#e5484d";
+                                sb.divLabel = `Div. venda de topo (${bestT1.time} → ${series[i]?.time}): preço ${fmtNum(bestT1.price, dec)} → ${fmtNum(h2, dec)} | fluxo caiu (${driverTxt})`;
                             }
                         }
                     }
@@ -1522,7 +1529,7 @@ function FluxoRealAsgChart({
                                     idx: idxM,
                                     time: pt.time,
                                     type: isFlip ? "VIROU_SUP" : "DEFENDEU_COMPRA",
-                                    label: isFlip ? "🔄 Virou Sup" : "🛡️ Defendeu",
+                                    label: isFlip ? "Virou Sup" : "Defendeu",
                                     dir: 1,
                                     price: p,
                                 });
@@ -1534,7 +1541,7 @@ function FluxoRealAsgChart({
                                     idx: idxM,
                                     time: pt.time,
                                     type: "VIOLINADA_COMPRA",
-                                    label: "🪤 Absorveu",
+                                    label: "Absorveu",
                                     dir: 1,
                                     price: p,
                                 });
@@ -1545,7 +1552,7 @@ function FluxoRealAsgChart({
                                     idx: idxM,
                                     time: pt.time,
                                     type: "ROMPEU_BAIXA",
-                                    label: "💥 Rompeu",
+                                    label: "Rompeu",
                                     dir: -1,
                                     price: p,
                                 });
@@ -1560,7 +1567,7 @@ function FluxoRealAsgChart({
                                     idx: idxM,
                                     time: pt.time,
                                     type: isFlip ? "VIROU_RES" : "DEFENDEU_VENDA",
-                                    label: isFlip ? "🔄 Virou Res" : "🛡️ Defendeu",
+                                    label: isFlip ? "Virou Res" : "Defendeu",
                                     dir: -1,
                                     price: p,
                                 });
@@ -1572,7 +1579,7 @@ function FluxoRealAsgChart({
                                     idx: idxM,
                                     time: pt.time,
                                     type: "VIOLINADA_VENDA",
-                                    label: "🪤 Absorveu",
+                                    label: "Absorveu",
                                     dir: -1,
                                     price: p,
                                 });
@@ -1583,7 +1590,7 @@ function FluxoRealAsgChart({
                                     idx: idxM,
                                     time: pt.time,
                                     type: "ROMPEU_ALTA",
-                                    label: "💥 Rompeu",
+                                    label: "Rompeu",
                                     dir: 1,
                                     price: p,
                                 });
@@ -1614,42 +1621,42 @@ function FluxoRealAsgChart({
             let isTrap = false;
 
             if (touchCount >= 5 && smartStage === "NEUTRO" && isNearWall) {
-                liveVerdict = `⚪ WALL GASTA (${touchCount}x)`;
+                liveVerdict = `Wall gasta (${touchCount}x)`;
                 isExhausted = true;
             } else if (isNearWall && (lastEv === "VIOLINADA_COMPRA" || (isTakingHeat && smartBias === "BUY" && smartStage === "FORTE"))) {
-                liveVerdict = "🪤 VIOLINADA (ABSORVENDO COMPRA)";
+                liveVerdict = "Violinada (absorvendo compra)";
                 dynamicBias = "BUY";
                 isTrap = true;
             } else if (isNearWall && (lastEv === "VIOLINADA_VENDA" || (isTakingHeat && smartBias === "SELL" && smartStage === "FORTE"))) {
-                liveVerdict = "🪤 VIOLINADA (ABSORVENDO VENDA)";
+                liveVerdict = "Violinada (absorvendo venda)";
                 dynamicBias = "SELL";
                 isTrap = true;
             } else if (brokeUpConfirmed) {
-                liveVerdict = "💥 ROMPERAM P/ ALTA (VIROU SUP)";
+                liveVerdict = "Romperam p/ alta (virou sup)";
                 dynamicBias = "BUY";
             } else if (brokeDnConfirmed) {
-                liveVerdict = "💥 ROMPERAM P/ BAIXO (VIROU RES)";
+                liveVerdict = "Romperam p/ baixo (virou res)";
                 dynamicBias = "SELL";
             } else if (lastEv === "VIROU_SUP" && spotNow >= p - breakTol) {
-                liveVerdict = "🔄 VIROU SUPORTE (DEFENDENDO)";
+                liveVerdict = "Virou suporte (defendendo)";
                 dynamicBias = "BUY";
             } else if (lastEv === "VIROU_RES" && spotNow <= p + breakTol) {
-                liveVerdict = "🔄 VIROU RESIST. (DEFENDENDO)";
+                liveVerdict = "Virou resist. (defendendo)";
                 dynamicBias = "SELL";
             } else if (smartBias === "BUY" || lastEv === "DEFENDEU_COMPRA") {
-                liveVerdict = "🛡️ VAI DEFENDER COMPRA";
+                liveVerdict = "Defendendo compra";
                 dynamicBias = "BUY";
             } else if (smartBias === "SELL" || lastEv === "DEFENDEU_VENDA") {
-                liveVerdict = "🛡️ VAI DEFENDER VENDA";
+                liveVerdict = "Defendendo venda";
                 dynamicBias = "SELL";
             } else if (brokenDir === 1 && spotNow > p + breakTol) {
-                liveVerdict = "💥 ROMPERAM P/ ALTA (VIROU SUP)";
+                liveVerdict = "Romperam p/ alta (virou sup)";
                 dynamicBias = "BUY";
             } else if (brokenDir === -1 && spotNow < p - breakTol) {
-                liveVerdict = "💥 ROMPERAM P/ BAIXO (VIROU RES)";
+                liveVerdict = "Romperam p/ baixo (virou res)";
                 dynamicBias = "SELL";
             } else {
-                liveVerdict = spotNow >= p ? "⚪ SUPORTE EM DISPUTA" : "⚪ RESIST. EM DISPUTA";
+                liveVerdict = spotNow >= p ? "Suporte em disputa" : "Resist. em disputa";
             }
 
             if (dynamicBias !== "NEUTRAL") {
@@ -2416,31 +2423,33 @@ function FluxoRealAsgChart({
                 <rect x={padL} y={p1Top} width={plotW} height={p1H} fill="#0e1118" />
                 <rect x={padL} y={p3Top} width={plotW} height={p3H} fill="#0e1118" />
 
-                {/* Grade Regular e Escala de Preço (Painel 1) */}
+                {/* Escala de Preço no Eixo Y (sem grade horizontal cruzando os candles) */}
                 {priceAxisTicks.map((tk, tIdx) => {
                     const nearSpot = Math.abs(tk.y - lastY) < 13;
                     const nearWall = nearbyWalls.some((w) => Math.abs(toY1(w.price) - tk.y) < 11);
                     const nearAutoBtn = tk.y > p1Bot - 22;
                     return (
                         <g key={`tv-p1-tick-${tIdx}`}>
-                            <line
-                                x1={padL}
-                                y1={tk.y}
-                                x2={padL + plotW}
-                                y2={tk.y}
-                                stroke="rgba(238, 240, 245, 0.05)"
-                                strokeWidth="1"
-                            />
                             {!nearSpot && !nearWall && !nearAutoBtn && (
-                                <text
-                                    x={padL + plotW + 6}
-                                    y={tk.y + 3.5}
-                                    fill="#848da2"
-                                    fontSize={isNarrow ? "9.5" : "10"}
-                                    fontFamily="var(--mono)"
-                                >
-                                    {fmtNum(tk.price, dec)}
-                                </text>
+                                <>
+                                    <line
+                                        x1={padL + plotW}
+                                        y1={tk.y}
+                                        x2={padL + plotW + 3}
+                                        y2={tk.y}
+                                        stroke="rgba(238, 240, 245, 0.14)"
+                                        strokeWidth="1"
+                                    />
+                                    <text
+                                        x={padL + plotW + 6}
+                                        y={tk.y + 3.5}
+                                        fill="#5d667a"
+                                        fontSize={isNarrow ? "9.5" : "10"}
+                                        fontFamily="var(--mono)"
+                                    >
+                                        {fmtNum(tk.price, dec)}
+                                    </text>
+                                </>
                             )}
                         </g>
                     );
@@ -2480,9 +2489,9 @@ function FluxoRealAsgChart({
                             <text x={legX + 11} y="15.5">Alta</text>
                             <rect x={legX + 42} y="8.5" width="7" height="7" rx="1.5" fill="#475569" />
                             <text x={legX + 53} y="15.5">Baixa</text>
-                            <line x1={legX + 94} y1="12" x2={legX + 108} y2="12" stroke="rgba(238, 240, 245, 0.40)" strokeWidth="1.5" />
+                            <line x1={legX + 94} y1="12" x2={legX + 108} y2="12" stroke="rgba(238, 240, 245, 0.46)" strokeWidth="1.5" />
                             <text x={legX + 112} y="15.5">Wall</text>
-                            <line x1={legX + 146} y1="12" x2={legX + 160} y2="12" stroke="rgba(238, 240, 245, 0.18)" strokeWidth="1" strokeDasharray="3 2" />
+                            <line x1={legX + 146} y1="12" x2={legX + 160} y2="12" stroke="rgba(238, 240, 245, 0.26)" strokeWidth="1" strokeDasharray="3 2" />
                             <text x={legX + 164} y="15.5">MidWall</text>
                             <line x1={legX + 216} y1="12" x2={legX + 230} y2="12" stroke="#d4a259" strokeWidth="1.5" />
                             <text x={legX + 234} y="15.5" fill="#d4a259">FlipWall</text>
@@ -2537,10 +2546,10 @@ function FluxoRealAsgChart({
                                     <text
                                         x={xBtn + mOpt.w / 2}
                                         y={p3Top + 11}
-                                        fill={active ? "#00d4ff" : "#6b8599"}
+                                        fill={active ? "#38bdf8" : "#848da2"}
                                         fontSize="7.4"
-                                        fontWeight="bold"
-                                        fontFamily="monospace"
+                                        fontWeight="600"
+                                        fontFamily="IBM Plex Mono, monospace"
                                         textAnchor="middle"
                                     >
                                         {mOpt.label}
@@ -2602,14 +2611,15 @@ function FluxoRealAsgChart({
                     });
 
                     return zonesToRender.map((z) => {
+                        if (isWallsHost && z.isMid) return null;
                         if (z.topP < minP || z.botP > maxP) return null;
                         const yTop = Math.max(p1Top, toY1(Math.min(maxP, z.topP)));
                         const yBot = Math.min(p1Bot, toY1(Math.max(minP, z.botP)));
                         const hBand = Math.max(5, yBot - yTop);
                         const isWhiteWallMode = isWallsHost || wallColorMode === "PINE" || z.isNeutral;
                         const col = isWallsHost
-                            ? (z.isMid ? "#8b9bb0" : "#f1f5f9")
-                            : (isWhiteWallMode ? "#ffffff" : (z.isSell ? "#ff3860" : "#00e87a"));
+                            ? (z.isMid ? "#8b9bb0" : "#eef0f5")
+                            : (isWhiteWallMode ? "#eef0f5" : (z.isSell ? "#e5484d" : "#4cc38a"));
                         const fillRgba = isWallsHost
                             ? (z.isMid
                                 ? (z.isStrong ? "rgba(148, 163, 184, 0.04)" : "rgba(148, 163, 184, 0.02)")
@@ -2655,22 +2665,22 @@ function FluxoRealAsgChart({
                     const isNeutral = w.smart_bias === "NEUTRAL" || Boolean(w.is_exhausted);
                     const isSell = w.smart_bias === "SELL";
 
-                    const pineCol = isGammaFlip ? "#ffd600"
-                        : wType === "MaxGamma" ? "#00b0ff"
-                            : wType === "MinGamma" ? "#ff1744"
-                                : isMid ? "#94a3b8" : "#ffffff";
+                    const pineCol = isGammaFlip ? "#d4a259"
+                        : wType === "MaxGamma" ? "#38bdf8"
+                            : wType === "MinGamma" ? "#e5484d"
+                                : isMid ? "#848da2" : "#eef0f5";
                     const polCol = isGammaFlip
-                        ? "#ffd600"
+                        ? "#d4a259"
                         : w.is_exhausted
-                            ? "#7f96a8"
+                            ? "#848da2"
                             : isNeutral
                                 ? pineCol
-                                : (isSell ? (isMid ? "#ff6b8b" : "#ff3860") : (isMid ? "#38ef94" : "#00e87a"));
+                                : (isSell ? "#e5484d" : "#4cc38a");
                     const col = isWallsHost
                         ? (isGammaFlip ? "#d4a259" : isMid ? "#848da2" : "#d8dee9")
                         : (wallColorMode === "PINE" ? pineCol : polCol);
                     const lineStrokeCol = isWallsHost
-                        ? (isGammaFlip ? "#d4a259" : isMid ? "rgba(238, 240, 245, 0.16)" : "rgba(238, 240, 245, 0.36)")
+                        ? (isGammaFlip ? "#d4a259" : isMid ? "rgba(238, 240, 245, 0.24)" : "rgba(238, 240, 245, 0.44)")
                         : col;
                     const textCol = (!isWallsHost && wallColorMode !== "PINE" && w.is_trap) ? "#fbbf24" : col;
 
@@ -2680,7 +2690,7 @@ function FluxoRealAsgChart({
                         : isMid
                             ? 1.0
                             : isWallsHost
-                                ? 1.15
+                                ? 1.35
                                 : Math.max(1.2, Math.min(3.0, Number(w.width || 1) * (isStrong ? 0.95 : 0.85)));
                     const isDashed = !isGammaFlip && (w.style === "dashed" || isMid || Boolean(w.is_exhausted));
                     const hideRightAxisTag = Math.abs(yW - lastY) < 15 || yW > p1Bot - 20;
@@ -2697,11 +2707,12 @@ function FluxoRealAsgChart({
                     const dirArrow = instD > 0 ? " ▲" : (instD < 0 ? " ▼" : "");
                     const deltaCol = wallColorMode === "PINE"
                         ? pineCol
-                        : (instD > 0 ? "#00e87a" : (instD < 0 ? "#ff6b8b" : col));
+                        : (instD > 0 ? "#4cc38a" : (instD < 0 ? "#e5484d" : col));
 
                     const shortTag = isMid ? "Mid" : (wType === "Wall" ? "MW" : wType);
-                    const pVerdict = isWallsHost && w.player_verdict && w.player_verdict !== "⏳ Aguardando Toque na Wall"
-                        ? w.player_verdict
+                    const pVerdictRaw = stripUiEmoji(w.player_verdict);
+                    const pVerdict = isWallsHost && pVerdictRaw && !/aguardando toque/i.test(pVerdictRaw)
+                        ? pVerdictRaw
                         : "";
                     const verdictStr = (wType === "Wall" || wType === "MidWall" || isMid)
                         ? (pVerdict || w.live_verdict || "")
@@ -2723,10 +2734,10 @@ function FluxoRealAsgChart({
                         return av >= 1000 ? `${sg}${(av / 1000).toFixed(av >= 10000 ? 0 : 1)}k` : `${sg}${Math.round(av)}`;
                     };
                     const profit4PlayerSub = isWallsHost && (Math.abs(instAggrW) > 0 || Math.abs(instPassW) > 0 || Math.abs(retDeltaW) > 0 || Math.abs(hftDeltaW) > 0)
-                        ? `🏦Agr:${fmtShortK(instAggrW)} Pas:${fmtShortK(instPassW)} · 🧑‍💻Var:${fmtShortK(retDeltaW)} · ⚡HFT:${fmtShortK(hftDeltaW)} · 🔄RLP:${fmtShortK(rlpDeltaW)}`
+                        ? `Agr:${fmtShortK(instAggrW)} Pas:${fmtShortK(instPassW)} · Var:${fmtShortK(retDeltaW)} · HFT:${fmtShortK(hftDeltaW)} · RLP:${fmtShortK(rlpDeltaW)}`
                         : "";
                     const profit4PlayerHoverExtra = isWallsHost && profit4PlayerSub
-                        ? ` (Giro Bruto: ⚡HFT ${Math.round(hftChurnW)}% | 🔄RLP ${Math.round(rlpShareW)}%)`
+                        ? ` (Giro bruto: HFT ${Math.round(hftChurnW)}% | RLP ${Math.round(rlpShareW)}%)`
                         : "";
                     const belowLineDeltaText = profit4PlayerSub
                         ? (hideRightAxisTag ? `${fmtNum(w.price, dec)} · ${profit4PlayerSub}` : profit4PlayerSub)
@@ -2784,7 +2795,7 @@ function FluxoRealAsgChart({
                             {/* Etiqueta de Preço no Eixo Y Direito */}
                             {!hideRightAxisTag && (
                                 <g>
-                                    {(!isMid || isGammaFlip) && (
+                                    {(!isMid || isGammaFlip) ? (
                                         <rect
                                             x={padL + plotW + 4}
                                             y={yW - 8}
@@ -2792,7 +2803,16 @@ function FluxoRealAsgChart({
                                             height={16}
                                             rx="4"
                                             fill={isGammaFlip ? "#211d17" : "#131720"}
-                                            stroke={isGammaFlip ? "rgba(212, 162, 89, 0.55)" : "rgba(238, 240, 245, 0.16)"}
+                                            stroke={isGammaFlip ? "rgba(212, 162, 89, 0.55)" : "rgba(238, 240, 245, 0.24)"}
+                                            strokeWidth="1"
+                                        />
+                                    ) : (
+                                        <line
+                                            x1={padL + plotW}
+                                            y1={yW}
+                                            x2={padL + plotW + 4}
+                                            y2={yW}
+                                            stroke="rgba(238, 240, 245, 0.28)"
                                             strokeWidth="1"
                                         />
                                     )}
@@ -2800,7 +2820,7 @@ function FluxoRealAsgChart({
                                         x={padL + plotW + 4 + (padR - 8) / 2}
                                         y={yW + 3.5}
                                         textAnchor="middle"
-                                        fill={isGammaFlip ? "#d4a259" : isMid ? "#848da2" : "#a3a9b8"}
+                                        fill={isGammaFlip ? "#d4a259" : isMid ? "#9aa5b6" : "#eef0f5"}
                                         fontSize={isNarrow ? "9.5" : "10"}
                                         fontWeight={isGammaFlip ? "600" : "500"}
                                         fontFamily="var(--mono)"
@@ -2872,14 +2892,14 @@ function FluxoRealAsgChart({
                                         y1={p1Top}
                                         x2={xStart}
                                         y2={p3Bot}
-                                        stroke="#ffd600"
+                                        stroke="#d4a259"
                                         strokeWidth="1.0"
                                         strokeDasharray="4,3"
                                         strokeOpacity="0.55"
                                     />
                                 )}
                                 {!isWallsHost && flowSubMode === "JANELA_ASG" && yZeroWave >= flowPlotTop && yZeroWave <= flowPlotBot && (
-                                    <circle cx={xStart} cy={yZeroWave} r="2.6" fill="#f5d061" stroke="#0c1218" strokeWidth="0.8" opacity="0.9" />
+                                    <circle cx={xStart} cy={yZeroWave} r="2.6" fill="#d4a259" stroke="#0e1118" strokeWidth="0.8" opacity="0.9" />
                                 )}
                             </g>
                         );
@@ -2903,7 +2923,7 @@ function FluxoRealAsgChart({
                         <g pointerEvents="none">
                             <polygon
                                 points={`${upperPoly} ${lowerRev}`}
-                                fill={isWallsHost ? "#94a3b8" : "#00e87a"}
+                                fill={isWallsHost ? "#848da2" : "#4cc38a"}
                                 fillOpacity={isWallsHost ? "0.03" : "0.025"}
                             />
                         </g>
@@ -3067,8 +3087,8 @@ function FluxoRealAsgChart({
                     const fillCol = isWallsHost
                         ? (isBullCandle ? "#cbd5e1" : "#475569")
                         : (candleColorMode === "TRADICIONAL"
-                            ? (isBullCandle ? "#00e87a" : "#ff3860")
-                            : (cState > 0 ? "#00e87a" : cState < 0 ? "#ff3860" : "#7f96a8"));
+                            ? (isBullCandle ? "#4cc38a" : "#e5484d")
+                            : (cState > 0 ? "#4cc38a" : cState < 0 ? "#e5484d" : "#848da2"));
                     const wickCol = isWallsHost
                         ? (isBullCandle ? "#cbd5e1" : "#64748b")
                         : fillCol;
@@ -3129,10 +3149,10 @@ function FluxoRealAsgChart({
                         const isBreak = mk.type.startsWith("ROMPEU");
                         const isBuyDir = mk.dir > 0;
                         const col = isTrap
-                            ? "#fbbf24"
+                            ? "#d4a259"
                             : (isBreak
-                                ? (isBuyDir ? "#00e5ff" : "#ff4081")
-                                : (isBuyDir ? "#00e87a" : "#ff3860"));
+                                ? (isBuyDir ? "#38bdf8" : "#e5484d")
+                                : (isBuyDir ? "#4cc38a" : "#e5484d"));
 
                         const yH = toY1(pt.high || pt.close);
                         const yL = toY1(pt.low || pt.close);
@@ -3140,7 +3160,7 @@ function FluxoRealAsgChart({
                             ? Math.min(p1Bot - 13, Math.max(yWall + 4, yL + 3))
                             : Math.max(p1Top + 3, Math.min(yWall - 15, yH - 14));
 
-                        const txt = mk.label || "🛡️ Defendeu";
+                        const txt = mk.label || "Defendeu";
                         const boxW = Math.max(44, txt.length * 4.3 + 6);
                         const boxX = Math.max(padL + 2, Math.min(padL + plotW - boxW - 4, x - boxW / 2));
 
@@ -4064,10 +4084,10 @@ function FluxoRealAsgChart({
                         <text x={padL + plotW + 5} y={yZero3 + 3} fill="#6b8599" fontSize="8" fontWeight="bold" fontFamily="monospace">
                             ZERO
                         </text>
-                        <text x={padL + plotW + 5} y={p3Top + 25} fill="#00e87a" fontSize="7.5" fontFamily="monospace">
+                        <text x={padL + plotW + 5} y={p3Top + 25} fill="#4cc38a" fontSize="7.5" fontFamily="IBM Plex Mono, monospace">
                             +{fmtNum(maxCaboVal, 0)}L
                         </text>
-                        <text x={padL + plotW + 5} y={p3Bot - 5} fill="#ff3860" fontSize="7.5" fontFamily="monospace">
+                        <text x={padL + plotW + 5} y={p3Bot - 5} fill="#e5484d" fontSize="7.5" fontFamily="IBM Plex Mono, monospace">
                             -{fmtNum(maxCaboVal, 0)}L
                         </text>
 
@@ -4112,7 +4132,7 @@ function FluxoRealAsgChart({
 
                             return (
                                 <g key={`cabo-${sb.idx}`}>
-                                    <title>{`${series[sb.idx]?.time} | 🏦 Inst Agressor: ${fmtNum(ia, 0, true)}L | 🛡️ Inst Passivo (Pedra): ${fmtNum(ip, 0, true)}L | 🧑‍💻 Varejo: ${fmtNum(ret, 0, true)}L | ${sb.divLabel}`}</title>
+                                    <title>{`${series[sb.idx]?.time} | Inst Agressor: ${fmtNum(ia, 0, true)}L | Inst Passivo: ${fmtNum(ip, 0, true)}L | Varejo: ${fmtNum(ret, 0, true)}L | ${sb.divLabel}`}</title>
                                     {/* Camada 1: Agressão Institucional (Verde / Vermelho) */}
                                     {iaH >= 0.8 && (
                                         <rect
@@ -4120,19 +4140,19 @@ function FluxoRealAsgChart({
                                             y={iaY}
                                             width={candleW * 0.96}
                                             height={Math.max(1.2, iaH)}
-                                            fill={ia >= 0 ? "#00e87a" : "#ff3860"}
+                                            fill={ia >= 0 ? "#4cc38a" : "#e5484d"}
                                             opacity="0.88"
                                             rx="0.5"
                                         />
                                     )}
-                                    {/* Camada 2: Absorção Passiva Institucional na Pedra (Ciano Compra / Âmbar Venda) */}
+                                    {/* Camada 2: Absorção Passiva Institucional na Pedra (Azul / Âmbar) */}
                                     {ipH >= 0.8 && (
                                         <rect
                                             x={x - candleW * 0.48}
                                             y={ipY}
                                             width={candleW * 0.96}
                                             height={Math.max(1.2, ipH)}
-                                            fill={ip >= 0 ? "#00d4ff" : "#f59e0b"}
+                                            fill={ip >= 0 ? "#38bdf8" : "#d4a259"}
                                             opacity="0.92"
                                             rx="0.5"
                                         />
@@ -4205,11 +4225,11 @@ function FluxoRealAsgChart({
                             <polyline fill="none" stroke="#a78bfa" strokeWidth="1.15" strokeDasharray="2,2" opacity="0.75" points={retPts} />
                             {/* Curva Preço (Branco Tracejado) */}
                             <polyline fill="none" stroke="#e2e8f0" strokeWidth="1.5" strokeDasharray="4,3" opacity="0.92" points={pricePts} />
-                            {/* Curva Fluxo Não-Varejo (Verde Esmeralda Sólida) */}
-                            <polyline fill="none" stroke="#00e87a" strokeWidth="2.2" points={nrPts} />
+                            {/* Curva Fluxo Não-Varejo (Ink Azul Green) */}
+                            <polyline fill="none" stroke="#4cc38a" strokeWidth="2.2" points={nrPts} />
 
                             {/* Etiquetas na escala direita */}
-                            <text x={padL + plotW + 5} y={Math.max(p3Top + 22, Math.min(p3Bot - 6, toYOscNr(lastSb.nrOsc || 0)))} fill="#00e87a" fontSize="8" fontWeight="bold" fontFamily="monospace">
+                            <text x={padL + plotW + 5} y={Math.max(p3Top + 22, Math.min(p3Bot - 6, toYOscNr(lastSb.nrOsc || 0)))} fill="#4cc38a" fontSize="8" fontWeight="600" fontFamily="'IBM Plex Mono', monospace">
                                 NR:{fmtNum(lastSb.nrOsc, 0, true)}
                             </text>
                             <text x={padL + plotW + 5} y={Math.max(p3Top + 22, Math.min(p3Bot - 6, toYOscP(lastSb.dpOsc || 0)))} fill="#e2e8f0" fontSize="8" fontFamily="monospace">
@@ -4332,7 +4352,7 @@ function FluxoRealAsgChart({
                                     const wv = Number(sb.smartSwingWave || 0);
                                     const yH = toYSwingWave(wv);
                                     const isPos = wv >= 0;
-                                    const col = isPos ? "#00e87a" : "#ff3860";
+                                    const col = isPos ? "#4cc38a" : "#e5484d";
                                     const barTop = Math.min(yH, yZeroClamped);
                                     const barH = Math.max(1.2, Math.abs(yZeroClamped - yH));
 
@@ -4350,13 +4370,13 @@ function FluxoRealAsgChart({
                                     );
                                 })}
 
-                                {/* Camada 2: Mesma Linha Azul de Fluxo Smart Money em Contratos/Lotes da 5176 (`smartSwingWave`) */}
+                                {/* Camada 2: Linha Azul de Fluxo Smart Money */}
                                 {showLineWave && subPanelBars.length >= 2 && (
                                     <g>
                                         {smWinVisualMode === "HIST_LINE" && (
                                             <polyline
                                                 fill="none"
-                                                stroke="#060a0f"
+                                                stroke="#0a0c12"
                                                 strokeWidth="3.4"
                                                 strokeLinejoin="round"
                                                 strokeLinecap="round"
@@ -4366,7 +4386,7 @@ function FluxoRealAsgChart({
                                         )}
                                         <polyline
                                             fill="none"
-                                            stroke="#00d4ff"
+                                            stroke="#38bdf8"
                                             strokeWidth="2.15"
                                             strokeLinejoin="round"
                                             strokeLinecap="round"
@@ -4376,14 +4396,14 @@ function FluxoRealAsgChart({
                                     </g>
                                 )}
 
-                                {/* Badge estilo TradingView do Valor Atual em Contratos/Lotes na Escala Direita (idêntico à 5176) */}
+                                {/* Badge do valor atual na escala direita */}
                                 {subPanelBars.length > 0 && (() => {
                                     const clampedTagY = Math.max(flowPlotTop + 7, Math.min(flowPlotBot - 7, lastWaveY));
                                     return (
                                         <g>
-                                            <line x1={lastX} y1={clampedTagY} x2={padL + plotW} y2={clampedTagY} stroke="#00d4ff" strokeWidth="0.85" strokeDasharray="2,3" opacity="0.65" />
-                                            <rect x={padL + plotW + 2} y={clampedTagY - 7.5} width={padR - 26} height={15} rx="2.5" fill="rgba(0, 212, 255, 0.16)" stroke="#00d4ff" strokeWidth="0.9" />
-                                            <text x={padL + plotW + 6} y={clampedTagY + 3} fill="#00d4ff" fontSize="8.2" fontWeight="bold" fontFamily="monospace">
+                                            <line x1={lastX} y1={clampedTagY} x2={padL + plotW} y2={clampedTagY} stroke="#38bdf8" strokeWidth="0.85" strokeDasharray="2,3" opacity="0.65" />
+                                            <rect x={padL + plotW + 2} y={clampedTagY - 7.5} width={padR - 26} height={15} rx="3" fill="rgba(56, 189, 248, 0.14)" stroke="#38bdf8" strokeWidth="0.9" />
+                                            <text x={padL + plotW + 6} y={clampedTagY + 3} fill="#7dd3fc" fontSize="8.2" fontWeight="600" fontFamily="IBM Plex Mono, monospace">
                                                 {fmtW(lastSb.smartSwingWave)}
                                             </text>
                                         </g>
@@ -6352,32 +6372,32 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
             </div>
 
             {/* 4. Rodapé duplo: matriz mensal auditada (esquerda) + histórico de trades (direita) */}
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.18fr) minmax(0, 1fr)", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.32fr) minmax(0, 1fr)", gap: 12 }}>
                 {/* Esquerda: Matriz Mensal das Estratégias Ativas + Portfólio */}
                 <div style={{
                     background: "var(--mw-chrome)",
                     border: "1px solid var(--mw-hairline)",
                     borderRadius: 8,
-                    padding: "12px 14px",
+                    padding: "12px 12px",
                     overflowX: "auto",
                     minWidth: 0,
                 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--mw-text-1)", marginBottom: 10 }}>
                         Resultado mensal auditado ({effectivePortIds.length} ativas · WIN {isWallsFlow ? `${winContracts * 2}L` : `${winContracts}c`} · WDO {isWallsFlow ? `${wdoContracts}L` : `${wdoContracts}c`})
                     </div>
-                    <table className="mw-mono" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <table className="mw-mono" style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
                         <thead>
                             <tr style={{ color: "var(--mw-text-3)", borderBottom: "1px solid var(--mw-hairline)", textAlign: "right" }}>
-                                <th style={{ textAlign: "left", padding: "6px 6px 6px 2px", fontWeight: 500 }}>Mês</th>
+                                <th style={{ textAlign: "left", padding: "5px 4px 5px 2px", fontWeight: 500 }}>Mês</th>
                                 {effectivePortIds.map((sid) => {
                                     const sm = STRAT_META_BY_ID[sid];
                                     return (
-                                        <th key={`mh-${sid}`} style={{ padding: "6px 4px", color: sm?.color || "var(--mw-text-2)", fontWeight: 500, whiteSpace: "nowrap" }}>
+                                        <th key={`mh-${sid}`} style={{ padding: "5px 3px", color: sm?.color || "var(--mw-text-2)", fontWeight: 500, whiteSpace: "nowrap" }}>
                                             {sm?.short || sid}
                                         </th>
                                     );
                                 })}
-                                <th style={{ padding: "6px 2px 6px 6px", color: "#4cc38a", fontWeight: 600, whiteSpace: "nowrap" }}>Portfólio</th>
+                                <th style={{ padding: "5px 2px 5px 5px", color: "#4cc38a", fontWeight: 600, whiteSpace: "nowrap" }}>Portfólio</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -6390,19 +6410,19 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                                         background: m.is_live ? "rgba(76, 195, 138, 0.06)" : "transparent",
                                     }}
                                 >
-                                    <td style={{ textAlign: "left", padding: "6px 6px 6px 2px", fontWeight: 500, color: m.is_live ? "#4cc38a" : "var(--mw-text-1)", whiteSpace: "nowrap" }}>
-                                        {m.is_live ? `${m.month} (Live)` : m.month}
+                                    <td style={{ textAlign: "left", padding: "5px 4px 5px 2px", fontWeight: 500, color: m.is_live ? "#4cc38a" : "var(--mw-text-1)", whiteSpace: "nowrap" }}>
+                                        {m.is_live && !/live/i.test(String(m.month || "")) ? `${m.month} (Live)` : m.month}
                                     </td>
                                     {effectivePortIds.map((sid) => {
                                         const sm = STRAT_META_BY_ID[sid];
                                         const v = Number(m[sid] || 0);
                                         return (
-                                            <td key={`mc-${m.month}-${sid}`} style={{ padding: "6px 4px", color: v >= 0 ? (sm?.color || "#4cc38a") : "#e5484d", whiteSpace: "nowrap" }}>
+                                            <td key={`mc-${m.month}-${sid}`} style={{ padding: "5px 3px", color: v >= 0 ? (sm?.color || "#4cc38a") : "#e5484d", whiteSpace: "nowrap" }}>
                                                 {v >= 0 ? "+" : "−"}R$ {fmtNum(Math.abs(v), 0)}
                                             </td>
                                         );
                                     })}
-                                    <td style={{ padding: "6px 2px 6px 6px", fontWeight: 600, color: m.PORTFOLIO >= 0 ? "#4cc38a" : "#e5484d", whiteSpace: "nowrap" }}>
+                                    <td style={{ padding: "5px 2px 5px 5px", fontWeight: 600, color: m.PORTFOLIO >= 0 ? "#4cc38a" : "#e5484d", whiteSpace: "nowrap" }}>
                                         {m.PORTFOLIO >= 0 ? "+" : "−"}R$ {fmtNum(Math.abs(m.PORTFOLIO), 0)}
                                     </td>
                                 </tr>
@@ -6554,7 +6574,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
                                                         {isOpen ? "Aberta" : `${brlVal >= 0 ? "+" : "−"}R$ ${fmtNum(Math.abs(brlVal), 0)}`}
                                                     </td>
                                                     <td style={{ textAlign: "left", padding: "5px 6px", color: "var(--mw-text-3)", fontSize: 10, whiteSpace: "nowrap" }}>
-                                                        {tr.label || (isOpen ? "Em aberto" : "Fechada")}
+                                                        {stripUiEmoji(tr.label) || (isOpen ? "Em aberto" : "Fechada")}
                                                     </td>
                                                 </tr>
                                             );
@@ -7451,7 +7471,7 @@ function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDa
                                             <td style={{ textAlign: "left", padding: "5px 6px", color: "var(--mw-text-2)" }}>{sig.type}</td>
                                             <td style={{ padding: "5px 6px", color: "#4cc38a", fontWeight: 500, whiteSpace: "nowrap" }}>+{fmtNum(sig.mfe_30m, dec)}p</td>
                                             <td style={{ padding: "5px 6px", color: "#e5484d", whiteSpace: "nowrap" }}>{fmtNum(sig.mae_30m, dec)}p</td>
-                                            <td style={{ padding: "5px 6px", fontWeight: 600, color: vColor, whiteSpace: "nowrap" }}>{sig.validation_label}</td>
+                                            <td style={{ padding: "5px 6px", fontWeight: 600, color: vColor, whiteSpace: "nowrap" }}>{stripUiEmoji(sig.validation_label)}</td>
                                         </tr>
                                     );
                                 })}
@@ -7720,7 +7740,7 @@ function RaioXAssetCard({ symKey, payload }) {
                                                 {fmtNum(w.hft_delta ?? 0, 0, true)} / <span style={{ color: "#d4a259" }}>{fmtNum(w.rlp_delta ?? Math.round(-Number(w.ret_delta ?? 0) * (Number(w.rlp_share_pct ?? w.rlp_pct ?? 0) / 100.0)), 0, true)}</span>
                                             </td>
                                             <td style={{ padding: "4px", color: "var(--mw-text-2)", fontSize: 10 }}>
-                                                {w.player_verdict || w.status} {topB ? <span style={{ color: "#d4a259" }}>({topB})</span> : null}
+                                                {stripUiEmoji(w.player_verdict || w.status)} {topB ? <span style={{ color: "#d4a259" }}>({topB})</span> : null}
                                             </td>
                                         </>
                                     ) : (
@@ -7757,7 +7777,7 @@ function RaioXAssetCard({ symKey, payload }) {
                                                 {fmtNum(w.hft_delta ?? 0, 0, true)} / <span style={{ color: "#d4a259" }}>{fmtNum(w.rlp_delta ?? Math.round(-Number(w.ret_delta ?? 0) * (Number(w.rlp_share_pct ?? w.rlp_pct ?? 0) / 100.0)), 0, true)}</span>
                                             </td>
                                             <td style={{ padding: "4px", color: "var(--mw-text-2)", fontSize: 10 }}>
-                                                {w.player_verdict || w.status} {topB ? <span style={{ color: "#d4a259" }}>({topB})</span> : null}
+                                                {stripUiEmoji(w.player_verdict || w.status)} {topB ? <span style={{ color: "#d4a259" }}>({topB})</span> : null}
                                             </td>
                                         </>
                                     ) : (

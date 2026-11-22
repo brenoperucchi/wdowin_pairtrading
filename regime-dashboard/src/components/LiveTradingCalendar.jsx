@@ -96,6 +96,11 @@ function stats(trades, key) {
     };
 }
 const fmtPf = (pf) => (pf === Infinity ? "∞" : pf.toFixed(2));
+const stripUiEmoji = (raw) =>
+    String(raw || "")
+        .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F]/gu, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
 
 function Kpi({ label, value, sub, color }) {
     return (
@@ -103,18 +108,18 @@ function Kpi({ label, value, sub, color }) {
             background: C.bg,
             border: `1px solid ${C.border}`,
             borderRadius: 8,
-            padding: "12px 14px",
+            padding: "11px 13px",
             display: "flex",
             flexDirection: "column",
             gap: 4,
             minWidth: 0,
         }}>
             <div style={{ fontSize: 11, color: C.txt3, fontWeight: 500, whiteSpace: "nowrap" }}>{label}</div>
-            <div className="mw-mono" style={{ fontSize: 17, fontWeight: 600, color: color || C.txt1, whiteSpace: "nowrap", lineHeight: 1.2 }}>
+            <div className="mw-mono" style={{ fontSize: 15.5, fontWeight: 600, color: color || C.txt1, whiteSpace: "nowrap", lineHeight: 1.2 }}>
                 {value}
             </div>
             {sub && (
-                <div className="mw-mono" style={{ fontSize: 11, color: C.txt3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div className="mw-mono" style={{ fontSize: 10.5, color: C.txt3, lineHeight: 1.35 }}>
                     {sub}
                 </div>
             )}
@@ -305,7 +310,7 @@ function LiveTradingCalendar({ portfolioData, onSelectDate }) {
             </div>
 
             {/* KPIs do mês */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(195px, 1fr))", gap: 10 }}>
                 <Kpi
                     label="Resultado do mês"
                     value={brl(ms.net)}
@@ -537,7 +542,7 @@ function LiveTradingCalendar({ portfolioData, onSelectDate }) {
                                             <td style={{ padding: "5px 6px", textAlign: "right" }}>{t.lots}</td>
                                             <td style={{ padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap" }}>{t.px_in} → {t.px_out}</td>
                                             <td style={{ padding: "5px 6px", textAlign: "right", color: pnlColor(t.pts), whiteSpace: "nowrap" }}>{t.pts > 0 ? "+" : ""}{t.pts}</td>
-                                            <td style={{ padding: "5px 6px", color: C.txt3, fontSize: 10.5 }}>{t.reason}</td>
+                                            <td style={{ padding: "5px 6px", color: C.txt3, fontSize: 10.5 }}>{stripUiEmoji(t.reason)}</td>
                                             <td style={{ padding: "5px 0 5px 6px", textAlign: "right", fontWeight: 600, color: pnlColor(t[pnlKey]), whiteSpace: "nowrap" }}>{brl(t[pnlKey], 2)}</td>
                                         </tr>
                                     ))}

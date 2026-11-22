@@ -26,47 +26,42 @@ function fmtPrice(v) {
 function outcomeBadgeStyle(reason, status) {
     if (status === "ABERTA") {
         return {
-            bg: "rgba(251, 191, 36, 0.16)",
-            border: "rgba(251, 191, 36, 0.55)",
-            color: "#fbbf24",
-            icon: "⏳",
-            label: "EM ABERTO (LIVE)",
+            bg: "rgba(212, 162, 89, 0.14)",
+            border: "rgba(212, 162, 89, 0.42)",
+            color: "#d4a259",
+            label: "Em aberto (Live)",
         };
     }
     const r = String(reason || "").toUpperCase();
     if (r.includes("GAIN") || r.includes("ALVO")) {
         return {
-            bg: "rgba(8, 153, 129, 0.22)",
-            border: "rgba(45, 212, 191, 0.55)",
-            color: "#2dd4bf",
-            icon: "🎯",
-            label: reason || "ALVO WALL",
+            bg: "rgba(76, 195, 138, 0.12)",
+            border: "rgba(76, 195, 138, 0.38)",
+            color: "#4cc38a",
+            label: reason || "Alvo Wall",
         };
     }
     if (r.includes("BE")) {
         return {
-            bg: "rgba(251, 191, 36, 0.16)",
-            border: "rgba(251, 191, 36, 0.5)",
-            color: "#fbbf24",
-            icon: "🛡️",
-            label: reason || "STOP BE (+15p)",
+            bg: "rgba(212, 162, 89, 0.12)",
+            border: "rgba(212, 162, 89, 0.38)",
+            color: "#d4a259",
+            label: reason || "Stop BE (+15p)",
         };
     }
     if (r.includes("STOP")) {
         return {
-            bg: "rgba(242, 54, 69, 0.2)",
-            border: "rgba(251, 113, 133, 0.55)",
-            color: "#fb7185",
-            icon: "🛑",
-            label: reason || "STOP WALL",
+            bg: "rgba(229, 72, 77, 0.12)",
+            border: "rgba(229, 72, 77, 0.38)",
+            color: "#e5484d",
+            label: reason || "Stop Wall",
         };
     }
     return {
-        bg: "rgba(148, 163, 184, 0.16)",
-        border: "rgba(148, 163, 184, 0.4)",
-        color: "#cbd5e1",
-        icon: "⏰",
-        label: reason || "SAÍDA 16:50",
+        bg: "var(--mw-chrome)",
+        border: "var(--mw-hairline)",
+        color: "var(--mw-text-2)",
+        label: reason || "Saída 16:50",
     };
 }
 
@@ -240,19 +235,15 @@ export default function StatArbLiveTradePanel({
     }, [selectedDate]);
 
     return (
-        <div
+        <section
+            className="mw-card"
             style={{
-                background: "linear-gradient(180deg, #0b111a 0%, #070b10 100%)",
-                border: "1px solid #1e293b",
-                borderRadius: 12,
                 padding: "16px 18px",
-                marginTop: 10,
-                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                color: "#e2e8f0",
-                boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+                marginTop: 4,
+                color: "var(--mw-text-1)",
             }}
         >
-            {/* ── Cabeçalho: Monitoramento Ao Vivo & Caixas de Posição ── */}
+            {/* Cabeçalho */}
             <div
                 style={{
                     display: "flex",
@@ -261,129 +252,125 @@ export default function StatArbLiveTradePanel({
                     flexWrap: "wrap",
                     gap: 12,
                     paddingBottom: 12,
-                    borderBottom: "1px solid #1e293b",
+                    borderBottom: "1px solid var(--mw-hairline)",
                     marginBottom: 14,
                 }}
             >
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     <span
+                        className="mw-mono"
                         style={{
                             display: "inline-flex",
                             alignItems: "center",
                             gap: 6,
                             padding: "4px 10px",
                             borderRadius: 6,
-                            fontSize: 10,
-                            fontWeight: 900,
-                            letterSpacing: 1,
+                            fontSize: 11,
+                            fontWeight: 600,
                             background: isViewingHistory
-                                ? "rgba(56, 189, 248, 0.14)"
+                                ? "var(--mw-accent-soft)"
                                 : daySummary.openOps > 0
-                                ? "rgba(251, 191, 36, 0.18)"
-                                : "rgba(16, 185, 129, 0.14)",
+                                ? "rgba(212, 162, 89, 0.14)"
+                                : "rgba(76, 195, 138, 0.10)",
                             border: `1px solid ${
                                 isViewingHistory
-                                    ? "rgba(56, 189, 248, 0.45)"
+                                    ? "var(--mw-accent-border)"
                                     : daySummary.openOps > 0
-                                    ? "rgba(251, 191, 36, 0.55)"
-                                    : "rgba(16, 185, 129, 0.4)"
+                                    ? "rgba(212, 162, 89, 0.4)"
+                                    : "rgba(76, 195, 138, 0.35)"
                             }`,
                             color: isViewingHistory
-                                ? "#38bdf8"
+                                ? "var(--mw-accent-ink)"
                                 : daySummary.openOps > 0
-                                ? "#fbbf24"
-                                : "#10b981",
+                                ? "#d4a259"
+                                : "#4cc38a",
                         }}
                     >
                         <span
                             style={{
-                                width: 7,
-                                height: 7,
+                                width: 6,
+                                height: 6,
                                 borderRadius: "50%",
                                 background: isViewingHistory
                                     ? "#38bdf8"
                                     : daySummary.openOps > 0
-                                    ? "#fbbf24"
-                                    : "#10b981",
-                                boxShadow: `0 0 8px ${
-                                    isViewingHistory
-                                        ? "#38bdf8"
-                                        : daySummary.openOps > 0
-                                        ? "#fbbf24"
-                                        : "#10b981"
-                                }`,
+                                    ? "#d4a259"
+                                    : "#4cc38a",
                             }}
                         />
                         {isViewingHistory
-                            ? `REPLAY DE PREGÃO · ${displayDateLabel}`
+                            ? `Replay · ${displayDateLabel}`
                             : daySummary.openOps > 0
-                            ? `OPERAÇÃO EM ABERTO AO VIVO (${daySummary.openOps})`
-                            : `MONITORAMENTO LIVE TRADE · ${displayDateLabel}`}
+                            ? `Operação em aberto (${daySummary.openOps})`
+                            : `Monitor live · ${displayDateLabel}`}
                     </span>
 
                     <div>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: "#f8fafc" }}>
-                            Acompanhamento de Operações Stat-Arb (WIN × WDO × DI)
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--mw-text-1)" }}>
+                            Acompanhamento de operações Stat-Arb (WIN × WDO × DI)
                         </div>
-                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 1 }}>
-                            Marcações no gráfico seguem o padrão TradingView (Caixa Verde = Alvo Wall · Caixa Vermelha = Stop atrás da Wall · Degrau Amarelo = Break-Even +150p → +15p · Linha Tracejada = Início ao Fim da Operação)
+                        <div className="mw-mono" style={{ fontSize: 11, color: "var(--mw-text-3)", marginTop: 2 }}>
+                            Caixa verde = alvo Wall · caixa vermelha = stop atrás da Wall · degrau âmbar = BE +150p → +15p
                         </div>
                     </div>
                 </div>
 
                 {/* Resumo Rápido do Pregão */}
                 <div
+                    className="mw-mono"
                     style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 10,
-                        background: "#0f172a",
-                        border: "1px solid #1e293b",
+                        gap: 12,
+                        background: "var(--mw-chrome)",
+                        border: "1px solid var(--mw-hairline)",
                         borderRadius: 8,
-                        padding: "6px 12px",
+                        padding: "7px 12px",
                     }}
                 >
                     <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 9, color: "#64748b", textTransform: "uppercase" }}>
-                            1x p/ Horário ({daySummary.dedupCount} op)
+                        <div style={{ fontSize: 10, color: "var(--mw-text-3)" }}>
+                            1x p/ horário ({daySummary.dedupCount} op)
                         </div>
                         <div
                             style={{
                                 fontSize: 13,
-                                fontWeight: 900,
+                                fontWeight: 600,
                                 color:
                                     daySummary.dedupPts > 0
-                                        ? "#10b981"
+                                        ? "#4cc38a"
                                         : daySummary.dedupPts < 0
-                                        ? "#f43f5e"
-                                        : "#94a3b8",
+                                        ? "#e5484d"
+                                        : "var(--mw-text-2)",
+                                whiteSpace: "nowrap",
                             }}
                         >
                             {fmtBrl(daySummary.dedupBrl)}{" "}
-                            <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.85 }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 500, opacity: 0.85 }}>
                                 ({fmtPts(daySummary.dedupPts)})
                             </span>
                         </div>
                     </div>
-                    <div style={{ width: 1, height: 24, background: "#1e293b" }} />
+                    <div style={{ width: 1, height: 26, background: "var(--mw-hairline-strong)" }} />
                     <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 9, color: "#64748b", textTransform: "uppercase" }}>
-                            Soma 3 Setups ({daySummary.totalOps} ops)
+                        <div style={{ fontSize: 10, color: "var(--mw-text-3)" }}>
+                            Soma 3 setups ({daySummary.totalOps} ops)
                         </div>
                         <div
                             style={{
                                 fontSize: 13,
-                                fontWeight: 900,
+                                fontWeight: 600,
                                 color:
                                     daySummary.grossPts > 0
-                                        ? "#10b981"
+                                        ? "#4cc38a"
                                         : daySummary.grossPts < 0
-                                        ? "#f43f5e"
-                                        : "#94a3b8",
+                                        ? "#e5484d"
+                                        : "var(--mw-text-2)",
+                                whiteSpace: "nowrap",
                             }}
                         >
                             {fmtBrl(daySummary.grossBrl)}{" "}
-                            <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.85 }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 500, opacity: 0.85 }}>
                                 ({fmtPts(daySummary.grossPts)})
                             </span>
                         </div>
@@ -391,7 +378,7 @@ export default function StatArbLiveTradePanel({
                 </div>
             </div>
 
-            {/* ── 3 Cards de Status Ao Vivo por Estratégia ── */}
+            {/* 3 Cards de Status por Estratégia */}
             <div
                 style={{
                     display: "grid",
@@ -409,14 +396,10 @@ export default function StatArbLiveTradePanel({
                         <div
                             key={key}
                             style={{
-                                background: isOpen
-                                    ? "linear-gradient(180deg, rgba(251,191,36,0.09) 0%, rgba(15,23,42,0.95) 100%)"
-                                    : "#0f172a",
-                                border: `1px solid ${
-                                    isOpen ? "#fbbf24" : hasTraded ? `${meta.color}55` : "#1e293b"
-                                }`,
-                                borderTop: `3px solid ${isOpen ? "#fbbf24" : meta.color}`,
-                                borderRadius: 10,
+                                background: "var(--mw-chrome)",
+                                border: "1px solid var(--mw-hairline)",
+                                borderLeft: `2px solid ${isOpen ? "#d4a259" : meta.color}`,
+                                borderRadius: 8,
                                 padding: "12px 14px",
                                 display: "flex",
                                 flexDirection: "column",
@@ -424,203 +407,161 @@ export default function StatArbLiveTradePanel({
                                 gap: 8,
                             }}
                         >
-                            {/* Linha 1: Nome da Estratégia + Status Badge */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                                <span style={{ fontSize: 11, fontWeight: 900, color: meta.color, letterSpacing: 0.4 }}>
+                                <span className="mw-mono" style={{ fontSize: 11.5, fontWeight: 600, color: meta.color }}>
                                     {meta.label}
                                 </span>
                                 {isOpen ? (
                                     <span
+                                        className="mw-mono"
                                         style={{
-                                            fontSize: 9,
-                                            fontWeight: 900,
+                                            fontSize: 10,
+                                            fontWeight: 600,
                                             padding: "2px 8px",
-                                            borderRadius: 4,
-                                            background: "rgba(251, 191, 36, 0.2)",
-                                            border: "1px solid #fbbf24",
-                                            color: "#fbbf24",
+                                            borderRadius: 5,
+                                            background: "rgba(212, 162, 89, 0.14)",
+                                            border: "1px solid rgba(212, 162, 89, 0.45)",
+                                            color: "#d4a259",
                                         }}
                                     >
-                                        ⏳ POSICIONADO AO VIVO
+                                        Posicionado ao vivo
                                     </span>
                                 ) : hasTraded ? (
                                     <span
+                                        className="mw-mono"
                                         style={{
-                                            fontSize: 9,
-                                            fontWeight: 800,
+                                            fontSize: 10,
+                                            fontWeight: 600,
                                             padding: "2px 8px",
-                                            borderRadius: 4,
-                                            background:
-                                                totalPts > 0
-                                                    ? "rgba(16, 185, 129, 0.16)"
-                                                    : "rgba(244, 63, 94, 0.16)",
-                                            border: `1px solid ${totalPts > 0 ? "#10b98166" : "#f43f5e66"}`,
-                                            color: totalPts > 0 ? "#10b981" : "#fb7185",
+                                            borderRadius: 5,
+                                            background: totalPts > 0 ? "rgba(76, 195, 138, 0.12)" : "rgba(229, 72, 77, 0.12)",
+                                            border: `1px solid ${totalPts > 0 ? "rgba(76, 195, 138, 0.35)" : "rgba(229, 72, 77, 0.35)"}`,
+                                            color: totalPts > 0 ? "#4cc38a" : "#e5484d",
                                         }}
                                     >
-                                        ✅ ENCERRADO ({trades.length} {trades.length === 1 ? "op" : "ops"})
+                                        Encerrado ({trades.length} {trades.length === 1 ? "op" : "ops"})
                                     </span>
                                 ) : (
                                     <span
+                                        className="mw-mono"
                                         style={{
-                                            fontSize: 9,
-                                            fontWeight: 700,
+                                            fontSize: 10,
+                                            fontWeight: 500,
                                             padding: "2px 8px",
-                                            borderRadius: 4,
-                                            background: "rgba(148, 163, 184, 0.1)",
-                                            border: "1px solid #334155",
-                                            color: "#94a3b8",
+                                            borderRadius: 5,
+                                            background: "var(--mw-card)",
+                                            border: "1px solid var(--mw-hairline)",
+                                            color: "var(--mw-text-3)",
                                         }}
                                     >
-                                        {inEntryWindow ? "⚪ AGUARDANDO GATILHO" : `⏸️ FORA DA JANELA (${lastTime})`}
+                                        {inEntryWindow ? "Aguardando gatilho" : `Fora da janela (${lastTime})`}
                                     </span>
                                 )}
                             </div>
 
-                            {/* Corpo do Card: Se estiver posicionado ao vivo, mostra detalhes da posição aberta */}
                             {isOpen ? (
                                 <div
+                                    className="mw-mono"
                                     style={{
-                                        background: "rgba(2, 6, 23, 0.65)",
-                                        border: "1px solid rgba(251, 191, 36, 0.35)",
+                                        background: "var(--mw-card)",
+                                        border: "1px solid rgba(212, 162, 89, 0.32)",
                                         borderRadius: 8,
                                         padding: "8px 10px",
-                                        fontSize: 10,
+                                        fontSize: 11,
                                     }}
                                 >
-                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                                        <span
-                                            style={{
-                                                fontWeight: 900,
-                                                color: openTrade.dir === "BUY" ? "#2dd4bf" : "#fb7185",
-                                            }}
-                                        >
-                                            {openTrade.dir === "BUY" ? "▲ COMPRA" : "▼ VENDA"} @{" "}
-                                            {fmtPrice(openTrade.entry_price)} ({openTrade.entry_time})
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 6 }}>
+                                        <span style={{ fontWeight: 600, color: openTrade.dir === "BUY" ? "#4cc38a" : "#e5484d" }}>
+                                            {openTrade.dir === "BUY" ? "Compra" : "Venda"} @ {fmtPrice(openTrade.entry_price)} ({openTrade.entry_time})
                                         </span>
-                                        <span
-                                            style={{
-                                                fontWeight: 900,
-                                                color: openTrade.pnl_pts >= 0 ? "#10b981" : "#f43f5e",
-                                            }}
-                                        >
+                                        <span style={{ fontWeight: 600, color: openTrade.pnl_pts >= 0 ? "#4cc38a" : "#e5484d", whiteSpace: "nowrap" }}>
                                             {fmtPts(openTrade.pnl_pts)} ({fmtBrl(openTrade.pnl_brl)})
                                         </span>
                                     </div>
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            color: "#94a3b8",
-                                            fontSize: 9.5,
-                                        }}
-                                    >
+                                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--mw-text-3)", fontSize: 10.5, gap: 6 }}>
                                         <span>
-                                            🎯 Alvo Wall:{" "}
-                                            <strong style={{ color: "#2dd4bf" }}>{fmtPrice(openTrade.tp_price)}</strong>
+                                            Alvo Wall: <strong style={{ color: "#4cc38a", fontWeight: 500 }}>{fmtPrice(openTrade.tp_price)}</strong>
                                         </span>
                                         <span>
-                                            🛑 Stop:{" "}
-                                            <strong
-                                                style={{
-                                                    color: openTrade.be_triggered ? "#fbbf24" : "#fb7185",
-                                                }}
-                                            >
+                                            Stop:{" "}
+                                            <strong style={{ color: openTrade.be_triggered ? "#d4a259" : "#e5484d", fontWeight: 500 }}>
                                                 {fmtPrice(openTrade.sl_price)}
-                                                {openTrade.be_triggered ? " (BE +15p 🔒)" : " (Wall Ant.)"}
+                                                {openTrade.be_triggered ? " (BE +15p)" : " (Wall ant.)"}
                                             </strong>
                                         </span>
                                     </div>
                                 </div>
                             ) : hasTraded && lastTrade ? (
                                 <div
+                                    className="mw-mono"
                                     style={{
-                                        background: "rgba(2, 6, 23, 0.55)",
-                                        border: "1px solid #1e293b",
+                                        background: "var(--mw-card)",
+                                        border: "1px solid var(--mw-hairline)",
                                         borderRadius: 8,
                                         padding: "8px 10px",
-                                        fontSize: 10,
+                                        fontSize: 11,
                                     }}
                                 >
-                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                                        <span style={{ color: "#cbd5e1", fontWeight: 700 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 6 }}>
+                                        <span style={{ color: "var(--mw-text-2)", fontWeight: 500 }}>
                                             Última:{" "}
-                                            <strong
-                                                style={{
-                                                    color: lastTrade.dir === "BUY" ? "#2dd4bf" : "#fb7185",
-                                                }}
-                                            >
-                                                {lastTrade.dir === "BUY" ? "COMPRA" : "VENDA"}
+                                            <strong style={{ color: lastTrade.dir === "BUY" ? "#4cc38a" : "#e5484d", fontWeight: 600 }}>
+                                                {lastTrade.dir === "BUY" ? "Compra" : "Venda"}
                                             </strong>{" "}
                                             ({lastTrade.entry_time} → {lastTrade.exit_time})
                                         </span>
-                                        <span
-                                            style={{
-                                                fontWeight: 900,
-                                                color: totalPts >= 0 ? "#10b981" : "#f43f5e",
-                                            }}
-                                        >
+                                        <span style={{ fontWeight: 600, color: totalPts >= 0 ? "#4cc38a" : "#e5484d", whiteSpace: "nowrap" }}>
                                             Dia: {fmtBrl(totalBrl)} ({fmtPts(totalPts)})
                                         </span>
                                     </div>
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            fontSize: 9.5,
-                                            color: "#94a3b8",
-                                        }}
-                                    >
+                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--mw-text-3)", gap: 6 }}>
                                         <span>
-                                            Entrada <strong style={{ color: "#e2e8f0" }}>{fmtPrice(lastTrade.entry_price)}</strong> → Saída{" "}
-                                            <strong style={{ color: "#e2e8f0" }}>{fmtPrice(lastTrade.exit_price)}</strong>
+                                            Entrada <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{fmtPrice(lastTrade.entry_price)}</strong> → Saída{" "}
+                                            <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{fmtPrice(lastTrade.exit_price)}</strong>
                                         </span>
-                                        <span
-                                            style={{
-                                                color: outcomeBadgeStyle(lastTrade.reason, lastTrade.status).color,
-                                                fontWeight: 800,
-                                            }}
-                                        >
-                                            {outcomeBadgeStyle(lastTrade.reason, lastTrade.status).icon} {lastTrade.reason}
+                                        <span style={{ color: outcomeBadgeStyle(lastTrade.reason, lastTrade.status).color, fontWeight: 600 }}>
+                                            {outcomeBadgeStyle(lastTrade.reason, lastTrade.status).label}
                                         </span>
                                     </div>
                                 </div>
                             ) : (
                                 <div
+                                    className="mw-mono"
                                     style={{
-                                        background: "rgba(2, 6, 23, 0.4)",
-                                        border: "1px dashed #1e293b",
+                                        background: "var(--mw-card)",
+                                        border: "1px dashed var(--mw-hairline)",
                                         borderRadius: 8,
-                                        padding: "8px 10px",
-                                        fontSize: 10,
-                                        color: "#64748b",
+                                        padding: "9px 10px",
+                                        fontSize: 11,
+                                        color: "var(--mw-text-3)",
                                     }}
                                 >
                                     Nenhuma operação disparada neste pregão até o momento.
                                 </div>
                             )}
 
-                            {/* Rodapé do Card: Leitura atual dos filtros */}
                             <div
+                                className="mw-mono"
                                 style={{
                                     display: "flex",
                                     justifyContent: "space-between",
                                     alignItems: "center",
-                                    fontSize: 9.5,
-                                    color: "#64748b",
-                                    borderTop: "1px solid rgba(30,41,59,0.6)",
+                                    fontSize: 10.5,
+                                    color: "var(--mw-text-3)",
+                                    borderTop: "1px solid var(--mw-hairline)",
                                     paddingTop: 6,
+                                    gap: 6,
                                 }}
                             >
                                 <span>{liveSignalDesc}</span>
-                                <span style={{ color: "#475569" }}>09:05–13:55</span>
+                                <span style={{ whiteSpace: "nowrap" }}>09:05–13:55</span>
                             </div>
                         </div>
                     );
                 })}
             </div>
 
-            {/* ── Seletor de Abas da Tabela: Operações do Pregão vs Histórico Auditado 2026 ── */}
+            {/* Seletor de abas da tabela */}
             <div
                 style={{
                     display: "flex",
@@ -631,355 +572,175 @@ export default function StatArbLiveTradePanel({
                     marginBottom: 12,
                 }}
             >
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div className="mw-track">
                     <button
+                        type="button"
+                        className="mw-btn mw-mono"
+                        data-active={activeView === "DAY" ? "true" : "false"}
                         onClick={() => setActiveView("DAY")}
-                        style={{
-                            padding: "7px 14px",
-                            borderRadius: 7,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            border:
-                                activeView === "DAY"
-                                    ? "1px solid #38bdf8"
-                                    : "1px solid #1e293b",
-                            background:
-                                activeView === "DAY"
-                                    ? "rgba(56, 189, 248, 0.16)"
-                                    : "#0f172a",
-                            color: activeView === "DAY" ? "#38bdf8" : "#94a3b8",
-                        }}
+                        style={{ height: 28, padding: "0 12px", fontSize: 11.5 }}
                     >
-                        🟢 Operações do Pregão ({sessionTrades.length})
+                        Operações do pregão ({sessionTrades.length})
                     </button>
                     <button
+                        type="button"
+                        className="mw-btn mw-mono"
+                        data-active={activeView === "ALL" ? "true" : "false"}
                         onClick={() => {
                             setActiveView("ALL");
                             setPage(0);
                         }}
-                        style={{
-                            padding: "7px 14px",
-                            borderRadius: 7,
-                            fontSize: 11,
-                            fontWeight: 800,
-                            cursor: "pointer",
-                            border:
-                                activeView === "ALL"
-                                    ? "1px solid #a78bfa"
-                                    : "1px solid #1e293b",
-                            background:
-                                activeView === "ALL"
-                                    ? "rgba(167, 139, 250, 0.16)"
-                                    : "#0f172a",
-                            color: activeView === "ALL" ? "#c4b5fd" : "#94a3b8",
-                        }}
+                        style={{ height: 28, padding: "0 12px", fontSize: 11.5 }}
                     >
-                        📋 Histórico Auditado Completo 2026 + Live ({allAuditedTrades.length} ops)
+                        Histórico auditado 2026 + Live ({allAuditedTrades.length} ops)
                     </button>
                 </div>
 
                 {/* Filtros da aba Histórico Completo */}
                 {activeView === "ALL" && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                        {[
-                            { id: "ALL", label: "Todas" },
-                            { id: "CONS", label: "1. CONSENSO", color: "#38bdf8" },
-                            { id: "DI_NWE", label: "2. DI_NWE", color: "#a855f7" },
-                            { id: "WDO_NWE", label: "3. WDO_NWE", color: "#f59e0b" },
-                        ].map((b) => (
-                            <button
-                                key={b.id}
-                                onClick={() => {
-                                    setStratFilter(b.id);
-                                    setPage(0);
-                                }}
-                                style={{
-                                    padding: "4px 9px",
-                                    borderRadius: 5,
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    cursor: "pointer",
-                                    border:
-                                        stratFilter === b.id
-                                            ? `1px solid ${b.color || "#38bdf8"}`
-                                            : "1px solid #1e293b",
-                                    background:
-                                        stratFilter === b.id
-                                            ? "rgba(30, 41, 59, 0.9)"
-                                            : "#090d14",
-                                    color:
-                                        stratFilter === b.id
-                                            ? b.color || "#f8fafc"
-                                            : "#64748b",
-                                }}
-                            >
-                                {b.label}
-                            </button>
-                        ))}
-                        <span style={{ color: "#334155" }}>|</span>
-                        {[
-                            { id: "ALL", label: "Todos Desfechos" },
-                            { id: "GAIN", label: "🎯 Gain Wall", color: "#2dd4bf" },
-                            { id: "BE", label: "🛡️ Stop BE (+15p)", color: "#fbbf24" },
-                            { id: "STOP", label: "🛑 Stop Wall", color: "#fb7185" },
-                        ].map((b) => (
-                            <button
-                                key={b.id}
-                                onClick={() => {
-                                    setOutcomeFilter(b.id);
-                                    setPage(0);
-                                }}
-                                style={{
-                                    padding: "4px 9px",
-                                    borderRadius: 5,
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    cursor: "pointer",
-                                    border:
-                                        outcomeFilter === b.id
-                                            ? `1px solid ${b.color || "#38bdf8"}`
-                                            : "1px solid #1e293b",
-                                    background:
-                                        outcomeFilter === b.id
-                                            ? "rgba(30, 41, 59, 0.9)"
-                                            : "#090d14",
-                                    color:
-                                        outcomeFilter === b.id
-                                            ? b.color || "#f8fafc"
-                                            : "#64748b",
-                                }}
-                            >
-                                {b.label}
-                            </button>
-                        ))}
+                        <div className="mw-track">
+                            {[
+                                { id: "ALL", label: "Todas" },
+                                { id: "CONS", label: "Consenso" },
+                                { id: "DI_NWE", label: "DI_NWE" },
+                                { id: "WDO_NWE", label: "WDO_NWE" },
+                            ].map((b) => (
+                                <button
+                                    key={b.id}
+                                    type="button"
+                                    className="mw-btn mw-mono"
+                                    data-active={stratFilter === b.id ? "true" : "false"}
+                                    onClick={() => {
+                                        setStratFilter(b.id);
+                                        setPage(0);
+                                    }}
+                                    style={{ height: 24, padding: "0 8px", fontSize: 10.5 }}
+                                >
+                                    {b.label}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="mw-track">
+                            {[
+                                { id: "ALL", label: "Todos desfechos" },
+                                { id: "GAIN", label: "Gain Wall" },
+                                { id: "BE", label: "Stop BE (+15p)" },
+                                { id: "STOP", label: "Stop Wall" },
+                            ].map((b) => (
+                                <button
+                                    key={b.id}
+                                    type="button"
+                                    className="mw-btn mw-mono"
+                                    data-active={outcomeFilter === b.id ? "true" : "false"}
+                                    onClick={() => {
+                                        setOutcomeFilter(b.id);
+                                        setPage(0);
+                                    }}
+                                    style={{ height: 24, padding: "0 8px", fontSize: 10.5 }}
+                                >
+                                    {b.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>
 
-            {/* ── TABELA 1: OPERAÇÕES DO PREGÃO ATUAL / SELECIONADO ── */}
+            {/* TABELA 1: OPERAÇÕES DO PREGÃO ATUAL / SELECIONADO */}
             {activeView === "DAY" && (
                 <div style={{ overflowX: "auto" }}>
                     {sessionTrades.length === 0 ? (
                         <div
+                            className="mw-mono"
                             style={{
-                                padding: "24px 16px",
+                                padding: "22px 16px",
                                 textAlign: "center",
-                                color: "#64748b",
-                                fontSize: 11,
-                                background: "#090d14",
-                                border: "1px dashed #1e293b",
+                                color: "var(--mw-text-3)",
+                                fontSize: 11.5,
+                                background: "var(--mw-chrome)",
+                                border: "1px dashed var(--mw-hairline)",
                                 borderRadius: 8,
                             }}
                         >
-                            Nenhuma operação disparada no pregão ({displayDateLabel}). Assim que um gatilho Z-Score + Wall for acionado entre 09:05 e 13:55, a caixa de posição e o acompanhamento em tempo real aparecerão aqui e no gráfico acima.
+                            Nenhuma operação disparada no pregão ({displayDateLabel}). Assim que um gatilho Z-Score + Wall for acionado entre 09:05 e 13:55, o acompanhamento aparecerá aqui e no gráfico acima.
                         </div>
                     ) : (
-                        <table
-                            style={{
-                                width: "100%",
-                                borderCollapse: "collapse",
-                                fontSize: 11,
-                            }}
-                        >
+                        <table className="mw-mono" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                             <thead>
-                                <tr
-                                    style={{
-                                        background: "#090d14",
-                                        color: "#64748b",
-                                        fontSize: 9.5,
-                                        textTransform: "uppercase",
-                                        letterSpacing: 0.6,
-                                        borderBottom: "1px solid #1e293b",
-                                    }}
-                                >
-                                    <th style={{ padding: "8px 10px", textAlign: "left" }}>Janela (Início → Fim)</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "left" }}>Estratégia</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "center" }}>Lado</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Entrada</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Stop Wall Ant.</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "center" }}>Break-Even (+150p)</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Alvo Próx. Wall</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Saída / Atual</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Resultado (Pts)</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>R$ (2 Cts)</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "center" }}>Status / Desfecho</th>
+                                <tr style={{ background: "var(--mw-chrome)", color: "var(--mw-text-3)", fontSize: 10.5, borderBottom: "1px solid var(--mw-hairline)" }}>
+                                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 500 }}>Janela</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 500 }}>Estratégia</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>Lado</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Entrada</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Stop Wall</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>Break-even (+150p)</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Alvo Wall</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Saída / atual</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Pontos</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>R$ (2 cts)</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>Desfecho</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {sessionTrades.map((tr, idx) => {
-                                    const meta = STATARB_STRAT_META[tr.strat] || {
-                                        label: tr.strat,
-                                        color: "#38bdf8",
-                                    };
+                                    const meta = STATARB_STRAT_META[tr.strat] || { label: tr.strat, color: "#38bdf8" };
                                     const badge = outcomeBadgeStyle(tr.reason, tr.status);
                                     const isBuy = tr.dir === "BUY";
                                     return (
                                         <tr
                                             key={`${tr.strat}_${tr.entry_time}_${idx}`}
                                             style={{
-                                                borderBottom: "1px solid rgba(30,41,59,0.65)",
-                                                background:
-                                                    tr.status === "ABERTA"
-                                                        ? "rgba(251, 191, 36, 0.06)"
-                                                        : idx % 2 === 0
-                                                        ? "transparent"
-                                                        : "rgba(15, 23, 42, 0.4)",
+                                                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                                background: tr.status === "ABERTA" ? "rgba(212, 162, 89, 0.06)" : "transparent",
                                             }}
                                         >
-                                            <td style={{ padding: "9px 10px", fontWeight: 800, color: "#f8fafc" }}>
-                                                {tr.entry_time}{" "}
-                                                <span style={{ color: "#64748b" }}>→</span>{" "}
-                                                <span
-                                                    style={{
-                                                        color:
-                                                            tr.status === "ABERTA"
-                                                                ? "#fbbf24"
-                                                                : "#cbd5e1",
-                                                    }}
-                                                >
-                                                    {tr.status === "ABERTA"
-                                                        ? `${tr.exit_time} (Ao Vivo)`
-                                                        : tr.exit_time}
+                                            <td style={{ padding: "8px 10px", fontWeight: 500, color: "var(--mw-text-1)", whiteSpace: "nowrap" }}>
+                                                {tr.entry_time} <span style={{ color: "var(--mw-text-3)" }}>→</span>{" "}
+                                                <span style={{ color: tr.status === "ABERTA" ? "#d4a259" : "var(--mw-text-2)" }}>
+                                                    {tr.status === "ABERTA" ? `${tr.exit_time} (Live)` : tr.exit_time}
                                                 </span>
                                             </td>
-                                            <td style={{ padding: "9px 10px" }}>
-                                                <span
-                                                    style={{
-                                                        color: meta.color,
-                                                        fontWeight: 900,
-                                                        fontSize: 10.5,
-                                                    }}
-                                                >
-                                                    {meta.label}
+                                            <td style={{ padding: "8px 10px", color: meta.color, fontWeight: 600, whiteSpace: "nowrap" }}>{meta.label}</td>
+                                            <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                                <span style={{
+                                                    padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                                    background: isBuy ? "rgba(76, 195, 138, 0.12)" : "rgba(229, 72, 77, 0.12)",
+                                                    border: `1px solid ${isBuy ? "rgba(76, 195, 138, 0.35)" : "rgba(229, 72, 77, 0.35)"}`,
+                                                    color: isBuy ? "#4cc38a" : "#e5484d",
+                                                }}>
+                                                    {isBuy ? "Compra" : "Venda"}
                                                 </span>
                                             </td>
-                                            <td style={{ padding: "9px 10px", textAlign: "center" }}>
-                                                <span
-                                                    style={{
-                                                        padding: "2px 7px",
-                                                        borderRadius: 4,
-                                                        fontSize: 9.5,
-                                                        fontWeight: 900,
-                                                        background: isBuy
-                                                            ? "rgba(8, 153, 129, 0.2)"
-                                                            : "rgba(242, 54, 69, 0.2)",
-                                                        border: `1px solid ${
-                                                            isBuy ? "#2dd4bf66" : "#fb718566"
-                                                        }`,
-                                                        color: isBuy ? "#2dd4bf" : "#fb7185",
-                                                    }}
-                                                >
-                                                    {isBuy ? "▲ COMPRA" : "▼ VENDA"}
-                                                </span>
+                                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500, color: "var(--mw-text-1)", whiteSpace: "nowrap" }}>{fmtPrice(tr.entry_price)}</td>
+                                            <td style={{ padding: "8px 10px", textAlign: "right", color: "#e5484d", whiteSpace: "nowrap" }}>
+                                                {fmtPrice(tr.initial_sl_price || tr.sl_price)} <span style={{ fontSize: 10, color: "var(--mw-text-3)" }}>(-{Math.round(tr.sl_dist || 0)}p)</span>
                                             </td>
-                                            <td
-                                                style={{
-                                                    padding: "9px 10px",
-                                                    textAlign: "right",
-                                                    fontWeight: 800,
-                                                    color: "#f8fafc",
-                                                }}
-                                            >
-                                                {fmtPrice(tr.entry_price)}
-                                            </td>
-                                            <td
-                                                style={{
-                                                    padding: "9px 10px",
-                                                    textAlign: "right",
-                                                    color: "#fb7185",
-                                                }}
-                                            >
-                                                {fmtPrice(tr.initial_sl_price || tr.sl_price)}{" "}
-                                                <span style={{ fontSize: 9.5, color: "#64748b" }}>
-                                                    (-{Math.round(tr.sl_dist || 0)}p)
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: "9px 10px", textAlign: "center" }}>
+                                            <td style={{ padding: "8px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
                                                 {tr.be_triggered ? (
-                                                    <span
-                                                        style={{
-                                                            color: "#fbbf24",
-                                                            fontWeight: 800,
-                                                            fontSize: 10,
-                                                        }}
-                                                    >
-                                                        🔒 Ativado às {tr.be_time} ({fmtPrice(tr.sl_price)})
+                                                    <span style={{ color: "#d4a259", fontWeight: 500, fontSize: 10.5 }}>
+                                                        Ativado às {tr.be_time} ({fmtPrice(tr.sl_price)})
                                                     </span>
                                                 ) : (
-                                                    <span style={{ color: "#475569", fontSize: 10 }}>
-                                                        Não atingiu +150p
-                                                    </span>
+                                                    <span style={{ color: "var(--mw-text-3)", fontSize: 10.5 }}>Não atingiu +150p</span>
                                                 )}
                                             </td>
-                                            <td
-                                                style={{
-                                                    padding: "9px 10px",
-                                                    textAlign: "right",
-                                                    color: "#2dd4bf",
-                                                }}
-                                            >
-                                                {fmtPrice(tr.tp_price)}{" "}
-                                                <span style={{ fontSize: 9.5, color: "#64748b" }}>
-                                                    (+{Math.round(tr.tp_dist || 0)}p)
-                                                </span>
+                                            <td style={{ padding: "8px 10px", textAlign: "right", color: "#4cc38a", whiteSpace: "nowrap" }}>
+                                                {fmtPrice(tr.tp_price)} <span style={{ fontSize: 10, color: "var(--mw-text-3)" }}>(+{Math.round(tr.tp_dist || 0)}p)</span>
                                             </td>
-                                            <td
-                                                style={{
-                                                    padding: "9px 10px",
-                                                    textAlign: "right",
-                                                    fontWeight: 800,
-                                                    color: "#e2e8f0",
-                                                }}
-                                            >
-                                                {fmtPrice(tr.exit_price)}
-                                            </td>
-                                            <td
-                                                style={{
-                                                    padding: "9px 10px",
-                                                    textAlign: "right",
-                                                    fontWeight: 900,
-                                                    color:
-                                                        tr.pnl_pts > 0
-                                                            ? "#10b981"
-                                                            : tr.pnl_pts < 0
-                                                            ? "#f43f5e"
-                                                            : "#94a3b8",
-                                                }}
-                                            >
+                                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500, color: "var(--mw-text-2)", whiteSpace: "nowrap" }}>{fmtPrice(tr.exit_price)}</td>
+                                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, color: tr.pnl_pts > 0 ? "#4cc38a" : tr.pnl_pts < 0 ? "#e5484d" : "var(--mw-text-3)", whiteSpace: "nowrap" }}>
                                                 {fmtPts(tr.pnl_pts)}
                                             </td>
-                                            <td
-                                                style={{
-                                                    padding: "9px 10px",
-                                                    textAlign: "right",
-                                                    fontWeight: 900,
-                                                    color:
-                                                        tr.pnl_brl > 0
-                                                            ? "#10b981"
-                                                            : tr.pnl_brl < 0
-                                                            ? "#f43f5e"
-                                                            : "#94a3b8",
-                                                }}
-                                            >
+                                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, color: tr.pnl_brl > 0 ? "#4cc38a" : tr.pnl_brl < 0 ? "#e5484d" : "var(--mw-text-3)", whiteSpace: "nowrap" }}>
                                                 {fmtBrl(tr.pnl_brl)}
                                             </td>
-                                            <td style={{ padding: "9px 10px", textAlign: "center" }}>
-                                                <span
-                                                    style={{
-                                                        display: "inline-flex",
-                                                        alignItems: "center",
-                                                        gap: 4,
-                                                        padding: "3px 8px",
-                                                        borderRadius: 5,
-                                                        fontSize: 9.5,
-                                                        fontWeight: 900,
-                                                        background: badge.bg,
-                                                        border: `1px solid ${badge.border}`,
-                                                        color: badge.color,
-                                                    }}
-                                                >
-                                                    {badge.icon} {badge.label}
+                                            <td style={{ padding: "8px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
+                                                <span style={{
+                                                    display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5,
+                                                    fontSize: 10, fontWeight: 600, background: badge.bg, border: `1px solid ${badge.border}`, color: badge.color,
+                                                }}>
+                                                    {badge.label}
                                                 </span>
                                             </td>
                                         </tr>
@@ -991,13 +752,14 @@ export default function StatArbLiveTradePanel({
                 </div>
             )}
 
-            {/* ── TABELA 2: HISTÓRICO COMPLETO AUDITADO (488+ TRADES DE 2026 + LIVE) ── */}
+            {/* TABELA 2: HISTÓRICO COMPLETO AUDITADO (488+ TRADES DE 2026 + LIVE) */}
             {activeView === "ALL" && (
                 <div>
                     <div
+                        className="mw-mono"
                         style={{
-                            fontSize: 10,
-                            color: "#94a3b8",
+                            fontSize: 11,
+                            color: "var(--mw-text-3)",
                             marginBottom: 8,
                             display: "flex",
                             justifyContent: "space-between",
@@ -1007,53 +769,36 @@ export default function StatArbLiveTradePanel({
                         }}
                     >
                         <span>
-                            💡 <strong>Clique em qualquer operação abaixo</strong> para carregar o pregão correspondente no gráfico M5 acima com a Caixa de Posição (Entrada, Break-Even e Saída).
+                            Clique em qualquer operação abaixo para carregar o pregão correspondente no gráfico M5 acima.
                         </span>
                         <span>
-                            Exibindo <strong>{filteredAllTrades.length}</strong> operações filtradas · Página{" "}
-                            <strong>{page + 1}</strong> de <strong>{totalPages}</strong>
+                            Exibindo <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{filteredAllTrades.length}</strong> operações · Página{" "}
+                            <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{page + 1}</strong> de{" "}
+                            <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{totalPages}</strong>
                         </span>
                     </div>
 
                     <div style={{ overflowX: "auto" }}>
-                        <table
-                            style={{
-                                width: "100%",
-                                borderCollapse: "collapse",
-                                fontSize: 11,
-                            }}
-                        >
+                        <table className="mw-mono" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                             <thead>
-                                <tr
-                                    style={{
-                                        background: "#090d14",
-                                        color: "#64748b",
-                                        fontSize: 9.5,
-                                        textTransform: "uppercase",
-                                        letterSpacing: 0.6,
-                                        borderBottom: "1px solid #1e293b",
-                                    }}
-                                >
-                                    <th style={{ padding: "8px 10px", textAlign: "left" }}>Data</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "left" }}>Janela (Início → Fim)</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "left" }}>Estratégia</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "center" }}>Lado</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Entrada</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Stop Inicial</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "center" }}>Break-Even</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Alvo Wall</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Saída</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>Pontos</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "right" }}>R$ (2 Cts)</th>
-                                    <th style={{ padding: "8px 10px", textAlign: "center" }}>Desfecho</th>
+                                <tr style={{ background: "var(--mw-chrome)", color: "var(--mw-text-3)", fontSize: 10.5, borderBottom: "1px solid var(--mw-hairline)" }}>
+                                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 500 }}>Data</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 500 }}>Janela</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 500 }}>Estratégia</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>Lado</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Entrada</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Stop inicial</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>Break-even</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Alvo Wall</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Saída</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>Pontos</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "right", fontWeight: 500 }}>R$ (2 cts)</th>
+                                    <th style={{ padding: "8px 10px", textAlign: "center", fontWeight: 500 }}>Desfecho</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {pagedAllTrades.map((tr, idx) => {
-                                    const meta = STATARB_STRAT_META[tr.strat] || {
-                                        label: tr.strat,
-                                        color: "#38bdf8",
-                                    };
+                                    const meta = STATARB_STRAT_META[tr.strat] || { label: tr.strat, color: "#38bdf8" };
                                     const badge = outcomeBadgeStyle(tr.reason, tr.status);
                                     const isBuy = tr.dir === "BUY";
                                     const isSelectedDate = selectedDate && tr.date === selectedDate;
@@ -1061,118 +806,49 @@ export default function StatArbLiveTradePanel({
                                         <tr
                                             key={`${tr.date}_${tr.strat}_${tr.entry_time}_${idx}`}
                                             onClick={() => {
-                                                if (onSelectDate && tr.date) {
-                                                    onSelectDate(tr.date);
-                                                }
+                                                if (onSelectDate && tr.date) onSelectDate(tr.date);
                                             }}
                                             style={{
                                                 cursor: "pointer",
-                                                borderBottom: "1px solid rgba(30,41,59,0.6)",
-                                                background: isSelectedDate
-                                                    ? "rgba(56, 189, 248, 0.12)"
-                                                    : idx % 2 === 0
-                                                    ? "transparent"
-                                                    : "rgba(15, 23, 42, 0.4)",
-                                                transition: "background 0.15s",
+                                                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                                background: isSelectedDate ? "var(--mw-accent-soft)" : "transparent",
                                             }}
                                         >
-                                            <td
-                                                style={{
-                                                    padding: "8px 10px",
-                                                    fontWeight: 800,
-                                                    color: "#38bdf8",
-                                                }}
-                                            >
-                                                📅 {tr.date_br || tr.date}
+                                            <td style={{ padding: "7px 10px", fontWeight: 600, color: "#38bdf8", whiteSpace: "nowrap" }}>
+                                                {tr.date_br || tr.date}
                                             </td>
-                                            <td style={{ padding: "8px 10px", fontWeight: 700, color: "#e2e8f0" }}>
-                                                {tr.entry_time} <span style={{ color: "#64748b" }}>→</span>{" "}
-                                                {tr.exit_time}
+                                            <td style={{ padding: "7px 10px", color: "var(--mw-text-2)", whiteSpace: "nowrap" }}>
+                                                {tr.entry_time} <span style={{ color: "var(--mw-text-3)" }}>→</span> {tr.exit_time}
                                             </td>
-                                            <td style={{ padding: "8px 10px" }}>
-                                                <span
-                                                    style={{
-                                                        color: meta.color,
-                                                        fontWeight: 900,
-                                                        fontSize: 10.5,
-                                                    }}
-                                                >
-                                                    {meta.label}
+                                            <td style={{ padding: "7px 10px", color: meta.color, fontWeight: 600, whiteSpace: "nowrap" }}>{meta.label}</td>
+                                            <td style={{ padding: "7px 10px", textAlign: "center" }}>
+                                                <span style={{
+                                                    padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                                    background: isBuy ? "rgba(76, 195, 138, 0.12)" : "rgba(229, 72, 77, 0.12)",
+                                                    color: isBuy ? "#4cc38a" : "#e5484d",
+                                                }}>
+                                                    {isBuy ? "Compra" : "Venda"}
                                                 </span>
                                             </td>
-                                            <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                                                <span
-                                                    style={{
-                                                        padding: "2px 7px",
-                                                        borderRadius: 4,
-                                                        fontSize: 9.5,
-                                                        fontWeight: 900,
-                                                        background: isBuy
-                                                            ? "rgba(8, 153, 129, 0.2)"
-                                                            : "rgba(242, 54, 69, 0.2)",
-                                                        color: isBuy ? "#2dd4bf" : "#fb7185",
-                                                    }}
-                                                >
-                                                    {isBuy ? "▲ COMPRA" : "▼ VENDA"}
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700 }}>
-                                                {fmtPrice(tr.entry_price)}
-                                            </td>
-                                            <td style={{ padding: "8px 10px", textAlign: "right", color: "#fb7185" }}>
-                                                {fmtPrice(tr.initial_sl_price || tr.sl_price)}
-                                            </td>
-                                            <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 10 }}>
+                                            <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>{fmtPrice(tr.entry_price)}</td>
+                                            <td style={{ padding: "7px 10px", textAlign: "right", color: "#e5484d", whiteSpace: "nowrap" }}>{fmtPrice(tr.initial_sl_price || tr.sl_price)}</td>
+                                            <td style={{ padding: "7px 10px", textAlign: "center", fontSize: 10.5, whiteSpace: "nowrap" }}>
                                                 {tr.be_triggered ? (
-                                                    <span style={{ color: "#fbbf24", fontWeight: 800 }}>
-                                                        🔒 {tr.be_time || "Sim"}
-                                                    </span>
+                                                    <span style={{ color: "#d4a259", fontWeight: 500 }}>{tr.be_time || "Sim"}</span>
                                                 ) : (
-                                                    <span style={{ color: "#475569" }}>—</span>
+                                                    <span style={{ color: "var(--mw-text-3)" }}>—</span>
                                                 )}
                                             </td>
-                                            <td style={{ padding: "8px 10px", textAlign: "right", color: "#2dd4bf" }}>
-                                                {fmtPrice(tr.tp_price)}
-                                            </td>
-                                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700 }}>
-                                                {fmtPrice(tr.exit_price)}
-                                            </td>
-                                            <td
-                                                style={{
-                                                    padding: "8px 10px",
-                                                    textAlign: "right",
-                                                    fontWeight: 900,
-                                                    color: tr.pnl_pts >= 0 ? "#10b981" : "#f43f5e",
-                                                }}
-                                            >
-                                                {fmtPts(tr.pnl_pts)}
-                                            </td>
-                                            <td
-                                                style={{
-                                                    padding: "8px 10px",
-                                                    textAlign: "right",
-                                                    fontWeight: 900,
-                                                    color: tr.pnl_brl >= 0 ? "#10b981" : "#f43f5e",
-                                                }}
-                                            >
-                                                {fmtBrl(tr.pnl_brl)}
-                                            </td>
-                                            <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                                                <span
-                                                    style={{
-                                                        display: "inline-flex",
-                                                        alignItems: "center",
-                                                        gap: 4,
-                                                        padding: "2px 8px",
-                                                        borderRadius: 5,
-                                                        fontSize: 9.5,
-                                                        fontWeight: 800,
-                                                        background: badge.bg,
-                                                        border: `1px solid ${badge.border}`,
-                                                        color: badge.color,
-                                                    }}
-                                                >
-                                                    {badge.icon} {badge.label}
+                                            <td style={{ padding: "7px 10px", textAlign: "right", color: "#4cc38a", whiteSpace: "nowrap" }}>{fmtPrice(tr.tp_price)}</td>
+                                            <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 500, whiteSpace: "nowrap" }}>{fmtPrice(tr.exit_price)}</td>
+                                            <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 600, color: tr.pnl_pts >= 0 ? "#4cc38a" : "#e5484d", whiteSpace: "nowrap" }}>{fmtPts(tr.pnl_pts)}</td>
+                                            <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 600, color: tr.pnl_brl >= 0 ? "#4cc38a" : "#e5484d", whiteSpace: "nowrap" }}>{fmtBrl(tr.pnl_brl)}</td>
+                                            <td style={{ padding: "7px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
+                                                <span style={{
+                                                    display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 5,
+                                                    fontSize: 10, fontWeight: 600, background: badge.bg, border: `1px solid ${badge.border}`, color: badge.color,
+                                                }}>
+                                                    {badge.label}
                                                 </span>
                                             </td>
                                         </tr>
@@ -1184,54 +860,33 @@ export default function StatArbLiveTradePanel({
 
                     {/* Paginação */}
                     {totalPages > 1 && (
-                        <div
-                            style={{
-                                display: "flex",
-                                justifyContent: "center",
-                                alignItems: "center",
-                                gap: 10,
-                                marginTop: 12,
-                            }}
-                        >
+                        <div className="mw-mono" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, marginTop: 12 }}>
                             <button
+                                type="button"
+                                className="mw-btn mw-btn-secondary"
                                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                                 disabled={page === 0}
-                                style={{
-                                    padding: "5px 12px",
-                                    borderRadius: 6,
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    cursor: page === 0 ? "not-allowed" : "pointer",
-                                    background: "#0f172a",
-                                    border: "1px solid #1e293b",
-                                    color: page === 0 ? "#475569" : "#e2e8f0",
-                                }}
+                                style={{ height: 28, padding: "0 12px", fontSize: 11 }}
                             >
-                                ◀ Anterior
+                                Anterior
                             </button>
-                            <span style={{ fontSize: 10, color: "#94a3b8" }}>
-                                Página <strong>{page + 1}</strong> de <strong>{totalPages}</strong>
+                            <span style={{ fontSize: 11, color: "var(--mw-text-3)" }}>
+                                Página <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{page + 1}</strong> de{" "}
+                                <strong style={{ color: "var(--mw-text-1)", fontWeight: 500 }}>{totalPages}</strong>
                             </span>
                             <button
+                                type="button"
+                                className="mw-btn mw-btn-secondary"
                                 onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                                 disabled={page >= totalPages - 1}
-                                style={{
-                                    padding: "5px 12px",
-                                    borderRadius: 6,
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    cursor: page >= totalPages - 1 ? "not-allowed" : "pointer",
-                                    background: "#0f172a",
-                                    border: "1px solid #1e293b",
-                                    color: page >= totalPages - 1 ? "#475569" : "#e2e8f0",
-                                }}
+                                style={{ height: 28, padding: "0 12px", fontSize: 11 }}
                             >
-                                Próxima ▶
+                                Próxima
                             </button>
                         </div>
                     )}
                 </div>
             )}
-        </div>
+        </section>
     );
 }

@@ -17,9 +17,9 @@ import { authFetch, canAccessMediaStudio, isSaasAuthEnabled } from "./utils/saas
 import { simulateDayStatArbTradesJs, normalizeStatArbTrade } from "./utils/statArbDayTrades";
 
 const STRAT_LABELS = {
-    CONS_BASE: { label: "CONS", color: "#00d4ff" },
-    WDO_NWE: { label: "WDO", color: "#c8a444" },
-    DI_NWE: { label: "DI", color: "#8a6dff" },
+    CONS_BASE: { label: "CONS", color: "#38bdf8" },
+    WDO_NWE: { label: "WDO", color: "#d4a259" },
+    DI_NWE: { label: "DI", color: "#a78bfa" },
 };
 
 const API_URL = `${API_BASE}/api/v2/regime`;
@@ -91,11 +91,11 @@ function genFallback(n = 120) {
 
 function getSignal(z) {
     const az = Math.abs(z);
-    if (az >= 4) return { id: "anomalia", label: "ANOMALIA", sub: "Não operar — possível breakdown", wdo: null, win: null, color: "#ff3860" };
-    if (z >= 1.4) return { id: "compraWdo", label: "VENDE WIN", sub: "Z-Score positivo — spread revertendo", wdo: "IGNORAR", win: "VENDER", color: "#ff3860" };
-    if (z <= -1.4) return { id: "compraWin", label: "COMPRA WIN", sub: "Z-Score negativo — spread revertendo", wdo: "IGNORAR", win: "COMPRAR", color: "#00e87a" };
-    if (az >= 1.2) return { id: "atencao", label: "ZONA DE DIVERGENCIA", sub: "Aguardar Z atingir +/-1.4 para entrar", wdo: null, win: null, color: "#f5a623" };
-    return { id: "neutro", label: "AGUARDAR", sub: "Spread em equilibrio — sem setup no momento", wdo: null, win: null, color: "#445560" };
+    if (az >= 4) return { id: "anomalia", label: "ANOMALIA", sub: "Não operar — possível breakdown", wdo: null, win: null, color: "#e5484d" };
+    if (z >= 1.4) return { id: "compraWdo", label: "VENDE WIN", sub: "Z-Score positivo — spread revertendo", wdo: "IGNORAR", win: "VENDER", color: "#e5484d" };
+    if (z <= -1.4) return { id: "compraWin", label: "COMPRA WIN", sub: "Z-Score negativo — spread revertendo", wdo: "IGNORAR", win: "COMPRAR", color: "#4cc38a" };
+    if (az >= 1.2) return { id: "atencao", label: "ZONA DE DIVERGENCIA", sub: "Aguardar Z atingir +/-1.4 para entrar", wdo: null, win: null, color: "#d4a259" };
+    return { id: "neutro", label: "AGUARDAR", sub: "Spread em equilibrio — sem setup no momento", wdo: null, win: null, color: "#848da2" };
 }
 
 // ── Main App ────────────────────────────────────────────────────────────────
@@ -756,10 +756,10 @@ export default function App() {
     const isAnom = sig.id === "anomalia";
 
     const getCointStatus = (p) => {
-        if (p < 0.01) return { label: "FORTE", color: "#00e87a" };
-        if (p < 0.05) return { label: "PRESENTE", color: "#c8a444" };
-        if (p < 0.10) return { label: "FRACA", color: "#f5a623" };
-        return { label: "QUEBRADA", color: "#ff3860" };
+        if (p < 0.01) return { label: "FORTE", color: "#4cc38a" };
+        if (p < 0.05) return { label: "PRESENTE", color: "#d4a259" };
+        if (p < 0.10) return { label: "FRACA", color: "#d4a259" };
+        return { label: "QUEBRADA", color: "#e5484d" };
     };
     const cointInfo = getCointStatus(cointEg.pvalue);
 
@@ -769,7 +769,7 @@ export default function App() {
     const sellCount = [lastBar.cons_wdo_sig, lastBar.cons_di_sig].filter(v => v > 0).length;
     const consensusCount = Math.max(buyCount, sellCount);
     const consensusDir = buyCount > sellCount ? "COMPRA" : sellCount > buyCount ? "VENDA" : null;
-    const consensusColor = consensusDir === "COMPRA" ? "#00e87a" : consensusDir === "VENDA" ? "#ff3860" : "#3a5060";
+    const consensusColor = consensusDir === "COMPRA" ? "#4cc38a" : consensusDir === "VENDA" ? "#e5484d" : "#848da2";
 
     // ── Johansen gate data ─────────────────────────────────────────────────────
     const johWdoGate = data?.johansen_gate || null;
@@ -877,7 +877,7 @@ export default function App() {
                             minWidth: 0,
                         }}>
                             <MagicWallsMark size={20} variant="small" />
-                            <span>{isManual ? "Magic Walls" : isWallsFlow ? "Robôs Magic Walls" : "Pair Trading"}</span>
+                            <span>{isManual ? "Magic Walls" : isWallsFlow ? "Robôs Magic Walls" : "Magic Walls · MT5"}</span>
                         </span>
                         <span style={{ display: "inline-block", width: 1, height: 14, background: "var(--mw-hairline-strong)" }} />
                         <span className="mw-topbar-sub" style={{ fontSize: 13, color: "var(--mw-text-3)", letterSpacing: 0, fontWeight: 400, whiteSpace: "nowrap" }}>
@@ -1053,30 +1053,6 @@ export default function App() {
                     )}
 
                     <div className="topbar-right" style={{ gap: 10 }}>
-                        {!isManual && workspaceTab === "STAT_ARB" && johWdoGate && (
-                            <div style={{
-                                display: "flex", alignItems: "center", gap: 6,
-                                background: "var(--mw-card)",
-                                border: `1px solid ${johWdoGate.open ? "var(--mw-accent-border)" : "rgba(229,72,77,0.34)"}`,
-                                borderRadius: 6, padding: "4px 10px",
-                            }}>
-                                <span className="mw-mono" style={{ fontSize: 12, color: johWdoGate.open ? "var(--mw-accent-ink)" : "var(--mw-neg)", fontWeight: 500 }}>
-                                    Joh {johWdoGate.open ? "aberto" : "fechado"} ({johWdoGate.trace_ratio}x)
-                                </span>
-                            </div>
-                        )}
-                        {!isManual && workspaceTab === "STAT_ARB" && data?.nwe && (
-                            <div style={{
-                                display: "flex", alignItems: "center", gap: 5,
-                                background: "var(--mw-card)",
-                                border: "1px solid var(--mw-hairline)",
-                                borderRadius: 6, padding: "4px 10px",
-                            }}>
-                                <span className="mw-mono" style={{ fontSize: 12, fontWeight: 500, color: data.nwe.is_up ? "var(--mw-pos)" : "var(--mw-neg)" }}>
-                                    Gauss {data.nwe.is_up ? "↑" : "↓"}
-                                </span>
-                            </div>
-                        )}
                         {(!isManual || isSaasAuthEnabled()) && canUseMediaStudio && (
                             <button
                                 type="button"
@@ -1197,51 +1173,83 @@ export default function App() {
                                 const betaH = data?.regime_health?.beta;
                                 const diBetaH = diData?.regime_health?.beta;
                                 const diRhoH = diData?.regime_health?.rho;
-                                const zColor = (v) => Math.abs(v || 0) >= 1.4 ? (v > 0 ? "#ff3860" : "#00e87a") : "#6f8a9c";
-                                const Pill = ({ label, value, color, badge }) => (
-                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                        <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
-                                        <span style={{ fontSize: 10, fontWeight: "bold", color: color || "#6f8a9c", fontFamily: "monospace" }}>
-                                            {typeof value === "number" ? value.toFixed(3) : value ?? "—"}
+                                const zColor = (v) => Math.abs(v || 0) >= 1.4 ? (v > 0 ? "#e5484d" : "#4cc38a") : "var(--mw-text-2)";
+                                const mapHealthColor = (c) => {
+                                    if (!c) return "var(--mw-text-2)";
+                                    const lc = String(c).toLowerCase();
+                                    if (lc === "#00e87a" || lc === "#22c55e" || lc === "#10b981") return "#4cc38a";
+                                    if (lc === "#ff3860" || lc === "#ef4444" || lc === "#f43f5e") return "#e5484d";
+                                    if (lc === "#ffd600" || lc === "#f5a623" || lc === "#f59e0b" || lc === "#c8a444") return "#d4a259";
+                                    if (lc === "#00d4ff" || lc === "#00e5ff") return "#38bdf8";
+                                    return c;
+                                };
+                                const Pill = ({ label, value, color, badge }) => {
+                                    const col = mapHealthColor(color);
+                                    const isHex = typeof col === "string" && col.startsWith("#");
+                                    return (
+                                        <span className="mw-mono" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                                            <span style={{ fontSize: 10.5, color: "var(--mw-text-3)" }}>{label}</span>
+                                            <span style={{ fontSize: 11.5, fontWeight: 600, color: col }}>
+                                                {typeof value === "number" ? value.toFixed(3) : value ?? "—"}
+                                            </span>
+                                            {badge && (
+                                                <span style={{
+                                                    fontSize: 9.5,
+                                                    color: col,
+                                                    background: isHex ? `${col}1a` : "var(--mw-surface-2)",
+                                                    border: `1px solid ${isHex ? `${col}4d` : "var(--mw-hairline)"}`,
+                                                    fontWeight: 600,
+                                                    padding: "1px 6px",
+                                                    borderRadius: 4,
+                                                }}>
+                                                    {badge}
+                                                </span>
+                                            )}
                                         </span>
-                                        {badge && (
-                                            <span style={{ fontSize: 7, color: "#0c1218", background: color, fontWeight: "bold", padding: "0px 4px", borderRadius: 2 }}>{badge}</span>
-                                        )}
-                                    </span>
-                                );
+                                    );
+                                };
                                 const Dot = ({ gate, label }) => {
                                     if (!gate) return null;
-                                    const c = gate.open ? "#00e87a" : "#ff3860";
+                                    const c = gate.open ? "#4cc38a" : "#e5484d";
                                     return (
-                                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                                            <span style={{ fontSize: 8, color: "#4a6070", letterSpacing: 0.5 }}>{label}</span>
-                                            <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: c, boxShadow: `0 0 4px ${c}55` }} />
-                                            <span style={{ fontSize: 8, color: c, fontWeight: "bold" }}>{gate.open ? "A" : "F"}</span>
+                                        <span className="mw-mono" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                            <span style={{ fontSize: 10.5, color: "var(--mw-text-3)" }}>{label}</span>
+                                            <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: c }} />
+                                            <span style={{ fontSize: 10.5, color: c, fontWeight: 600 }}>
+                                                {gate.open ? "aberto" : "fechado"}{gate.trace_ratio !== undefined ? ` (${gate.trace_ratio}x)` : ""}
+                                            </span>
                                         </span>
                                     );
                                 };
                                 return (
                                     <div style={{
-                                        display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
-                                        padding: "5px 10px", marginBottom: -2,
-                                        background: "#0c1218", borderRadius: "8px 8px 0 0",
-                                        border: "1px solid #1a2530", borderBottom: "none",
+                                        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                                        padding: "8px 14px", marginBottom: -2,
+                                        background: "var(--mw-card)", borderRadius: "10px 10px 0 0",
+                                        border: "1px solid var(--mw-hairline)", borderBottom: "none",
                                     }}>
-                                        {/* WDO section */}
-                                        <span style={{ fontSize: 8, color: "#00e87a", fontWeight: "bold", background: "rgba(0,232,122,0.12)", border: "1px solid rgba(0,232,122,0.3)", padding: "1px 5px", borderRadius: 3, letterSpacing: 1 }}>PROFIT · WINFUT</span>
-                                        <span style={{ fontSize: 8, color: "#c8a444", fontWeight: "bold", letterSpacing: 2 }}>WDOFUT</span>
+                                        <span className="mw-mono" style={{ fontSize: 10.5, color: "var(--mw-accent-ink)", fontWeight: 600, background: "var(--mw-accent-soft)", border: "1px solid var(--mw-accent-border)", padding: "2px 7px", borderRadius: 5 }}>Profit · WINFUT</span>
+                                        <span className="mw-mono" style={{ fontSize: 11, color: "#d4a259", fontWeight: 600 }}>WDOFUT</span>
                                         <Pill label="Z" value={zWdo} color={zColor(zWdo)} />
                                         {betaH && <Pill label="β" value={betaH.delta_pct} color={betaH.color} badge={betaH.status} />}
-                                        <Dot gate={johWdoGate} label="JOH" />
+                                        <Dot gate={johWdoGate} label="Joh" />
 
-                                        <span style={{ display: "inline-block", width: 1, height: 12, background: "#1c2e3a", margin: "0 4px" }} />
+                                        <span style={{ display: "inline-block", width: 1, height: 14, background: "var(--mw-hairline-strong)" }} />
 
-                                        {/* DI section */}
-                                        <span style={{ fontSize: 8, color: "#8a6dff", fontWeight: "bold", letterSpacing: 2 }}>DIFUT</span>
+                                        <span className="mw-mono" style={{ fontSize: 11, color: "#a78bfa", fontWeight: 600 }}>DIFUT</span>
                                         <Pill label="Z" value={zDi} color={zColor(zDi)} />
                                         {diBetaH && <Pill label="β" value={diBetaH.delta_pct} color={diBetaH.color} badge={diBetaH.status} />}
                                         {diRhoH && <Pill label="ρ" value={diRhoH.value} color={diRhoH.color} badge={diRhoH.status} />}
-                                        <Dot gate={johDiGate} label="JOH" />
+                                        <Dot gate={johDiGate} label="Joh" />
+
+                                        {data?.nwe && (
+                                            <>
+                                                <span style={{ display: "inline-block", width: 1, height: 14, background: "var(--mw-hairline-strong)" }} />
+                                                <span className="mw-mono" style={{ fontSize: 11, fontWeight: 600, color: data.nwe.is_up ? "#4cc38a" : "#e5484d" }}>
+                                                    Gauss {data.nwe.is_up ? "↑" : "↓"}
+                                                </span>
+                                            </>
+                                        )}
                                     </div>
                                 );
                             })()}
@@ -1251,7 +1259,7 @@ export default function App() {
                                 <ZScoreChart
                                     ref={zScoreChartRef}
                                     history={paddedSignals}
-                                    sigColor={isViewingHistory ? "#00e87a" : sig.color}
+                                    sigColor={isViewingHistory ? "#4cc38a" : sig.color}
                                     currentZ={isViewingHistory ? 0 : currentZ}
                                     useV2={true}
                                     hideXAxis={true}
@@ -1322,7 +1330,7 @@ export default function App() {
                             ? "Magic Walls · WIN × WDO · Canal Gauss, Sinais Numerados & Fluxo · B3"
                             : isWallsFlow
                             ? "Robôs Magic Walls · Carteira 5176 · WIN × WDO · B3"
-                            : `beta ${meta.beta} · ${String(meta.window || "").toUpperCase() === "KALMAN" ? "Kalman" : `janela ${meta.window}b`} · ${meta.symbol_a} × ${meta.symbol_b} · B3`}
+                            : `Magic Walls · MT5 · beta ${meta.beta} · ${String(meta.window || "").toUpperCase() === "KALMAN" ? "Kalman" : `janela ${meta.window}b`} · ${meta.symbol_a} × ${meta.symbol_b} · B3`}
                     </span>
                 </footer>
             </div>

@@ -11,7 +11,7 @@ function timeStrToTimestamp(timeStr) {
     return Math.floor(new Date(Date.UTC(2025, 0, 1, h, m)).getTime() / 1000);
 }
 
-const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, useV2 = false, hideXAxis = false }, ref) => {
+const ZScoreChart = forwardRef(({ history, sigColor = "#4cc38a", currentZ = 0, useV2 = false, hideXAxis = false }, ref) => {
     const chartContainerRef = useRef();
     const chartRef = useRef(null);
     const seriesRefs = useRef({});
@@ -26,9 +26,9 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
 
         const chart = createChart(chartContainerRef.current, {
             layout: {
-                background: { type: "solid", color: "#0c1218" },
-                textColor: "#4a6070",
-                fontSize: 9,
+                background: { type: "solid", color: "#0e1118" },
+                textColor: "#848da2",
+                fontSize: 10,
             },
             localization: {
                 timeFormatter: (time) => {
@@ -42,8 +42,8 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
             },
             crosshair: {
                 mode: CrosshairMode.Normal,
-                vertLine: { color: "#c8a444", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#c8a444" },
-                horzLine: { visible: false, labelVisible: true, labelBackgroundColor: "#c8a444" },
+                vertLine: { color: "#d4a259", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#1b212e" },
+                horzLine: { visible: false, labelVisible: true, labelBackgroundColor: "#1b212e" },
             },
             timeScale: {
                 visible: !hideXAxis,
@@ -55,16 +55,16 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
                 },
             },
             rightPriceScale: {
-                borderColor: "#1a2530",
+                borderColor: "#1b212e",
                 autoScale: true,
-                minimumWidth: 60,
+                minimumWidth: 68,
             },
             autoSize: true,
         });
         chartRef.current = chart;
 
         const zSeries = chart.addSeries(LineSeries, {
-            color: "#c8a444",
+            color: "#d4a259",
             lineWidth: 2,
             crosshairMarkerVisible: true,
             priceLineVisible: false,
@@ -75,17 +75,17 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
                 },
             }),
         });
-        const diSeries = chart.addSeries(LineSeries, { color: "#8a6dff", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false, priceLineVisible: false });
+        const diSeries = chart.addSeries(LineSeries, { color: "#a78bfa", lineWidth: 1, lineStyle: LineStyle.Dashed, crosshairMarkerVisible: false, priceLineVisible: false });
 
-        // Reference lines (subtle guidelines, no axis badges)
+        // Reference lines
         const lines = [
-            { price: 4, color: "#ff386022", style: LineStyle.Dashed, width: 1 },
-            { price: -4, color: "#ff386022", style: LineStyle.Dashed, width: 1 },
-            { price: 2.2, color: "#8a6dff26", style: LineStyle.Dotted, width: 1 },
-            { price: -2.2, color: "#8a6dff26", style: LineStyle.Dotted, width: 1 },
-            { price: 1.4, color: "#ff386033", style: LineStyle.Dotted, width: 1 },
-            { price: -1.4, color: "#00e87a33", style: LineStyle.Dotted, width: 1 },
-            { price: 0, color: "#3a5060", style: LineStyle.Solid, width: 1 },
+            { price: 4, color: "rgba(229, 72, 77, 0.16)", style: LineStyle.Dashed, width: 1 },
+            { price: -4, color: "rgba(229, 72, 77, 0.16)", style: LineStyle.Dashed, width: 1 },
+            { price: 2.2, color: "rgba(167, 139, 250, 0.2)", style: LineStyle.Dotted, width: 1 },
+            { price: -2.2, color: "rgba(167, 139, 250, 0.2)", style: LineStyle.Dotted, width: 1 },
+            { price: 1.4, color: "rgba(229, 72, 77, 0.24)", style: LineStyle.Dotted, width: 1 },
+            { price: -1.4, color: "rgba(76, 195, 138, 0.24)", style: LineStyle.Dotted, width: 1 },
+            { price: 0, color: "#2a3346", style: LineStyle.Solid, width: 1 },
         ];
 
         lines.forEach(l => {
@@ -139,29 +139,27 @@ const ZScoreChart = forwardRef(({ history, sigColor = "#00e87a", currentZ = 0, u
     }, [history, useV2]);
 
     return (
-        <div style={{ width: "100%", background: "#0c1218", borderRadius: "8px 8px 0 0", position: "relative" }}>
-            <div style={{
+        <div style={{ width: "100%", background: "#0e1118", border: "1px solid var(--mw-hairline)", borderBottom: "none", position: "relative" }}>
+            <div className="mw-mono" style={{
                 display: "flex", alignItems: "center", gap: 16,
-                padding: "6px 12px 0px", paddingLeft: Y_AXIS_WIDTH,
+                padding: "8px 14px 2px", paddingLeft: Y_AXIS_WIDTH, flexWrap: "wrap",
             }}>
-                <span style={{ fontSize: 9, fontWeight: "bold", color: "#6f8a9c", letterSpacing: 2 }}>Z-SPREAD KALMAN (WINFUT)</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ display: "inline-block", width: 14, height: 2, background: "#c8a444", borderRadius: 1 }} />
-                    <span style={{ fontSize: 9, color: "#c8a444" }}>WDOFUT (±1.4)</span>
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--mw-text-2)" }}>Z-Spread Kalman (WINFUT)</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ display: "inline-block", width: 12, height: 2, background: "#d4a259", borderRadius: 1 }} />
+                    <span style={{ fontSize: 10.5, color: "#d4a259" }}>WDOFUT (±1.4)</span>
                 </span>
                 {useV2 && (
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <span style={{ display: "inline-block", width: 14, height: 2, background: "#8a6dff", borderRadius: 1, borderTop: "1px dashed #8a6dff" }} />
-                        <span style={{ fontSize: 9, color: "#8a6dff" }}>DIFUT (±2.2 · CONS 1.6/2.2 c/ ±1.2)</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ display: "inline-block", width: 12, height: 2, borderTop: "1.5px dashed #a78bfa" }} />
+                        <span style={{ fontSize: 10.5, color: "#a78bfa" }}>DIFUT (±2.2 · Cons 1.6/2.2 c/ ±1.2)</span>
                     </span>
                 )}
-
-
             </div>
             <div ref={chartContainerRef} style={{ width: "100%", height: "200px", paddingLeft: Y_AXIS_WIDTH }} />
             {(!history || history.length === 0) && (
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", borderRadius: "8px 8px 0 0", zIndex: 10 }}>
-                    <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO (09:00)</span>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(14, 17, 24, 0.85)", zIndex: 10 }}>
+                    <span className="mw-mono" style={{ color: "var(--mw-text-3)", fontSize: 12 }}>Aguardando abertura do mercado (09:00)</span>
                 </div>
             )}
         </div>

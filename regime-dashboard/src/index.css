@@ -252,6 +252,7 @@ code {
 
 .mw-select {
   height: 32px;
+  line-height: 30px;
   padding: 0 28px 0 10px;
   border-radius: 8px;
   font-size: 12px;
@@ -268,6 +269,14 @@ code {
   background-repeat: no-repeat;
   background-position: right 8px center;
   transition: border-color 140ms var(--mw-ease), background-color 140ms var(--mw-ease);
+}
+
+.mw-select::picker-icon {
+  display: none;
+}
+
+.mw-select::-ms-expand {
+  display: none;
 }
 
 .mw-select:hover {

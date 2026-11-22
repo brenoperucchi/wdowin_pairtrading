@@ -13,10 +13,10 @@ const Z_ATT = 1.2;
 // Paleta de duas intensidades:
 // 1. Cor clara / translúcida: primeira condição (Z-Score atingido, mas NWE ainda não alinhada)
 // 2. Cor marcante / vermelho escuro: setup completo (Z-Score + NWE alinhada ou operação em execução)
-const COLOR_SELL_COMPLETE = "#b91c1c"; // Vermelho escuro marcante
-const COLOR_SELL_INITIAL  = "rgba(244, 63, 94, 0.35)"; // Vermelho/rosa claro suave
-const COLOR_BUY_COMPLETE  = "#00e87a"; // Verde marcante vivo
-const COLOR_BUY_INITIAL   = "rgba(0, 232, 122, 0.35)";  // Verde claro suave
+const COLOR_SELL_COMPLETE = "#e5484d";
+const COLOR_SELL_INITIAL  = "rgba(229, 72, 77, 0.35)";
+const COLOR_BUY_COMPLETE  = "#4cc38a";
+const COLOR_BUY_INITIAL   = "rgba(76, 195, 138, 0.35)";
 
 function getBarStratColor(d, stratKey, trades = []) {
     if (!d || !d.bar_time) return "transparent";
@@ -93,11 +93,11 @@ function getBarStratColor(d, stratKey, trades = []) {
 }
 
 function getLabelColor(barColor) {
-    if (!barColor || barColor === "transparent") return "#5a7a90";
-    if (barColor === COLOR_SELL_COMPLETE) return "#ff3860";
-    if (barColor === COLOR_SELL_INITIAL) return "#fb7185";
-    if (barColor === COLOR_BUY_COMPLETE) return "#00e87a";
-    if (barColor === COLOR_BUY_INITIAL) return "#4ade80";
+    if (!barColor || barColor === "transparent") return "#848da2";
+    if (barColor === COLOR_SELL_COMPLETE) return "#e5484d";
+    if (barColor === COLOR_SELL_INITIAL) return "#e57373";
+    if (barColor === COLOR_BUY_COMPLETE) return "#4cc38a";
+    if (barColor === COLOR_BUY_INITIAL) return "#6ee7b7";
     return barColor;
 }
 
@@ -143,7 +143,7 @@ const SignalHistogram = forwardRef(({ data, trades = [] }, ref) => {
 
         const chart = createChart(chartContainerRef.current, {
             layout: {
-                background: { type: "solid", color: "#0c1218" },
+                background: { type: "solid", color: "#0e1118" },
                 textColor: "transparent", // Hide right axis text
             },
             grid: {
@@ -232,42 +232,42 @@ const SignalHistogram = forwardRef(({ data, trades = [] }, ref) => {
     }, [data, trades]);
 
     return (
-        <div style={{ width: "100%", height: 80, background: "#0c1218", position: "relative" }}>
+        <div style={{ width: "100%", height: 80, background: "#0e1118", borderLeft: "1px solid var(--mw-hairline)", borderRight: "1px solid var(--mw-hairline)", position: "relative" }}>
             {/* Fixed labels matching Y-axis spacing */}
-            <div style={{
+            <div className="mw-mono" style={{
                 position: "absolute", top: 0, left: 2, bottom: 0,
                 width: Y_AXIS_WIDTH - 2, display: "flex", flexDirection: "column",
                 justifyContent: "space-around", alignItems: "flex-end",
                 paddingRight: 4, zIndex: 10, pointerEvents: "none"
             }}>
-                <span style={{ fontSize: 7, color: activeColors.wdoColor, fontFamily: "monospace", fontWeight: activeColors.wdoColor !== "#5a7a90" ? "bold" : "normal" }}>WDO NWE</span>
-                <span style={{ fontSize: 7, color: activeColors.diColor, fontFamily: "monospace", fontWeight: activeColors.diColor !== "#5a7a90" ? "bold" : "normal" }}>DI NWE</span>
-                <span style={{ fontSize: 7, color: activeColors.consColor, fontFamily: "monospace", fontWeight: activeColors.consColor !== "#5a7a90" ? "bold" : "normal" }}>WDO DI</span>
+                <span style={{ fontSize: 7.5, color: activeColors.wdoColor, fontWeight: activeColors.wdoColor !== "#848da2" ? 600 : 400 }}>WDO NWE</span>
+                <span style={{ fontSize: 7.5, color: activeColors.diColor, fontWeight: activeColors.diColor !== "#848da2" ? 600 : 400 }}>DI NWE</span>
+                <span style={{ fontSize: 7.5, color: activeColors.consColor, fontWeight: activeColors.consColor !== "#848da2" ? 600 : 400 }}>WDO DI</span>
             </div>
 
             {/* Legenda sutil das intensidades */}
-            <div style={{
-                position: "absolute", top: 2, right: 14,
+            <div className="mw-mono" style={{
+                position: "absolute", top: 3, right: 14,
                 display: "flex", alignItems: "center", gap: 10,
-                fontFamily: "monospace", fontSize: 8, color: "#64748b",
-                pointerEvents: "none", zIndex: 10, background: "rgba(12, 18, 24, 0.8)",
-                padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(30, 41, 59, 0.5)"
+                fontSize: 9, color: "var(--mw-text-3)",
+                pointerEvents: "none", zIndex: 10, background: "rgba(14, 17, 24, 0.88)",
+                padding: "2px 8px", borderRadius: 5, border: "1px solid var(--mw-hairline)"
             }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 1, background: "rgba(244, 63, 94, 0.4)", border: "1px solid rgba(244, 63, 94, 0.6)" }} />
-                    <span>Gatilho Z (Claro)</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 1, background: "rgba(229, 72, 77, 0.35)", border: "1px solid rgba(229, 72, 77, 0.55)" }} />
+                    <span>Gatilho Z</span>
                 </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 1, background: "#b91c1c", border: "1px solid #ff3860" }} />
-                    <span style={{ color: "#e2e8f0" }}>Setup Completo + NWE (Vermelho Escuro)</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 1, background: "#e5484d", border: "1px solid #e5484d" }} />
+                    <span style={{ color: "var(--mw-text-2)" }}>Setup completo + NWE</span>
                 </span>
             </div>
 
             {/* Chart Area */}
             <div style={{ width: "100%", height: "80px", paddingLeft: Y_AXIS_WIDTH }} ref={chartContainerRef} />
             {(!data || data.length === 0) && (
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", zIndex: 10 }}>
-                    <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(14, 17, 24, 0.85)", zIndex: 10 }}>
+                    <span className="mw-mono" style={{ color: "var(--mw-text-3)", fontSize: 12 }}>Aguardando abertura do mercado</span>
                 </div>
             )}
         </div>

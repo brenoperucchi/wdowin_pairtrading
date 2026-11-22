@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { API_BASE } from "../apiBase";
 import { authFetch } from "../utils/saasAuth";
+import MagicWallsMark from "./MagicWallsMark";
 import {
     buildMorningCaption,
     DEFAULT_FALLBACK_BRIEF,
@@ -117,15 +118,9 @@ function triggerDownloadBlob(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-/* ── Ícones UI planos (stroke 1.5) ── */
+/* ── Ícones UI planos (stroke 1.5) e símbolo oficial Flip Strata ── */
 function WallsMarkHtml() {
-    return (
-        <svg width="20" height="16" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-            <rect x="0" y="1" width="14" height="2.5" rx="1" fill={INK.text1} />
-            <rect x="0" y="6.75" width="20" height="2.5" rx="1" fill={INK.accent} />
-            <rect x="0" y="12.5" width="11" height="2.5" rx="1" fill={INK.text3} />
-        </svg>
-    );
+    return <MagicWallsMark size={20} variant="small" />;
 }
 
 function IconRefresh() {

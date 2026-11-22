@@ -501,35 +501,44 @@ export function computeCollisionFreeMarkers(signals, { toX, toY, bars, plotTop, 
 }
 
 /**
- * Generates a ready-to-paste transparent Instagram caption listing all active signals including stops.
+ * Generates a ready-to-paste institutional Instagram caption (Ink Azul brand voice, zero emojis)
+ * listing all active signals transparently including stops.
  */
 export function buildInstagramCaption({ symKey, dateInfo, activeSignals, summary, handle }) {
     const isWdo = String(symKey || "").toUpperCase() === "WDO";
     const dec = isWdo ? 1 : 0;
     const protTxt = isWdo ? "4 pts" : "150 pts";
-    const header = `📊 RESUMO DO PREGÃO · ${symKey} (${dateInfo.weekday ? `${dateInfo.weekday}, ` : ""}${dateInfo.short})`;
+    const assetName = isWdo ? "Mini-Dólar (WDO)" : "Mini-Índice (WIN)";
+    const header = `Magic Walls — Resumo do pregão · ${assetName} (${dateInfo.weekday ? `${dateInfo.weekday}, ` : ""}${dateInfo.short})`;
     if (!activeSignals.length) {
         return `${header}\n\nSem sinais registrados no pregão.`;
     }
     const lines = activeSignals.map((s) => {
+        const dirWord = s.isBull ? "Compra" : "Venda";
         if (s.isStopped) {
-            return `🛑 #${s.num} · ${s.entryTime} · ${s.anchorCode} ${s.directionLabel} (${formatBrNumber(s.entryPrice, dec)}) ➔ STOP ${formatPtsLabel(s.resultPts, isWdo)} (${s.stopLabel} ${formatBrNumber(s.stopPrice, dec)} às ${s.stopTime})`;
+            return `• #${s.num} · ${s.entryTime} · ${s.anchorCode} ${dirWord} (${formatBrNumber(s.entryPrice, dec)}) → Stop ${formatPtsLabel(s.resultPts, isWdo)} (${s.stopLabel} ${formatBrNumber(s.stopPrice, dec)} às ${s.stopTime})`;
         }
-        const dirIcon = s.isBull ? "🔵" : "🟠";
-        const star = s.isBest ? " ⭐" : "";
-        return `${dirIcon} #${s.num} · ${s.entryTime} · ${s.anchorCode} ${s.directionLabel} (${formatBrNumber(s.entryPrice, dec)}) ➔ ✅ ${formatPtsLabel(s.mfePts, isWdo)}${star}`;
+        const bestTag = s.isBest ? " [Melhor pernada]" : "";
+        return `• #${s.num} · ${s.entryTime} · ${s.anchorCode} ${dirWord} (${formatBrNumber(s.entryPrice, dec)}) → ${formatPtsLabel(s.mfePts, isWdo)}${bestTag}`;
     });
-    const bestTxt = summary.bestSignal
-        ? `🏆 Melhor movimento: ${formatPtsLabel(summary.bestSignal.mfePts, isWdo)} (#${summary.bestSignal.num} às ${summary.bestSignal.entryTime})`
+    const bestTxt = summary.bestSignal && summary.bestSignal.mfePts > 0
+        ? `Melhor pernada: ${formatPtsLabel(summary.bestSignal.mfePts, isWdo)} (#${summary.bestSignal.num} às ${summary.bestSignal.entryTime})`
         : "";
     const stopsDetail = summary.stopCount > 0
         ? ` · ${summary.stopCount} stop${summary.stopCount > 1 ? "s" : ""} (-${formatPtsLabel(summary.totalStopPts, isWdo, false)})`
         : " · 0 stops";
-    const sumTxt = `📈 ${summary.totalSignals} sinais (${summary.winCount} pagaram ≥${protTxt}${stopsDetail}) · Saldo máx. a favor: ${formatPtsLabel(summary.netPts, isWdo)}`;
-    const ruleTxt = `🛡️ Regra: stop protegido na outra Wall · andou ${protTxt} a favor = protegido.`;
-    const footer = [handle ? handle.trim() : "", "⚠️ Conteúdo educacional · Sem recomendação de investimento."]
-        .filter(Boolean)
-        .join("\n");
+    const sumTxt = `Total: ${summary.totalSignals} sinais (${summary.winCount} protegidos ≥${protTxt}${stopsDetail}) · Saldo máx. a favor: ${formatPtsLabel(summary.netPts, isWdo)}`;
+    const ruleTxt = `Critério: stop estrutural na Wall oposta · proteção após +${protTxt} a favor.`;
+    const cleanHandle = handle ? handle.trim() : "@magicwallsb3";
+    const footer = [
+        `Terminal GEX + Fluxo Smart Money: app.magicwalls.com.br`,
+        cleanHandle,
+        "",
+        "Estudo quantitativo de caráter estritamente educacional. Não constitui recomendação de investimento.",
+    ].join("\n");
 
-    return [header, "", ...lines, "", bestTxt, sumTxt, ruleTxt, "", footer].filter((v) => v !== undefined).join("\n");
+    return [header, "", ...lines, "", bestTxt, sumTxt, ruleTxt, "", footer]
+        .filter((v) => v !== "" || true)
+        .join("\n")
+        .replace(/\n{3,}/g, "\n\n");
 }

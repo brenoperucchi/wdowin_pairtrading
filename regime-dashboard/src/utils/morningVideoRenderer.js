@@ -149,21 +149,67 @@ function formatLadderNumber(val, isWdo) {
     return Math.round(n).toLocaleString("pt-BR");
 }
 
-// Marca plana oficial de 3 barras horizontais
-function drawWallsMark(ctx, x, y, scale = 1.0) {
-    const barH = 3 * scale;
-    const gap = 3 * scale;
-    drawRoundRect(ctx, x, y, 16 * scale, barH, 1.5 * scale);
-    ctx.fillStyle = INK.text1;
-    ctx.fill();
+// Marca oficial Magic Walls — Flip Strata (BRAND_GUIDELINES.md, chanfros 45°, sem rx)
+// Usa corte óptico pequeno (44u) para size <= 24px e corte mestre (36u) acima de 24px.
+function drawWallsMark(ctx, x, y, size = 24) {
+    const s = size / 256;
+    const isSmall = size <= 24;
 
-    drawRoundRect(ctx, x, y + barH + gap, 24 * scale, barH, 1.5 * scale);
-    ctx.fillStyle = INK.accent;
-    ctx.fill();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
 
-    drawRoundRect(ctx, x, y + (barH + gap) * 2, 12 * scale, barH, 1.5 * scale);
-    ctx.fillStyle = INK.text3;
-    ctx.fill();
+    if (isSmall) {
+        // Call Wall (topo) — #eef0f5: M24 28 H178 L134 72 H24 Z
+        ctx.fillStyle = INK.text1;
+        ctx.beginPath();
+        ctx.moveTo(24, 28);
+        ctx.lineTo(178, 28);
+        ctx.lineTo(134, 72);
+        ctx.lineTo(24, 72);
+        ctx.closePath();
+        ctx.fill();
+
+        // FlipWall (eixo central) — #38bdf8: M24 106 H232 V150 H24 Z
+        ctx.fillStyle = INK.accent;
+        ctx.fillRect(24, 106, 208, 44);
+
+        // Put Wall (base) — #848da2: M122 184 H232 V228 H78 Z
+        ctx.fillStyle = INK.text3;
+        ctx.beginPath();
+        ctx.moveTo(122, 184);
+        ctx.lineTo(232, 184);
+        ctx.lineTo(232, 228);
+        ctx.lineTo(78, 228);
+        ctx.closePath();
+        ctx.fill();
+    } else {
+        // Call Wall (topo) — #eef0f5: M28 35 H175 L139 71 H28 Z
+        ctx.fillStyle = INK.text1;
+        ctx.beginPath();
+        ctx.moveTo(28, 35);
+        ctx.lineTo(175, 35);
+        ctx.lineTo(139, 71);
+        ctx.lineTo(28, 71);
+        ctx.closePath();
+        ctx.fill();
+
+        // FlipWall (eixo central) — #38bdf8: M28 110 H228 V146 H28 Z
+        ctx.fillStyle = INK.accent;
+        ctx.fillRect(28, 110, 200, 36);
+
+        // Put Wall (base) — #848da2: M117 185 H228 V221 H81 Z
+        ctx.fillStyle = INK.text3;
+        ctx.beginPath();
+        ctx.moveTo(117, 185);
+        ctx.lineTo(228, 185);
+        ctx.lineTo(228, 221);
+        ctx.lineTo(81, 221);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    ctx.restore();
 }
 
 // Indicador geométrico de 1–3 níveis de força GEX (substitui estrelas)
@@ -227,19 +273,20 @@ function drawSafeTopBar(ctx, spec, brief, tSec, activeAct, options) {
 
     // Linha de marca + ato atual à esquerda e data à direita
     const rowY = topY + 26;
-    drawWallsMark(ctx, padX, rowY - 8, 1.0);
+    const topMarkSize = 22;
+    drawWallsMark(ctx, padX, rowY - topMarkSize / 2, topMarkSize);
 
     const title = String(options.brandTitle || "Magic Walls").trim() || "Magic Walls";
     ctx.font = `600 ${isLand ? 18 : 19}px ${FONT_SANS}`;
     ctx.fillStyle = INK.text1;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText(title, padX + 34, rowY + 1);
+    ctx.fillText(title, padX + topMarkSize + 12, rowY + 1);
     const titleW = ctx.measureText(title).width;
 
     ctx.font = `400 ${isLand ? 16 : 17}px ${FONT_MONO}`;
     ctx.fillStyle = INK.text3;
-    ctx.fillText(`  ·  ${actIdx + 1}/${count} ${activeAct.label}`, padX + 34 + titleW, rowY + 1);
+    ctx.fillText(`  ·  ${actIdx + 1}/${count} ${activeAct.label}`, padX + topMarkSize + 12 + titleW, rowY + 1);
 
     ctx.textAlign = "right";
     ctx.font = `500 ${isLand ? 16 : 17}px ${FONT_MONO}`;
@@ -287,15 +334,16 @@ function drawHookScene(ctx, spec, brief, tLocal, actDur, options) {
     const cy = isLand ? spec.height * 0.44 : spec.height * 0.40;
     const padX = isLand ? 68 : 56;
 
-    // Marca plana central + pill estática
-    const markY = cy - (isLand ? 290 : 370) + (1 - enter) * 14;
-    drawWallsMark(ctx, cx - 22, markY, 1.8);
+    // Símbolo oficial Flip Strata centralizado + pill estática
+    const heroMarkSize = isLand ? 60 : 68;
+    const markY = cy - (isLand ? 314 : 400) + (1 - enter) * 14;
+    drawWallsMark(ctx, cx - heroMarkSize / 2, markY, heroMarkSize);
 
     const pillText = options.stampLabel || "Pré-pregão · 08:30 BRT";
     ctx.font = `500 17px ${FONT_MONO}`;
     const pillW = Math.min(spec.width - padX * 2, ctx.measureText(pillText).width + 40);
     const pillX = cx - pillW / 2;
-    const pillY = markY + 64;
+    const pillY = markY + heroMarkSize + 24;
     drawRoundRect(ctx, pillX, pillY, pillW, 38, 8);
     ctx.fillStyle = INK.card;
     ctx.fill();
@@ -626,8 +674,7 @@ function drawAssetScene(ctx, spec, asset, tLocal, actDur, isWdo) {
         drawRoundRect(ctx, regX, regY, regW, regH, 10);
         ctx.fillStyle = regSoft;
         ctx.fill();
-        ctx.strokeStyle = accent;
-        ctx.strokeOpacity = 0.45;
+        ctx.strokeStyle = asset.isPositiveGamma ? "rgba(76, 195, 138, 0.45)" : "rgba(229, 72, 77, 0.45)";
         ctx.lineWidth = 1.2;
         ctx.stroke();
 
@@ -1067,12 +1114,19 @@ function drawCtaScene(ctx, spec, brief, tLocal, options) {
 
     ctx.save();
 
-    // Pill estática com check vetorial verde
+    // Símbolo oficial Flip Strata no encerramento + pill estática com check vetorial verde
+    const ctaMarkSize = isLand ? 52 : 60;
+    const ctaMarkY = cy - (isLand ? 316 : 416) + (1 - stampProg) * 14;
+    ctx.save();
+    ctx.globalAlpha = stampProg;
+    drawWallsMark(ctx, cx - ctaMarkSize / 2, ctaMarkY, ctaMarkSize);
+    ctx.restore();
+
     const stampText = `Publicado antes da abertura · ${brief.dateBr}`;
     ctx.font = `500 ${isLand ? 22 : 22}px ${FONT_MONO}`;
     const stampW = Math.min(isLand ? 820 : 860, ctx.measureText(stampText).width + 92);
     const stampH = 60;
-    const stampY = cy - (isLand ? 220 : 300) + (1 - stampProg) * 14;
+    const stampY = ctaMarkY + ctaMarkSize + (isLand ? 48 : 62);
 
     ctx.save();
     ctx.globalAlpha = stampProg;

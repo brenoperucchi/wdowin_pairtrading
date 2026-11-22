@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import MagicWallsMark from "./MagicWallsMark";
 import {
     buildInstagramCaption,
     buildInstagramSignals,
@@ -140,15 +141,9 @@ function triggerBlobDownload(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-/* ── Ícones UI planos (stroke 1.5) ── */
+/* ── Ícones UI planos (stroke 1.5) e símbolo oficial Flip Strata ── */
 function WallsMarkHtml() {
-    return (
-        <svg width="20" height="16" viewBox="0 0 20 16" fill="none" aria-hidden="true">
-            <rect x="0" y="1" width="14" height="2.5" rx="1" fill={INK.text1} />
-            <rect x="0" y="6.75" width="20" height="2.5" rx="1" fill={INK.accent} />
-            <rect x="0" y="12.5" width="11" height="2.5" rx="1" fill={INK.text3} />
-        </svg>
-    );
+    return <MagicWallsMark size={20} variant="small" />;
 }
 
 function IconDownload() {
@@ -216,6 +211,7 @@ function CleanChartSection({
     showFlow,
     showGauss,
     showWalls,
+    showMidWalls = true,
     showDivLines,
     rulerMode,
     clipPrefix,
@@ -276,6 +272,7 @@ function CleanChartSection({
             const wt = String(wl?.type || "Wall");
             const isFlip = wt === "GammaFlip" || /flip/i.test(String(wl?.label || ""));
             const isMid = wt.toLowerCase().includes("mid") || String(wl?.label || "").toUpperCase() === "MIDLEWALL";
+            if (isMid && !showMidWalls) return false;
             const isMain = wt === "Wall";
             if (!isMain && !isMid && !isFlip) return false;
             return px >= domMinP + domSpanP * 0.03 && px <= domMaxP - domSpanP * 0.03;
@@ -353,7 +350,7 @@ function CleanChartSection({
     const lastY = toYPrice(lastClose);
 
     const headerSubParts = [];
-    if (showWalls) headerSubParts.push("Walls GEX · FlipWall");
+    if (showWalls) headerSubParts.push(showMidWalls ? "Walls · MidWalls · FlipWall" : "Walls · FlipWall");
     if (showGauss) headerSubParts.push("Canal Gauss");
     headerSubParts.push(activeSignals.length > 0 ? `Sinais 1–${activeSignals.length}` : "Sem sinais");
     const assetName = isWdo ? "Mini-Dólar" : "Mini-Índice";
@@ -417,28 +414,30 @@ function CleanChartSection({
             </text>
             <line x1={x + 1} y1={priceTop} x2={x + w - 1} y2={priceTop} stroke={INK.hairline} strokeWidth="1" />
 
-            {/* Linhas de grade horizontais discretas */}
+            {/* Escala de preço no eixo Y (sem grade horizontal cruzando os candles) */}
             {priceTicks.map((t, i) => (
                 <g key={`pgrid-${i}`}>
-                    <line
-                        x1={plotLeft}
-                        y1={t.y}
-                        x2={plotRight}
-                        y2={t.y}
-                        stroke={INK.card}
-                        strokeWidth="1"
-                    />
                     {!visibleWalls.some((wl) => Math.abs(toYPrice(wl.price) - t.y) < 26) && Math.abs(lastY - t.y) > 24 && (
-                        <text
-                            x={plotRight + 10}
-                            y={t.y + 4.5}
-                            fill={INK.text3}
-                            fontSize="13"
-                            fontWeight="400"
-                            fontFamily={FONT_MONO}
-                        >
-                            {formatBrNumber(t.val, dec)}
-                        </text>
+                        <>
+                            <line
+                                x1={plotRight}
+                                y1={t.y}
+                                x2={plotRight + 4}
+                                y2={t.y}
+                                stroke={INK.hairline}
+                                strokeWidth="1"
+                            />
+                            <text
+                                x={plotRight + 10}
+                                y={t.y + 4.5}
+                                fill="#5d667a"
+                                fontSize="13"
+                                fontWeight="400"
+                                fontFamily={FONT_MONO}
+                            >
+                                {formatBrNumber(t.val, dec)}
+                            </text>
+                        </>
                     )}
                 </g>
             ))}
@@ -459,7 +458,7 @@ function CleanChartSection({
                         const yW = toYPrice(wl.price);
                         const wt = String(wl.type || "Wall");
                         const isFlip = wt === "GammaFlip" || /flip/i.test(String(wl.label || ""));
-                        const isMid = wt.toLowerCase().includes("mid") || String(wl.label || "").toUpperCase() === "MIDLEWALL";
+                        const isMid = wt.toLowerCase().includes("mid") || String(wl?.label || "").toUpperCase() === "MIDLEWALL";
                         return (
                             <line
                                 key={`ig-wall-${i}`}
@@ -467,10 +466,10 @@ function CleanChartSection({
                                 y1={yW}
                                 x2={plotRight}
                                 y2={yW}
-                                stroke={isFlip ? INK.flip : isMid ? INK.hairlineStrong : INK.text3}
-                                strokeWidth={isFlip ? "1.6" : "1.1"}
-                                strokeDasharray={isFlip ? "5,4" : isMid ? "3,4" : "none"}
-                                strokeOpacity={isFlip ? "0.9" : isMid ? "0.55" : "0.65"}
+                                stroke={isFlip ? INK.flip : isMid ? "rgba(238, 240, 245, 0.22)" : "rgba(238, 240, 245, 0.42)"}
+                                strokeWidth={isFlip ? "1.6" : isMid ? "1.0" : "1.35"}
+                                strokeDasharray={isFlip ? "5,4" : isMid ? "4,4" : "none"}
+                                strokeOpacity={isFlip ? "0.92" : "1"}
                             />
                         );
                     })}
@@ -710,10 +709,10 @@ function CleanChartSection({
                         usedYs.push(yW);
                         const wt = String(wl.type || "");
                         const isFlip = wt === "GammaFlip" || /flip/i.test(String(wl.label || ""));
-                        const isMid = wt.toLowerCase().includes("mid");
+                        const isMid = wt.toLowerCase().includes("mid") || String(wl?.label || "").toUpperCase() === "MIDLEWALL";
                         return (
                             <g key={`wtag-${i}`}>
-                                {(!isMid || isFlip) && (
+                                {(!isMid || isFlip) ? (
                                     <rect
                                         x={plotRight + 6}
                                         y={yW - 11}
@@ -724,11 +723,20 @@ function CleanChartSection({
                                         stroke={isFlip ? INK.flip : INK.hairlineStrong}
                                         strokeWidth="1"
                                     />
+                                ) : (
+                                    <line
+                                        x1={plotRight}
+                                        y1={yW}
+                                        x2={plotRight + 4}
+                                        y2={yW}
+                                        stroke="rgba(238, 240, 245, 0.28)"
+                                        strokeWidth="1"
+                                    />
                                 )}
                                 <text
                                     x={plotRight + 12}
                                     y={yW + 4.5}
-                                    fill={isFlip ? INK.flip : isMid ? INK.text3 : INK.text1}
+                                    fill={isFlip ? INK.flip : isMid ? INK.text2 : INK.text1}
                                     fontSize="12.5"
                                     fontWeight="500"
                                     fontFamily={FONT_MONO}
@@ -924,18 +932,22 @@ function CardHeaderAndKpis({
     const paidTotal = summary.winCount + summary.neutralCount;
     const brandDisplay = String(brandTitle || "Magic Walls").trim() || "Magic Walls";
 
+    const markSize = compact ? 38 : 44;
+    const markScale = markSize / 256;
+    const textOffsetX = padX + markSize + Math.round(markSize * 0.38);
+
     return (
         <g>
-            {/* Marca plana WallsMark (3 barras horizontais) */}
-            <g transform={`translate(${padX}, ${topY + (compact ? 8 : 12)})`}>
-                <rect x="0" y="0" width="22" height="4" rx="1.5" fill={INK.text1} />
-                <rect x="0" y="8" width="32" height="4" rx="1.5" fill={INK.accent} />
-                <rect x="0" y="16" width="17" height="4" rx="1.5" fill={INK.text3} />
+            {/* Marca oficial Magic Walls — Flip Strata (corte master 36u, chanfros 45°, sem rx) */}
+            <g transform={`translate(${padX}, ${topY + (compact ? 6 : 10)}) scale(${markScale.toFixed(6)})`}>
+                <path fill={INK.text1} d="M28 35 H175 L139 71 H28 Z" />
+                <path fill={INK.accent} d="M28 110 H228 V146 H28 Z" />
+                <path fill={INK.text3} d="M117 185 H228 V221 H81 Z" />
             </g>
 
             {/* Título & Subtítulo em sentence case */}
             <text
-                x={padX + 46}
+                x={textOffsetX}
                 y={topY + (compact ? 25 : 31)}
                 fill={INK.text1}
                 fontSize={compact ? "28" : "34"}
@@ -945,7 +957,7 @@ function CardHeaderAndKpis({
                 {brandDisplay}
             </text>
             <text
-                x={padX + 46}
+                x={textOffsetX}
                 y={topY + (compact ? 54 : 64)}
                 fill={INK.text3}
                 fontSize={compact ? "16.5" : "18.5"}
@@ -1425,6 +1437,7 @@ function InstagramCardSvg({
     showFlow,
     showGauss,
     showWalls,
+    showMidWalls = true,
     showDivLines,
     rulerMode,
 }) {
@@ -1478,6 +1491,7 @@ function InstagramCardSvg({
                         showFlow={showFlow}
                         showGauss={showGauss}
                         showWalls={showWalls}
+                        showMidWalls={showMidWalls}
                         showDivLines={showDivLines}
                         rulerMode={rulerMode}
                         clipPrefix={clipPrefix}
@@ -1521,6 +1535,7 @@ function InstagramCardSvg({
                         showFlow={showFlow}
                         showGauss={showGauss}
                         showWalls={showWalls}
+                        showMidWalls={showMidWalls}
                         showDivLines={showDivLines}
                         rulerMode={rulerMode}
                         clipPrefix={clipPrefix}
@@ -1565,6 +1580,7 @@ function InstagramCardSvg({
                         showFlow={showFlow}
                         showGauss={showGauss}
                         showWalls={showWalls}
+                        showMidWalls={showMidWalls}
                         showDivLines={showDivLines}
                         rulerMode={rulerMode}
                         clipPrefix={clipPrefix}
@@ -1634,6 +1650,7 @@ export default function InstagramCardModal({
     const [showFlow, setShowFlow] = useState(initialPrefs.showFlow ?? true);
     const [showGauss, setShowGauss] = useState(initialPrefs.showGauss ?? false);
     const [showWalls, setShowWalls] = useState(initialPrefs.showWalls ?? true);
+    const [showMidWalls, setShowMidWalls] = useState(initialPrefs.showMidWalls ?? true);
     const [showDivLines, setShowDivLines] = useState(initialPrefs.showDivLines ?? false);
     const [rulerMode, setRulerMode] = useState(initialPrefs.rulerMode || "BEST");
     const [brandTitle, setBrandTitle] = useState(initialPrefs.brandTitle ?? "Magic Walls");
@@ -1657,12 +1674,13 @@ export default function InstagramCardModal({
             showFlow,
             showGauss,
             showWalls,
+            showMidWalls,
             showDivLines,
             rulerMode,
             brandTitle,
             handle,
         });
-    }, [formatMode, showFlow, showGauss, showWalls, showDivLines, rulerMode, brandTitle, handle]);
+    }, [formatMode, showFlow, showGauss, showWalls, showMidWalls, showDivLines, rulerMode, brandTitle, handle]);
 
     useEffect(() => {
         if (!isOpen) return undefined;
@@ -1785,6 +1803,7 @@ export default function InstagramCardModal({
         showFlow,
         showGauss,
         showWalls,
+        showMidWalls,
         showDivLines,
         rulerMode,
     };
@@ -1986,15 +2005,27 @@ export default function InstagramCardModal({
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                 {[
-                                    { label: "Fluxo Smart Money", val: showFlow, set: setShowFlow },
-                                    { label: "Canal Gauss", val: showGauss, set: setShowGauss },
-                                    { label: "Walls", val: showWalls, set: setShowWalls },
-                                    { label: "Linhas div.", val: showDivLines, set: setShowDivLines },
+                                    { label: "Fluxo Smart Money", val: showFlow, onToggle: () => setShowFlow((v) => !v) },
+                                    { label: "Canal Gauss", val: showGauss, onToggle: () => setShowGauss((v) => !v) },
+                                    { label: "Walls", val: showWalls, onToggle: () => setShowWalls((v) => !v) },
+                                    {
+                                        label: "MidWalls",
+                                        val: showWalls && showMidWalls,
+                                        onToggle: () => {
+                                            if (!showWalls) {
+                                                setShowWalls(true);
+                                                setShowMidWalls(true);
+                                            } else {
+                                                setShowMidWalls((v) => !v);
+                                            }
+                                        },
+                                    },
+                                    { label: "Linhas div.", val: showDivLines, onToggle: () => setShowDivLines((v) => !v) },
                                 ].map((t) => (
                                     <button
                                         key={t.label}
                                         type="button"
-                                        onClick={() => t.set((v) => !v)}
+                                        onClick={t.onToggle}
                                         style={{
                                             height: 28,
                                             padding: "0 10px",

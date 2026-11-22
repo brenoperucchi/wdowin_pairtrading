@@ -157,7 +157,7 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
             const yTriBase = yCandleExtremeRaw != null ? clampY(yCandleExtremeRaw) : yEntry;
 
             const stratLabels = tr.strategies.map((s) => STATARB_STRAT_META[s]?.short || s).join(" + ");
-            const primaryMeta = STATARB_STRAT_META[tr.strategies[0]] || { color: "#00e87a" };
+            const primaryMeta = STATARB_STRAT_META[tr.strategies[0]] || { color: "#4cc38a" };
 
             boxes.push({
                 ...tr,
@@ -188,9 +188,9 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
 
         const chart = createChart(chartContainerRef.current, {
             layout: {
-                background: { type: "solid", color: "#0c1218" },
-                textColor: "#4a6070",
-                fontSize: 9,
+                background: { type: "solid", color: "#0e1118" },
+                textColor: "#848da2",
+                fontSize: 10,
             },
             localization: {
                 timeFormatter: (time) => {
@@ -204,8 +204,8 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
             },
             crosshair: {
                 mode: CrosshairMode.Normal,
-                vertLine: { color: "#c8a444", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#c8a444" },
-                horzLine: { visible: true, color: "#3a5060", width: 1, style: LineStyle.Dashed, labelVisible: true, labelBackgroundColor: "#c8a444" },
+                vertLine: { color: "#d4a259", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#1b212e" },
+                horzLine: { visible: true, color: "#2a3346", width: 1, style: LineStyle.Dashed, labelVisible: true, labelBackgroundColor: "#1b212e" },
             },
             timeScale: {
                 visible: !hideXAxis,
@@ -217,21 +217,21 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
                 },
             },
             rightPriceScale: {
-                borderColor: "#1a2530",
+                borderColor: "#1b212e",
                 scaleMargins: { top: 0.12, bottom: 0.12 },
-                minimumWidth: 60,
+                minimumWidth: 68,
             },
             autoSize: true,
         });
         chartRef.current = chart;
 
-        // 1. Upper Band Area (red shadow down to 0)
+        // 1. Upper Band Area
         const nweUpper = chart.addSeries(AreaSeries, {
-            lineColor: "rgba(255,56,96,0.5)",
+            lineColor: "rgba(229, 72, 77, 0.48)",
             lineWidth: 1,
             lineStyle: LineStyle.Solid,
-            topColor: "rgba(255,56,96,0.14)",
-            bottomColor: "rgba(255,56,96,0.14)",
+            topColor: "rgba(229, 72, 77, 0.12)",
+            bottomColor: "rgba(229, 72, 77, 0.12)",
             crosshairMarkerVisible: false,
             priceLineVisible: false,
             lastValueVisible: false,
@@ -239,11 +239,11 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
 
         // 2. Sell Zone Bottom
         const sellZoneBot = chart.addSeries(AreaSeries, {
-            lineColor: "rgba(255,56,96,0.3)",
+            lineColor: "rgba(229, 72, 77, 0.28)",
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
-            topColor: "#0c1218",
-            bottomColor: "#0c1218",
+            topColor: "#0e1118",
+            bottomColor: "#0e1118",
             crosshairMarkerVisible: false,
             priceLineVisible: false,
             lastValueVisible: false,
@@ -251,11 +251,11 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
 
         // 3. Buy Zone Top
         const buyZoneTop = chart.addSeries(AreaSeries, {
-            lineColor: "rgba(0,232,122,0.3)",
+            lineColor: "rgba(76, 195, 138, 0.28)",
             lineWidth: 1,
             lineStyle: LineStyle.Dashed,
-            topColor: "rgba(0,232,122,0.14)",
-            bottomColor: "rgba(0,232,122,0.14)",
+            topColor: "rgba(76, 195, 138, 0.12)",
+            bottomColor: "rgba(76, 195, 138, 0.12)",
             crosshairMarkerVisible: false,
             priceLineVisible: false,
             lastValueVisible: false,
@@ -263,11 +263,11 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
 
         // 4. Lower Band Area
         const nweLower = chart.addSeries(AreaSeries, {
-            lineColor: "rgba(0,232,122,0.5)",
+            lineColor: "rgba(76, 195, 138, 0.48)",
             lineWidth: 1,
             lineStyle: LineStyle.Solid,
-            topColor: "#0c1218",
-            bottomColor: "#0c1218",
+            topColor: "#0e1118",
+            bottomColor: "#0e1118",
             crosshairMarkerVisible: false,
             priceLineVisible: false,
             lastValueVisible: false,
@@ -275,27 +275,27 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
 
         // 5. Center line
         const nweSeries = chart.addSeries(LineSeries, {
-            color: "#c8a444",
+            color: "#d4a259",
             lineWidth: 2,
             crosshairMarkerVisible: false,
             priceLineVisible: false,
             lastValueVisible: false,
         });
 
-        // 6. Candlestick series (M5 WIN OHLC)
+        // 6. Candlestick series (M5 WIN OHLC — Ink Azul)
         const winCandleSeries = chart.addSeries(CandlestickSeries, {
-            upColor: "#00e87a",
-            downColor: "#ff3860",
-            borderUpColor: "#00e87a",
-            borderDownColor: "#ff3860",
-            wickUpColor: "#00e87a",
-            wickDownColor: "#ff3860",
+            upColor: "#4cc38a",
+            downColor: "#e5484d",
+            borderUpColor: "#4cc38a",
+            borderDownColor: "#e5484d",
+            wickUpColor: "#4cc38a",
+            wickDownColor: "#e5484d",
             priceLineVisible: true,
         });
 
         // 7. Line series (optional toggle)
         const winSeries = chart.addSeries(LineSeries, {
-            color: "#ffffff",
+            color: "#eef0f5",
             lineWidth: 2,
             crosshairMarkerVisible: true,
             priceLineVisible: false,
@@ -396,7 +396,7 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
                 nweData.push({
                     time: t,
                     value: d.nwe,
-                    color: isUp ? "#00e87a" : "#ff3860",
+                    color: isUp ? "#4cc38a" : "#e5484d",
                 });
             } else {
                 nweData.push({ time: t });
@@ -468,102 +468,99 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
     const dayTotalPts = computedDayTrades.reduce((acc, t) => acc + Number(t.pts || 0), 0);
 
     return (
-        <div style={{ background: "#0c1218", borderRadius: hideXAxis ? "0" : "0 0 8px 8px", paddingBottom: 4, position: "relative" }}>
+        <div style={{ background: "#0e1118", borderRadius: hideXAxis ? "0" : "0 0 10px 10px", border: "1px solid var(--mw-hairline)", borderTop: "none", paddingBottom: 4, position: "relative" }}>
             {/* Top Controls & Day Trades Summary Bar */}
             <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "6px 12px 4px",
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "8px 14px 6px",
                 paddingLeft: Y_AXIS_WIDTH,
-                borderTop: "1px solid #1a2530", flexWrap: "wrap",
+                borderTop: "1px solid var(--mw-hairline)", flexWrap: "wrap",
             }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 9, fontWeight: "bold", color: "#6f8a9c", letterSpacing: 1.5 }}>PREÇO WINFUT (M5)</span>
+                    <span className="mw-mono" style={{ fontSize: 11, fontWeight: 600, color: "var(--mw-text-2)" }}>Preço WINFUT (M5)</span>
 
                     {/* Toggle Candles vs Linha */}
-                    <div style={{ display: "flex", gap: 3, background: "#060a0e", padding: "2px", borderRadius: 4, border: "1px solid #1a2530" }}>
+                    <div className="mw-track">
                         <button
+                            type="button"
+                            className="mw-btn mw-mono"
+                            data-active={showCandles ? "true" : "false"}
                             onClick={() => setShowCandles(true)}
-                            style={{
-                                fontSize: 8.5, fontFamily: "monospace", fontWeight: "bold", padding: "2px 7px", borderRadius: 3, cursor: "pointer",
-                                background: showCandles ? "rgba(0,232,122,0.16)" : "transparent",
-                                color: showCandles ? "#00e87a" : "#6f8a9c",
-                                border: showCandles ? "1px solid rgba(0,232,122,0.4)" : "1px solid transparent",
-                            }}
+                            style={{ height: 22, padding: "0 8px", fontSize: 10.5 }}
                         >
-                            🕯️ Candles
+                            Candles
                         </button>
                         <button
+                            type="button"
+                            className="mw-btn mw-mono"
+                            data-active={!showCandles ? "true" : "false"}
                             onClick={() => setShowCandles(false)}
-                            style={{
-                                fontSize: 8.5, fontFamily: "monospace", fontWeight: "bold", padding: "2px 7px", borderRadius: 3, cursor: "pointer",
-                                background: !showCandles ? "rgba(0,212,255,0.16)" : "transparent",
-                                color: !showCandles ? "#00d4ff" : "#6f8a9c",
-                                border: !showCandles ? "1px solid rgba(0,212,255,0.4)" : "1px solid transparent",
-                            }}
+                            style={{ height: 22, padding: "0 8px", fontSize: 10.5 }}
                         >
-                            📈 Linha
+                            Linha
                         </button>
                     </div>
 
-                    <span style={{ display: "inline-block", width: 1, height: 12, background: "#1c2e3a" }} />
+                    <span style={{ display: "inline-block", width: 1, height: 14, background: "var(--mw-hairline-strong)" }} />
 
-                    <label style={{
-                        fontSize: 9.5, display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
-                        color: showCenterLine ? "#c8a444" : "#4a6070",
+                    <label className="mw-mono" style={{
+                        fontSize: 11, display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                        color: showCenterLine ? "#d4a259" : "var(--mw-text-3)",
                     }}>
                         <input type="checkbox" checked={showCenterLine} onChange={() => setShowCenterLine(!showCenterLine)}
-                            style={{ cursor: "pointer", accentColor: "#c8a444" }} />
-                        Linha Central NWE
+                            style={{ cursor: "pointer", accentColor: "#d4a259" }} />
+                        Linha central NWE
                     </label>
 
-                    <label style={{
-                        fontSize: 9.5, display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
-                        color: showTradeBoxes ? "#2dd4bf" : "#4a6070",
+                    <label className="mw-mono" style={{
+                        fontSize: 11, display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                        color: showTradeBoxes ? "#38bdf8" : "var(--mw-text-3)",
                     }}>
                         <input type="checkbox" checked={showTradeBoxes} onChange={() => setShowTradeBoxes(!showTradeBoxes)}
-                            style={{ cursor: "pointer", accentColor: "#2dd4bf" }} />
-                        Caixas de Trade ({groupedTradeBoxes.length})
+                            style={{ cursor: "pointer", accentColor: "#38bdf8" }} />
+                        Caixas de trade ({groupedTradeBoxes.length})
                     </label>
                 </div>
 
                 {/* Resumo Rápido das Operações do Dia no Topo do Gráfico */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: "monospace", fontSize: 9 }}>
+                <div className="mw-mono" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 10.5 }}>
                     {computedDayTrades.length === 0 ? (
-                        <span style={{ color: "#6f8a9c" }}>⚪ Nenhuma operação disparada neste pregão até o momento</span>
+                        <span style={{ color: "var(--mw-text-3)" }}>Nenhuma operação disparada neste pregão até o momento</span>
                     ) : (
                         <>
                             {computedDayTrades.map((tr) => {
                                 const isOpen = tr.status === "ABERTA";
                                 const isPos = tr.pts >= 0;
-                                const meta = STATARB_STRAT_META[tr.strategy_id] || { short: tr.strategy_id, color: "#00e87a" };
+                                const meta = STATARB_STRAT_META[tr.strategy_id] || { short: tr.strategy_id, color: "#4cc38a" };
                                 return (
                                     <span
                                         key={tr.id}
                                         onClick={() => setSelectedBoxId((prev) => (prev === tr.id ? null : tr.id))}
                                         style={{
                                             display: "inline-flex", alignItems: "center", gap: 5,
-                                            padding: "2px 8px", borderRadius: 4, cursor: "pointer",
-                                            background: isOpen ? "rgba(255,214,0,0.14)" : (isPos ? "rgba(0,232,122,0.10)" : "rgba(255,56,96,0.10)"),
-                                            border: `1px solid ${isOpen ? "#ffd60066" : (isPos ? "#00e87a44" : "#ff386044")}`,
+                                            padding: "2px 8px", borderRadius: 5, cursor: "pointer",
+                                            background: isOpen ? "rgba(212, 162, 89, 0.12)" : (isPos ? "rgba(76, 195, 138, 0.10)" : "rgba(229, 72, 77, 0.10)"),
+                                            border: `1px solid ${isOpen ? "rgba(212, 162, 89, 0.4)" : (isPos ? "rgba(76, 195, 138, 0.35)" : "rgba(229, 72, 77, 0.35)")}`,
                                         }}
                                         title="Clique para destacar a caixa desta operação no gráfico"
                                     >
-                                        <strong style={{ color: meta.color }}>{meta.short}</strong>
-                                        <span style={{ color: tr.direction === "COMPRA" ? "#00e87a" : "#ff3860", fontWeight: "bold" }}>
-                                            {tr.direction === "COMPRA" ? "▲ C" : "▼ V"} @ {tr.entry_price}
+                                        <strong style={{ color: meta.color, fontWeight: 600 }}>{meta.short}</strong>
+                                        <span style={{ color: tr.direction === "COMPRA" ? "#4cc38a" : "#e5484d", fontWeight: 600 }}>
+                                            {tr.direction === "COMPRA" ? "C" : "V"} @ {tr.entry_price}
                                         </span>
-                                        <span style={{ color: "#8ca5b5" }}>({tr.entry_time}→{tr.exit_time})</span>
-                                        <strong style={{ color: isOpen ? "#ffd600" : (isPos ? "#00e87a" : "#ff3860") }}>
-                                            {isOpen ? `⏳ ${tr.pts >= 0 ? "+" : ""}${tr.pts}p` : `✅ ${tr.pts >= 0 ? "+" : ""}${tr.pts}p (${tr.exit_reason})`}
+                                        <span style={{ color: "var(--mw-text-3)" }}>({tr.entry_time}→{tr.exit_time})</span>
+                                        <strong style={{ color: isOpen ? "#d4a259" : (isPos ? "#4cc38a" : "#e5484d"), fontWeight: 600 }}>
+                                            {isOpen ? `Aberta ${tr.pts >= 0 ? "+" : ""}${tr.pts}p` : `${tr.pts >= 0 ? "+" : ""}${tr.pts}p (${tr.exit_reason})`}
                                         </strong>
                                     </span>
                                 );
                             })}
                             <span style={{
-                                padding: "2px 8px", borderRadius: 4, fontWeight: "bold",
-                                background: "#060a0e", border: "1px solid #1a2530",
-                                color: dayTotalPts >= 0 ? "#00e87a" : "#ff3860",
+                                padding: "2px 8px", borderRadius: 5, fontWeight: 600,
+                                background: "var(--mw-chrome)", border: "1px solid var(--mw-hairline)",
+                                color: dayTotalPts >= 0 ? "#4cc38a" : "#e5484d",
+                                whiteSpace: "nowrap",
                             }}>
-                                Dia ({closedTradesCount} fech / {openTradesCount} ab): {dayTotalPts >= 0 ? "+" : ""}{dayTotalPts} pts ({dayTotalPts >= 0 ? "+" : "-"}R$ {Math.abs(Math.round(dayTotalPts * 0.4))})
+                                Dia ({closedTradesCount} fech / {openTradesCount} ab): {dayTotalPts >= 0 ? "+" : ""}{dayTotalPts} pts ({dayTotalPts >= 0 ? "+" : "−"}R$ {Math.abs(Math.round(dayTotalPts * 0.4))})
                             </span>
                         </>
                     )}
@@ -630,7 +627,7 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
                                         y={fullTop}
                                         width={boxW}
                                         height={Math.max(4, fullBot - fullTop)}
-                                        fill="#05080d"
+                                        fill="#0a0c12"
                                         fillOpacity="0.72"
                                         rx="1.5"
                                     />
@@ -711,7 +708,7 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
                                             <line x1={xBe} y1={yStop} x2={x2} y2={yStop} stroke="#fb7185" strokeWidth="0.9" strokeDasharray="2,3" strokeOpacity="0.45" />
                                             <line x1={xBe} y1={yStop} x2={xBe} y2={yBeStop} stroke="#fbbf24" strokeWidth="1.3" strokeDasharray="2,2" strokeOpacity="0.95" />
                                             <line x1={xBe} y1={yBeStop} x2={x2} y2={yBeStop} stroke="#fbbf24" strokeWidth="1.4" strokeOpacity="0.98" />
-                                            <circle cx={xBe} cy={yBeStop} r="2.6" fill="#fbbf24" stroke="#05080d" strokeWidth="0.9" />
+                                            <circle cx={xBe} cy={yBeStop} r="2.6" fill="#d4a259" stroke="#0a0c12" strokeWidth="0.9" />
                                         </>
                                     ) : (
                                         <line x1={x1} y1={yStop} x2={x2} y2={yStop} stroke="#fb7185" strokeWidth="1.4" strokeOpacity="0.95" />
@@ -729,13 +726,13 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
                                     )}
 
                                     {/* Entry Circle & Exit Circle (Exactly as in Tab 1 photo) */}
-                                    <circle cx={x1} cy={yEntry} r="3.1" fill="#ffffff" stroke="#05080d" strokeWidth="1.1" />
+                                    <circle cx={x1} cy={yEntry} r="3.1" fill="#eef0f5" stroke="#0a0c12" strokeWidth="1.1" />
                                     <circle
                                         cx={x2}
                                         cy={yExit}
                                         r="3.4"
-                                        fill={isOpenTrade ? "#ffd600" : (isWinExit ? "#2dd4bf" : "#fb7185")}
-                                        stroke="#05080d"
+                                        fill={isOpenTrade ? "#d4a259" : (isWinExit ? "#4cc38a" : "#e5484d")}
+                                        stroke="#0a0c12"
                                         strokeWidth="1.1"
                                     />
 
@@ -752,8 +749,8 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
                                         <circle cx={x1} cy={isBuy ? triY + 6 : triY - 6} r="10" fill="transparent" />
                                         <polygon
                                             points={triPoints}
-                                            fill={isBuy ? "#00e87a" : "#ff3860"}
-                                            stroke={isHovered ? "#ffffff" : stratColor}
+                                            fill={isBuy ? "#4cc38a" : "#e5484d"}
+                                            stroke={isHovered ? "#eef0f5" : stratColor}
                                             strokeWidth={isHovered ? "1.6" : "1.1"}
                                         />
                                     </g>
@@ -766,18 +763,18 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
                                                 width={pillW}
                                                 height={16}
                                                 rx="3.5"
-                                                fill="#05080d"
+                                                fill="#0a0c12"
                                                 fillOpacity="0.95"
-                                                stroke={isWinExit ? "#2dd4bf" : "#fb7185"}
+                                                stroke={isWinExit ? "#4cc38a" : "#e5484d"}
                                                 strokeWidth="1.1"
                                             />
                                             <text
                                                 x={pillX + pillW / 2}
                                                 y={pillY + 11}
-                                                fill="#f8fafc"
+                                                fill="#eef0f5"
                                                 fontSize="8.5"
-                                                fontWeight="bold"
-                                                fontFamily="monospace"
+                                                fontWeight="600"
+                                                fontFamily="'IBM Plex Mono', monospace"
                                                 textAnchor="middle"
                                             >
                                                 {pillTxt}
@@ -792,8 +789,8 @@ const IndexChart = forwardRef(({ history, walls = [], tradeEngine = null, dayTra
             </div>
 
             {(!history || history.length === 0) && (
-                <div style={{ position: "absolute", top: 25, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", zIndex: 10 }}>
-                    <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
+                <div style={{ position: "absolute", top: 25, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(14,17,24,0.82)", zIndex: 10 }}>
+                    <span style={{ color: "var(--mw-muted)", fontSize: 12 }}>Aguardando abertura do mercado</span>
                 </div>
             )}
         </div>
