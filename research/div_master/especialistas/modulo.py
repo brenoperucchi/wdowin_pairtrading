@@ -30,7 +30,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.div_wall_signal import compute_flow  # noqa: E402
+try:
+    from core.div_wall_signal import compute_flow  # noqa: E402
+except ImportError:
+    compute_flow = None  # noqa: E402
 
 LEVEL_TYPES = ("Wall", "MidWall")
 # Gatilho Opção C: "ab" = revisão (a)+(b) aprovada em 12/11/2026 (padrão); "orig" = texto da revisão 2 da SPEC.

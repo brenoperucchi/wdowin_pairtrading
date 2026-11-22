@@ -118,7 +118,7 @@ export function formatGexCompact(gexAbs, isWdo) {
     return `${prefix}${Math.round(v)}`;
 }
 
-function toBrDate(rawDate) {
+export function toBrDate(rawDate) {
     if (!rawDate) return "";
     const s = String(rawDate).trim();
     if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
@@ -396,6 +396,136 @@ export function normalizeMorningBrief(raw) {
         },
         globalAssets,
     };
+}
+
+function _buildAssetRawFromCompass(assetObj, isWdo, targetIso, targetBr) {
+    const asset = assetObj || {};
+    const ca = asset.caminho_a || {};
+    const rawWalls = Array.isArray(asset.all_walls) ? asset.all_walls : [];
+    const bars = (Array.isArray(ca.m5_dealer_vs_flow_series) ? ca.m5_dealer_vs_flow_series : [])
+        .filter((b) => b && !b.is_prev_day);
+
+    const openP = Number(asset.open_price);
+    const firstBarOpen = bars.length > 0 ? Number(bars[0]?.open ?? bars[0]?.close) : NaN;
+    const lastP = Number(asset.last_price);
+    const currentPrice =
+        Number.isFinite(openP) && openP > 0
+            ? openP
+            : Number.isFinite(firstBarOpen) && firstBarOpen > 0
+                ? firstBarOpen
+                : Number.isFinite(lastP) && lastP > 0
+                    ? lastP
+                    : 0;
+
+    const mappedWalls = rawWalls
+        .filter((w) => w && Number.isFinite(Number(w.price)) && ["Wall", "GammaFlip", "MaxGamma", "MinGamma"].includes(String(w.type || "")))
+        .map((w) => ({
+            price: Number(w.price),
+            type: String(w.type),
+            width: Math.max(1, Math.min(3, Number(w.width) || 1)),
+            gex: Number(w.gex_raw ?? w.gex ?? 0),
+        }));
+
+    const gammaFlip = Number(asset.gamma_flip ?? mappedWalls.find((w) => w.type === "GammaFlip")?.price ?? currentPrice);
+    const maxGamma = Number(asset.max_gamma ?? mappedWalls.find((w) => w.type === "MaxGamma")?.price ?? 0) || null;
+    const minGamma = Number(asset.min_gamma ?? mappedWalls.find((w) => w.type === "MinGamma")?.price ?? 0) || null;
+
+    const pureWalls = mappedWalls.filter((w) => w.type === "Wall");
+    const isPos = Number.isFinite(gammaFlip) && gammaFlip > 0 ? currentPrice >= gammaFlip : false;
+
+    const above = pureWalls.filter((w) => w.price >= currentPrice).sort((a, b) => a.price - b.price);
+    const below = pureWalls.filter((w) => w.price < currentPrice).sort((a, b) => b.price - a.price);
+    const immediateRes = above[0]?.price ?? null;
+    const immediateSup = below[0]?.price ?? null;
+
+    const sortedStrong = [...pureWalls].sort((a, b) => {
+        if (b.width !== a.width) return b.width - a.width;
+        const ag = Math.abs(b.gex) - Math.abs(a.gex);
+        if (ag !== 0) return ag;
+        return Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice);
+    });
+    const magnet = sortedStrong[0] || null;
+
+    const contract = asset.active_contract || (isWdo ? "WDOFUT" : "WINFUT");
+    const regimeStr = isPos
+        ? "POSITIVE GAMMA (Amortecimento / Defesa de Wall)"
+        : "NEGATIVE GAMMA (Aceleracao Direcional)";
+    const conclusion = isPos
+        ? `Regime de Gamma Positivo favorece defesa e reversao nas Walls${magnet ? `; ima principal em ${formatAssetPrice(magnet.price, isWdo)}` : ""}.`
+        : `Regime de Gamma Negativo favorece aceleracao de movimentos${magnet ? `; ima gravitacional em ${formatAssetPrice(magnet.price, isWdo)}` : ""}.`;
+
+    return {
+        ticker: isWdo ? "USD_BRL" : "WIN",
+        ref_date: targetIso,
+        updated_at: targetIso ? `${targetIso} 08:30:00` : "",
+        current_price: currentPrice,
+        walls: mappedWalls,
+        report: {
+            report_date: targetBr,
+            contract,
+            current_price: currentPrice,
+            gamma_flip: Number.isFinite(gammaFlip) ? gammaFlip : undefined,
+            max_gamma: maxGamma ?? undefined,
+            min_gamma: minGamma ?? undefined,
+            status: regimeStr,
+            bias: isPos ? "DEFESA NAS WALLS / REVERSAO" : "ALTA VOLATILIDADE / AMPLITUDE",
+            great_wall: magnet ? { price: magnet.price } : undefined,
+            immediate_resistance: immediateRes ?? undefined,
+            immediate_support: immediateSup ?? undefined,
+            conclusion,
+        },
+    };
+}
+
+export function buildMorningBriefFromCompass(compassData, targetDateIso = "", liveBrief = null) {
+    const compassIso = String(compassData?.selected_date || compassData?.WIN?.session_date || "").trim().slice(0, 10);
+    const reqIso = String(targetDateIso || compassIso || "").trim().slice(0, 10);
+    const reqBr = toBrDate(reqIso);
+    const liveBr = toBrDate(liveBrief?.ref_date || liveBrief?.win?.report?.report_date || "");
+
+    const hasValidLive = Boolean(liveBrief && liveBrief.ok && liveBrief.win && liveBrief.wdo);
+    if (hasValidLive && (!reqBr || liveBr === reqBr)) {
+        return { brief: liveBrief, source: "LIVE" };
+    }
+
+    const winWallsCount = Array.isArray(compassData?.WIN?.all_walls) ? compassData.WIN.all_walls.length : 0;
+    const wdoWallsCount = Array.isArray(compassData?.WDO?.all_walls) ? compassData.WDO.all_walls.length : 0;
+    const hasCompassWalls = winWallsCount > 0 || wdoWallsCount > 0;
+    const compassMatchesTarget = !reqIso || !compassIso || reqIso === compassIso;
+
+    if (compassData?.WIN && compassData?.WDO && hasCompassWalls && compassMatchesTarget) {
+        const effIso = reqIso || compassIso || "";
+        const effBr = toBrDate(effIso) || DEFAULT_FALLBACK_BRIEF.ref_date;
+        const calendar =
+            liveBrief?.calendar && toBrDate(liveBrief.calendar.date) === effBr
+                ? liveBrief.calendar
+                : { date: effBr, events: [] };
+        const globalAssets = liveBr && liveBr === effBr && Array.isArray(liveBrief?.global_assets)
+            ? liveBrief.global_assets
+            : [];
+        return {
+            brief: {
+                ok: true,
+                is_fallback: false,
+                ref_date: effBr,
+                generated_at: effIso ? `${effIso} 08:30:00` : "",
+                win: _buildAssetRawFromCompass(compassData.WIN, false, effIso, effBr),
+                wdo: _buildAssetRawFromCompass(compassData.WDO, true, effIso, effBr),
+                calendar,
+                global_assets: globalAssets,
+            },
+            source: "COMPASS_DAY",
+        };
+    }
+
+    if (hasValidLive && (!reqBr || liveBr === reqBr)) {
+        return { brief: liveBrief, source: "LIVE" };
+    }
+    if (hasValidLive && !reqBr) {
+        return { brief: liveBrief, source: "LIVE" };
+    }
+
+    return { brief: DEFAULT_FALLBACK_BRIEF, source: "FALLBACK" };
 }
 
 export function buildMorningCaption(brief, options = {}) {

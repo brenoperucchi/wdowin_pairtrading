@@ -20,7 +20,7 @@ from cloud_saas.config import Settings
 from cloud_saas.database import SupabaseRestDatabase, create_database
 from cloud_saas.security import compute_push_signature, compute_webhook_signature
 from cloud_saas.store import UpstashRestStore
-from scripts.cloud_publisher import HeartbeatMonitor
+from scripts.cloud_publisher import HeartbeatMonitor, _attach_precomputed_divs
 from scripts.verify_cloud_connections import check_supabase, check_upstash
 
 
@@ -631,6 +631,101 @@ class CloudSaasArchitectureTests(unittest.TestCase):
         self.assertEqual(rp.status_code, 200)
         self.assertEqual(rp.json()["selected_date"], "2026-11-19")
         self.assertEqual(rp.json()["tier"], "pro")
+
+    def test_etapa1_missing_date_does_not_leak_another_day(self) -> None:
+        payload = {
+            "producer_id": "vps-01",
+            "producer_role": "primary",
+            "snapshots": {
+                "core": {
+                    "etapa1_lite": {
+                        "ok": True,
+                        "selected_date": "2026-11-20",
+                        "available_dates": ["2026-11-20", "2026-11-19"],
+                        "WIN": {
+                            "active_contract": "WINZ26",
+                            "caminho_a": {"m5_dealer_vs_flow_series": [{"time": "09:05", "close": 167500}]},
+                        },
+                        "WDO": {
+                            "active_contract": "WDOZ26",
+                            "caminho_a": {"m5_dealer_vs_flow_series": [{"time": "09:05", "close": 5940}]},
+                        },
+                    },
+                },
+            },
+        }
+        r_push = _signed_push_request(self.client, self.settings.push_hmac_secret, payload)
+        self.assertEqual(r_push.status_code, 200)
+
+        self._create_user("core_miss@mw.com", "core")
+        tok_core = self.client.post("/auth/login", json={"email": "core_miss@mw.com", "password": "StrongPassword!123", "device_fp": "fp-miss"}).json()["access_token"]
+
+        r_miss = self.client.get("/api/compass/etapa1?date_str=2026-11-10&lite=1", headers={"Authorization": f"Bearer {tok_core}"})
+        self.assertEqual(r_miss.status_code, 200)
+        body = r_miss.json()
+        self.assertEqual(body["selected_date"], "2026-11-10")
+        self.assertTrue(body["is_historical"])
+        self.assertEqual(body["WIN"]["caminho_a"]["m5_dealer_vs_flow_series"], [])
+        self.assertEqual(body["WDO"]["caminho_a"]["m5_dealer_vs_flow_series"], [])
+
+    def test_divergencias_motor_accessible_for_core_and_precompute_helper(self) -> None:
+        # Constrói sequência sintética realista (>= 25 barras M5) com fundo duplo + divergência de fluxo + Wall próxima
+        bars = []
+        base_m = 9 * 60
+        series_vals = [
+            (168100, 168140, 168060, 168080, -10.0),
+            (168080, 168100, 167980, 168000, -45.0),
+            (168000, 168020, 167880, 167900, -120.0),
+            (167900, 167920, 167760, 167780, -240.0),  # F1 px low=167760, wave=-240
+            (167780, 167920, 167770, 167900, -80.0),
+            (167900, 168060, 167890, 168040, 35.0),
+            (168040, 168150, 168020, 168120, 90.0),
+            (168120, 168140, 167990, 168010, 40.0),
+            (168010, 168020, 167870, 167890, -25.0),
+            (167890, 167900, 167750, 167770, -70.0),
+            (167770, 167790, 167680, 167700, -95.0),   # F2 lower low=167680, milder wave=-95
+            (167700, 167860, 167690, 167840, -15.0),
+            (167840, 167980, 167830, 167950, 50.0),
+            (167950, 168080, 167940, 168060, 110.0),
+            (168060, 168120, 168030, 168100, 125.0),
+        ]
+        for idx, (op, hi, lo, cl, wv) in enumerate(series_vals):
+            hh, mm = divmod(base_m + idx * 5, 60)
+            bars.append({
+                "time": f"{hh:02d}:{mm:02d}",
+                "open": op,
+                "high": hi,
+                "low": lo,
+                "close": cl,
+                "wave": wv,
+                "smart_swing_wave": wv,
+            })
+        walls = [{"type": "Wall", "price": 167700.0}]
+
+        self._create_user("core_div@mw.com", "core")
+        tok_core = self.client.post("/auth/login", json={"email": "core_div@mw.com", "password": "StrongPassword!123", "device_fp": "fp-div"}).json()["access_token"]
+
+        r_div = self.client.post(
+            "/api/compass/divergencias_motor",
+            json={"asset": "WIN", "engine": "v3.2", "bars": bars, "walls": walls, "trades": []},
+            headers={"Authorization": f"Bearer {tok_core}"},
+        )
+        self.assertEqual(r_div.status_code, 200, r_div.text)
+        div_body = r_div.json()
+        self.assertTrue(div_body["ok"])
+        self.assertGreater(len(div_body["divergences"]), 0)
+
+        snap = {
+            "WIN": {
+                "all_walls": walls,
+                "caminho_a": {
+                    "m5_dealer_vs_flow_series": bars,
+                    "signals_log": [],
+                },
+            }
+        }
+        enriched = _attach_precomputed_divs(snap, include_trades=False)
+        self.assertGreater(len(enriched["WIN"]["caminho_a"]["engine_divs_v32"]), 0)
 
 
 if __name__ == "__main__":

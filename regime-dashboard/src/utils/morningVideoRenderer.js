@@ -1013,7 +1013,7 @@ function drawMacroScene(ctx, spec, brief, tLocal, actDur) {
     if (!events.length) {
         ctx.font = `500 22px ${FONT_SANS}`;
         ctx.fillStyle = INK.text3;
-        ctx.fillText("Sem eventos macro de alto impacto listados para hoje.", padX + 24, calY + 120);
+        ctx.fillText(`Sem eventos macro arquivados para ${brief.dateBr}.`, padX + 24, calY + 120);
     } else {
         const listTop = calY + 76;
         const rowGap = isLand ? 12 : 20;

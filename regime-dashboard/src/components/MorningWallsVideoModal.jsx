@@ -4,6 +4,7 @@ import { API_BASE } from "../apiBase";
 import { authFetch } from "../utils/saasAuth";
 import MagicWallsMark from "./MagicWallsMark";
 import {
+    buildMorningBriefFromCompass,
     buildMorningCaption,
     DEFAULT_FALLBACK_BRIEF,
     normalizeMorningBrief,
@@ -192,7 +193,13 @@ function IconVolume({ muted }) {
     );
 }
 
-export default function MorningWallsVideoModal({ isOpen, onClose, standalone = false }) {
+export default function MorningWallsVideoModal({
+    isOpen,
+    onClose,
+    standalone = false,
+    selectedDate = "",
+    compassData = null,
+}) {
     const initialPrefs = useMemo(() => loadVideoPrefs(), []);
 
     const [format, setFormat] = useState(initialPrefs.format === "LANDSCAPE" ? "LANDSCAPE" : "REELS");
@@ -205,9 +212,8 @@ export default function MorningWallsVideoModal({ isOpen, onClose, standalone = f
     const [ctaUrl, setCtaUrl] = useState(initialPrefs.ctaUrl || "app.magicwalls.com.br");
     const [stampLabel, setStampLabel] = useState(initialPrefs.stampLabel || "Pré-pregão · 08:30 BRT");
 
-    const [rawBrief, setRawBrief] = useState(null);
+    const [liveBriefState, setLiveBriefState] = useState(null);
     const [loadingBrief, setLoadingBrief] = useState(false);
-    const [briefSource, setBriefSource] = useState("Carregando");
 
     const [isPlaying, setIsPlaying] = useState(true);
     const [loopEnabled, setLoopEnabled] = useState(true);
@@ -225,7 +231,11 @@ export default function MorningWallsVideoModal({ isOpen, onClose, standalone = f
     const audioHandleRef = useRef(null);
     const exportCancelRef = useRef(false);
 
-    const brief = useMemo(() => normalizeMorningBrief(rawBrief || DEFAULT_FALLBACK_BRIEF), [rawBrief]);
+    const { brief: resolvedRawBrief, source: resolvedSource } = useMemo(
+        () => buildMorningBriefFromCompass(compassData, selectedDate, liveBriefState),
+        [compassData, selectedDate, liveBriefState]
+    );
+    const brief = useMemo(() => normalizeMorningBrief(resolvedRawBrief || DEFAULT_FALLBACK_BRIEF), [resolvedRawBrief]);
     const spec = useMemo(() => getVideoSpec(format, focusMode), [format, focusMode]);
 
     const renderOptions = useMemo(
@@ -292,14 +302,12 @@ export default function MorningWallsVideoModal({ isOpen, onClose, standalone = f
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
             if (json && json.ok && json.win && json.wdo) {
-                setRawBrief(json);
-                setBriefSource("LIVE");
+                setLiveBriefState(json);
             } else {
-                throw new Error("Resposta inválida");
+                setLiveBriefState(null);
             }
         } catch {
-            setRawBrief(DEFAULT_FALLBACK_BRIEF);
-            setBriefSource("FALLBACK");
+            setLiveBriefState(null);
         } finally {
             setLoadingBrief(false);
         }
@@ -700,16 +708,34 @@ export default function MorningWallsVideoModal({ isOpen, onClose, standalone = f
                                 display: "inline-flex",
                                 alignItems: "center",
                                 gap: 6,
-                                background: briefSource === "LIVE" ? INK.posSoft : INK.flipSoft,
-                                border: `1px solid ${briefSource === "LIVE" ? INK.pos : INK.flip}`,
-                                color: briefSource === "LIVE" ? INK.pos : INK.flip,
+                                background:
+                                    resolvedSource === "LIVE"
+                                        ? INK.posSoft
+                                        : resolvedSource === "COMPASS_DAY"
+                                            ? INK.accentSoft
+                                            : INK.flipSoft,
+                                border: `1px solid ${
+                                    resolvedSource === "LIVE"
+                                        ? INK.pos
+                                        : resolvedSource === "COMPASS_DAY"
+                                            ? INK.accentBorder
+                                            : INK.flip
+                                }`,
+                                color:
+                                    resolvedSource === "LIVE"
+                                        ? INK.pos
+                                        : resolvedSource === "COMPASS_DAY"
+                                            ? INK.accentInk
+                                            : INK.flip,
                             }}
                         >
                             {loadingBrief
                                 ? "Carregando..."
-                                : briefSource === "LIVE"
+                                : resolvedSource === "LIVE"
                                     ? `Dados reais · ${brief.dateBr}`
-                                    : `Snapshot local · ${brief.dateBr}`}
+                                    : resolvedSource === "COMPASS_DAY"
+                                        ? `Pregão ${brief.dateBr} · Dados do dia`
+                                        : `Snapshot local · ${brief.dateBr}`}
                         </span>
                     </div>
 

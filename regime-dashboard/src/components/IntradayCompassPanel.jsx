@@ -273,6 +273,9 @@ function FluxoRealAsgChart({
     wideMode = false,
     capitalDrawerInfo = null,
     sessionDate = "",
+    payloadDate = "",
+    precomputedDivs = null,
+    compassData = null,
     embeddedHeader = null,
     isSideBySide = false,
     contractName = "",
@@ -485,11 +488,29 @@ function FluxoRealAsgChart({
         .map(s => ({ strategy_id: s.strategy_id, time: String(s.time).slice(0, 5), direction: s.direction }));
     const engineTradesKey = engineTrades.map(t => `${t.strategy_id}@${t.time}@${t.direction}`).join(",");
     const engineScopeKey = `${divEngine}|${symKey}|${sessionDate}`;
+    const payloadDateIso = String(payloadDate || sessionDate || "").slice(0, 10);
+    const targetDateIso = String(sessionDate || payloadDate || "").slice(0, 10);
+    const isPrecomputedSameDate = !payloadDateIso || !targetDateIso || payloadDateIso === targetDateIso;
+    const precomputedV32 = (
+        divEngine === "v3.2" &&
+        isPrecomputedSameDate &&
+        engineBars.length >= 5 &&
+        Array.isArray(precomputedDivs)
+    ) ? precomputedDivs : null;
     const engineReqKey = (isWallsHost && ["v2.1", "v2.2", "v3.1", "v3.2"].includes(divEngine) && engineBars.length >= 5)
         ? `${engineScopeKey}|${engineBars.length}|${lastEngineBar.time}|${lastEngineBar.high}|${lastEngineBar.low}|${(allWalls || []).length}|${engineTradesKey}`
         : "";
     useEffect(() => {
         if (!engineReqKey) return undefined;
+        if (precomputedV32 && precomputedV32.length > 0) {
+            setEngineDivs({
+                key: engineReqKey,
+                scopeKey: engineScopeKey,
+                list: precomputedV32,
+                status: "ok",
+            });
+            return undefined;
+        }
         let cancelled = false;
         setEngineDivs(prev => ({ ...prev, status: "loading" }));
         const postDivs = () => authFetch(`${API_BASE}/api/compass/divergencias_motor`, {
@@ -508,17 +529,28 @@ function FluxoRealAsgChart({
         }).then(r => r.json());
         const applyDivs = (d) => {
             if (cancelled) return;
+            const apiList = (d && d.ok && Array.isArray(d.divergences)) ? d.divergences : [];
+            const fallbackList = (apiList.length === 0 && precomputedV32 && precomputedV32.length > 0) ? precomputedV32 : apiList;
             setEngineDivs({
                 key: engineReqKey,
                 scopeKey: engineScopeKey,
-                list: (d && d.ok && Array.isArray(d.divergences)) ? d.divergences : [],
-                status: d && d.ok ? "ok" : "erro",
+                list: fallbackList,
+                status: (d && d.ok) || fallbackList.length > 0 ? "ok" : "erro",
             });
         };
         postDivs().then(applyDivs).catch(() => {
             if (cancelled) return;
             postDivs().then(applyDivs).catch(() => {
                 if (cancelled) return;
+                if (precomputedV32 && precomputedV32.length > 0) {
+                    setEngineDivs({
+                        key: engineReqKey,
+                        scopeKey: engineScopeKey,
+                        list: precomputedV32,
+                        status: "ok",
+                    });
+                    return;
+                }
                 // Falha de rede/túnel: não apaga as linhas já desenhadas nem trava o botão em "erro"
                 setEngineDivs(prev => {
                     if (prev.scopeKey === engineScopeKey && Array.isArray(prev.list) && prev.list.length) {
@@ -530,7 +562,7 @@ function FluxoRealAsgChart({
         });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [engineReqKey]);
+    }, [engineReqKey, precomputedV32]);
     const chooseDivEngine = (v) => {
         setDivEngine(v);
         try { window.localStorage.setItem("div_v32_5176", v === "NENHUMA" ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
@@ -1252,7 +1284,11 @@ function FluxoRealAsgChart({
         });
         swingDivergences.length = 0;
         totalDayDivCount = 0;
-        if (["v2.1", "v2.2", "v3.1", "v3.2"].includes(divEngine) && engineDivs.scopeKey === engineScopeKey) {
+        const effectiveEngineList =
+            (engineDivs.scopeKey === engineScopeKey && Array.isArray(engineDivs.list) && engineDivs.list.length > 0)
+                ? engineDivs.list
+                : (precomputedV32 || []);
+        if (["v2.1", "v2.2", "v3.1", "v3.2"].includes(divEngine) && (effectiveEngineList.length > 0 || engineDivs.scopeKey === engineScopeKey)) {
             const idxByTime = {};
             const parseMin = (t) => {
                 const [hh, mm] = String(t || "").slice(0, 5).split(":");
@@ -1283,7 +1319,7 @@ function FluxoRealAsgChart({
                 return bestIdx;
             };
             // Numeração permanente cronológica no dia inteiro (espelha 1-para-1 a ordem do Card IG)
-            const orderedDayDivs = [...engineDivs.list]
+            const orderedDayDivs = [...effectiveEngineList]
                 .map((d, rawIdx) => ({
                     ...d,
                     _rawIdx: rawIdx,
@@ -4579,7 +4615,12 @@ function FluxoRealAsgChart({
                     </g>
                 )}
             </svg>
-            {canUseMediaStudio && showInstaModal && (
+            {canUseMediaStudio && showInstaModal && (() => {
+                const modalEngineList =
+                    (engineDivs.scopeKey === engineScopeKey && Array.isArray(engineDivs.list) && engineDivs.list.length > 0)
+                        ? engineDivs.list
+                        : (precomputedV32 || []);
+                return (
                 <InstagramCardModal
                     isOpen={showInstaModal}
                     onClose={() => setShowInstaModal(false)}
@@ -4588,8 +4629,8 @@ function FluxoRealAsgChart({
                     bars={engineBars.length ? engineBars : series.filter((pt) => pt && !pt.is_prev_day)}
                     walls={allWalls}
                     divergences={
-                        isWallsHost && engineDivs.scopeKey === engineScopeKey && Array.isArray(engineDivs.list) && engineDivs.list.length > 0
-                            ? engineDivs.list.map((d) => ({
+                        isWallsHost && Array.isArray(modalEngineList) && modalEngineList.length > 0
+                            ? modalEngineList.map((d) => ({
                                 type: d.dir === 1 ? "BULL_DIV" : "BEAR_DIV",
                                 prevTime: d.f1_time,
                                 prevPrice: Number(d.f1_px),
@@ -4607,11 +4648,14 @@ function FluxoRealAsgChart({
                             : swingDivergences
                     }
                 />
-            )}
+                );
+            })()}
             {canUseMediaStudio && showMorningVideoModal && (
                 <MorningWallsVideoModal
                     isOpen={showMorningVideoModal}
                     onClose={() => setShowMorningVideoModal(false)}
+                    selectedDate={sessionDate}
+                    compassData={compassData}
                 />
             )}
         </div>
@@ -6942,7 +6986,7 @@ const Portfolio4SistematicasPanel = memo(function Portfolio4SistematicasPanel({ 
 }, (prev, next) => prev.portfolioData === next.portfolioData);
 
 /* ── COMPONENTE DO COCKPIT DE 1 ATIVO (ESQUERDA: FLUXO REAL | DIREITA: A.S.G HUD + CURVA DE CAPITAL) ── */
-function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDateOverride = "", isSideBySide = false }) {
+function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDateOverride = "", isSideBySide = false, compassData = null }) {
     const [selectedSigId, setSelectedSigId] = useState(null);
     const [showHistory, setShowHistory] = useState(false);
     const [isCapitalCollapsed, setIsCapitalCollapsed] = useState(() => isWallsFlowLocalhost());
@@ -7278,6 +7322,9 @@ function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDa
                     showSignalsMarkers={!manualMode}
                     wideMode={manualMode || drawerCollapsedActive}
                     sessionDate={sessionDateOverride || payload.session_date || ca.ref_date || ""}
+                    payloadDate={payload.session_date || ca.ref_date || ""}
+                    precomputedDivs={ca.engine_divs_v32}
+                    compassData={compassData}
                     embeddedHeader={manualEmbeddedHeader}
                     isSideBySide={isSideBySide}
                     contractName={contractLabel}
@@ -8057,6 +8104,7 @@ function IntradayCompassPanel({
                                 manualMode={isManualHost}
                                 isSideBySide={isManualHost && dualLayout === "split"}
                                 sessionDateOverride={activeDate || compassData.selected_date || todayDateStr || ""}
+                                compassData={compassData}
                             />
                             <SingleAssetCockpitView
                                 symKey="WDO"
@@ -8064,6 +8112,7 @@ function IntradayCompassPanel({
                                 manualMode={isManualHost}
                                 isSideBySide={isManualHost && dualLayout === "split"}
                                 sessionDateOverride={activeDate || compassData.selected_date || todayDateStr || ""}
+                                compassData={compassData}
                             />
                         </div>
                     ) : (
@@ -8073,6 +8122,7 @@ function IntradayCompassPanel({
                             manualMode={isManualHost}
                             isSideBySide={false}
                             sessionDateOverride={activeDate || compassData.selected_date || todayDateStr || ""}
+                            compassData={compassData}
                         />
                     )}
                     {!isManualHost && (

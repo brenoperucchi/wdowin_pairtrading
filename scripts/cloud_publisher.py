@@ -33,6 +33,80 @@ if ROOT not in sys.path:
 from cloud_saas.security import compute_push_signature, notify_admin_telegram
 from scripts.painel_publico import _sanitize_etapa1, _sanitize_etapa1_5176
 
+try:
+    from core.div_engines_view import detect as _detect_engine_divs
+except Exception:
+    _detect_engine_divs = None
+
+_WALLS_FLOW_6_IDS = {
+    "WIN_DIV_WALL",
+    "WDO_DIV_WALL",
+    "ESP_DIV_V22_WIN",
+    "C1a_BRK_WIN",
+    "V1a_DIV_WDO",
+    "SYM_DIV_WIN",
+    "SYM_DIV_WDO",
+}
+
+
+def _attach_precomputed_divs(obj: Any, include_trades: bool = False) -> Any:
+    """Embute as divergências oficiais V3.2 em WIN/WDO.caminho_a.engine_divs_v32.
+
+    Garante exibição imediata no SaaS Cloud e no Card IG mesmo sem roundtrip extra
+    no /api/compass/divergencias_motor.
+    """
+    if not isinstance(obj, dict) or _detect_engine_divs is None:
+        return obj
+    for sym in ("WIN", "WDO"):
+        asset = obj.get(sym)
+        if not isinstance(asset, dict):
+            continue
+        ca = asset.get("caminho_a")
+        if not isinstance(ca, dict):
+            continue
+        raw_series = ca.get("m5_dealer_vs_flow_series") or []
+        bars = [
+            {
+                "time": str(pt.get("time", ""))[:5],
+                "open": float(pt.get("open", 0.0) or 0.0),
+                "high": float(pt.get("high", 0.0) or 0.0),
+                "low": float(pt.get("low", 0.0) or 0.0),
+                "close": float(pt.get("close", 0.0) or 0.0),
+                "wave": float(pt.get("smart_swing_wave", 0.0) or 0.0),
+            }
+            for pt in raw_series
+            if isinstance(pt, dict) and not pt.get("is_prev_day") and pt.get("time")
+        ]
+        if len(bars) < 5:
+            ca["engine_divs_v32"] = []
+            continue
+        walls = [
+            {"type": w.get("type"), "price": float(w["price"])}
+            for w in (asset.get("all_walls") or [])
+            if isinstance(w, dict) and w.get("price") is not None
+        ]
+        trades = []
+        if include_trades:
+            for s in (ca.get("signals_log") or []):
+                if (
+                    isinstance(s, dict)
+                    and not s.get("is_prev_day")
+                    and s.get("time")
+                    and str(s.get("strategy_id") or "") in _WALLS_FLOW_6_IDS
+                ):
+                    trades.append(
+                        {
+                            "strategy_id": s.get("strategy_id"),
+                            "time": str(s.get("time"))[:5],
+                            "direction": s.get("direction"),
+                        }
+                    )
+        try:
+            ca["engine_divs_v32"] = _detect_engine_divs(sym, bars, walls, "v3.2", trades=trades)
+        except Exception:
+            ca["engine_divs_v32"] = []
+    return obj
+
 
 def _is_b3_session_now(now_dt: Optional[datetime] = None) -> bool:
     dt = now_dt or datetime.now()
@@ -128,6 +202,7 @@ class CloudPublisher:
         producer_id: str,
         role: str = "primary",
         primary_failover_sec: float = 12.0,
+        max_backfill_days: int = 25,
     ) -> None:
         self.cloud_url = cloud_url.rstrip("/")
         self.local_url = local_url.rstrip("/")
@@ -135,8 +210,9 @@ class CloudPublisher:
         self.producer_id = producer_id
         self.role = role
         self.primary_failover_sec = primary_failover_sec
+        self.max_backfill_days = max(1, int(max_backfill_days))
         self._local = httpx.Client(timeout=15.0)
-        self._cloud = httpx.Client(timeout=10.0)
+        self._cloud = httpx.Client(timeout=15.0)
         self._last_fetch_ts: dict[str, float] = {}
         self._cached_raw: dict[str, bytes] = {}
         self._day_cache_pushed_ts: dict[str, float] = {}
@@ -167,7 +243,16 @@ class CloudPublisher:
                 return True
         return False
 
-    def build_snapshots(self, force_all: bool = False) -> dict[str, dict[str, Any]]:
+    def _prepare_day_pair(self, day_raw: bytes) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]]]:
+        pro_day = _decode_json_bytes(_sanitize_etapa1_5176(day_raw))
+        if not self._has_compass_bars(pro_day):
+            return None, None
+        core_day = _decode_json_bytes(_sanitize_etapa1(day_raw))
+        core_day = _attach_precomputed_divs(core_day, include_trades=False)
+        pro_day = _attach_precomputed_divs(pro_day, include_trades=True)
+        return core_day, pro_day
+
+    def build_snapshots(self, force_all: bool = False, include_days: bool = True) -> dict[str, dict[str, Any]]:
         etapa1_lite_raw = self._fetch_throttled("etapa1_lite", "/api/compass/etapa1?lite=1", 2.0, timeout=15.0, force=force_all)
         etapa1_full_raw = self._fetch_throttled("etapa1_full", "/api/compass/etapa1", 15.0, timeout=25.0, force=force_all)
         m1_raw = self._fetch_throttled("m1_series", "/api/compass/m1_series", 20.0, timeout=12.0, force=force_all)
@@ -184,10 +269,10 @@ class CloudPublisher:
             force=force_all,
         )
 
-        core_lite = _decode_json_bytes(_sanitize_etapa1(etapa1_lite_raw)) if etapa1_lite_raw else None
-        core_full = _decode_json_bytes(_sanitize_etapa1(etapa1_full_raw)) if etapa1_full_raw else None
-        pro_lite = _decode_json_bytes(_sanitize_etapa1_5176(etapa1_lite_raw)) if etapa1_lite_raw else None
-        pro_full = _decode_json_bytes(_sanitize_etapa1_5176(etapa1_full_raw)) if etapa1_full_raw else None
+        core_lite = _attach_precomputed_divs(_decode_json_bytes(_sanitize_etapa1(etapa1_lite_raw)), include_trades=False) if etapa1_lite_raw else None
+        core_full = _attach_precomputed_divs(_decode_json_bytes(_sanitize_etapa1(etapa1_full_raw)), include_trades=False) if etapa1_full_raw else None
+        pro_lite = _attach_precomputed_divs(_decode_json_bytes(_sanitize_etapa1_5176(etapa1_lite_raw)), include_trades=True) if etapa1_lite_raw else None
+        pro_full = _attach_precomputed_divs(_decode_json_bytes(_sanitize_etapa1_5176(etapa1_full_raw)), include_trades=True) if etapa1_full_raw else None
         m1_obj = _decode_json_bytes(m1_raw)
 
         core_map: dict[str, Any] = {
@@ -206,35 +291,39 @@ class CloudPublisher:
             "history": _decode_json_bytes(hist_raw),
         }
 
-        avail_dates = (pro_lite or core_lite or {}).get("available_dates") or []
-        now_mono = time.monotonic()
-        populated_days = 0
-        for raw_d in avail_dates[:6]:
-            if populated_days >= 3:
-                break
-            d = str(raw_d or "").strip()
-            if len(d) != 10:
-                continue
-            due = force_all or (d not in self._day_cache_pushed_ts) or ((now_mono - self._day_cache_pushed_ts[d]) >= 300.0)
-            if not due:
-                continue
-            day_raw = self._fetch_throttled(
-                f"day_{d}",
-                f"/api/compass/etapa1?date_str={d}&lite=1",
-                300.0,
-                timeout=15.0,
-                force=force_all,
-            )
-            if not day_raw:
-                continue
-            pro_day = _decode_json_bytes(_sanitize_etapa1_5176(day_raw))
-            if not self._has_compass_bars(pro_day):
-                continue
-            core_day = _decode_json_bytes(_sanitize_etapa1(day_raw))
-            core_map[f"etapa1_day_{d}"] = core_day
-            pro_map[f"etapa1_day_{d}"] = pro_day
-            self._day_cache_pushed_ts[d] = now_mono
-            populated_days += 1
+        if include_days:
+            avail_dates = (pro_lite or core_lite or {}).get("available_dates") or []
+            now_mono = time.monotonic()
+            pushed_this_cycle = 0
+            per_cycle_cap = 2 if not force_all else min(3, self.max_backfill_days)
+            for idx, raw_d in enumerate(avail_dates[: max(30, self.max_backfill_days + 10)]):
+                if idx >= self.max_backfill_days and len(self._day_cache_pushed_ts) >= self.max_backfill_days:
+                    break
+                if pushed_this_cycle >= per_cycle_cap:
+                    break
+                d = str(raw_d or "").strip()
+                if len(d) != 10:
+                    continue
+                ttl_refresh = 300.0 if idx < 2 else 1800.0
+                due = force_all or (d not in self._day_cache_pushed_ts) or ((now_mono - self._day_cache_pushed_ts[d]) >= ttl_refresh)
+                if not due:
+                    continue
+                day_raw = self._fetch_throttled(
+                    f"day_{d}",
+                    f"/api/compass/etapa1?date_str={d}&lite=1",
+                    ttl_refresh,
+                    timeout=15.0,
+                    force=force_all,
+                )
+                self._day_cache_pushed_ts[d] = now_mono
+                if not day_raw:
+                    continue
+                core_day, pro_day = self._prepare_day_pair(day_raw)
+                if core_day is None or pro_day is None:
+                    continue
+                core_map[f"etapa1_day_{d}"] = core_day
+                pro_map[f"etapa1_day_{d}"] = pro_day
+                pushed_this_cycle += 1
 
         return {
             "core": core_map,
@@ -259,29 +348,24 @@ class CloudPublisher:
         except Exception:
             return False
 
-    def push_once(self, force_all: bool = False) -> tuple[bool, dict[str, Any]]:
-        heartbeat_only = False
-        if self.role == "standby" and self._primary_is_healthy_in_cloud():
-            now = time.monotonic()
-            if (now - self._last_standby_hb_ts) < 10.0:
-                return True, {"ok": True, "mode": "standby_sleeping"}
-            self._last_standby_hb_ts = now
-            heartbeat_only = True
-
+    def _post_snapshots_payload(
+        self,
+        snapshots: Optional[dict[str, dict[str, Any]]] = None,
+        heartbeat_only: bool = False,
+    ) -> tuple[bool, dict[str, Any]]:
         if heartbeat_only:
-            payload = {
+            payload: dict[str, Any] = {
                 "producer_id": self.producer_id,
                 "producer_role": self.role,
                 "heartbeat_only": True,
                 "pushed_at": time.time(),
             }
         else:
-            snapshots = self.build_snapshots(force_all=force_all)
             payload = {
                 "producer_id": self.producer_id,
                 "producer_role": self.role,
                 "pushed_at": time.time(),
-                "snapshots": snapshots,
+                "snapshots": snapshots or {},
             }
 
         raw_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -301,6 +385,73 @@ class CloudPublisher:
         if resp.status_code != 200:
             return False, {"status_code": resp.status_code, "body": resp.text[:300]}
         return True, resp.json()
+
+    def push_backfill_days(self, max_days: Optional[int] = None, batch_size: int = 3) -> dict[str, Any]:
+        target_days = max(1, int(max_days if max_days is not None else self.max_backfill_days))
+        lite_raw = self._fetch_throttled("etapa1_lite", "/api/compass/etapa1?lite=1", 2.0, timeout=15.0, force=True)
+        lite_obj = _decode_json_bytes(lite_raw) or {}
+        avail_dates = lite_obj.get("available_dates") or []
+        collected: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        now_mono = time.monotonic()
+
+        for raw_d in avail_dates[: max(45, target_days + 15)]:
+            if len(collected) >= target_days:
+                break
+            d = str(raw_d or "").strip()
+            if len(d) != 10:
+                continue
+            day_raw = self._fetch_throttled(
+                f"day_{d}",
+                f"/api/compass/etapa1?date_str={d}&lite=1",
+                300.0,
+                timeout=20.0,
+                force=True,
+            )
+            self._day_cache_pushed_ts[d] = now_mono
+            if not day_raw:
+                continue
+            core_day, pro_day = self._prepare_day_pair(day_raw)
+            if core_day is None or pro_day is None:
+                continue
+            collected.append((d, core_day, pro_day))
+
+        pushed_days: list[str] = []
+        failed_batches: list[dict[str, Any]] = []
+        step = max(1, int(batch_size))
+        for i in range(0, len(collected), step):
+            chunk = collected[i : i + step]
+            snap_chunk = {
+                "core": {f"etapa1_day_{d}": c_obj for d, c_obj, _ in chunk},
+                "pro": {f"etapa1_day_{d}": p_obj for d, _, p_obj in chunk},
+            }
+            ok, res = self._post_snapshots_payload(snap_chunk, heartbeat_only=False)
+            if ok:
+                pushed_days.extend([d for d, _, _ in chunk])
+            else:
+                failed_batches.append({"days": [d for d, _, _ in chunk], "error": res})
+
+        return {
+            "ok": len(failed_batches) == 0,
+            "requested_days": target_days,
+            "populated_days": len(collected),
+            "pushed_days": pushed_days,
+            "failed_batches": failed_batches,
+        }
+
+    def push_once(self, force_all: bool = False) -> tuple[bool, dict[str, Any]]:
+        heartbeat_only = False
+        if self.role == "standby" and self._primary_is_healthy_in_cloud():
+            now = time.monotonic()
+            if (now - self._last_standby_hb_ts) < 10.0:
+                return True, {"ok": True, "mode": "standby_sleeping"}
+            self._last_standby_hb_ts = now
+            heartbeat_only = True
+
+        if heartbeat_only:
+            return self._post_snapshots_payload(heartbeat_only=True)
+
+        snapshots = self.build_snapshots(force_all=force_all, include_days=not force_all)
+        return self._post_snapshots_payload(snapshots, heartbeat_only=False)
 
 
 def _load_default_env(env_file: Optional[str] = None) -> None:
@@ -332,6 +483,7 @@ def main() -> int:
     parser.add_argument("--role", choices=["primary", "standby"], default=os.environ.get("MW_PRODUCER_ROLE", "primary"))
     parser.add_argument("--interval", type=float, default=2.5)
     parser.add_argument("--stale-alert-sec", type=float, default=15.0)
+    parser.add_argument("--backfill-days", type=int, default=25, help="Quantidade maxima de pregoes historicos enviados ao cache SaaS.")
     parser.add_argument("--once", action="store_true", help="Executa apenas 1 push completo e encerra.")
     parser.add_argument("--always-alert", action="store_true", help="Dispara alertas mesmo fora do horário do pregão.")
     args = parser.parse_args()
@@ -345,6 +497,7 @@ def main() -> int:
         hmac_secret=args.hmac_secret,
         producer_id=args.producer_id,
         role=args.role,
+        max_backfill_days=args.backfill_days,
     )
     monitor = HeartbeatMonitor(
         stale_sec=args.stale_alert_sec,
@@ -356,9 +509,11 @@ def main() -> int:
 
     try:
         if args.once:
+            bf_res = publisher.push_backfill_days(max_days=args.backfill_days, batch_size=3)
+            print(f"[BACKFILL] {bf_res}", flush=True)
             ok, res = publisher.push_once(force_all=True)
             print(f"[ONCE] ok={ok} res={res}", flush=True)
-            return 0 if ok else 1
+            return 0 if (ok and bf_res.get("ok")) else 1
 
         print(
             f"[CLOUD_PUBLISHER] {args.producer_id} ({args.role}) empurrando {args.local_url} -> {args.cloud_url} a cada {args.interval}s",

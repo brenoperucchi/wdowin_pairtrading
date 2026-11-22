@@ -473,14 +473,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     ):
         tier = "pro" if PLAN_RANK.get(user["plan"].lower(), 0) >= PLAN_RANK["pro"] else "core"
         clean_date = (date_str or "").strip()
-        if (
+        is_valid_date = (
             len(clean_date) == 10
             and clean_date[4] == "-"
             and clean_date[7] == "-"
             and clean_date[:4].isdigit()
             and clean_date[5:7].isdigit()
             and clean_date[8:].isdigit()
-        ):
+        )
+        if is_valid_date:
             day_data = store.get_json(f"snap:{tier}:etapa1_day_{clean_date}")
             if day_data is not None:
                 return day_data
@@ -490,11 +491,61 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         data = store.get_json(primary_key) or store.get_json(fallback_key)
         if data is None:
             raise ApiRuleError(503, "FEED_UNAVAILABLE", "Dados ao vivo ainda não publicados pelo produtor.")
+        if is_valid_date:
+            live_date = str(data.get("selected_date") or "").strip()
+            if live_date != clean_date:
+                # Nunca devolver barras de outro pregão quando o usuário pediu uma data histórica não armazenada
+                avail = data.get("available_dates") or []
+                empty_assets = {}
+                for sym in ("WIN", "WDO"):
+                    src_asset = data.get(sym) if isinstance(data.get(sym), dict) else {}
+                    empty_assets[sym] = {
+                        "asset": sym,
+                        "active_contract": src_asset.get("active_contract") or sym,
+                        "session_date": clean_date,
+                        "last_price": 0,
+                        "open_price": 0,
+                        "vwap": 0,
+                        "all_walls": [],
+                        "walls_radar": {},
+                        "session_totals": {},
+                        "caminho_a": {
+                            "ref_date": clean_date,
+                            "m5_dealer_vs_flow_series": [],
+                            "flow_windows": [],
+                            "asg_hud": {},
+                            "signals_log": [],
+                            "engine_divs_v32": [],
+                        },
+                    }
+                return {
+                    "ok": True,
+                    "is_historical": True,
+                    "selected_date": clean_date,
+                    "available_dates": avail,
+                    "WIN": empty_assets["WIN"],
+                    "WDO": empty_assets["WDO"],
+                }
         return data
 
     @app.get("/api/compass/m1_series")
-    def get_m1_series(user: dict = Depends(auth_core)):
+    def get_m1_series(
+        date_str: Optional[str] = Query(default=None),
+        user: dict = Depends(auth_core),
+    ):
         tier = "pro" if PLAN_RANK.get(user["plan"].lower(), 0) >= PLAN_RANK["pro"] else "core"
+        clean_date = (date_str or "").strip()
+        if (
+            len(clean_date) == 10
+            and clean_date[4] == "-"
+            and clean_date[7] == "-"
+            and clean_date[:4].isdigit()
+            and clean_date[5:7].isdigit()
+            and clean_date[8:].isdigit()
+        ):
+            day_m1 = store.get_json(f"snap:{tier}:m1_series_day_{clean_date}") or store.get_json(f"snap:core:m1_series_day_{clean_date}")
+            if day_m1 is not None:
+                return day_m1
         data = store.get_json(f"snap:{tier}:m1_series") or store.get_json("snap:core:m1_series")
         if data is None:
             raise ApiRuleError(503, "FEED_UNAVAILABLE", "Série M1 ainda não disponível.")
@@ -534,7 +585,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return data
 
     @app.post("/api/compass/divergencias_motor")
-    async def post_divergencias_motor(request: Request, _user: dict = Depends(auth_pro)):
+    async def post_divergencias_motor(request: Request, _user: dict = Depends(auth_core)):
         try:
             body = await request.json()
         except Exception:
