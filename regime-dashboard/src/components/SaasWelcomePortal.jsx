@@ -399,10 +399,9 @@ export default function SaasWelcomePortal({
     const [simPlaying, setSimPlaying] = useState(() => !prefersReducedMotion);
     const [simProgress, setSimProgress] = useState(() => (prefersReducedMotion ? 13 : 0));
 
-    // Contagem progressiva / regressiva na tabela de 30 pregões (#resultados-30d)
+    // Contagem unificada na tabela de 30 pregões (#resultados-30d)
     const statsRef = useRef(null);
     const statsTriggeredRef = useRef(false);
-    const [countMode, setCountMode] = useState("progressive");
     const [statsRunId, setStatsRunId] = useState(0);
     const [statsT, setStatsT] = useState(() => (prefersReducedMotion ? 1 : 0));
 
@@ -519,8 +518,7 @@ export default function SaasWelcomePortal({
         if (!prefersReducedMotion) setSimPlaying(true);
     };
 
-    const handleTriggerStats = (nextMode) => {
-        if (nextMode) setCountMode(nextMode);
+    const handleTriggerStats = () => {
         statsTriggeredRef.current = true;
         if (prefersReducedMotion) {
             setStatsT(1);
@@ -553,19 +551,140 @@ export default function SaasWelcomePortal({
 
     // Variáveis derivadas da contagem de 30 pregões
     const easedP = easeOutCubic(statsT);
-    const isRegressive = countMode === "regressive";
-    // No modo progressivo: constrói do 0 -> final; no regressivo: parte do bruto (+107.005 / +1.869,5) descontando stops até travar no saldo líquido
     const sessionProgressCount = Math.max(1, Math.min(30, Math.round(1 + easedP * 29)));
     const sessionsRemaining = Math.max(0, Math.min(30, Math.round((1 - easedP) * 30)));
+    const winNetAnim = STATS_30D.win.netPts * easedP;
+    const wdoNetAnim = STATS_30D.wdo.netPts * easedP;
 
-    const winNetAnim = isRegressive
-        ? STATS_30D.win.grossPts + STATS_30D.win.stopPts * easedP
-        : STATS_30D.win.netPts * easedP;
-    const wdoNetAnim = isRegressive
-        ? STATS_30D.wdo.grossPts + STATS_30D.wdo.stopPts * easedP
-        : STATS_30D.wdo.netPts * easedP;
-
-    const animScalar = isRegressive ? 1 : easedP;
+    const statsRows = [
+        {
+            key: "sessions",
+            label: "Pregões analisados",
+            win: (
+                <>
+                    {fmtPtInt(STATS_30D.sessions * easedP)}{" "}
+                    <span style={{ color: "#848da2", fontStyle: "italic" }}>
+                        ({fmtPtInt(STATS_30D.win.posDays * easedP)} pos · {fmtPtInt(STATS_30D.win.negDays * easedP)} neg)
+                    </span>
+                </>
+            ),
+            winColor: "#eef0f5",
+            wdo: (
+                <>
+                    {fmtPtInt(STATS_30D.sessions * easedP)}{" "}
+                    <span style={{ color: "#848da2", fontStyle: "italic" }}>
+                        ({fmtPtInt(STATS_30D.wdo.posDays * easedP)} pos · {fmtPtInt(STATS_30D.wdo.negDays * easedP)} neg)
+                    </span>
+                </>
+            ),
+            wdoColor: "#eef0f5",
+        },
+        {
+            key: "signals",
+            label: "Total de sinais",
+            win: fmtPtInt(STATS_30D.win.totalSignals * easedP),
+            winColor: "#eef0f5",
+            winWeight: 600,
+            wdo: fmtPtInt(STATS_30D.wdo.totalSignals * easedP),
+            wdoColor: "#eef0f5",
+            wdoWeight: 600,
+        },
+        {
+            key: "paid",
+            label: "Pagaram (≥150 / ≥4 pts)",
+            win: `${fmtPtInt(STATS_30D.win.paidCount * easedP)} (${fmtPtDec1(STATS_30D.win.paidPct * easedP)}%)`,
+            winColor: "#4cc38a",
+            winWeight: 600,
+            wdo: `${fmtPtInt(STATS_30D.wdo.paidCount * easedP)} (${fmtPtDec1(STATS_30D.wdo.paidPct * easedP)}%)`,
+            wdoColor: "#4cc38a",
+            wdoWeight: 600,
+        },
+        {
+            key: "neutral",
+            label: "Neutros (sem stop e < limiar)",
+            win: `${fmtPtInt(STATS_30D.win.neutralCount * easedP)} (${fmtPtDec1(STATS_30D.win.neutralPct * easedP)}%)`,
+            winColor: "#a3a9b8",
+            wdo: `${fmtPtInt(STATS_30D.wdo.neutralCount * easedP)} (${fmtPtDec1(STATS_30D.wdo.neutralPct * easedP)}%)`,
+            wdoColor: "#a3a9b8",
+        },
+        {
+            key: "stops-cnt",
+            label: "Stops (na outra Wall)",
+            win: `${fmtPtInt(STATS_30D.win.stopCount * easedP)} (${fmtPtDec1(STATS_30D.win.stopPct * easedP)}%)`,
+            winColor: "#e5484d",
+            winWeight: 600,
+            wdo: `${fmtPtInt(STATS_30D.wdo.stopCount * easedP)} (${fmtPtDec1(STATS_30D.wdo.stopPct * easedP)}%)`,
+            wdoColor: "#e5484d",
+            wdoWeight: 600,
+        },
+        {
+            key: "gross",
+            label: "Soma Bruta (máx. a favor)",
+            win: `${fmtSignedInt(STATS_30D.win.grossPts * easedP)} pts`,
+            winColor: "#4cc38a",
+            winWeight: 500,
+            wdo: `${fmtSignedDec1(STATS_30D.wdo.grossPts * easedP)} pts`,
+            wdoColor: "#4cc38a",
+            wdoWeight: 500,
+        },
+        {
+            key: "stops-pts",
+            label: "Soma dos Stops",
+            win: `${fmtSignedInt(STATS_30D.win.stopPts * easedP)} pts`,
+            winColor: "#e5484d",
+            winWeight: 500,
+            wdo: `${fmtSignedDec1(STATS_30D.wdo.stopPts * easedP)} pts`,
+            wdoColor: "#e5484d",
+            wdoWeight: 500,
+        },
+        {
+            key: "net",
+            label: "Saldo Líquido (30 pregões)",
+            highlight: true,
+            win: `${fmtSignedInt(winNetAnim)} pts`,
+            winColor: "#4cc38a",
+            winWeight: 600,
+            wdo: `${fmtSignedDec1(wdoNetAnim)} pts`,
+            wdoColor: "#4cc38a",
+            wdoWeight: 600,
+        },
+        {
+            key: "avg",
+            label: "Média por pregão / por sinal",
+            win: `${fmtSignedInt(STATS_30D.win.avgPerDay * easedP)} pts/dia · ${fmtSignedInt(STATS_30D.win.avgPerSignal * easedP)} pts/sinal`,
+            winColor: "#eef0f5",
+            wdo: `${fmtSignedDec1(STATS_30D.wdo.avgPerDay * easedP)} pts/dia · ${fmtSignedDec1(STATS_30D.wdo.avgPerSignal * easedP)} pts/sinal`,
+            wdoColor: "#eef0f5",
+        },
+        {
+            key: "best-worst",
+            label: "Melhor dia / Pior dia",
+            win: `${STATS_30D.win.bestDayLabel} (${fmtSignedInt(STATS_30D.win.bestDayPts * easedP)}) / ${STATS_30D.win.worstDayLabel} (${fmtSignedInt(STATS_30D.win.worstDayPts * easedP)})`,
+            winColor: "#eef0f5",
+            wdo: `${STATS_30D.wdo.bestDayLabel} (${fmtSignedDec1(STATS_30D.wdo.bestDayPts * easedP)}) / ${STATS_30D.wdo.worstDayLabel} (${fmtSignedDec1(STATS_30D.wdo.worstDayPts * easedP)})`,
+            wdoColor: "#eef0f5",
+        },
+        {
+            key: "max-leg",
+            label: "Maior pernada única",
+            win: (
+                <>
+                    {fmtSignedInt(STATS_30D.win.maxLegPts * easedP)} pts{" "}
+                    <span style={{ fontWeight: 400, color: "#848da2" }}>({STATS_30D.win.maxLegMeta})</span>
+                </>
+            ),
+            winColor: "#eef0f5",
+            winWeight: 600,
+            wdo: (
+                <>
+                    {fmtSignedDec1(STATS_30D.wdo.maxLegPts * easedP)} pts{" "}
+                    <span style={{ fontWeight: 400, color: "#848da2" }}>({STATS_30D.wdo.maxLegMeta})</span>
+                </>
+            ),
+            wdoColor: "#eef0f5",
+            wdoWeight: 600,
+        },
+    ];
 
     const statusLabel =
         cloudReachable === null
@@ -593,6 +712,10 @@ export default function SaasWelcomePortal({
             <style>{`
                 .mw-portal-root {
                     --p-ease: cubic-bezier(0.22, 1, 0.36, 1);
+                    overflow-x: clip;
+                }
+                .mw-portal-root * {
+                    box-sizing: border-box;
                 }
                 .mw-portal-hero {
                     display: grid;
@@ -635,6 +758,16 @@ export default function SaasWelcomePortal({
                     grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
                     gap: 32px;
                     align-items: center;
+                }
+                .mw-portal-hero > *,
+                .mw-anatomy-grid > *,
+                .mw-featured-print > *,
+                .mw-prints-secondary > *,
+                .mw-layers-grid > *,
+                .mw-product-grid > *,
+                .mw-stats-cards-grid > * {
+                    min-width: 0;
+                    max-width: 100%;
                 }
                 .mw-nav-links {
                     display: flex;
@@ -858,6 +991,9 @@ export default function SaasWelcomePortal({
                     border-radius: 10px;
                     background: #0e1118;
                 }
+                .mw-stats-mobile-list {
+                    display: none;
+                }
                 .mw-stats-table {
                     width: 100%;
                     border-collapse: collapse;
@@ -903,8 +1039,8 @@ export default function SaasWelcomePortal({
                     .mw-layers-grid,
                     .mw-product-grid,
                     .mw-stats-cards-grid {
-                        grid-template-columns: 1fr;
-                        gap: 24px;
+                        grid-template-columns: minmax(0, 1fr);
+                        gap: 20px;
                     }
                     .mw-portal-hero {
                         padding: 8px 0 0;
@@ -916,10 +1052,106 @@ export default function SaasWelcomePortal({
                         display: none;
                     }
                 }
+                @media (max-width: 720px) {
+                    .mw-stats-table-wrap {
+                        display: none;
+                    }
+                    .mw-stats-mobile-list {
+                        display: flex;
+                        flex-direction: column;
+                        width: 100%;
+                        border: 1px solid rgba(238, 240, 245, 0.08);
+                        border-radius: 10px;
+                        background: #0e1118;
+                        overflow: hidden;
+                    }
+                    .mw-stats-mobile-row {
+                        padding: 12px 14px;
+                        border-bottom: 1px solid rgba(238, 240, 245, 0.06);
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                    }
+                    .mw-stats-mobile-row:nth-child(even) {
+                        background: rgba(255, 255, 255, 0.015);
+                    }
+                    .mw-stats-mobile-row:last-child {
+                        border-bottom: none;
+                    }
+                    .mw-stats-mobile-cols {
+                        display: grid;
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                        gap: 10px;
+                    }
+                }
+                @media (max-width: 640px) {
+                    .mw-portal-header {
+                        padding: 0 14px !important;
+                    }
+                    .mw-header-inner {
+                        flex-wrap: nowrap !important;
+                        gap: 8px !important;
+                        padding: 6px 0 !important;
+                    }
+                    .mw-header-sub,
+                    .mw-header-status-text {
+                        display: none !important;
+                    }
+                    .mw-header-ig-btn {
+                        height: 30px !important;
+                        padding: 0 10px !important;
+                        font-size: 11.5px !important;
+                    }
+                    .mw-portal-main {
+                        padding: 20px 14px 56px !important;
+                        gap: 36px !important;
+                    }
+                    .mw-section-card {
+                        padding: 16px !important;
+                        border-radius: 12px !important;
+                        gap: 16px !important;
+                    }
+                    .mw-anatomy-stage {
+                        padding: 12px !important;
+                    }
+                    .mw-anatomy-editorial {
+                        padding: 16px !important;
+                    }
+                    .mw-regime-tabs {
+                        width: 100%;
+                        display: grid !important;
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
+                    .mw-regime-tabs .mw-p-tab {
+                        justify-content: center;
+                        white-space: nowrap;
+                        font-size: 12px;
+                        padding: 0 8px;
+                    }
+                    .mw-anatomy-controls {
+                        width: 100%;
+                        display: grid !important;
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
+                    .mw-anatomy-controls button {
+                        height: 34px !important;
+                        width: 100%;
+                    }
+                    .mw-stats-replay-btn {
+                        width: 100%;
+                    }
+                    .mw-print-card {
+                        padding: 16px !important;
+                    }
+                    .mw-portal-footer {
+                        padding: 20px 14px !important;
+                    }
+                }
             `}</style>
 
             {/* Topbar sólida (56px) */}
             <header
+                className="mw-portal-header"
                 style={{
                     position: "sticky",
                     top: 0,
@@ -930,6 +1162,7 @@ export default function SaasWelcomePortal({
                 }}
             >
                 <div
+                    className="mw-header-inner"
                     style={{
                         maxWidth: 1200,
                         minHeight: 56,
@@ -942,13 +1175,13 @@ export default function SaasWelcomePortal({
                         padding: "8px 0",
                     }}
                 >
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
                         <WallsMark />
-                        <span style={{ fontSize: 16, fontWeight: 600, color: "#eef0f5", lineHeight: 1 }}>
+                        <span style={{ fontSize: 16, fontWeight: 600, color: "#eef0f5", lineHeight: 1, whiteSpace: "nowrap" }}>
                             Magic Walls
                         </span>
-                        <span style={{ width: 1, height: 14, background: "rgba(238, 240, 245, 0.12)" }} />
-                        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2" }}>
+                        <span className="mw-header-sub" style={{ width: 1, height: 14, background: "rgba(238, 240, 245, 0.12)" }} />
+                        <span className="mw-header-sub" style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2" }}>
                             WIN × WDO · B3
                         </span>
                     </div>
@@ -962,9 +1195,10 @@ export default function SaasWelcomePortal({
                         <a href="#faq" className="mw-p-nav-link">FAQ</a>
                     </nav>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
                         <span
                             data-testid="saas-cloud-status"
+                            title={statusLabel}
                             style={{
                                 display: "inline-flex",
                                 alignItems: "center",
@@ -977,14 +1211,14 @@ export default function SaasWelcomePortal({
                             }}
                         >
                             <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusDotColor }} />
-                            {statusLabel}
+                            <span className="mw-header-status-text">{statusLabel}</span>
                         </span>
 
                         <a
                             href="https://instagram.com/magicwallsb3"
                             target="_blank"
                             rel="noreferrer noopener"
-                            className="mw-p-btn-secondary"
+                            className="mw-p-btn-secondary mw-header-ig-btn"
                             style={{ height: 32, padding: "0 12px", fontFamily: FONT_MONO, fontSize: 12 }}
                         >
                             <span>@magicwallsb3</span>
@@ -996,6 +1230,7 @@ export default function SaasWelcomePortal({
 
             {/* Conteúdo Principal */}
             <main
+                className="mw-portal-main"
                 style={{
                     flex: 1,
                     maxWidth: 1200,
@@ -1196,6 +1431,7 @@ export default function SaasWelcomePortal({
                 <section
                     id="regimes-gex"
                     ref={anatomyRef}
+                    className="mw-section-card"
                     style={{
                         background: "#131720",
                         border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -1219,6 +1455,7 @@ export default function SaasWelcomePortal({
                         <div
                             role="tablist"
                             aria-label="Seletor de regime Gamma"
+                            className="mw-regime-tabs"
                             style={{
                                 display: "inline-flex",
                                 background: "#0a0c12",
@@ -1254,6 +1491,7 @@ export default function SaasWelcomePortal({
                     <div className="mw-anatomy-grid">
                         {/* Diagrama Vetorial Animado */}
                         <div
+                            className="mw-anatomy-stage"
                             style={{
                                 background: "#0e1118",
                                 border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -1262,6 +1500,7 @@ export default function SaasWelcomePortal({
                                 display: "flex",
                                 flexDirection: "column",
                                 gap: 12,
+                                minWidth: 0,
                             }}
                         >
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1540,22 +1779,21 @@ export default function SaasWelcomePortal({
                                     borderTop: "1px solid rgba(238, 240, 245, 0.08)",
                                 }}
                             >
-                                <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 280px", minWidth: 0 }}>
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: "1 1 260px", minWidth: 0, width: "100%" }}>
+                                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                                         <span
                                             data-testid="anatomy-sim-status"
                                             style={{
                                                 fontSize: 12.5,
+                                                lineHeight: 1.4,
                                                 fontWeight: 500,
                                                 color: activeTimeline.tone,
-                                                whiteSpace: "nowrap",
-                                                overflow: "hidden",
-                                                textOverflow: "ellipsis",
+                                                minWidth: 0,
                                             }}
                                         >
                                             {activeTimeline.text}
                                         </span>
-                                        <span style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: "#848da2", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                                        <span style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: "#848da2", fontVariantNumeric: "tabular-nums", flexShrink: 0, whiteSpace: "nowrap" }}>
                                             {currentIdx + 1}/{maxCandleIdx + 1}
                                         </span>
                                     </div>
@@ -1597,7 +1835,7 @@ export default function SaasWelcomePortal({
                                     </div>
                                 </div>
 
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                                <div className="mw-anatomy-controls" style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                                     <button
                                         type="button"
                                         data-testid="anatomy-sim-toggle"
@@ -1622,6 +1860,7 @@ export default function SaasWelcomePortal({
 
                         {/* Leitura Editorial Única Sincronizada com a Simulação */}
                         <div
+                            className="mw-anatomy-editorial"
                             style={{
                                 background: "#0e1118",
                                 border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -1632,6 +1871,7 @@ export default function SaasWelcomePortal({
                                 flexDirection: "column",
                                 justifyContent: "space-between",
                                 gap: 16,
+                                minWidth: 0,
                             }}
                         >
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1703,11 +1943,12 @@ export default function SaasWelcomePortal({
                     </div>
                 </section>
 
-                {/* Faixa 2.5: Resumo Acumulado — Últimos 30 Pregões (Contagem Progressiva & Regressiva) */}
+                {/* Faixa 2.5: Resumo Acumulado — Últimos 30 Pregões */}
                 <section
                     id="resultados-30d"
                     ref={statsRef}
                     data-testid="stats-30d-section"
+                    className="mw-section-card"
                     style={{
                         background: "#131720",
                         border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -1719,7 +1960,7 @@ export default function SaasWelcomePortal({
                     }}
                 >
                     <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                                 <h2 style={{ margin: 0, fontSize: 20, fontWeight: 500, color: "#eef0f5", letterSpacing: "-0.015em" }}>
                                     Resumo acumulado — Últimos 30 pregões
@@ -1744,52 +1985,18 @@ export default function SaasWelcomePortal({
                             </p>
                         </div>
 
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                            <div
-                                role="tablist"
-                                aria-label="Modo de contagem"
-                                data-testid="stats-30d-mode"
-                                style={{
-                                    display: "inline-flex",
-                                    background: "#0a0c12",
-                                    border: "1px solid rgba(238, 240, 245, 0.08)",
-                                    borderRadius: 8,
-                                    padding: 4,
-                                    gap: 4,
-                                }}
-                            >
-                                <button
-                                    type="button"
-                                    role="tab"
-                                    aria-selected={countMode === "progressive"}
-                                    onClick={() => handleTriggerStats("progressive")}
-                                    className="mw-p-tab"
-                                >
-                                    Progressiva
-                                </button>
-                                <button
-                                    type="button"
-                                    role="tab"
-                                    aria-selected={countMode === "regressive"}
-                                    onClick={() => handleTriggerStats("regressive")}
-                                    className="mw-p-tab"
-                                >
-                                    Regressiva
-                                </button>
-                            </div>
-                            <button
-                                type="button"
-                                data-testid="stats-30d-replay"
-                                onClick={() => handleTriggerStats()}
-                                className="mw-p-btn-secondary"
-                                style={{ height: 34, padding: "0 12px", fontFamily: FONT_MONO, fontSize: 12 }}
-                            >
-                                Reexecutar
-                            </button>
-                        </div>
+                        <button
+                            type="button"
+                            data-testid="stats-30d-replay"
+                            onClick={handleTriggerStats}
+                            className="mw-p-btn-secondary mw-stats-replay-btn"
+                            style={{ height: 34, padding: "0 14px", fontFamily: FONT_MONO, fontSize: 12, flexShrink: 0 }}
+                        >
+                            Reexecutar
+                        </button>
                     </div>
 
-                    {/* Barra de progresso + contagem regressiva simultânea dos 30 pregões */}
+                    {/* Barra de evolução + contagem simultânea dos 30 pregões */}
                     <div
                         style={{
                             background: "#0e1118",
@@ -1801,19 +2008,17 @@ export default function SaasWelcomePortal({
                             gap: 8,
                         }}
                     >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
-                            <span style={{ color: "#eef0f5" }}>
-                                {isRegressive
-                                    ? `Contagem regressiva · Bruto − Stops`
-                                    : `Evolução progressiva · Pregão ${String(sessionProgressCount).padStart(2, "0")} / ${STATS_30D.sessions}`}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                            <span style={{ color: "#eef0f5", whiteSpace: "nowrap" }}>
+                                Pregão {String(sessionProgressCount).padStart(2, "0")}/{STATS_30D.sessions}
                             </span>
                             <span
                                 data-testid="stats-30d-countdown"
-                                style={{ color: statsT >= 1 ? "#4cc38a" : "#7dd3fc" }}
+                                style={{ color: statsT >= 1 ? "#4cc38a" : "#7dd3fc", whiteSpace: "nowrap" }}
                             >
                                 {statsT >= 1
-                                    ? "30/30 pregões · Período consolidado"
-                                    : `Restam ${String(sessionsRemaining).padStart(2, "0")} pregões para consolidação`}
+                                    ? "30/30 · Consolidado"
+                                    : `Faltam ${String(sessionsRemaining).padStart(2, "0")} pregões`}
                             </span>
                         </div>
                         <div style={{ width: "100%", height: 3, borderRadius: 999, background: "#1b212e", overflow: "hidden" }}>
@@ -1834,25 +2039,25 @@ export default function SaasWelcomePortal({
                                 id: "win",
                                 title: "WIN · Mini-Índice",
                                 netTxt: `${fmtSignedInt(winNetAnim)} pts`,
-                                grossTxt: `${fmtSignedInt(STATS_30D.win.grossPts * (isRegressive ? 1 : easedP))}`,
+                                grossTxt: `${fmtSignedInt(STATS_30D.win.grossPts * easedP)}`,
                                 stopTxt: `${fmtSignedInt(STATS_30D.win.stopPts * easedP)}`,
                                 paidPct: STATS_30D.win.paidPct,
                                 neutralPct: STATS_30D.win.neutralPct,
                                 stopPct: STATS_30D.win.stopPct,
-                                posDays: Math.round(STATS_30D.win.posDays * animScalar),
-                                negDays: Math.round(STATS_30D.win.negDays * animScalar),
+                                posDays: Math.round(STATS_30D.win.posDays * easedP),
+                                negDays: Math.round(STATS_30D.win.negDays * easedP),
                             },
                             {
                                 id: "wdo",
                                 title: "WDO · Mini-Dólar",
                                 netTxt: `${fmtSignedDec1(wdoNetAnim)} pts`,
-                                grossTxt: `${fmtSignedDec1(STATS_30D.wdo.grossPts * (isRegressive ? 1 : easedP))}`,
+                                grossTxt: `${fmtSignedDec1(STATS_30D.wdo.grossPts * easedP)}`,
                                 stopTxt: `${fmtSignedDec1(STATS_30D.wdo.stopPts * easedP)}`,
                                 paidPct: STATS_30D.wdo.paidPct,
                                 neutralPct: STATS_30D.wdo.neutralPct,
                                 stopPct: STATS_30D.wdo.stopPct,
-                                posDays: Math.round(STATS_30D.wdo.posDays * animScalar),
-                                negDays: Math.round(STATS_30D.wdo.negDays * animScalar),
+                                posDays: Math.round(STATS_30D.wdo.posDays * easedP),
+                                negDays: Math.round(STATS_30D.wdo.negDays * easedP),
                             },
                         ].map((card) => (
                             <div
@@ -1861,7 +2066,7 @@ export default function SaasWelcomePortal({
                                     background: "#0e1118",
                                     border: "1px solid rgba(238, 240, 245, 0.08)",
                                     borderRadius: 10,
-                                    padding: 18,
+                                    padding: 16,
                                     display: "flex",
                                     flexDirection: "column",
                                     gap: 12,
@@ -1871,7 +2076,7 @@ export default function SaasWelcomePortal({
                                     <span style={{ fontSize: 13, fontWeight: 500, color: "#a3a9b8" }}>
                                         {card.title}
                                     </span>
-                                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2", fontVariantNumeric: "tabular-nums" }}>
+                                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
                                         {card.posDays} pos · {card.negDays} neg
                                     </span>
                                 </div>
@@ -1890,31 +2095,28 @@ export default function SaasWelcomePortal({
                                     {card.netTxt}
                                 </div>
 
-                                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
-                                    <span style={{ color: "#4cc38a" }}>Bruto {card.grossTxt} pts</span>
-                                    <span style={{ color: "#848da2" }}>·</span>
-                                    <span style={{ color: "#e5484d" }}>
-                                        {isRegressive ? `Desconto stops ${card.stopTxt} pts` : `Stops ${card.stopTxt} pts`}
-                                    </span>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", fontFamily: FONT_MONO, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                                    <span style={{ color: "#4cc38a", whiteSpace: "nowrap" }}>Bruto {card.grossTxt} pts</span>
+                                    <span style={{ color: "#e5484d", whiteSpace: "nowrap" }}>Stops {card.stopTxt} pts</span>
                                 </div>
 
                                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
                                     <div style={{ display: "flex", height: 4, borderRadius: 999, background: "#1b212e", overflow: "hidden" }}>
-                                        <div style={{ width: `${(card.paidPct * animScalar).toFixed(1)}%`, background: "#4cc38a" }} />
-                                        <div style={{ width: `${(card.neutralPct * animScalar).toFixed(1)}%`, background: "#848da2" }} />
-                                        <div style={{ width: `${(card.stopPct * animScalar).toFixed(1)}%`, background: "#e5484d" }} />
+                                        <div style={{ width: `${(card.paidPct * easedP).toFixed(1)}%`, background: "#4cc38a" }} />
+                                        <div style={{ width: `${(card.neutralPct * easedP).toFixed(1)}%`, background: "#848da2" }} />
+                                        <div style={{ width: `${(card.stopPct * easedP).toFixed(1)}%`, background: "#e5484d" }} />
                                     </div>
-                                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_MONO, fontSize: 11.5, color: "#848da2", fontVariantNumeric: "tabular-nums" }}>
-                                        <span style={{ color: "#4cc38a" }}>Pagaram {fmtPtDec1(card.paidPct * animScalar)}%</span>
-                                        <span>Neutros {fmtPtDec1(card.neutralPct * animScalar)}%</span>
-                                        <span style={{ color: "#e5484d" }}>Stops {fmtPtDec1(card.stopPct * animScalar)}%</span>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4, fontFamily: FONT_MONO, fontSize: 11, color: "#848da2", fontVariantNumeric: "tabular-nums" }}>
+                                        <span style={{ color: "#4cc38a", textAlign: "left" }}>Pagaram {fmtPtDec1(card.paidPct * easedP)}%</span>
+                                        <span style={{ textAlign: "center" }}>Neutros {fmtPtDec1(card.neutralPct * easedP)}%</span>
+                                        <span style={{ color: "#e5484d", textAlign: "right" }}>Stops {fmtPtDec1(card.stopPct * easedP)}%</span>
                                     </div>
                                 </div>
                             </div>
                         ))}
                     </div>
 
-                    {/* Tabela Completa (11 linhas da amostra de 30 pregões) */}
+                    {/* Tabela Desktop (> 720px) */}
                     <div className="mw-stats-table-wrap">
                         <table className="mw-stats-table" data-testid="stats-30d-table">
                             <thead>
@@ -1925,103 +2127,46 @@ export default function SaasWelcomePortal({
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Pregões analisados</td>
-                                    <td style={{ color: "#eef0f5" }}>
-                                        {fmtPtInt(STATS_30D.sessions * animScalar)} <span style={{ color: "#848da2", fontStyle: "italic" }}>({fmtPtInt(STATS_30D.win.posDays * animScalar)} pos · {fmtPtInt(STATS_30D.win.negDays * animScalar)} neg)</span>
-                                    </td>
-                                    <td style={{ color: "#eef0f5" }}>
-                                        {fmtPtInt(STATS_30D.sessions * animScalar)} <span style={{ color: "#848da2", fontStyle: "italic" }}>({fmtPtInt(STATS_30D.wdo.posDays * animScalar)} pos · {fmtPtInt(STATS_30D.wdo.negDays * animScalar)} neg)</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Total de sinais</td>
-                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>{fmtPtInt(STATS_30D.win.totalSignals * animScalar)}</td>
-                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>{fmtPtInt(STATS_30D.wdo.totalSignals * animScalar)}</td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Pagaram (≥150 / ≥4 pts)</td>
-                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
-                                        {fmtPtInt(STATS_30D.win.paidCount * animScalar)} ({fmtPtDec1(STATS_30D.win.paidPct * animScalar)}%)
-                                    </td>
-                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
-                                        {fmtPtInt(STATS_30D.wdo.paidCount * animScalar)} ({fmtPtDec1(STATS_30D.wdo.paidPct * animScalar)}%)
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Neutros (sem stop e &lt; limiar)</td>
-                                    <td style={{ color: "#a3a9b8" }}>
-                                        {fmtPtInt(STATS_30D.win.neutralCount * animScalar)} ({fmtPtDec1(STATS_30D.win.neutralPct * animScalar)}%)
-                                    </td>
-                                    <td style={{ color: "#a3a9b8" }}>
-                                        {fmtPtInt(STATS_30D.wdo.neutralCount * animScalar)} ({fmtPtDec1(STATS_30D.wdo.neutralPct * animScalar)}%)
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Stops (na outra Wall)</td>
-                                    <td style={{ fontWeight: 600, color: "#e5484d" }}>
-                                        {fmtPtInt(STATS_30D.win.stopCount * animScalar)} ({fmtPtDec1(STATS_30D.win.stopPct * animScalar)}%)
-                                    </td>
-                                    <td style={{ fontWeight: 600, color: "#e5484d" }}>
-                                        {fmtPtInt(STATS_30D.wdo.stopCount * animScalar)} ({fmtPtDec1(STATS_30D.wdo.stopPct * animScalar)}%)
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Soma Bruta (máx. a favor)</td>
-                                    <td style={{ fontWeight: 500, color: "#4cc38a" }}>
-                                        {fmtSignedInt(STATS_30D.win.grossPts * animScalar)} pts
-                                    </td>
-                                    <td style={{ fontWeight: 500, color: "#4cc38a" }}>
-                                        {fmtSignedDec1(STATS_30D.wdo.grossPts * animScalar)} pts
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Soma dos Stops</td>
-                                    <td style={{ fontWeight: 500, color: "#e5484d" }}>
-                                        {fmtSignedInt(STATS_30D.win.stopPts * easedP)} pts
-                                    </td>
-                                    <td style={{ fontWeight: 500, color: "#e5484d" }}>
-                                        {fmtSignedDec1(STATS_30D.wdo.stopPts * easedP)} pts
-                                    </td>
-                                </tr>
-                                <tr style={{ background: "#111824" }}>
-                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>Saldo Líquido (30 pregões)</td>
-                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
-                                        {fmtSignedInt(winNetAnim)} pts
-                                    </td>
-                                    <td style={{ fontWeight: 600, color: "#4cc38a" }}>
-                                        {fmtSignedDec1(wdoNetAnim)} pts
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Média por pregão / por sinal</td>
-                                    <td style={{ color: "#eef0f5" }}>
-                                        {fmtSignedInt(STATS_30D.win.avgPerDay * animScalar)} pts/dia · {fmtSignedInt(STATS_30D.win.avgPerSignal * animScalar)} pts/sinal
-                                    </td>
-                                    <td style={{ color: "#eef0f5" }}>
-                                        {fmtSignedDec1(STATS_30D.wdo.avgPerDay * animScalar)} pts/dia · {fmtSignedDec1(STATS_30D.wdo.avgPerSignal * animScalar)} pts/sinal
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Melhor dia / Pior dia</td>
-                                    <td style={{ color: "#eef0f5" }}>
-                                        {STATS_30D.win.bestDayLabel} ({fmtSignedInt(STATS_30D.win.bestDayPts * animScalar)}) / {STATS_30D.win.worstDayLabel} ({fmtSignedInt(STATS_30D.win.worstDayPts * animScalar)})
-                                    </td>
-                                    <td style={{ color: "#eef0f5" }}>
-                                        {STATS_30D.wdo.bestDayLabel} ({fmtSignedDec1(STATS_30D.wdo.bestDayPts * animScalar)}) / {STATS_30D.wdo.worstDayLabel} ({fmtSignedDec1(STATS_30D.wdo.worstDayPts * animScalar)})
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style={{ color: "#a3a9b8" }}>Maior pernada única</td>
-                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>
-                                        {fmtSignedInt(STATS_30D.win.maxLegPts * animScalar)} pts <span style={{ fontWeight: 400, color: "#848da2" }}>({STATS_30D.win.maxLegMeta})</span>
-                                    </td>
-                                    <td style={{ fontWeight: 600, color: "#eef0f5" }}>
-                                        {fmtSignedDec1(STATS_30D.wdo.maxLegPts * animScalar)} pts <span style={{ fontWeight: 400, color: "#848da2" }}>({STATS_30D.wdo.maxLegMeta})</span>
-                                    </td>
-                                </tr>
+                                {statsRows.map((row) => (
+                                    <tr key={row.key} style={row.highlight ? { background: "#111824" } : undefined}>
+                                        <td style={{ color: row.highlight ? "#eef0f5" : "#a3a9b8", fontWeight: row.highlight ? 600 : 400 }}>
+                                            {row.label}
+                                        </td>
+                                        <td style={{ color: row.winColor, fontWeight: row.winWeight || 400 }}>{row.win}</td>
+                                        <td style={{ color: row.wdoColor, fontWeight: row.wdoWeight || 400 }}>{row.wdo}</td>
+                                    </tr>
+                                ))}
                             </tbody>
                         </table>
+                    </div>
+
+                    {/* Lista Mobile Simétrica WIN × WDO (≤ 720px, zero scroll horizontal) */}
+                    <div className="mw-stats-mobile-list" data-testid="stats-30d-mobile-list">
+                        {statsRows.map((row) => (
+                            <div
+                                key={row.key}
+                                className="mw-stats-mobile-row"
+                                style={row.highlight ? { background: "#111824" } : undefined}
+                            >
+                                <div style={{ fontSize: 12, fontWeight: row.highlight ? 600 : 500, color: row.highlight ? "#eef0f5" : "#a3a9b8" }}>
+                                    {row.label}
+                                </div>
+                                <div className="mw-stats-mobile-cols">
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                                        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#848da2" }}>WIN (Índice)</span>
+                                        <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, fontVariantNumeric: "tabular-nums", lineHeight: 1.35, color: row.winColor, fontWeight: row.winWeight || 400 }}>
+                                            {row.win}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                                        <span style={{ fontFamily: FONT_MONO, fontSize: 10, color: "#848da2" }}>WDO (Dólar)</span>
+                                        <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, fontVariantNumeric: "tabular-nums", lineHeight: 1.35, color: row.wdoColor, fontWeight: row.wdoWeight || 400 }}>
+                                            {row.wdo}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
                     </div>
 
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: 12, color: "#848da2" }}>
@@ -2048,7 +2193,7 @@ export default function SaasWelcomePortal({
 
                     {/* Card Principal em Destaque Amplo */}
                     <article
-                        className="mw-featured-print"
+                        className="mw-featured-print mw-print-card"
                         style={{
                             background: "#131720",
                             border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -2112,6 +2257,7 @@ export default function SaasWelcomePortal({
                         {secondaryPrints.map((item) => (
                             <article
                                 key={item.id}
+                                className="mw-print-card"
                                 style={{
                                     background: "#131720",
                                     border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -2218,6 +2364,7 @@ export default function SaasWelcomePortal({
                 {/* Faixa 5: Produto Único — O que está incluído */}
                 <section
                     id="o-que-inclui"
+                    className="mw-section-card"
                     style={{
                         background: "#131720",
                         border: "1px solid rgba(238, 240, 245, 0.08)",
@@ -2432,6 +2579,7 @@ export default function SaasWelcomePortal({
 
             {/* Rodapé Institucional CVM 20 */}
             <footer
+                className="mw-portal-footer"
                 style={{
                     borderTop: "1px solid rgba(238, 240, 245, 0.08)",
                     background: "#0a0c12",
