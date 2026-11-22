@@ -2,11 +2,11 @@
 
 ## What This Is
 
-Um painel analítico de arbitragem estatística (pair trading) de B3 (WIN e WDO) com precificação de Kalman Filter, bandas NWE, rastreamento de corretoras e indicador sintético de fluxo institucional em tempo real de alta frequência.
+Um painel analítico de arbitragem estatística (pair trading) de B3 (WIN e WDO) com precificação de Kalman Filter, bandas NWE, rastreamento de corretoras e cockpit intraday de GEX/MagicWalls.
 
 ## Core Value
 
-Fornecer sinais de arbitragem estatística e análise de fluxo institucional (WIN) rápidos, precisivos e visualmente claros para orientar decisões operacionais.
+Fornecer sinais de arbitragem estatística, análise de fluxo institucional e níveis GEX/Walls rápidos, precisos e visualmente claros para orientar decisões operacionais.
 
 ## Requirements
 
@@ -17,9 +17,9 @@ Fornecer sinais de arbitragem estatística e análise de fluxo institucional (WI
 - ✓ **Filtro Nadaraya-Watson Envelope (NWE)** — Canal envelope adaptativo dinâmico como filtro de tendência de preço.
 - ✓ **Integração de Níveis GEX** — Importação e visualização dos níveis diários de GEX (Walls) obtidos do Firebase RTDB.
 
-### Active
+### Retired / Removed
 
-- [ ] **REQ-002: Indicador Sintético de Fluxo Institucional em Tempo Real (WIN)** — Computação de score unificado (-100 a +100) com janelas rápidas (5s, 15s, 60s) e exibição em gráfico de linha única dinâmica de 60 minutos.
+- *Legado removido em 22/11/2026:* o antigo `REQ-002` (score sintético de fluxo em `FlowScoreChart.jsx` e `GET /api/flow/realtime`) foi eliminado por não estar em uso nos painéis (`5174`, `5176`, `5178`).
 
 ### Out of Scope
 

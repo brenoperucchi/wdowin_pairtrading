@@ -8,7 +8,6 @@ Provedor oficial de dados do Profit (Nelogica) para a aba 3 (STAT-ARB & Z-SCORE)
     Trades tick-a-tick com código de corretora compradora/vendedora e flag de
     agressão) e .min (agressão compradora/vendedora por barra M5), alimentando:
       * /api/flow (Fluxo de Corretoras + Delta Acumulado M5 + Eficiência Direcional)
-      * /api/flow/realtime (Flow Score Institucional M5: FLN, PERS, CONC_DIR, ABS_DIR)
       * /api/flow/iaf-history (Índice de Aceleração de Fluxo / Kyle's Lambda M5)
 """
 
@@ -754,7 +753,6 @@ def get_profit_day_flow_bundle(date_str: Optional[str] = None) -> dict:
       - history: lista de snapshots 5m [{time, WIN, WDO}, ...]
       - current: último snapshot {WIN, WDO}
       - efficiency: {WIN: {broker: eff_pct}}
-      - flow_score_5m: [{time, bar_time, value, fln, pers, conc_dir, abs_dir}, ...]
       - iaf_5m: [{time, bar_time, value, classification, color}, ...]
       - date: date_str efetivamente carregada
     """
@@ -838,13 +836,10 @@ def get_profit_day_flow_bundle(date_str: Optional[str] = None) -> dict:
     for b in BROKERS_LIST:
         efficiency_win[b] = round((num_by_b[b] / den_by_b[b]) * 100.0, 1) if den_by_b[b] > 0 else 0.0
 
-    # 3. Calcular Flow Score M5 (FLN, PERS, CONC_DIR, ABS_DIR) e IAF M5 (Kyle's Lambda)
-    # Os timestamps do gráfico Lightweight Charts para realtimeFlowData usam a data de hoje + HH:MM
-    # (igual a timeStrToTimestamp no App.jsx!)
+    # 3. Calcular IAF M5 (Kyle's Lambda)
     smart_brokers = ["UBS", "GOLDMAN", "JPMORGAN", "MORGAN", "MERRILL", "BTG", "CITI", "TULLETT"]
     retail_brokers = ["XP", "GENIAL", "CLEAR"]
 
-    flow_score_series = []
     iaf_series = []
     inst_deltas: List[float] = []
     price_deltas: List[float] = []
@@ -855,54 +850,22 @@ def get_profit_day_flow_bundle(date_str: Optional[str] = None) -> dict:
         w_prev = history_snaps[i - 1]["WIN"] if i > 0 else None
 
         inst_d_agg = 0.0
-        inst_d_abs = 0.0
-        tot_d_vol = 0.0
-        top3_list = []
 
         for b in BROKERS_LIST:
             c_obj = w_curr.get(b, {})
             p_obj = w_prev.get(b, {}) if w_prev else {"net": 0, "buy": 0, "sell": 0, "vol": 0}
             d_buy = float(c_obj.get("buy", 0) - p_obj.get("buy", 0))
             d_sell = float(c_obj.get("sell", 0) - p_obj.get("sell", 0))
-            d_net = float(c_obj.get("net", 0) - p_obj.get("net", 0))
             d_agg = d_buy - d_sell
-            d_abs = d_net - d_agg
-            d_vol = abs(d_buy) + abs(d_sell) + 1.0
-            tot_d_vol += d_vol
 
             if b in smart_brokers:
                 inst_d_agg += d_agg
-                inst_d_abs += d_abs
-                top3_list.append(d_agg)
             elif b in retail_brokers:
                 inst_d_agg -= 0.35 * d_agg
 
         inst_deltas.append(inst_d_agg)
         d_px = (price_by_time.get(t_str, 0.0) - price_by_time.get(history_snaps[i - 1]["time"], 0.0)) if i > 0 else 0.0
         price_deltas.append(d_px)
-
-        # Componentes normalizados [-100, +100]
-        fln = math.tanh(inst_d_agg / max(2500.0, tot_d_vol * 0.12)) * 100.0
-        recent_deltas = inst_deltas[max(0, i - 5): i + 1]
-        pos_cnt = sum(1 for x in recent_deltas if x > 0)
-        neg_cnt = sum(1 for x in recent_deltas if x < 0)
-        pers = ((pos_cnt - neg_cnt) / max(1, len(recent_deltas))) * 100.0
-
-        top3_sorted = sorted(top3_list, key=lambda x: abs(x), reverse=True)[:3]
-        conc_dir = math.tanh(sum(top3_sorted) / max(2000.0, tot_d_vol * 0.10)) * 100.0
-        abs_dir = math.tanh(inst_d_abs / max(1500.0, tot_d_vol * 0.08)) * 100.0
-
-        score_val = 0.35 * fln + 0.25 * pers + 0.20 * conc_dir + 0.20 * abs_dir
-        score_val = max(-100.0, min(100.0, round(score_val, 2)))
-
-        flow_score_series.append({
-            "bar_time": t_str,
-            "value": score_val,
-            "fln": round(fln, 1),
-            "pers": round(pers, 1),
-            "conc_dir": round(conc_dir, 1),
-            "abs_dir": round(abs_dir, 1),
-        })
 
         # IAF (Kyle's Lambda / Aceleração de Fluxo Institucional) na escala [-100, +100]
         if i >= 2:
@@ -939,7 +902,6 @@ def get_profit_day_flow_bundle(date_str: Optional[str] = None) -> dict:
         "history": history_snaps,
         "efficiency": {"WIN": efficiency_win},
         "accelerator": {"WIN": last_iaf},
-        "flow_score_5m": flow_score_series,
         "iaf_5m": iaf_series,
         "_cached_ts": time.time(),
     }
@@ -948,40 +910,6 @@ def get_profit_day_flow_bundle(date_str: Optional[str] = None) -> dict:
     if target_date != today_str:
         _save_disk_flow_cache()
     return bundle
-
-
-def format_flow_score_for_frontend(
-    bundle: dict,
-    w_fln: float = 0.20,
-    w_pers: float = 0.40,
-    w_conc: float = 0.30,
-    w_abs: float = 0.10,
-) -> List[dict]:
-    """Converte flow_score_5m para o formato esperado por /api/flow/realtime."""
-    tot = w_fln + w_pers + w_conc + w_abs
-    if tot > 0:
-        w_fln, w_pers, w_conc, w_abs = w_fln / tot, w_pers / tot, w_conc / tot, w_abs / tot
-    else:
-        w_fln, w_pers, w_conc, w_abs = 0.20, 0.40, 0.30, 0.10
-
-    now = datetime.now()
-    out = []
-    for pt in bundle.get("flow_score_5m", []):
-        bt = pt["bar_time"]
-        hh, mm = map(int, bt.split(":"))
-        # Usar timestamp local para que new Date(ts * 1000).getHours() no frontend preserve hh:mm exato
-        local_dt = datetime(now.year, now.month, now.day, hh, mm, 0)
-        ts_local = int(local_dt.timestamp())
-        val = round(w_fln * pt["fln"] + w_pers * pt["pers"] + w_conc * pt["conc_dir"] + w_abs * pt["abs_dir"], 2)
-        val = max(-100.0, min(100.0, val))
-        color = "#00e87a" if val >= 40.0 else ("#ff3860" if val <= -40.0 else "#f5a623")
-        out.append({
-            "time": ts_local,
-            "bar_time": bt,
-            "value": val,
-            "color": color,
-        })
-    return out
 
 
 def format_iaf_for_frontend(bundle: dict) -> List[dict]:

@@ -26,7 +26,6 @@ const API_URL = `${API_BASE}/api/v2/regime`;
 const API_PERF_URL = `${API_BASE}/api/performance`;
 const API_DI_URL = `${API_BASE}/api/di-regime`;
 const API_HISTORY_URL = `${API_BASE}/api/history`;
-const API_FLOW_REALTIME_URL = `${API_BASE}/api/flow/realtime`;
 const API_COMPASS_URL = `${API_BASE}/api/compass/etapa1`;
 const POLL_MS = 2500;
 // Quando compilado com VITE_API_BASE definido (ex: "" para túnel cloudflared + proxy somente-leitura),
@@ -136,11 +135,8 @@ export default function App() {
     const [flash, setFlash] = useState(false);
     const [lastSignalId, setLastSignalId] = useState("neutro");
     const [diData, setDiData] = useState(null);
-    const [realtimeFlowData, setRealtimeFlowData] = useState([]);
     const [realtimeIafData, setRealtimeIafData] = useState([]);
-    const [flowSmoothing, setFlowSmoothing] = useState(3); // Default 3 periods
     const [iafSmoothing, setIafSmoothing] = useState(3); // Default 3 periods
-    const [flowWeights, setFlowWeights] = useState({ fln: 20, pers: 40, conc: 30, abs: 10 });
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
     const [showMorningVideoModal, setShowMorningVideoModal] = useState(false);
     const [canUseMediaStudio, setCanUseMediaStudio] = useState(() => canAccessMediaStudio());
@@ -158,7 +154,6 @@ export default function App() {
     const zScoreChartRef = useRef(null);
     const histogramChartRef = useRef(null);
     const indexChartRef = useRef(null);
-    const flowScoreChartRef = useRef(null);
     const flowAccelerationChartRef = useRef(null);
     const [showSetup, setShowSetup] = useState(false);
     const [workspaceTab, setWorkspaceTab] = useState("COCKPIT"); // "COCKPIT" | "RAIO_X" | "STAT_ARB"

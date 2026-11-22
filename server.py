@@ -53,7 +53,6 @@ from core.profit_statarb_engine import (
     fetch_profit_m5_series,
     align_profit_series_with_ffill,
     get_profit_day_flow_bundle,
-    format_flow_score_for_frontend,
     format_iaf_for_frontend,
 )
 from core.signals import (
@@ -72,7 +71,6 @@ _HMM_REGIME_PLACEHOLDER = "CALCULANDO"
 
 # ─── B3 Order Flow / RTD Broker State ────────────────────────────────────────
 import random
-from collections import deque
 
 _broker_list = ["XP", "UBS", "BTG", "IDEAL", "GENIAL", "JPMORGAN", "TULLETT", "MERRILL", "GOLDMAN", "MORGAN", "CITI", "ITAU", "BRADESCO"]
 _broker_flow = {
@@ -80,153 +78,6 @@ _broker_flow = {
 }
 _flow_history_bars = []
 _last_flow_update = {"WIN": 0.0}
-
-# Real-time institutional flow synthetic indicator cache
-_raw_flow_snapshots = deque(maxlen=1000)
-_realtime_flow_cache = deque(maxlen=10000)
-_realtime_factors_cache = deque(maxlen=10000)
-_last_win_price = 120000.0  # Safe cached WIN price to avoid thread-unsafe MT5 calls
-
-def calculate_persistence(snapshots, P):
-    N = 10
-    avail_ticks = len(snapshots) - 1
-    if avail_ticks < P:
-        return 0.0
-    num_periods = min(N, avail_ticks // P)
-    if num_periods == 0:
-        return 0.0
-        
-    sum_fl = 0.0
-    sum_abs_fl = 0.0
-    
-    for i in range(num_periods):
-        idx_end = -1 - i * P
-        idx_start = -1 - (i + 1) * P
-        
-        snap_end = snapshots[idx_end]
-        snap_start = snapshots[idx_start]
-        
-        buy_sum = 0
-        sell_sum = 0
-        for b in _broker_list:
-            buy_sum += (snap_end["flow"].get(b, {}).get("buy", 0) - snap_start["flow"].get(b, {}).get("buy", 0))
-            sell_sum += (snap_end["flow"].get(b, {}).get("sell", 0) - snap_start["flow"].get(b, {}).get("sell", 0))
-        fl = buy_sum - sell_sum
-        sum_fl += fl
-        sum_abs_fl += abs(fl)
-        
-    if sum_abs_fl > 0:
-        return sum_fl / sum_abs_fl
-    return 0.0
-
-def _calculate_window_factors(snapshots, window_seconds):
-    P = window_seconds // 5
-    if len(snapshots) < P + 1:
-        return 0.0, 0.0, 0.0, 0.0
-        
-    latest = snapshots[-1]
-    start = snapshots[-1 - P]
-    
-    # 1. FLN (Fluxo Normalizado)
-    buy_sum = 0
-    sell_sum = 0
-    for b in _broker_list:
-        buy_sum += (latest["flow"].get(b, {}).get("buy", 0) - start["flow"].get(b, {}).get("buy", 0))
-        sell_sum += (latest["flow"].get(b, {}).get("sell", 0) - start["flow"].get(b, {}).get("sell", 0))
-    
-    fl = buy_sum - sell_sum
-    va = buy_sum + sell_sum
-    fln = fl / va if va > 0 else 0.0
-    
-    # 2. PERS (Persistência)
-    pers = calculate_persistence(snapshots, P)
-    
-    # 3. CONC_DIR (Concentração Direcionada)
-    broker_nets = []
-    for b in _broker_list:
-        b_buy = latest["flow"].get(b, {}).get("buy", 0) - start["flow"].get(b, {}).get("buy", 0)
-        b_sell = latest["flow"].get(b, {}).get("sell", 0) - start["flow"].get(b, {}).get("sell", 0)
-        b_net = b_buy - b_sell
-        broker_nets.append((b, b_net))
-        
-    broker_nets.sort(key=lambda x: abs(x[1]), reverse=True)
-    
-    sum_abs_all = sum(abs(x[1]) for x in broker_nets)
-    if sum_abs_all > 0:
-        sum_abs_top3 = sum(abs(broker_nets[i][1]) for i in range(min(3, len(broker_nets))))
-        conc = sum_abs_top3 / sum_abs_all
-        fl_top3 = sum(broker_nets[i][1] for i in range(min(3, len(broker_nets))))
-        conc_dir = conc * (1 if fl_top3 > 0 else (-1 if fl_top3 < 0 else 0))
-    else:
-        conc_dir = 0.0
-        
-    # 4. ABS_DIR (Absorção Direcional)
-    price_delta = latest["price"] - start["price"]
-    ticks = price_delta / 5.0
-    absor_t = va / (abs(ticks) + 1.0)
-    
-    lookback = 120
-    absor_history = []
-    max_idx = len(snapshots)
-    start_idx = max(P, max_idx - lookback)
-    
-    for j in range(start_idx, max_idx):
-        snap_j = snapshots[j]
-        snap_prev = snapshots[j - P]
-        
-        j_price_delta = snap_j["price"] - snap_prev["price"]
-        j_ticks = j_price_delta / 5.0
-        
-        j_buy = 0
-        j_sell = 0
-        for b in _broker_list:
-            j_buy += (snap_j["flow"].get(b, {}).get("buy", 0) - snap_prev["flow"].get(b, {}).get("buy", 0))
-            j_sell += (snap_j["flow"].get(b, {}).get("sell", 0) - snap_prev["flow"].get(b, {}).get("sell", 0))
-            
-        j_va = j_buy + j_sell
-        j_absor = j_va / (abs(j_ticks) + 1.0)
-        absor_history.append(j_absor)
-        
-    if len(absor_history) >= 5:
-        mean_absor = np.mean(absor_history)
-        std_absor = np.std(absor_history)
-        zabs = (absor_t - mean_absor) / std_absor if std_absor > 0 else 0.0
-        abs_n = max(-1.0, min(1.0, zabs / 3.0))
-    else:
-        abs_n = 0.0
-        
-    if fl < 0 and price_delta >= 0:
-        abs_dir = abs_n
-    elif fl > 0 and price_delta <= 0:
-        abs_dir = -abs_n
-    else:
-        abs_dir = 0.0
-        
-    return fln, pers, conc_dir, abs_dir
-
-def _calculate_window_score(snapshots, window_seconds):
-    fln, pers, conc_dir, abs_dir = _calculate_window_factors(snapshots, window_seconds)
-    # ScoreFluxo_t = 100 * (0.20 * FLN_t + 0.40 * PERS_t + 0.30 * CONC_DIR_t + 0.10 * ABS_DIR_t)
-    return 100.0 * (0.20 * fln + 0.40 * pers + 0.30 * conc_dir + 0.10 * abs_dir)
-
-def _calculate_combined_factors(snapshots):
-    if len(snapshots) < 2:
-        return 0.0, 0.0, 0.0, 0.0
-    
-    fln_5s, pers_5s, conc_5s, abs_5s = _calculate_window_factors(snapshots, 5)
-    fln_15s, pers_15s, conc_15s, abs_15s = _calculate_window_factors(snapshots, 15)
-    fln_60s, pers_60s, conc_60s, abs_60s = _calculate_window_factors(snapshots, 60)
-    
-    fln = 0.50 * fln_5s + 0.30 * fln_15s + 0.20 * fln_60s
-    pers = 0.50 * pers_5s + 0.30 * pers_15s + 0.20 * pers_60s
-    conc_dir = 0.50 * conc_5s + 0.30 * conc_15s + 0.20 * conc_60s
-    abs_dir = 0.50 * abs_5s + 0.30 * abs_15s + 0.20 * abs_60s
-    
-    return fln, pers, conc_dir, abs_dir
-
-def _calculate_combined_flow_score(snapshots):
-    fln, pers, conc_dir, abs_dir = _calculate_combined_factors(snapshots)
-    return 100.0 * (0.20 * fln + 0.40 * pers + 0.30 * conc_dir + 0.10 * abs_dir)
 
 def _get_current_flow_data():
     return {
@@ -327,10 +178,6 @@ def _seed_flow_history():
     print(f"[INFO] Flow history seeded: {len(bars)} barras de {bars[0]['time']} a {bars[-1]['time']}")
 
 
-def _seed_realtime_flow():
-    """Disabled: _realtime_flow_cache starts empty and only accumulates real data."""
-    return
-
 async def flow_snapshot_loop():
     print("[INFO] Real WIN Broker Flow Snapshot Loop iniciado.")
     # Inicializa todas as corretoras com saldo zero (sem simulação)
@@ -359,9 +206,6 @@ async def flow_snapshot_loop():
                     _broker_flow["WIN"][b]["vol"] = 0
                     _broker_flow["WIN"][b]["avg"] = 0.0
                 _flow_history_bars.clear()
-                _raw_flow_snapshots.clear()
-                _realtime_flow_cache.clear()
-                _realtime_factors_cache.clear()
                 last_date = today
 
             time_str = now_dt.strftime("%H:%M")
@@ -380,40 +224,6 @@ async def flow_snapshot_loop():
                 
             if len(_flow_history_bars) > 600:
                 _flow_history_bars.pop(0)
-
-            # Record raw snapshot for high-frequency calculations
-            raw_snap = {
-                "timestamp": int(current_time),
-                "price": _last_win_price,
-                "flow": {b: {"net": current_flow["WIN"][b]["net"], "buy": current_flow["WIN"][b]["buy"], "sell": current_flow["WIN"][b]["sell"]} for b in _broker_list}
-            }
-            _raw_flow_snapshots.append(raw_snap)
-
-            # Compute current synthetic flow score
-            fln, pers, conc_dir, abs_dir = _calculate_combined_factors(_raw_flow_snapshots)
-            score = 100.0 * (0.20 * fln + 0.40 * pers + 0.30 * conc_dir + 0.10 * abs_dir)
-            
-            _realtime_factors_cache.append({
-                "time": int(current_time),
-                "fln": fln,
-                "pers": pers,
-                "conc_dir": conc_dir,
-                "abs_dir": abs_dir
-            })
-            
-            # Classify score color
-            if score >= 40.0:
-                color = "#00e87a"  # Green
-            elif score <= -40.0:
-                color = "#ff3860"  # Red
-            else:
-                color = "#f5a623"  # Yellow
-                
-            _realtime_flow_cache.append({
-                "time": int(current_time),
-                "value": round(score, 2),
-                "color": color
-            })
                 
         except Exception as e:
             print(f"[AVISO] Erro no loop de snapshot de fluxo: {e}")
@@ -1297,10 +1107,6 @@ def _regime_v1_impl():
     closes_a, times_a, _ = fetch_profit_m5_series("WINFUT", needed)
     closes_b, times_b, _ = fetch_profit_m5_series("WDOFUT", needed)
 
-    global _last_win_price
-    if closes_a is not None and len(closes_a) > 0:
-        _last_win_price = float(closes_a[-1])
-
     if closes_a is None or closes_b is None:
         return {"error": "Sem dados para 'WINFUT'/'WDOFUT' no Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=_HMM_REGIME_PLACEHOLDER), "history": []}
 
@@ -1351,7 +1157,7 @@ def regime_v2():
         return _regime_v2_impl()
 
 def _regime_v2_impl():
-    global _v2_cache, _v2_cache_ts, _last_win_price
+    global _v2_cache, _v2_cache_ts
 
     if time.time() - _v2_cache_ts < CACHE_TTL and _v2_cache:
         return _v2_cache
@@ -1359,9 +1165,6 @@ def _regime_v2_impl():
     closes_a, times_a, win_meta = fetch_profit_m5_series("WINFUT", 50000)
     closes_b, times_b, _ = fetch_profit_m5_series("WDOFUT", 50000)
     win_bars_by_ts = win_meta.get("bars_ByTs", {}) if isinstance(win_meta, dict) else {}
-
-    if closes_a is not None and len(closes_a) > 0:
-        _last_win_price = float(closes_a[-1])
 
     if closes_a is None or closes_b is None:
         return {"error": "Sem dados do Profit.", "current_z": 0, "signal": get_signal(0, hmm_state=_HMM_REGIME_PLACEHOLDER), "history": []}
@@ -2670,24 +2473,6 @@ def restart_server(request: Request):
     except Exception:
         pass
     return {"ok": True, "message": "Caches e motores reiniciados com sucesso!"}
-
-@app.get("/api/flow/realtime")
-def get_realtime_flow(
-    w_fln: float = 0.20,
-    w_pers: float = 0.40,
-    w_conc: float = 0.30,
-    w_abs: float = 0.10,
-    date_str: str = None,
-):
-    with _mt5_lock:
-        bundle = get_profit_day_flow_bundle(date_str)
-    return format_flow_score_for_frontend(
-        bundle,
-        w_fln=w_fln,
-        w_pers=w_pers,
-        w_conc=w_conc,
-        w_abs=w_abs,
-    )
 
 
 @app.get("/api/flow/iaf-history")
