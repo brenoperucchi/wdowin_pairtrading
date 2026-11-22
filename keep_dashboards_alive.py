@@ -23,15 +23,59 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DASHBOARD_DIR = os.path.join(PROJECT_ROOT, "regime-dashboard")
 LOG_FILE = os.path.join(PROJECT_ROOT, "logs", "watchdog_dashboards.log")
 PID_FILE = os.path.join(PROJECT_ROOT, "logs", "watchdog_dashboards.pid")
+CLOUD_PUB_PID_FILE = os.path.join(PROJECT_ROOT, "logs", "cloud_publisher.pid")
 
 CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
+last_8080_start_ts: float = 0.0
+last_cloud_pub_start_ts: float = 0.0
+
+
+def _rotate_log_if_needed(
+    path: str,
+    max_bytes: int = 10 * 1024 * 1024,
+    backups: int = 3,
+) -> None:
+    """Rotaciona `path` para `.1`..`.{backups}` quando excede `max_bytes`."""
+    rotating = f"{path}.rotating" if path else ""
+    moved_to_rotating = False
+    try:
+        if not path or max_bytes <= 0 or not os.path.isfile(path):
+            return
+        if os.path.getsize(path) <= max_bytes:
+            return
+        if backups <= 0:
+            os.remove(path)
+            return
+
+        # Move `path` para `.rotating` antes de deslocar os backups para nao perder historico se o arquivo estiver em uso no Windows.
+        os.replace(path, rotating)
+        moved_to_rotating = True
+
+        oldest = f"{path}.{backups}"
+        if os.path.exists(oldest):
+            os.remove(oldest)
+        for idx in range(backups - 1, 0, -1):
+            src = f"{path}.{idx}"
+            dst = f"{path}.{idx + 1}"
+            if os.path.exists(src):
+                os.replace(src, dst)
+        os.replace(rotating, f"{path}.1")
+        moved_to_rotating = False
+    except Exception:
+        if moved_to_rotating and os.path.exists(rotating) and not os.path.exists(path):
+            try:
+                os.replace(rotating, path)
+            except Exception:
+                pass
+
 
 def log(msg: str) -> None:
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+    _rotate_log_if_needed(LOG_FILE)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}\n"
     try:
@@ -118,39 +162,72 @@ def _utf8_env() -> dict:
     return env
 
 
-def start_backend_8080() -> None:
-    kill_port_processes(8080)
-    time.sleep(0.5)
+def _open_rotated_log(log_name: str):
+    log_path = os.path.join(PROJECT_ROOT, "logs", log_name)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    _rotate_log_if_needed(log_path)
+    return open(log_path, "a", encoding="utf-8")
+
+
+def _resolve_python_exe(prefer_venv: bool = False) -> str:
+    if prefer_venv:
+        venv_py = os.path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe")
+        if os.path.isfile(venv_py):
+            return venv_py
     py_exe = sys.executable
     if py_exe.lower().endswith("pythonw.exe"):
         cand = os.path.join(os.path.dirname(py_exe), "python.exe")
         if os.path.exists(cand):
-            py_exe = cand
-    out_log = open(os.path.join(PROJECT_ROOT, "logs", "server_8080.log"), "a", encoding="utf-8")
+            return cand
+    return py_exe
+
+
+def _spawn_detached(
+    cmd: list[str],
+    cwd: str,
+    log_name: str,
+    env: dict | None = None,
+) -> subprocess.Popen:
     flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
-    env = _utf8_env()
-    try:
-        proc = subprocess.Popen(
-            [py_exe, "server.py"],
-            cwd=PROJECT_ROOT,
-            env=env,
-            stdout=out_log,
-            stderr=out_log,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags | CREATE_BREAKAWAY_FROM_JOB,
-            close_fds=True,
-        )
-    except Exception:
-        proc = subprocess.Popen(
-            [py_exe, "server.py"],
-            cwd=PROJECT_ROOT,
-            env=env,
-            stdout=out_log,
-            stderr=out_log,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-            close_fds=True,
-        )
+    popen_kwargs = {
+        "cwd": cwd,
+        "stdin": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if env is not None:
+        popen_kwargs["env"] = env
+    with _open_rotated_log(log_name) as out_log:
+        try:
+            return subprocess.Popen(
+                cmd,
+                stdout=out_log,
+                stderr=out_log,
+                creationflags=flags | CREATE_BREAKAWAY_FROM_JOB,
+                **popen_kwargs,
+            )
+        except Exception:
+            return subprocess.Popen(
+                cmd,
+                stdout=out_log,
+                stderr=out_log,
+                creationflags=flags,
+                **popen_kwargs,
+            )
+
+
+def _has_cloud_publisher_config() -> bool:
+    return os.path.isfile(os.path.join(PROJECT_ROOT, "cloud_saas", ".env")) or bool(
+        os.environ.get("MW_PUSH_HMAC_SECRET")
+    )
+
+
+def start_backend_8080() -> None:
+    global last_8080_start_ts
+    kill_port_processes(8080)
+    time.sleep(0.5)
+    py_exe = _resolve_python_exe(prefer_venv=False)
+    proc = _spawn_detached([py_exe, "server.py"], PROJECT_ROOT, "server_8080.log", env=_utf8_env())
+    last_8080_start_ts = time.monotonic()
     log(f"Backend 8080 iniciado (PID {proc.pid}).")
 
 
@@ -161,67 +238,74 @@ def start_vite_port(port: int) -> None:
     if not os.path.exists(node_exe):
         node_exe = "node"
     vite_bin = os.path.join(DASHBOARD_DIR, "node_modules", "vite", "bin", "vite.js")
-    out_log = open(os.path.join(PROJECT_ROOT, "logs", f"vite_{port}.log"), "a", encoding="utf-8")
-    flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
     cmd = [node_exe, vite_bin, "--host", "::", "--port", str(port), "--strictPort"]
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=DASHBOARD_DIR,
-            stdout=out_log,
-            stderr=out_log,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags | CREATE_BREAKAWAY_FROM_JOB,
-            close_fds=True,
-        )
-    except Exception:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=DASHBOARD_DIR,
-            stdout=out_log,
-            stderr=out_log,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-            close_fds=True,
-        )
+    proc = _spawn_detached(cmd, DASHBOARD_DIR, f"vite_{port}.log")
     log(f"Vite {port} iniciado (PID {proc.pid}).")
 
 
 def start_public_port(port: int, log_name: str, extra_args: list[str] | None = None) -> None:
     kill_port_processes(port)
     time.sleep(0.5)
-    py_exe = sys.executable
-    if py_exe.lower().endswith("pythonw.exe"):
-        cand = os.path.join(os.path.dirname(py_exe), "python.exe")
-        if os.path.exists(cand):
-            py_exe = cand
-    out_log = open(os.path.join(PROJECT_ROOT, "logs", log_name), "a", encoding="utf-8")
-    flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+    py_exe = _resolve_python_exe(prefer_venv=False)
     cmd = [py_exe, os.path.join(PROJECT_ROOT, "scripts", "painel_publico.py"), str(port)] + (extra_args or [])
-    env = _utf8_env()
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=PROJECT_ROOT,
-            env=env,
-            stdout=out_log,
-            stderr=out_log,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags | CREATE_BREAKAWAY_FROM_JOB,
-            close_fds=True,
-        )
-    except Exception:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=PROJECT_ROOT,
-            env=env,
-            stdout=out_log,
-            stderr=out_log,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-            close_fds=True,
-        )
+    proc = _spawn_detached(cmd, PROJECT_ROOT, log_name, env=_utf8_env())
     log(f"Painel público {port} iniciado (PID {proc.pid}).")
+
+
+def is_cloud_publisher_running() -> bool:
+    if os.path.isfile(CLOUD_PUB_PID_FILE):
+        try:
+            with open(CLOUD_PUB_PID_FILE, "r", encoding="utf-8") as f:
+                pid = int(f.read().strip())
+            if is_pid_running(pid):
+                return True
+        except Exception:
+            pass
+    try:
+        ps = (
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | "
+            "Where-Object { $_.CommandLine -match 'cloud_publisher\\.py' } | "
+            "Select-Object -ExpandProperty ProcessId"
+        )
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", ps],
+            creationflags=CREATE_NO_WINDOW,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            errors="ignore",
+            timeout=5,
+        ).strip()
+        return any(tok.isdigit() for tok in out.splitlines())
+    except Exception:
+        return False
+
+
+def start_cloud_publisher() -> None:
+    global last_cloud_pub_start_ts
+    if not _has_cloud_publisher_config():
+        log("Aviso: cloud_saas/.env ausente e MW_PUSH_HMAC_SECRET não definido — cloud_publisher.py não iniciado.")
+        return
+
+    py_exe = _resolve_python_exe(prefer_venv=True)
+    cmd = [
+        py_exe,
+        os.path.join(PROJECT_ROOT, "scripts", "cloud_publisher.py"),
+        "--role",
+        "primary",
+        "--producer-id",
+        "pc-local-01",
+        "--stale-alert-sec",
+        "60",
+    ]
+    last_cloud_pub_start_ts = time.monotonic()
+    proc = _spawn_detached(cmd, PROJECT_ROOT, "cloud_publisher.log", env=_utf8_env())
+    try:
+        os.makedirs(os.path.dirname(CLOUD_PUB_PID_FILE), exist_ok=True)
+        with open(CLOUD_PUB_PID_FILE, "w", encoding="utf-8") as f:
+            f.write(str(proc.pid))
+    except Exception:
+        pass
+    log(f"Cloud publisher iniciado (PID {proc.pid}).")
 
 
 def start_public_5199() -> None:
@@ -425,7 +509,10 @@ def acquire_single_instance_or_exit() -> None:
 
 
 def run_watchdog(restart_all_on_boot: bool = False) -> None:
+    global last_8080_start_ts, last_cloud_pub_start_ts
     acquire_single_instance_or_exit()
+    last_8080_start_ts = 0.0
+    last_cloud_pub_start_ts = 0.0
     log(f"Watchdog iniciado (PID {os.getpid()}, restart_all={restart_all_on_boot}).")
 
     if restart_all_on_boot:
@@ -436,20 +523,25 @@ def run_watchdog(restart_all_on_boot: bool = False) -> None:
         start_public_5199()
         start_public_5198()
         time.sleep(5.0)
+        if not is_cloud_publisher_running():
+            start_cloud_publisher()
 
     fail_counts = {8080: 0, 5174: 0, 5176: 0, 5178: 0, 5199: 0, 5198: 0}
 
     while True:
         try:
             # 1. Verifica Backend 8080
+            in_8080_grace = last_8080_start_ts > 0.0 and (time.monotonic() - last_8080_start_ts) < 30.0
             if not check_port_open(8080):
-                fail_counts[8080] += 2
+                if not in_8080_grace:
+                    fail_counts[8080] += 2
             elif not check_http_ok("http://127.0.0.1:8080/health", timeout=6.0):
-                fail_counts[8080] += 1
+                if not in_8080_grace:
+                    fail_counts[8080] += 1
             else:
                 fail_counts[8080] = 0
 
-            if fail_counts[8080] >= 2:
+            if fail_counts[8080] >= 3:
                 log("Porta 8080 sem resposta. Reiniciando server.py...")
                 start_backend_8080()
                 fail_counts[8080] = 0
@@ -510,6 +602,14 @@ def run_watchdog(restart_all_on_boot: bool = False) -> None:
                 log("Túnel cloudflared 5198 ausente. Reiniciando cloudflared -> 5198...")
                 start_cloudflared_5198()
                 time.sleep(3.0)
+
+            # 5. Verifica Produtor Push Cloud (scripts/cloud_publisher.py)
+            if _has_cloud_publisher_config() and check_port_open(8080):
+                if not is_cloud_publisher_running():
+                    now_mono = time.monotonic()
+                    if last_cloud_pub_start_ts == 0.0 or (now_mono - last_cloud_pub_start_ts) >= 15.0:
+                        log("Cloud publisher ausente. Reiniciando cloud_publisher.py...")
+                        start_cloud_publisher()
 
         except Exception as e:
             log(f"Erro no ciclo do watchdog: {e}")

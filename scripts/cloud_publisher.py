@@ -506,6 +506,11 @@ def main() -> int:
         alert_webhook_url=os.environ.get("MW_ALERT_WEBHOOK_URL", "").strip(),
         always_alert=args.always_alert,
     )
+    if not (monitor.telegram_token and monitor.telegram_chat_id) and not monitor.alert_webhook_url:
+        print(
+            "[CLOUD_PUBLISHER] AVISO: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID nao configurados em cloud_saas/.env — alertas de SLA serao registrados apenas em log.",
+            flush=True,
+        )
 
     try:
         if args.once:
