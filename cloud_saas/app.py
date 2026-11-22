@@ -361,6 +361,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             device_fp=req.device_fp,
             user_agent=ua,
             max_switches=cfg.max_device_switches_per_day,
+            exempt_from_block=(str(user.get("plan") or "").lower() == "admin"),
         )
         if abuse["blocked"]:
             store.delete(f"sess:{user['id']}")

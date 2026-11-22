@@ -74,7 +74,7 @@ class Settings:
             cors_origins=_env_csv("MW_CORS_ORIGINS", ["*"]),
             telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", "").strip(),
             telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", "").strip(),
-            max_device_switches_per_day=_env_int("MW_MAX_DEVICE_SWITCHES_PER_DAY", 4),
+            max_device_switches_per_day=_env_int("MW_MAX_DEVICE_SWITCHES_PER_DAY", 8),
             primary_failover_sec=_env_int("MW_PRIMARY_FAILOVER_SEC", 12),
             heartbeat_stale_sec=_env_int("MW_HEARTBEAT_STALE_SEC", 15),
             terms_version=os.environ.get("MW_TERMS_VERSION", "2026.11").strip() or "2026.11",

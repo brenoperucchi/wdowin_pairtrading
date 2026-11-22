@@ -8,7 +8,7 @@ Camada de persistência dual do Cloud SaaS MagicWalls:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import secrets
@@ -26,8 +26,16 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+BRT_TZ = timezone(timedelta(hours=-3))
+
+
 def utc_today_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def brt_today_str(now_utc: Optional[datetime] = None) -> str:
+    ref = now_utc if now_utc is not None else datetime.now(timezone.utc)
+    return ref.astimezone(BRT_TZ).strftime("%Y-%m-%d")
 
 
 def _clean_ip(ip: str) -> str:
@@ -70,11 +78,18 @@ def _compute_switch_stats(rows: Sequence[dict[str, Any]], max_switches: int) -> 
         if prev_pair is not None and pair != prev_pair:
             switches += 1
         prev_pair = pair
+    # Uso legítimo em 2 aparelhos (ex.: PC + celular) tolera mais alternâncias antes de bloquear
+    effective_limit = (
+        max(int(max_switches) * 2, 12)
+        if len(distinct_fps) <= 2 and len(distinct_ips) <= 2
+        else int(max_switches)
+    )
     return {
         "switches": switches,
         "distinct_ips": len(distinct_ips),
         "distinct_fps": len(distinct_fps),
-        "blocked": switches > int(max_switches),
+        "effective_limit": effective_limit,
+        "blocked": switches > effective_limit,
     }
 
 
@@ -189,6 +204,7 @@ class BaseDatabase:
         user_agent: str,
         max_switches: int,
         trading_day: Optional[str] = None,
+        exempt_from_block: bool = False,
     ) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -544,8 +560,9 @@ class SQLiteDatabase(BaseDatabase):
         user_agent: str,
         max_switches: int,
         trading_day: Optional[str] = None,
+        exempt_from_block: bool = False,
     ) -> dict[str, Any]:
-        day = trading_day or utc_today_str()
+        day = trading_day or brt_today_str()
         now = utc_now_iso()
         clean_ip = _clean_ip(ip)
         clean_fp = _clean_fp(device_fp)
@@ -574,6 +591,8 @@ class SQLiteDatabase(BaseDatabase):
                 (uid, day),
             ).fetchall()
             stats = _compute_switch_stats([dict(r) for r in rows], max_switches)
+            if exempt_from_block:
+                stats["blocked"] = False
 
             if stats["blocked"]:
                 self._conn.execute(
@@ -623,7 +642,7 @@ class SQLiteDatabase(BaseDatabase):
     ) -> None:
         uid = int(user_id)
         now = utc_now_iso()
-        day = trading_day or utc_today_str()
+        day = trading_day or brt_today_str()
         with self._lock:
             existing = self._conn.execute(
                 "SELECT id FROM active_sessions WHERE user_id = ? AND session_id = ? LIMIT 1",
@@ -690,7 +709,7 @@ class SQLiteDatabase(BaseDatabase):
                     (ip or "")[:64],
                     (device_fp or "")[:128],
                     _clean_ua(user_agent),
-                    trading_day or utc_today_str(),
+                    trading_day or brt_today_str(),
                     payload,
                     1 if resolved else 0,
                     now,
@@ -700,7 +719,7 @@ class SQLiteDatabase(BaseDatabase):
 
     def unblock_user(self, user_id: int) -> Optional[dict[str, Any]]:
         uid = int(user_id)
-        day = utc_today_str()
+        day = brt_today_str()
         now = utc_now_iso()
         with self._lock:
             existing = self.get_user_by_id(uid)
@@ -1065,9 +1084,10 @@ class SupabaseRestDatabase(BaseDatabase):
         user_agent: str,
         max_switches: int,
         trading_day: Optional[str] = None,
+        exempt_from_block: bool = False,
     ) -> dict[str, Any]:
         uid = int(user_id)
-        day = trading_day or utc_today_str()
+        day = trading_day or brt_today_str()
         now = utc_now_iso()
         clean_ip = _clean_ip(ip)
         clean_fp = _clean_fp(device_fp)
@@ -1102,6 +1122,8 @@ class SupabaseRestDatabase(BaseDatabase):
             },
         )
         stats = _compute_switch_stats(rows, max_switches)
+        if exempt_from_block:
+            stats["blocked"] = False
         if stats["blocked"]:
             self._patch(
                 "profiles",
@@ -1146,7 +1168,7 @@ class SupabaseRestDatabase(BaseDatabase):
     ) -> None:
         uid = int(user_id)
         now = utc_now_iso()
-        day = trading_day or utc_today_str()
+        day = trading_day or brt_today_str()
         self._patch(
             "active_sessions",
             {"user_id": f"eq.{uid}", "is_active": "eq.true", "session_id": f"neq.{session_id}"},
@@ -1204,7 +1226,7 @@ class SupabaseRestDatabase(BaseDatabase):
                 "ip": (ip or "")[:64],
                 "device_fp": (device_fp or "")[:128],
                 "user_agent": _clean_ua(user_agent),
-                "trading_day": trading_day or utc_today_str(),
+                "trading_day": trading_day or brt_today_str(),
                 "details": details or {},
                 "resolved": bool(resolved),
                 "created_at": utc_now_iso(),
@@ -1217,7 +1239,7 @@ class SupabaseRestDatabase(BaseDatabase):
         existing = self.get_user_by_id(uid)
         if not existing:
             return None
-        day = utc_today_str()
+        day = brt_today_str()
         now = utc_now_iso()
         self._patch("profiles", {"id": f"eq.{uid}"}, {"is_blocked": False, "blocked_reason": ""})
         self._patch("subscriptions", {"user_id": f"eq.{uid}"}, {"status": "active", "updated_at": now})

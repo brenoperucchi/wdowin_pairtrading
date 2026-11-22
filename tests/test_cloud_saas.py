@@ -17,7 +17,7 @@ import httpx
 
 from cloud_saas.app import create_app
 from cloud_saas.config import Settings
-from cloud_saas.database import SupabaseRestDatabase, create_database
+from cloud_saas.database import SupabaseRestDatabase, brt_today_str, create_database
 from cloud_saas.security import compute_push_signature, compute_webhook_signature
 from cloud_saas.store import UpstashRestStore
 from scripts.cloud_publisher import HeartbeatMonitor, _attach_precomputed_divs
@@ -258,6 +258,47 @@ class CloudSaasArchitectureTests(unittest.TestCase):
         self.assertEqual(r_unb.status_code, 200)
         r_ok = self.client.post("/auth/login", json={"email": "abuse@mw.com", "password": "StrongPassword!123", "device_fp": "fp-clean"})
         self.assertEqual(r_ok.status_code, 200)
+
+    def test_admin_exempt_from_device_switch_block(self) -> None:
+        self._create_user("boss@mw.com", "admin")
+        tokens = []
+        for idx in range(8):
+            r = self.client.post(
+                "/auth/login",
+                json={"email": "boss@mw.com", "password": "StrongPassword!123", "device_fp": f"adm-{idx}"},
+            )
+            self.assertEqual(r.status_code, 200, f"Admin bloqueado indevidamente em idx={idx}: {r.text}")
+            tokens.append(r.json()["access_token"])
+
+        ov = self.client.get("/api/v1/admin/overview", headers=self.admin_headers).json()
+        self.assertEqual(ov["open_abuse_flags"], [])
+
+        r_old = self.client.get("/auth/me", headers={"Authorization": f"Bearer {tokens[0]}"})
+        self.assertEqual(r_old.status_code, 401)
+        self.assertEqual(r_old.json()["code"], "SESSION_REPLACED")
+
+    def test_two_device_alternation_tolerance_and_cap(self) -> None:
+        self._create_user("two@mw.com", "pro")
+        devices = ["pc-home", "phone-4g"]
+        # 2 aparelhos distintos toleram até max(4*2, 12) = 12 trocas (13 logins)
+        for idx in range(13):
+            r = self.client.post(
+                "/auth/login",
+                json={"email": "two@mw.com", "password": "StrongPassword!123", "device_fp": devices[idx % 2]},
+            )
+            self.assertEqual(r.status_code, 200, f"Alternância 2 aparelhos falhou no login idx={idx}: {r.text}")
+
+        # 14º login (13ª troca > 12) dispara bloqueio
+        r_blk = self.client.post(
+            "/auth/login",
+            json={"email": "two@mw.com", "password": "StrongPassword!123", "device_fp": devices[13 % 2]},
+        )
+        self.assertEqual(r_blk.status_code, 403)
+        self.assertEqual(r_blk.json()["code"], "ACCOUNT_ABUSE_BLOCKED")
+
+    def test_brt_trading_day_boundary(self) -> None:
+        self.assertEqual(brt_today_str(datetime(2026, 11, 22, 1, 41, tzinfo=timezone.utc)), "2026-11-21")
+        self.assertEqual(brt_today_str(datetime(2026, 11, 22, 14, 27, tzinfo=timezone.utc)), "2026-11-22")
 
     def test_clickwrap_terms_enforcement(self) -> None:
         self._seed_sample_push()
