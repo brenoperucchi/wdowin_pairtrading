@@ -54,7 +54,7 @@ def run_gold_gex_pipeline():
     print(f"      r = {r*100:.2f}%")
     print(f"      Sincronização MT5: {ratio_msg}")
 
-    print(f"\n[3/5] Calculando GEX Institucional (GLD) e gerando Jumba Walls...")
+    print(f"\n[3/5] Calculando GEX Institucional (GLD) e gerando Magic Walls Walls...")
     # Agrupar strikes do GLD por $2.0 (~$22 no XAUUSD) para maior resolução
     df_options["strike_round"] = (df_options["strike"] / 2.0).round() * 2.0
 
@@ -188,7 +188,7 @@ def run_gold_gex_pipeline():
 
     report_lines = [
         "=" * 65,
-        "  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - GOLD / XAUUSD (CBOE)",
+        "  RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - GOLD / XAUUSD (CBOE)",
         f"  Vencimento de Referencia: {expiry_str} | Data Ref: {today.strftime('%d/%m/%Y')}",
         "=" * 65,
         "",
@@ -204,7 +204,7 @@ def run_gold_gex_pipeline():
         f"    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : XAUUSD ${flip_gold:.2f}",
         f"    [+] MAX GAMMA (Teto Gravitacional)    : XAUUSD ${max_gamma_gold:.2f}",
         "",
-        "[+] JUMBA WALLS DETECTADAS (Strikes Proximos):",
+        "[+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):",
         "-" * 65,
         "  TIPO       | STRIKE GLD   | EQUIVALENTE XAUUSD | GEX NET ($ Milhoes)    | LARGURA",
         "-" * 65,
@@ -217,7 +217,7 @@ def run_gold_gex_pipeline():
 
     report_lines.extend([
         "-" * 65,
-        "Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE no ETF GLD.",
+        "Nota: As Magic Walls Walls acima mapeiam o Open Interest consolidado da CBOE no ETF GLD.",
         "Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.",
         "=" * 65,
     ])
@@ -228,7 +228,7 @@ def run_gold_gex_pipeline():
     print(f"      Relatório escrito em: {report_path}")
 
     save_walls_to_cache(walls, ticker="gold_xau", ref_date=today.isoformat(), current_price=current_spot)
-    tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")
+    tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "magicwalls_tradingview.pine")
     export_unified_tradingview(output_path=tv_file)
 
     print("\n" + "=" * 60)

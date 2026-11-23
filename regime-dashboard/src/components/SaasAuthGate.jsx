@@ -95,16 +95,33 @@ export default function SaasAuthGate({ children }) {
         return () => window.removeEventListener("mw-saas-auth-error", onAuthError);
     }, [forceLogoutWithReason]);
 
-    // Heartbeat de sessão única a cada 2.5s (garante desconexão <= 3s em qualquer aba)
+    // Heartbeat de sessão única a cada 2.5s (reduzido para 15s em aba oculta; garante desconexão imediata ao voltar)
     useEffect(() => {
         if (!authState?.access_token) return undefined;
+        let lastHiddenCheck = 0;
         const timer = setInterval(() => {
+            if (typeof document !== "undefined" && document.hidden) {
+                const now = Date.now();
+                if (now - lastHiddenCheck < 15000) return;
+                lastHiddenCheck = now;
+            }
             verifySession();
         }, 2500);
-        return () => clearInterval(timer);
+        const onVis = () => {
+            if (typeof document !== "undefined" && !document.hidden) verifySession();
+        };
+        if (typeof document !== "undefined") {
+            document.addEventListener("visibilitychange", onVis);
+        }
+        return () => {
+            clearInterval(timer);
+            if (typeof document !== "undefined") {
+                document.removeEventListener("visibilitychange", onVis);
+            }
+        };
     }, [authState?.access_token, verifySession]);
 
-    // Monitor público do feed Cloud (recepção + usuário logado)
+    // Monitor público do feed Cloud (recepção + usuário logado; pausa em aba oculta)
     useEffect(() => {
         let cancelled = false;
         const checkFeed = async () => {
@@ -126,10 +143,21 @@ export default function SaasAuthGate({ children }) {
             }
         };
         checkFeed();
-        const t = setInterval(checkFeed, 10000);
+        const t = setInterval(() => {
+            if (typeof document === "undefined" || !document.hidden) checkFeed();
+        }, 10000);
+        const onVis = () => {
+            if (typeof document !== "undefined" && !document.hidden) checkFeed();
+        };
+        if (typeof document !== "undefined") {
+            document.addEventListener("visibilitychange", onVis);
+        }
         return () => {
             cancelled = true;
             clearInterval(t);
+            if (typeof document !== "undefined") {
+                document.removeEventListener("visibilitychange", onVis);
+            }
         };
     }, []);
 

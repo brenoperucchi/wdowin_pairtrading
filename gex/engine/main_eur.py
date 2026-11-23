@@ -55,7 +55,7 @@ def run_eur_gex_pipeline():
     print(f"      rd (USD) = {rd*100:.2f}% | rf (EUR) = {rf*100:.2f}%")
     print(f"      Sincronização MT5: {ratio_msg}")
 
-    print(f"\n[3/5] Calculando GEX Institucional (FXE) e gerando Jumba Walls...")
+    print(f"\n[3/5] Calculando GEX Institucional (FXE) e gerando Magic Walls Walls...")
     df_options["strike_round"] = (df_options["strike"] / 0.50).round() * 0.50
 
     K = df_options["strike"].to_numpy()
@@ -188,7 +188,7 @@ def run_eur_gex_pipeline():
 
     report_lines = [
         "=" * 65,
-        "  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - EUR/USD (CBOE)",
+        "  RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - EUR/USD (CBOE)",
         f"  Vencimento de Referencia: {expiry_str} | Data Ref: {today.strftime('%d/%m/%Y')}",
         "=" * 65,
         "",
@@ -204,7 +204,7 @@ def run_eur_gex_pipeline():
         f"    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : EURUSD {flip_eur:.5f}",
         f"    [+] MAX GAMMA (Teto Gravitacional)    : EURUSD {max_gamma_eur:.5f}",
         "",
-        "[+] JUMBA WALLS DETECTADAS (Strikes Proximos):",
+        "[+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):",
         "-" * 65,
         "  TIPO       | STRIKE FXE   | EQUIVALENTE EURUSD | GEX NET ($ Milhoes)    | LARGURA",
         "-" * 65,
@@ -217,7 +217,7 @@ def run_eur_gex_pipeline():
 
     report_lines.extend([
         "-" * 65,
-        "Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE no ETF FXE.",
+        "Nota: As Magic Walls Walls acima mapeiam o Open Interest consolidado da CBOE no ETF FXE.",
         "Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.",
         "=" * 65,
     ])
@@ -228,7 +228,7 @@ def run_eur_gex_pipeline():
     print(f"      Relatório escrito em: {report_path}")
 
     save_walls_to_cache(walls, ticker="eur_usd", ref_date=today.isoformat(), current_price=current_eur)
-    tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")
+    tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "magicwalls_tradingview.pine")
     export_unified_tradingview(output_path=tv_file)
 
     print("\n" + "=" * 60)

@@ -128,7 +128,7 @@ def load_existing_validated_history():
 
     try:
         old_win_str = subprocess.check_output(
-            ["git", "show", "HEAD:mt5/Files/jumba_gex_win_history.csv"],
+            ["git", "show", "HEAD:mt5/Files/magicwalls_gex_win_history.csv"],
             cwd=PROJECT_ROOT, text=True, encoding="utf-8", errors="ignore"
         )
         for line in old_win_str.splitlines():
@@ -144,11 +144,11 @@ def load_existing_validated_history():
                     "gex": 0.0,
                 })
     except Exception as e:
-        print(f"[Aviso] Não foi possível ler HEAD:mt5/Files/jumba_gex_win_history.csv: {e}")
+        print(f"[Aviso] Não foi possível ler HEAD:mt5/Files/magicwalls_gex_win_history.csv: {e}")
 
     try:
         old_wdo_str = subprocess.check_output(
-            ["git", "show", "HEAD:mt5/Files/jumba_gex_wdo_history.csv"],
+            ["git", "show", "HEAD:mt5/Files/magicwalls_gex_wdo_history.csv"],
             cwd=PROJECT_ROOT, text=True, encoding="utf-8", errors="ignore"
         )
         for line in old_wdo_str.splitlines():
@@ -164,7 +164,7 @@ def load_existing_validated_history():
                     "gex": 0.0,
                 })
     except Exception as e:
-        print(f"[Aviso] Não foi possível ler HEAD:mt5/Files/jumba_gex_wdo_history.csv: {e}")
+        print(f"[Aviso] Não foi possível ler HEAD:mt5/Files/magicwalls_gex_wdo_history.csv: {e}")
 
     return existing_win, existing_wdo
 
@@ -614,7 +614,7 @@ def backfill_b3_gex_history():
                 flush=True,
             )
 
-    # 3. Exportar jumba_gex_win_history.csv
+    # 3. Exportar magicwalls_gex_win_history.csv
     common_dir = get_mt5_common_files_dir()
     win_lines = ["session_date;type;price;width"]
     for d in sorted(win_history.keys()):
@@ -626,11 +626,11 @@ def backfill_b3_gex_history():
 
     win_content = "\n".join(win_lines) + "\n"
     for target_dir in (MT5_FILES_DIR, common_dir):
-        path = os.path.join(target_dir, "jumba_gex_win_history.csv")
+        path = os.path.join(target_dir, "magicwalls_gex_win_history.csv")
         with open(path, "w", encoding="ascii", errors="ignore") as f:
             f.write(win_content)
 
-    # 4. Exportar jumba_gex_wdo_history.csv
+    # 4. Exportar magicwalls_gex_wdo_history.csv
     wdo_lines = ["session_date;type;price;width"]
     for d in sorted(wdo_history.keys()):
         for w in wdo_history[d]:
@@ -641,11 +641,11 @@ def backfill_b3_gex_history():
 
     wdo_content = "\n".join(wdo_lines) + "\n"
     for target_dir in (MT5_FILES_DIR, common_dir):
-        path = os.path.join(target_dir, "jumba_gex_wdo_history.csv")
+        path = os.path.join(target_dir, "magicwalls_gex_wdo_history.csv")
         with open(path, "w", encoding="ascii", errors="ignore") as f:
             f.write(wdo_content)
 
-    # 5. Exportar espelhos JSON (jumba_gex_win_history.json, jumba_gex_wdo_history.json, jumba_gex_win_wdo_history.json)
+    # 5. Exportar espelhos JSON (magicwalls_gex_win_history.json, magicwalls_gex_wdo_history.json, magicwalls_gex_win_wdo_history.json)
     def _build_sessions_json(hist_dict, ticker_label):
         sessions_out = {}
         for d in sorted(hist_dict.keys()):
@@ -703,11 +703,11 @@ def backfill_b3_gex_history():
     }
 
     for target_dir in (MT5_FILES_DIR, common_dir):
-        with open(os.path.join(target_dir, "jumba_gex_win_history.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(target_dir, "magicwalls_gex_win_history.json"), "w", encoding="utf-8") as f:
             json.dump(win_json_obj, f, indent=2, ensure_ascii=False)
-        with open(os.path.join(target_dir, "jumba_gex_wdo_history.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(target_dir, "magicwalls_gex_wdo_history.json"), "w", encoding="utf-8") as f:
             json.dump(wdo_json_obj, f, indent=2, ensure_ascii=False)
-        with open(os.path.join(target_dir, "jumba_gex_win_wdo_history.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(target_dir, "magicwalls_gex_win_wdo_history.json"), "w", encoding="utf-8") as f:
             json.dump(combined_json_obj, f, indent=2, ensure_ascii=False)
 
     # 6. Salvar resumo consolidado de mercado

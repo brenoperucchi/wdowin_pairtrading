@@ -19,8 +19,8 @@ from cloud_saas.app import create_app
 from cloud_saas.config import Settings
 from cloud_saas.database import SupabaseRestDatabase, brt_today_str, create_database
 from cloud_saas.security import compute_push_signature, compute_webhook_signature
-from cloud_saas.store import UpstashRestStore
-from scripts.cloud_publisher import HeartbeatMonitor, _attach_precomputed_divs
+from cloud_saas.store import CachedResilientStore, MemoryTTLStore, UpstashRestStore
+from scripts.cloud_publisher import CloudPublisher, HeartbeatMonitor, _attach_precomputed_divs
 from scripts.verify_cloud_connections import check_supabase, check_upstash
 
 
@@ -767,6 +767,163 @@ class CloudSaasArchitectureTests(unittest.TestCase):
         }
         enriched = _attach_precomputed_divs(snap, include_trades=False)
         self.assertGreater(len(enriched["WIN"]["caminho_a"]["engine_divs_v32"]), 0)
+
+    def test_cached_resilient_store_survives_upstash_suspension(self) -> None:
+        l2_calls = {"count": 0}
+
+        def _suspended_upstash(_request: httpx.Request) -> httpx.Response:
+            l2_calls["count"] += 1
+            return httpx.Response(403, json={"error": "database suspended"})
+
+        mock_client = httpx.Client(transport=httpx.MockTransport(_suspended_upstash))
+        try:
+            l1 = MemoryTTLStore()
+            l2 = UpstashRestStore("https://demo.upstash.io", "upstash-tok", client=mock_client)
+            store = CachedResilientStore(l1, l2, backoff_sec=60.0)
+
+            big_payload = {"ok": True, "blob": "A" * 2500}
+            store.set_json("snap:pro:etapa1_lite", big_payload, ttl_sec=120)
+            self.assertEqual(l2_calls["count"], 1)
+
+            # L1 RAM atende normalmente e cacheia backoff sem gerar HTTP 500
+            got = store.get_json("snap:pro:etapa1_lite")
+            self.assertEqual(got, big_payload)
+            self.assertIsNone(store.get_json("snap:missing:key"))
+            self.assertEqual(l2_calls["count"], 1)
+        finally:
+            mock_client.close()
+
+    def test_session_rehydrates_from_db_after_ram_restart(self) -> None:
+        self._seed_sample_push()
+        self._create_user("rehydrate@mw.com", "pro")
+
+        tok_a = self.client.post(
+            "/auth/login",
+            json={"email": "rehydrate@mw.com", "password": "StrongPassword!123", "device_fp": "pc-a"},
+        ).json()["access_token"]
+        self.assertEqual(self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok_a}"}).status_code, 200)
+
+        # Simula restart do container limpando toda a RAM de store
+        self.app.state.store._data.clear()
+
+        # Sessão ativa é re-hidratada automaticamente a partir de active_sessions
+        r_after = self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok_a}"})
+        self.assertEqual(r_after.status_code, 200, r_after.text)
+
+        # Novo login em outro aparelho substitui a sessão no DB e derruba tok_a
+        tok_b = self.client.post(
+            "/auth/login",
+            json={"email": "rehydrate@mw.com", "password": "StrongPassword!123", "device_fp": "pc-b"},
+        ).json()["access_token"]
+        self.assertEqual(self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok_b}"}).status_code, 200)
+        r_old = self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok_a}"})
+        self.assertEqual(r_old.status_code, 401)
+        self.assertEqual(r_old.json()["code"], "SESSION_REPLACED")
+
+    def test_etag_304_not_modified_and_needs_backfill_signal(self) -> None:
+        r_push = self._seed_sample_push(marker="v1")
+        self.assertEqual(r_push.status_code, 200)
+        self.assertTrue(r_push.json()["needs_backfill"])
+
+        self._create_user("etag@mw.com", "pro")
+        tok = self.client.post(
+            "/auth/login",
+            json={"email": "etag@mw.com", "password": "StrongPassword!123", "device_fp": "fp-etag"},
+        ).json()["access_token"]
+
+        r1 = self.client.get("/api/compass/etapa1?lite=1", headers={"Authorization": f"Bearer {tok}"})
+        self.assertEqual(r1.status_code, 200)
+        etag1 = r1.headers.get("etag")
+        self.assertTrue(etag1)
+
+        r304 = self.client.get(
+            "/api/compass/etapa1?lite=1",
+            headers={"Authorization": f"Bearer {tok}", "If-None-Match": etag1},
+        )
+        self.assertEqual(r304.status_code, 304)
+        self.assertEqual(r304.content, b"")
+
+        r_day = _signed_push_request(
+            self.client,
+            self.settings.push_hmac_secret,
+            {
+                "producer_id": "vps-01",
+                "producer_role": "primary",
+                "snapshots": {
+                    "pro": {"etapa1_day_2026-11-19": {"ok": True, "selected_date": "2026-11-19"}}
+                },
+            },
+        )
+        self.assertEqual(r_day.status_code, 200)
+        self.assertFalse(r_day.json()["needs_backfill"])
+
+        self._seed_sample_push(marker="v2")
+        r2 = self.client.get(
+            "/api/compass/etapa1?lite=1",
+            headers={"Authorization": f"Bearer {tok}", "If-None-Match": etag1},
+        )
+        self.assertEqual(r2.status_code, 200)
+        self.assertNotEqual(r2.headers.get("etag"), etag1)
+        self.assertEqual(r2.json()["marker"], "v2")
+
+    def test_user_cache_invalidation_on_admin_mutations(self) -> None:
+        self._create_user("cacheinv@mw.com", "pro")
+        tok = self.client.post(
+            "/auth/login",
+            json={"email": "cacheinv@mw.com", "password": "StrongPassword!123", "device_fp": "fp-c"},
+        ).json()["access_token"]
+        self.assertEqual(self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"}).status_code, 200)
+
+        r_susp = self.client.post(
+            "/api/v1/admin/users",
+            json={"email": "cacheinv@mw.com", "plan": "pro", "status": "suspended"},
+            headers=self.admin_headers,
+        )
+        self.assertEqual(r_susp.status_code, 200)
+
+        r_blocked = self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"})
+        self.assertEqual(r_blocked.status_code, 403)
+        self.assertEqual(r_blocked.json()["code"], "SUBSCRIPTION_INACTIVE")
+
+        r_act = self.client.post(
+            "/api/v1/admin/users",
+            json={"email": "cacheinv@mw.com", "plan": "pro", "status": "active", "days": 30},
+            headers=self.admin_headers,
+        )
+        self.assertEqual(r_act.status_code, 200)
+        self.assertEqual(self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"}).status_code, 200)
+
+    def test_heartbeat_only_keeps_feed_live_and_publisher_dedup(self) -> None:
+        self._seed_sample_push(marker="live-snap")
+        r_hb = _signed_push_request(
+            self.client,
+            self.settings.push_hmac_secret,
+            {"producer_id": "vps-01", "producer_role": "primary", "heartbeat_only": True},
+        )
+        self.assertEqual(r_hb.status_code, 200)
+        self.assertEqual(r_hb.json()["mode"], "heartbeat_only")
+        self.assertTrue(r_hb.json()["needs_backfill"])
+        self.assertEqual(self.client.get("/api/v1/feed/status").json()["status"], "live")
+
+        posted: list[dict] = []
+        pub = CloudPublisher("https://cloud.local", "http://127.0.0.1:8080", "sec", "pc-dedup")
+        try:
+            pub._last_backfill_mono = time.monotonic()
+            sample_snap = {"core": {"etapa1_lite": {"ok": True, "t": 1}}, "pro": {"etapa1_lite": {"ok": True, "t": 1}}, "admin": {}}
+            pub.build_snapshots = lambda force_all=False, include_days=True: sample_snap  # type: ignore[method-assign]
+
+            def _fake_post(snapshots=None, heartbeat_only=False):
+                posted.append({"hb": heartbeat_only, "snaps": snapshots})
+                return True, {"ok": True, "needs_backfill": False}
+
+            pub._post_snapshots_payload = _fake_post  # type: ignore[method-assign]
+            ok1, _ = pub.push_once(force_all=False)
+            ok2, _ = pub.push_once(force_all=False)
+            self.assertTrue(ok1 and ok2)
+            self.assertFalse(posted[0]["hb"])
+            self.assertTrue(posted[1]["hb"])
+        finally:
+            pub.close()
 
 
 if __name__ == "__main__":

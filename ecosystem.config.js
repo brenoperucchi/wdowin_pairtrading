@@ -4,7 +4,7 @@
  * Este arquivo de configuracao do PM2 nao e mais utilizado em producao.
  * Toda a orquestracao e supervisao dos servicos locais foi migrada para:
  *   - Watchdog Python: keep_dashboards_alive.py
- *   - Tarefa Agendada do Windows: JumbaDashboardsWatchdog
+ *   - Tarefa Agendada do Windows: Magic WallsDashboardsWatchdog
  *
  * Servicos hoje supervisionados pelo watchdog:
  *   - FastAPI (server.py em 127.0.0.1:8080)

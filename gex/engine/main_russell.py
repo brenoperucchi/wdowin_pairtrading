@@ -80,7 +80,7 @@ def run_russell_gex_pipeline():
     print(f"      r = {r*100:.2f}% | q = {q*100:.2f}%")
     print(f"      Sincronização MT5: {ratio_msg}")
 
-    print(f"\n[3/5] Calculando GEX Institucional (_RUT + IWM) e gerando Jumba Walls...")
+    print(f"\n[3/5] Calculando GEX Institucional (_RUT + IWM) e gerando Magic Walls Walls...")
     # Agrupar strikes na escala RUT a cada 10 pontos (~$1.0 no IWM)
     df_options["strike_round"] = (df_options["strike"] / 10.0).round() * 10.0
 
@@ -206,7 +206,7 @@ def run_russell_gex_pipeline():
 
     with open(report_file, "w", encoding="utf-8") as f:
         f.write("=================================================================\n")
-        f.write("  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - RUSSELL 2000 / US2000 (CBOE)\n")
+        f.write("  RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - RUSSELL 2000 / US2000 (CBOE)\n")
         f.write(f"  Vencimento de Referencia: {expiry_str} | Data Ref: {today.strftime('%d/%m/%Y')}\n")
         f.write("=================================================================\n\n")
         f.write("[+] STATUS DO MERCADO (REGIME GEX):\n")
@@ -221,7 +221,7 @@ def run_russell_gex_pipeline():
 
     print(f"      Relatório escrito em: {report_file}")
 
-    tv_file = os.path.join(docs_dir, "jumba_tradingview.pine")
+    tv_file = os.path.join(docs_dir, "magicwalls_tradingview.pine")
     save_walls_to_cache(walls, ticker="RUSSELL_US2000", ref_date=today, current_price=current_rut)
     export_unified_tradingview(output_path=tv_file)
 

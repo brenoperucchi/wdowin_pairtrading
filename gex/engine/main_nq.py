@@ -79,7 +79,7 @@ def run_nq_gex_pipeline():
     print(f"      Taxa (r): {r*100:.2f}% | q: {q*100:.2f}%")
     print(f"      Sincronização MT5: {ratio_msg}")
 
-    print(f"\n[3/5] Calculando GEX Institucional (_NDX + QQQ) e gerando Jumba Walls...")
+    print(f"\n[3/5] Calculando GEX Institucional (_NDX + QQQ) e gerando Magic Walls Walls...")
     # Agrupar strikes na escala NDX a cada 100 pontos (~$2.50 no QQQ)
     df_options["strike_round"] = (df_options["strike"] / 100.0).round() * 100.0
 
@@ -202,7 +202,7 @@ def run_nq_gex_pipeline():
 
     report_lines = [
         "=" * 65,
-        "  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - NASDAQ 100 / USTEC (CBOE)",
+        "  RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - NASDAQ 100 / USTEC (CBOE)",
         f"  Vencimento de Referencia: {expiry_str} | Data Ref: {today.strftime('%d/%m/%Y')}",
         "=" * 65,
         "",
@@ -218,7 +218,7 @@ def run_nq_gex_pipeline():
         f"    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : NQ {flip_nq:.2f}",
         f"    [+] MAX GAMMA (Teto Gravitacional)    : NQ {max_gamma_nq:.2f}",
         "",
-        "[+] JUMBA WALLS DETECTADAS (Strikes Proximos):",
+        "[+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):",
         "-" * 65,
         f"  {'TIPO':10s} | {'STRIKE QQQ':12s} | {'EQUIVALENTE NQ':16s} | {'GEX NET ($ Milhoes)':22s} | {'LARGURA'}",
         "-" * 65,
@@ -233,7 +233,7 @@ def run_nq_gex_pipeline():
 
     report_lines.extend([
         "-" * 65,
-        "Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE (_NDX + QQQ).",
+        "Nota: As Magic Walls Walls acima mapeiam o Open Interest consolidado da CBOE (_NDX + QQQ).",
         "Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.",
         "=" * 65,
     ])
@@ -243,7 +243,7 @@ def run_nq_gex_pipeline():
 
     print(f"      Relatório escrito em: {report_path}")
 
-    tv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")
+    tv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "magicwalls_tradingview.pine")
     try:
         save_walls_to_cache(walls, ticker="nasdaq_nq", ref_date=today, current_price=current_nq)
         export_unified_tradingview(output_path=tv_path)

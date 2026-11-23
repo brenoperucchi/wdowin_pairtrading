@@ -2180,7 +2180,7 @@ class GexLiveDealerEngine:
 
     @staticmethod
     def _compute_mt5_nwe_series(closes: np.ndarray, lookback: int, bw: float, mult: float):
-        """Calcula o envelope NWE causal idêntico ao UpdateNWE do MQL5 (`Jumba_GEX_NWE_Core.mqh` / `Jumba_WDO_GEX_NWE_Core.mqh`)."""
+        """Calcula o envelope NWE causal idêntico ao UpdateNWE do MQL5 (`MagicWalls_GEX_NWE_Core.mqh` / `MagicWalls_WDO_GEX_NWE_Core.mqh`)."""
         n = len(closes)
         center = np.zeros(n, dtype=float)
         mae_raw = np.zeros(n, dtype=float)
@@ -2213,7 +2213,7 @@ class GexLiveDealerEngine:
         return abs(best_px - float(price)), best_px, best_w
 
     def _find_win_structural_targets(self, entry_px: float, dir_sig: int, walls_clean: list, front_run: float = 20.0):
-        """Idêntico a `FindStructuralTargets` em `Jumba_GEX_NWE_Core.mqh` (front-run 20p na MidWall/Wall)."""
+        """Idêntico a `FindStructuralTargets` em `MagicWalls_GEX_NWE_Core.mqh` (front-run 20p na MidWall/Wall)."""
         rnd = self._round_win5
         main_walls = sorted(float(w["price"]) for w in (walls_clean or []) if w.get("type") == "Wall" and float(w.get("price", 0.0)) > 0)
         all_levels = sorted(set(float(w["price"]) for w in (walls_clean or []) if w.get("type") in ("Wall", "MidWall") and float(w.get("price", 0.0)) > 0))
@@ -2263,7 +2263,7 @@ class GexLiveDealerEngine:
         front_run: float = 0.5,
         min_tp_pts: float = 6.0,
     ) -> float:
-        """Idêntico a `CalcWdoTargetPts` em `Jumba_WDO_GEX_NWE_Core.mqh` (front-run 0.5p na MidWall/Wall)."""
+        """Idêntico a `CalcWdoTargetPts` em `MagicWalls_WDO_GEX_NWE_Core.mqh` (front-run 0.5p na MidWall/Wall)."""
         rnd = self._round_wdo05
         all_levels = sorted(set(float(w["price"]) for w in (walls_clean or []) if w.get("type") in ("Wall", "MidWall") and float(w.get("price", 0.0)) > 0))
         if not all_levels:
@@ -2291,7 +2291,7 @@ class GexLiveDealerEngine:
     ) -> list:
         """
         Reconcilia os sinais avaliados pelo motor MQL5 Python com as execuções reais gravadas
-        pelo robô MT5 em `Common\\Files\\jumba_live_deals_*.csv` e `jumba_*state*.csv` para `sess_date`.
+        pelo robô MT5 em `Common\\Files\\magicwalls_live_deals_*.csv` e `magicwalls_*state*.csv` para `sess_date`.
         """
         is_win = asset.upper() == "WIN"
         common_dir = os.path.join(
@@ -2301,12 +2301,12 @@ class GexLiveDealerEngine:
         if not os.path.isdir(common_dir) or not today_closed_bars:
             return sim_signals
 
-        deals_files = sorted(glob.glob(os.path.join(common_dir, "jumba_live_deals_*.csv")))
+        deals_files = sorted(glob.glob(os.path.join(common_dir, "magicwalls_live_deals_*.csv")))
         if not deals_files:
             return sim_signals
 
         # Mapeia estado em tempo real dos slots abertos no MT5 (para SL/TP/Wall exatos de posições em andamento)
-        state_pattern = "jumba_state_*_WIN*.csv" if is_win else "jumba_wdo_state_*_WDO*.csv"
+        state_pattern = "magicwalls_state_*_WIN*.csv" if is_win else "magicwalls_wdo_state_*_WDO*.csv"
         state_by_ticket = {}
         state_by_slot = {}
         for st_fp in sorted(glob.glob(os.path.join(common_dir, state_pattern))):
@@ -2319,7 +2319,7 @@ class GexLiveDealerEngine:
                 if len(lines) < 2:
                     continue
                 if lines[0].startswith(sess_date):
-                    # Formato posicional gravado por SaveStateToDisk nos EAs Jumba_GEX_NWE_Core / Jumba_WDO_GEX_NWE_Core
+                    # Formato posicional gravado por SaveStateToDisk nos EAs MagicWalls_Core / Magic Walls_WDO_GEX_NWE_Core
                     for ln in lines[1:]:
                         parts = ln.split(";")
                         if len(parts) < 10:
@@ -2589,7 +2589,7 @@ class GexLiveDealerEngine:
     ) -> list:
         """
         Avalia as estratégias WIN (`EST_01`, `EST_04`, `EST_07`, `EST_13`, `EST_14`, `EST_15`, `WIN_E2`)
-        seguindo 100% as fórmulas exatas do robô MQL5 (`Jumba_GEX_NWE_Core.mqh` + `sg_sim.py` + `optimize_existing_16_setups.py`):
+        seguindo 100% as fórmulas exatas do robô MQL5 (`MagicWalls_GEX_NWE_Core.mqh` + `sg_sim.py` + `optimize_existing_16_setups.py`):
           - Duplo envelope causal NWE50(50, bw=5.0, mult=2.0) e NWE30(30, bw=3.0, mult=1.6)
           - Entradas Limit (`mid_b1` p/ EST_13/14/15/WIN_E2 c/ filtro `new_open >= mid_b1` | `lvl ∓ 5` p/ EST_04)
             e Market na abertura da barra seguinte (`new_bar_open` p/ EST_01 e EST_07)
@@ -2954,7 +2954,7 @@ class GexLiveDealerEngine:
     ) -> list:
         """
         Avalia as estratégias WDO (`WDO_01`, `WDO_02`, `WDO_05`, `WDO_07`, `WDO_10`)
-        seguindo 100% as fórmulas exatas do robô MQL5 (`Jumba_WDO_GEX_NWE_Core.mqh` + `wdo_mt5_sim.py`):
+        seguindo 100% as fórmulas exatas do robô MQL5 (`MagicWalls_WDO_GEX_NWE_Core.mqh` + `wdo_mt5_sim.py`):
           - Duplo envelope causal NWE50(50, bw=5.0, mult=2.0) e NWE30(30, bw=3.0, mult=1.6)
           - Direção FADE correta no micro-rompimento da Wall NY (`WDO_01` Part A, `WDO_05` Part A, `WDO_07`)
           - Entradas Limit (`round05(b1.low+0.5)` / `round05(b1.high-0.5)` p/ `WDO_02` Part B e `WDO_05`)

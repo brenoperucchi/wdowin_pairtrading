@@ -527,7 +527,7 @@ def run_dol_gex_pipeline():
             
     report_lines = [
         "=" * 65,
-        "  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - DOLAR FUTURO (DOL / WDO)",
+        "  RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - DOLAR FUTURO (DOL / WDO)",
         f"  Vencimento de Referencia: {expiry_date} | Data Ref: {today.strftime('%d/%m/%Y')}",
         "=" * 65,
         "",
@@ -543,7 +543,7 @@ def run_dol_gex_pipeline():
         f"    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL {flip_dol:.2f}",
         f"    [+] MAX GAMMA (Teto Gravitacional)    : DOL {max_gamma_dol:.2f}",
         "",
-        "[+] JUMBA WALLS DETECTADAS (Strikes Proximos):",
+        "[+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):",
         "-" * 65,
         f"  {'TIPO':10s} | {'STRIKE REAL':12s} | {'EQUIVALENTE DOL':16s} | {'GEX NET ($ Milhoes)':22s} | {'LARGURA'}",
         "-" * 65
@@ -560,7 +560,7 @@ def run_dol_gex_pipeline():
         
     report_lines.extend([
         "-" * 65,
-        "Nota: As Jumba Walls acima mapeiam o posicionamento do Open Interest das opcoes na B3.",
+        "Nota: As Magic Walls Walls acima mapeiam o posicionamento do Open Interest das opcoes na B3.",
         "Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.",
         "=" * 65
     ])
@@ -573,7 +573,7 @@ def run_dol_gex_pipeline():
     print(f"      Relatório escrito em: {report_path}")
     
     # Salvar cache e atualizar TradingView
-    tv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")
+    tv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "magicwalls_tradingview.pine")
     try:
         save_walls_to_cache(walls, ticker="usd_brl", ref_date=today, current_price=current_wdo)
         export_unified_tradingview(output_path=tv_path)

@@ -127,19 +127,19 @@ if ($savedToken -and (Test-Path $CF_EXE)) {
     Write-Host "[2/2] config\cloudflared_tunnel_token.txt ainda vazio — usando tunel compartilhado/watchdog." -ForegroundColor Yellow
 }
 
-# 4. Garantir trigger AtLogon + repeticao a cada 2 min na tarefa JumbaDashboardsWatchdog (Backend 8080 MT5/Profit)
+# 4. Garantir trigger AtLogon + repeticao a cada 2 min na tarefa Magic WallsDashboardsWatchdog (Backend 8080 MT5/Profit)
 try {
-    $wdTask = Get-ScheduledTask -TaskName "JumbaDashboardsWatchdog" -ErrorAction SilentlyContinue
+    $wdTask = Get-ScheduledTask -TaskName "Magic WallsDashboardsWatchdog" -ErrorAction SilentlyContinue
     if ($wdTask) {
         $triggers = @(
             (New-ScheduledTaskTrigger -AtLogon),
             (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 2))
         )
-        Set-ScheduledTask -TaskName "JumbaDashboardsWatchdog" -Trigger $triggers | Out-Null
-        Write-Host "[OK] Gatilho AtLogon configurado em JumbaDashboardsWatchdog (Backend 8080)." -ForegroundColor Green
+        Set-ScheduledTask -TaskName "Magic WallsDashboardsWatchdog" -Trigger $triggers | Out-Null
+        Write-Host "[OK] Gatilho AtLogon configurado em Magic WallsDashboardsWatchdog (Backend 8080)." -ForegroundColor Green
     }
 } catch {
-    Write-Host "[AVISO] Nao foi possivel atualizar JumbaDashboardsWatchdog: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "[AVISO] Nao foi possivel atualizar Magic WallsDashboardsWatchdog: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 Start-Sleep -Seconds 3

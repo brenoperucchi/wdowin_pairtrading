@@ -140,7 +140,7 @@ def kill_port_processes(port: int) -> None:
 
 def check_http_ok(url: str, timeout: float = 5.0) -> bool:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "JumbaWatchdog/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "Magic WallsWatchdog/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return 200 <= resp.status < 400
     except Exception:

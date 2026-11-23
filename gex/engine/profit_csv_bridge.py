@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-JUMBA FLOW - PROFIT CSV REAL-TIME BRIDGE (V2 - Incremental f.seek & Dual-Source)
+MAGIC WALLS FLOW - PROFIT CSV REAL-TIME BRIDGE (V2 - Incremental f.seek & Dual-Source)
 Monitora a pasta RTD/ por exportações em tempo real do ProfitChart sem limite de 5 MB,
 suportando tanto Times & Trades de 4 colunas (WIN/WDO) quanto 6/7 colunas (IND/DOL com corretora)
 e tabelas de Saldo de Corretoras (*_saldo.csv).

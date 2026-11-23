@@ -1729,6 +1729,8 @@ def get_gex_walls():
     try:
         for cand in [
             os.path.join("gex", "data", "win_walls_cache.json"),
+            os.path.join("gex", "data", "magicwalls_gex_win_daily.json"),
+            os.path.join("gex", "data", "magicwalls_gex_win_history.json"),
             os.path.join("gex", "data", "jumba_gex_win_daily.json"),
             os.path.join("gex", "data", "jumba_gex_win_history.json"),
         ]:
@@ -1975,7 +1977,7 @@ def get_morning_brief():
 
 @app.get("/api/live-calendar")
 def get_live_calendar(account: str = ""):
-    """Calendário do Live Trading: trades fechados das EAs Jumba no MT5 milhao (via CSV do Live Monitor)."""
+    """Calendário do Live Trading: trades fechados das EAs Magic Walls no MT5 (via CSV do Live Monitor)."""
     try:
         from core.live_calendar import load_live_calendar, LIVE_ACCOUNT
         return load_live_calendar(account or LIVE_ACCOUNT)

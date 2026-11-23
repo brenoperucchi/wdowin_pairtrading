@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Reconciliacao Diaria MT5 Live vs Backtest (Top 10 Jumba EAs).
+Reconciliacao Diaria MT5 Live vs Backtest (Top 10 Magic Walls EAs).
 
-Le (em modo somente-leitura) os CSVs gerados pelo Jumba_Portfolio_Live_Monitor
+Le (em modo somente-leitura) os CSVs gerados pelo MagicWalls_Portfolio_Live_Monitor
 e pelos EAs em %APPDATA%/MetaQuotes/Terminal/Common/Files/:
-  - jumba_portfolio_live_monitor_<login>.csv
-  - jumba_live_deals_<login>.csv
-  - jumba_live_trades_audit_<login>.csv
-  - jumba_daily_stop_state_<login>.csv (+ jumba_daily_stop_events_<login>.csv)
-  - jumba_state_<login>_*_*.csv e jumba_wdo_state_<login>_*_*.csv
+  - magicwalls_portfolio_live_monitor_<login>.csv
+  - magicwalls_live_deals_<login>.csv
+  - magicwalls_live_trades_audit_<login>.csv
+  - magicwalls_daily_stop_state_<login>.csv (+ magicwalls_daily_stop_events_<login>.csv)
+  - magicwalls_state_<login>_*_*.csv e magicwalls_wdo_state_<login>_*_*.csv
 
 Calcula expectativa pro-rata do BT (BT_NetBRL * n_pregoes_live / 212.0),
 desvios de PnL/WR/PF/MaxDD/LossStreak, concentracao diaria de resultado,
@@ -84,7 +84,7 @@ def _normalize_date(raw_dt: str) -> str:
 
 
 def load_monitor_csv(path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    """Le jumba_portfolio_live_monitor_<login>.csv."""
+    """Le magicwalls_portfolio_live_monitor_<login>.csv."""
     if not os.path.isfile(path):
         return [], None
 
@@ -179,7 +179,7 @@ def _summarize_daily_pnl(daily_pnl: Dict[str, float]) -> Dict[str, Any]:
 
 
 def load_deals_csv(path: str) -> Dict[str, Any]:
-    """Le jumba_live_deals_<login>.csv e separa Top 10 vs todos os deals."""
+    """Le magicwalls_live_deals_<login>.csv e separa Top 10 vs todos os deals."""
     if not os.path.isfile(path):
         return {"exists": False}
 
@@ -240,7 +240,7 @@ def load_deals_csv(path: str) -> Dict[str, Any]:
 
 
 def load_audit_csv(path: str) -> Dict[str, Any]:
-    """Le jumba_live_trades_audit_<login>.csv (sem cabecalho, 10 colunas ';')."""
+    """Le magicwalls_live_trades_audit_<login>.csv (sem cabecalho, 10 colunas ';')."""
     if not os.path.isfile(path):
         return {"exists": False}
 
@@ -294,7 +294,7 @@ def load_audit_csv(path: str) -> Dict[str, Any]:
 
 
 def load_daily_stop_state(path: str) -> Dict[str, Any]:
-    """Le jumba_daily_stop_state_<login>.csv e audita limites 950 / 400 / 0."""
+    """Le magicwalls_daily_stop_state_<login>.csv e audita limites 950 / 400 / 0."""
     if not os.path.isfile(path):
         return {"exists": False}
 
@@ -347,7 +347,7 @@ def load_daily_stop_state(path: str) -> Dict[str, Any]:
 
 
 def load_daily_stop_events(path: str) -> List[Dict[str, Any]]:
-    """Le jumba_daily_stop_events_<login>.csv se existir."""
+    """Le magicwalls_daily_stop_events_<login>.csv se existir."""
     if not os.path.isfile(path):
         return []
     with open(path, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
@@ -355,10 +355,10 @@ def load_daily_stop_events(path: str) -> List[Dict[str, Any]]:
 
 
 def audit_state_files(common_dir: str, login: str) -> Dict[str, Any]:
-    """Audita jumba_state_<login>_*_*.csv e jumba_wdo_state_<login>_*_*.csv."""
+    """Audita magicwalls_state_<login>_*_*.csv e magicwalls_wdo_state_<login>_*_*.csv."""
     patterns = [
-        os.path.join(common_dir, f"jumba_state_{login}_*_*.csv"),
-        os.path.join(common_dir, f"jumba_wdo_state_{login}_*_*.csv"),
+        os.path.join(common_dir, f"magicwalls_state_{login}_*_*.csv"),
+        os.path.join(common_dir, f"magicwalls_wdo_state_{login}_*_*.csv"),
     ]
     found_by_magic: Dict[int, List[Dict[str, Any]]] = {}
 
@@ -460,7 +460,7 @@ def _build_alerts(
                 severity="CRITICAL",
                 code="STOP_STATE_MISSING",
                 target=f"conta:{login}",
-                message=f"Arquivo jumba_daily_stop_state_{login}.csv nao encontrado.",
+                message=f"Arquivo magicwalls_daily_stop_state_{login}.csv nao encontrado.",
             )
         )
     elif stop_info.get("empty"):
@@ -469,7 +469,7 @@ def _build_alerts(
                 severity="CRITICAL",
                 code="STOP_STATE_EMPTY",
                 target=f"conta:{login}",
-                message=f"Arquivo jumba_daily_stop_state_{login}.csv esta vazio.",
+                message=f"Arquivo magicwalls_daily_stop_state_{login}.csv esta vazio.",
             )
         )
     else:
@@ -607,11 +607,11 @@ def _build_alerts(
 
 def reconcile_login(common_dir: str, login: str, bt_days: float = BT_DAYS_DEFAULT) -> Dict[str, Any]:
     """Executa reconciliacao completa para um login MT5."""
-    monitor_path = os.path.join(common_dir, f"jumba_portfolio_live_monitor_{login}.csv")
-    deals_path = os.path.join(common_dir, f"jumba_live_deals_{login}.csv")
-    audit_path = os.path.join(common_dir, f"jumba_live_trades_audit_{login}.csv")
-    stop_path = os.path.join(common_dir, f"jumba_daily_stop_state_{login}.csv")
-    events_path = os.path.join(common_dir, f"jumba_daily_stop_events_{login}.csv")
+    monitor_path = os.path.join(common_dir, f"magicwalls_portfolio_live_monitor_{login}.csv")
+    deals_path = os.path.join(common_dir, f"magicwalls_live_deals_{login}.csv")
+    audit_path = os.path.join(common_dir, f"magicwalls_live_trades_audit_{login}.csv")
+    stop_path = os.path.join(common_dir, f"magicwalls_daily_stop_state_{login}.csv")
+    events_path = os.path.join(common_dir, f"magicwalls_daily_stop_events_{login}.csv")
 
     monitor_rows, monitor_mtime = load_monitor_csv(monitor_path)
     deals_info = load_deals_csv(deals_path)
@@ -764,7 +764,7 @@ def render_markdown(rep: Dict[str, Any]) -> str:
     lines.append("")
 
     # Stop Diario
-    lines.append("## Auditoria de Stop Diario (`jumba_daily_stop_state`)")
+    lines.append("## Auditoria de Stop Diario (`magicwalls_daily_stop_state`)")
     lines.append("")
     if stop.get("exists") and not stop.get("empty"):
         status_stop = "CONFORME" if stop["limits_match_expected"] else "DIVERGENTE"
@@ -793,7 +793,7 @@ def render_markdown(rep: Dict[str, Any]) -> str:
         d_top = deals["top10_summary"]
         d_all = deals["all_summary"]
         lines.append(
-            f"- **Deals CSV (`jumba_live_deals_{login}.csv`):** {deals['out_deals_top10']} OUT deals Top 10 "
+            f"- **Deals CSV (`magicwalls_live_deals_{login}.csv`):** {deals['out_deals_top10']} OUT deals Top 10 "
             f"(soma **R$ {d_top['total_net_brl']:+.2f}**) + {deals['non_top10_out_deals']} OUT deals fora do Top 10 "
             f"(total bruto todos magics: **R$ {d_all['total_net_brl']:+.2f}**)."
         )
@@ -808,7 +808,7 @@ def render_markdown(rep: Dict[str, Any]) -> str:
         a_top = audit["top10_summary"]
         a_all = audit["all_summary"]
         lines.append(
-            f"- **Audit CSV (`jumba_live_trades_audit_{login}.csv`):** {audit['total_trades']} registros "
+            f"- **Audit CSV (`magicwalls_live_trades_audit_{login}.csv`):** {audit['total_trades']} registros "
             f"(Top 10: {audit['top10_trades']}, soma Top 10 R$ {a_top['total_net_brl']:+.2f}, soma total R$ {a_all['total_net_brl']:+.2f}; "
             f"saidas: `{audit['exit_reasons']}`)."
         )
@@ -907,7 +907,7 @@ def print_terminal_summary(rep: Dict[str, Any]) -> None:
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Reconcilia resultados Live MT5 vs Backtest (Jumba Top 10).")
+    parser = argparse.ArgumentParser(description="Reconcilia resultados Live MT5 vs Backtest (Magic Walls Top 10).")
     parser.add_argument("--common-dir", default=DEFAULT_COMMON_DIR, help="Diretorio Common\\Files do MetaQuotes MT5.")
     parser.add_argument("--login", default=DEFAULT_LOGIN, help=f"Numero da conta MT5 (padrao: {DEFAULT_LOGIN}).")
     parser.add_argument("--all", action="store_true", help="Executa para as contas 2004051 e 62033102.")

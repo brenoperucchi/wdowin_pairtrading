@@ -54,7 +54,7 @@ def run_china_gex_pipeline():
     print(f"      rd = {rd*100:.2f}% | rf = {rf*100:.2f}%")
     print(f"      Sincronização MT5: {ratio_msg}")
 
-    print(f"\n[3/5] Calculando GEX Institucional (FXI) e gerando Jumba Walls...")
+    print(f"\n[3/5] Calculando GEX Institucional (FXI) e gerando Magic Walls Walls...")
     df_options["strike_round"] = (df_options["strike"] / 0.50).round() * 0.50
 
     K = df_options["strike"].to_numpy()
@@ -194,7 +194,7 @@ def run_china_gex_pipeline():
 
     with open(report_file, "w", encoding="utf-8") as f:
         f.write("=================================================================\n")
-        f.write("  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - CHINA 50 / CHINA50 (CBOE)\n")
+        f.write("  RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - CHINA 50 / CHINA50 (CBOE)\n")
         f.write(f"  Vencimento de Referencia: {expiry_str} | Data Ref: {today.strftime('%d/%m/%Y')}\n")
         f.write("=================================================================\n\n")
         f.write("[+] STATUS DO MERCADO (REGIME GEX):\n")
@@ -209,7 +209,7 @@ def run_china_gex_pipeline():
 
     print(f"      Relatório escrito em: {report_file}")
 
-    tv_file = os.path.join(docs_dir, "jumba_tradingview.pine")
+    tv_file = os.path.join(docs_dir, "magicwalls_tradingview.pine")
     save_walls_to_cache(walls, ticker="CHINA_FXI", ref_date=today, current_price=current_china_price)
     export_unified_tradingview(output_path=tv_file)
 

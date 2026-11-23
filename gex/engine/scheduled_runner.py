@@ -203,8 +203,8 @@ def run_full_gex_pipeline():
     subprocess.run([
         "git", "add", "-f",
         "gex/data/*.csv", "gex/data/*.json",
-        "gex/docs/jumba_neologica", "gex/docs/MagicWallManual.nts",
-        "gex/docs/jumba_tradingview.pine", "gex/docs/DAILY_REPORT*.txt",
+        "gex/docs/magicwalls_neologica", "gex/docs/MagicWallManual.nts",
+        "gex/docs/magicwalls_tradingview.pine", "gex/docs/DAILY_REPORT*.txt",
         "gex/docs/DAILY_ECONOMIC_CALENDAR.txt"
     ], cwd=PROJECT_ROOT)
     

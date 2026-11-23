@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Atualiza todos os EAs individuais WIN (EST-01..16) e WDO (WDO-01..16) com o input
-`InpUseFlowFilter` (Filtro de Fluxo Institucional Nativo via CopyTicksRange),
-recompila todos os .ex5 sem tocar nos terminais abertos, e cria/sincroniza os perfis:
-  - Jumba_11_SEM_FILTRO (11 Robôs M5 s/ Filtro + Monitor Live)
-  - Jumba_11_COM_FILTRO (11 Robôs M5 c/ Filtro Nativo + Monitor Live)
-  - Jumba_8_COM_FILTRO  (8 Robôs Campeões c/ Filtro Nativo + Monitor Live)
-  - Jumba_8_SEM_FILTRO  (8 Robôs Campeões s/ Filtro + Monitor Live)
-em todos os terminais MT5 (incluindo XP).
+Magic Walls — Compilador de EAs/Indicadores MT5 e Gerador de Perfis (MagicWalls_8 e MagicWalls_10).
+Compila todos os EAs MagicWalls_*.mq5 + Indicadores MagicWalls_*.mq5 (0 erros),
+migra os CSVs de Common\\Files para magicwalls_* (sem perder historico ao vivo),
+gera APENAS os perfis MagicWalls_8 e MagicWalls_10 e sincroniza nos terminais MT5
+(removendo perfis/arquivos antigos Jumba_* de forma segura sem tocar nos processos abertos).
 """
 import os
 import glob
@@ -17,7 +14,8 @@ import subprocess
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MT5_DIR = os.path.join(ROOT_DIR, "mt5")
 EXPERTS_DIR = os.path.join(MT5_DIR, "Experts")
-SUB_EXPERTS_DIR = os.path.join(EXPERTS_DIR, "Jumba_GEX_NWE")
+SUB_EXPERTS_DIR = os.path.join(EXPERTS_DIR, "MagicWalls")
+IND_SUB_DIR = os.path.join(MT5_DIR, "Indicators", "MagicWalls")
 INCLUDE_DIR = os.path.join(MT5_DIR, "Include")
 PROFILES_DIR = os.path.join(MT5_DIR, "Profiles", "Charts")
 
@@ -32,106 +30,52 @@ if not os.path.isfile(METAEDITOR):
             break
 
 
-def patch_mq5_file(filepath: str) -> bool:
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-        code = f.read()
+def migrate_common_files():
+    """Copia jumba_* -> magicwalls_* em Common\\Files se ainda nao existir ou estiver mais antigo."""
+    appdata = os.environ.get("APPDATA", "")
+    common_dir = os.path.join(appdata, "MetaQuotes", "Terminal", "Common", "Files")
+    if not os.path.isdir(common_dir):
+        return
+    copied = 0
+    for fn in os.listdir(common_dir):
+        if fn.startswith("jumba_"):
+            src = os.path.join(common_dir, fn)
+            dst = os.path.join(common_dir, fn.replace("jumba_", "magicwalls_", 1))
+            if os.path.isfile(src):
+                if (not os.path.exists(dst)) or (os.path.getmtime(src) > os.path.getmtime(dst)):
+                    try:
+                        shutil.copy2(src, dst)
+                        copied += 1
+                    except Exception:
+                        pass
+    print(f"[OK] Common\\Files migrado: {copied} arquivos copiados para magicwalls_*.")
 
-    changed = False
-    base = os.path.basename(filepath)
-    if base.startswith("Jumba_EST"):
-        if "InpUseFlowFilter" not in code:
-            target_in = 'input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)'
-            replacement_in = (
-                target_in
-                + "\ninput bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)"
-            )
-            if target_in not in code:
-                code = code.replace(
-                    "CJumbaGexNweEngine g_engine;",
-                    "input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)\n\nCJumbaGexNweEngine g_engine;",
-                )
-            else:
-                code = code.replace(target_in, replacement_in)
-            code = code.replace(
-                "   return(INIT_SUCCEEDED);",
-                "   g_engine.SetUseFlowFilter(InpUseFlowFilter);\n   return(INIT_SUCCEEDED);",
-            )
-            changed = True
 
-        if "InpMaxEntryTime" not in code:
-            target_flow = "input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)"
-            add_in = 'input string              InpMaxEntryTime  = "16:00"; // Horario Limite Novas Entradas (HH:MM, vazio=off)'
-            if target_flow in code:
-                code = code.replace(target_flow, target_flow + "\n" + add_in)
-            else:
-                code = code.replace(
-                    "CJumbaGexNweEngine g_engine;",
-                    add_in + "\n\nCJumbaGexNweEngine g_engine;",
-                )
-            code = code.replace(
-                "   return(INIT_SUCCEEDED);",
-                "   g_engine.SetMaxEntryTime(InpMaxEntryTime);\n   return(INIT_SUCCEEDED);",
-            )
-            changed = True
-
-    elif base.startswith("Jumba_WDO") and "Portfolio_Master" not in base:
-        if "InpUseFlowFilter" not in code:
-            target_in = "input bool                     InpShowHud          = true;                         // Mostrar Painel HUD"
-            replacement_in = (
-                target_in
-                + "\ninput bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)"
-            )
-            if target_in not in code:
-                code = code.replace(
-                    "CJumbaWdoGexNweEngine ExtEngine;",
-                    "input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)\n\nCJumbaWdoGexNweEngine ExtEngine;",
-                )
-            else:
-                code = code.replace(target_in, replacement_in)
-            code = code.replace(
-                "   return(INIT_SUCCEEDED);",
-                "   ExtEngine.SetUseFlowFilter(InpUseFlowFilter);\n   return(INIT_SUCCEEDED);",
-            )
-            changed = True
-
-        if "InpMaxEntryTime" not in code:
-            target_flow = "input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)"
-            add_in = 'input string                   InpMaxEntryTime     = "15:00";                      // Horario Limite Novas Entradas (HH:MM, vazio=off)'
-            if target_flow in code:
-                code = code.replace(target_flow, target_flow + "\n" + add_in)
-            else:
-                code = code.replace(
-                    "CJumbaWdoGexNweEngine ExtEngine;",
-                    add_in + "\n\nCJumbaWdoGexNweEngine ExtEngine;",
-                )
-            code = code.replace(
-                "   return(INIT_SUCCEEDED);",
-                "   ExtEngine.SetMaxEntryTime(InpMaxEntryTime);\n   return(INIT_SUCCEEDED);",
-            )
-            changed = True
-
-    if changed:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(code)
-    return changed
+def compile_file(metaeditor: str, dst_mq5: str) -> str:
+    log_fp = dst_mq5 + ".log"
+    if os.path.exists(log_fp):
+        os.remove(log_fp)
+    subprocess.run([metaeditor, f"/compile:{dst_mq5}", f"/log:{log_fp}"], check=False)
+    ex5_fp = dst_mq5[:-4] + ".ex5"
+    log_txt = ""
+    if os.path.isfile(log_fp):
+        log_txt = open(log_fp, "rb").read().decode("utf-16", errors="ignore")
+    if (not os.path.isfile(ex5_fp)) or ("0 errors" not in log_txt and "0 error(s)" not in log_txt):
+        raise RuntimeError(f"Falha ao compilar {os.path.basename(dst_mq5)}:\n{log_txt}")
+    return ex5_fp
 
 
 def update_and_compile_all():
-    # 1. Patch all Jumba_EST*.mq5 and Jumba_WDO*.mq5 in Experts/ and Experts/Jumba_GEX_NWE/, plus Monitor Live
-    mq5_files = sorted(
-        glob.glob(os.path.join(EXPERTS_DIR, "Jumba_EST*.mq5"))
-        + glob.glob(os.path.join(EXPERTS_DIR, "Jumba_WDO*.mq5"))
-    )
-    mon_fp = os.path.join(EXPERTS_DIR, "Jumba_Portfolio_Live_Monitor.mq5")
-    if os.path.isfile(mon_fp):
-        mq5_files.append(mon_fp)
-    for fp in mq5_files:
-        patched = patch_mq5_file(fp)
-        # Copy identical source to SUB_EXPERTS_DIR if it exists there
-        sub_fp = os.path.join(SUB_EXPERTS_DIR, os.path.basename(fp))
-        shutil.copy2(fp, sub_fp)
+    os.makedirs(SUB_EXPERTS_DIR, exist_ok=True)
+    os.makedirs(IND_SUB_DIR, exist_ok=True)
 
-    # 2. Sync Include/*.mqh and Experts/*.mq5 to primary terminal MQL5 folder for compilation
+    mq5_experts = sorted(glob.glob(os.path.join(SUB_EXPERTS_DIR, "MagicWalls_*.mq5")))
+    mq5_inds = sorted(glob.glob(os.path.join(IND_SUB_DIR, "MagicWalls_*.mq5")))
+
+    # Espelha fontes tambem em mt5/Experts/
+    for fp in mq5_experts:
+        shutil.copy2(fp, os.path.join(EXPERTS_DIR, os.path.basename(fp)))
+
     appdata = os.environ.get("APPDATA", "")
     term_dirs = [
         d for d in glob.glob(os.path.join(appdata, "MetaQuotes", "Terminal", "*"))
@@ -146,48 +90,51 @@ def update_and_compile_all():
             primary_mql5 = os.path.join(td, "MQL5")
         inc_d = os.path.join(td, "MQL5", "Include")
         os.makedirs(inc_d, exist_ok=True)
-        for mqh in glob.glob(os.path.join(INCLUDE_DIR, "*.mqh")):
+        for mqh in glob.glob(os.path.join(INCLUDE_DIR, "MagicWalls_*.mqh")):
             shutil.copy2(mqh, os.path.join(inc_d, os.path.basename(mqh)))
 
-    os.makedirs(os.path.join(primary_mql5, "Experts", "Jumba_GEX_NWE"), exist_ok=True)
-    compiled_count = 0
-    for fp in mq5_files:
+    os.makedirs(os.path.join(primary_mql5, "Experts", "MagicWalls"), exist_ok=True)
+    os.makedirs(os.path.join(primary_mql5, "Indicators", "MagicWalls"), exist_ok=True)
+
+    # 1. Compila todos os EAs MagicWalls_*.mq5
+    compiled_eas = 0
+    for fp in mq5_experts:
         base = os.path.basename(fp)
-        dst_mq5 = os.path.join(primary_mql5, "Experts", base)
+        dst_mq5 = os.path.join(primary_mql5, "Experts", "MagicWalls", base)
         shutil.copy2(fp, dst_mq5)
-        log_fp = dst_mq5 + ".log"
-        if os.path.exists(log_fp):
-            os.remove(log_fp)
-        subprocess.run([METAEDITOR, f"/compile:{dst_mq5}", f"/log:{log_fp}"], check=False)
-        ex5_fp = dst_mq5[:-4] + ".ex5"
-        if not os.path.isfile(ex5_fp):
-            log_txt = ""
-            if os.path.isfile(log_fp):
-                log_txt = open(log_fp, "rb").read().decode("utf-16", errors="ignore")
-            raise RuntimeError(f"Falha ao compilar {base}:\n{log_txt}")
-        # Copy compiled .ex5 back to repo Experts/ and Experts/Jumba_GEX_NWE/
+        ex5_fp = compile_file(METAEDITOR, dst_mq5)
         shutil.copy2(ex5_fp, os.path.join(EXPERTS_DIR, os.path.basename(ex5_fp)))
         shutil.copy2(ex5_fp, os.path.join(SUB_EXPERTS_DIR, os.path.basename(ex5_fp)))
-        compiled_count += 1
+        compiled_eas += 1
 
-    print(f"[OK] {compiled_count} EAs recompilados com InpUseFlowFilter nativo (0 erros).")
+    # 2. Compila todos os Indicadores MagicWalls_*.mq5
+    compiled_inds = 0
+    for fp in mq5_inds:
+        base = os.path.basename(fp)
+        dst_mq5 = os.path.join(primary_mql5, "Indicators", "MagicWalls", base)
+        shutil.copy2(fp, dst_mq5)
+        ex5_fp = compile_file(METAEDITOR, dst_mq5)
+        shutil.copy2(ex5_fp, os.path.join(IND_SUB_DIR, os.path.basename(ex5_fp)))
+        compiled_inds += 1
+
+    print(f"[OK] {compiled_eas} EAs + {compiled_inds} Indicadores Magic Walls compilados (0 erros).")
     return term_dirs
 
 
 ROBOT_SPECS = {
-    "EST_01": ("WIN", 88001, 5, "EST-01 M5", "Jumba_EST01_Scalper_Hibrido_NY"),
-    "EST_04": ("WIN", 88004, 5, "EST-04 M5", "Jumba_EST04_Pullback_Reteste_Wall"),
-    "EST_07": ("WIN", 88007, 5, "EST-07 M5", "Jumba_EST07_Breakout_Momentum_NY"),
-    "EST_09": ("WIN", 88009, 5, "EST-09 M5 [MaxTr=2/d]", "Jumba_EST09_Breakout_Stop_Wall"),
-    "EST_10": ("WIN", 88010, 5, "EST-10 M5 [MaxTr=1/d]", "Jumba_EST10_Breakout_Stop_Wick"),
-    "EST_13": ("WIN", 88013, 5, "EST-13 M5", "Jumba_EST13_SmartGrid_RSI_BE"),
-    "EST_14": ("WIN", 88014, 5, "EST-14 M5", "Jumba_EST14_Grid_Institucional_123L"),
-    "EST_15": ("WIN", 88015, 5, "EST-15 M5", "Jumba_EST15_Posicional_EOD_Breakout"),
-    "EST_16": ("WIN", 88016, 5, "EST-16 M5", "Jumba_EST16_Posicional_EOD_Reversion"),
-    "WDO_01": ("WDO", 89001, 5, "WDO-01 M5", "Jumba_WDO01_Scalper_Hibrido_NY"),
-    "WDO_05": ("WDO", 89005, 5, "WDO-05 M5", "Jumba_WDO05_Cluster_NWE30_NWE50"),
-    "WDO_07": ("WDO", 89007, 5, "WDO-07 M5", "Jumba_WDO07_Absorcao_Mkt_NY"),
-    "WDO_09": ("WDO", 89009, 5, "WDO-09 M5", "Jumba_WDO09_Breakout_Stop_Limit_NY"),
+    "EST_01": ("WIN", 88001, 5, "EST-01 M5", "MagicWalls_EST01_Scalper_Hibrido_NY"),
+    "EST_04": ("WIN", 88004, 5, "EST-04 M5", "MagicWalls_EST04_Pullback_Reteste_Wall"),
+    "EST_07": ("WIN", 88007, 5, "EST-07 M5", "MagicWalls_EST07_Breakout_Momentum_NY"),
+    "EST_09": ("WIN", 88009, 5, "EST-09 M5 [MaxTr=2/d]", "MagicWalls_EST09_Breakout_Stop_Wall"),
+    "EST_10": ("WIN", 88010, 5, "EST-10 M5 [MaxTr=1/d]", "MagicWalls_EST10_Breakout_Stop_Wick"),
+    "EST_13": ("WIN", 88013, 5, "EST-13 M5", "MagicWalls_EST13_SmartGrid_RSI_BE"),
+    "EST_14": ("WIN", 88014, 5, "EST-14 M5", "MagicWalls_EST14_Grid_Institucional_123L"),
+    "EST_15": ("WIN", 88015, 5, "EST-15 M5", "MagicWalls_EST15_Posicional_EOD_Breakout"),
+    "EST_16": ("WIN", 88016, 5, "EST-16 M5", "MagicWalls_EST16_Posicional_EOD_Fade"),
+    "WDO_01": ("WDO", 89001, 5, "WDO-01 M5", "MagicWalls_WDO01_Scalper_Hibrido_NY"),
+    "WDO_05": ("WDO", 89005, 5, "WDO-05 M5", "MagicWalls_WDO05_Cluster_NWE30_NWE50"),
+    "WDO_07": ("WDO", 89007, 5, "WDO-07 M5", "MagicWalls_WDO07_Absorcao_Mkt_NY"),
+    "WDO_09": ("WDO", 89009, 5, "WDO-09 M5", "MagicWalls_WDO09_Stop_Limit_Wall_NY"),
 }
 
 
@@ -213,7 +160,7 @@ def make_chart_chr(
         ind_block = """
 <indicator>
 name=Custom Indicator
-path=Indicators\\Jumba_GEX_NWE\\Jumba_NWE_Envelope.ex5
+path=Indicators\\MagicWalls\\MagicWalls_NWE_Envelope.ex5
 apply=1
 show_data=1
 scale_inherit=0
@@ -238,7 +185,7 @@ InpMaxBars=1500
 </indicator>
 <indicator>
 name=Custom Indicator
-path=Indicators\\Jumba_GEX_NWE\\Jumba_GEX_MagicWalls_Ind.ex5
+path=Indicators\\MagicWalls\\MagicWalls_GEX_Ind.ex5
 apply=1
 show_data=1
 scale_inherit=0
@@ -320,7 +267,7 @@ windows_total=1
 
 <expert>
 name={ea_name}
-path=Experts\\Jumba_GEX_NWE\\{ea_name}.ex5
+path=Experts\\MagicWalls\\{ea_name}.ex5
 expertmode=5
 <inputs>
 {ea_inputs}
@@ -358,9 +305,9 @@ def build_profile(
     use_flow_filter: bool,
     win_sym: str = "WINZ26",
     wdo_sym: str = "WDOZ26",
-    stop_global: float = 850.0,
+    stop_global: float = 950.0,
     stop_win: float = 400.0,
-    stop_wdo: float = 550.0,
+    stop_wdo: float = 0.0,
     win_max_entry: str = "16:00",
     wdo_max_entry: str = "15:00",
 ):
@@ -370,16 +317,15 @@ def build_profile(
         if os.path.isfile(old_f):
             os.remove(old_f)
 
-    total_charts = len(robot_ids) + 1  # +1 Monitor chart
+    total_charts = len(robot_ids) + 1
     cols = 3 if total_charts <= 9 else 4
     rows = (total_charts + cols - 1) // cols
     cell_w = 1360 // cols
     cell_h = 840 // rows
 
     flow_str = "true" if use_flow_filter else "false"
-    flow_tag = "COM FILTRO FLUXO" if use_flow_filter else "SEM FILTRO"
-
     order_lines = []
+
     for idx, rid in enumerate(robot_ids, start=1):
         asset, magic, tf_min, base_desc, ea_name = ROBOT_SPECS[rid]
         sym = win_sym if asset == "WIN" else wdo_sym
@@ -391,7 +337,7 @@ def build_profile(
         bottom = top + cell_h
 
         chart_id = 148000000000000000 + idx
-        desc = f"{base_desc} [{flow_tag}]"
+        desc = f"{base_desc} [MAGIC WALLS]"
 
         if asset == "WIN":
             ea_inputs = f"""InpExecMode=1
@@ -430,7 +376,7 @@ InpMaxEntryTime={wdo_max_entry}"""
             f.write(b"\xff\xfe" + chr_text.encode("utf-16-le"))
         order_lines.append(chr_fn)
 
-    # Last chart: Jumba_Portfolio_Live_Monitor
+    # Ultimo grafico: MagicWalls_Portfolio_Live_Monitor
     m_idx = len(robot_ids) + 1
     r_idx = (m_idx - 1) // cols
     c_idx = (m_idx - 1) % cols
@@ -439,7 +385,7 @@ InpMaxEntryTime={wdo_max_entry}"""
     right = left + cell_w
     bottom = top + cell_h
     mon_id = 148000000000000000 + m_idx
-    mon_title = f"JUMBA MONITOR LIVE ({len(robot_ids)} ROBOS {flow_tag})"
+    mon_title = f"MAGIC WALLS MONITOR LIVE ({len(robot_ids)} ROBOS)"
     mon_inputs = f"""InpWinBaseMagic=88000
 InpWdoBaseMagic=89000
 InpBtDdReference=0
@@ -460,7 +406,7 @@ InpMaxDailyLossWdo={stop_wdo:.1f}
 InpStopWarningPct=70.0
 InpClosePositionsOnStop=true
 InpCancelPendingOnStop=true
-InpIncludeAllJumbaMagics=true
+InpIncludeAllMwMagics=true
 InpUseAuctionFilter=true
 InpBlockFrom1=08:55
 InpBlockTo1=09:02
@@ -474,7 +420,7 @@ InpClearStopOnRemove=false"""
         symbol=win_sym,
         title=mon_title,
         period_size=5,
-        ea_name="Jumba_Portfolio_Live_Monitor",
+        ea_name="MagicWalls_Portfolio_Live_Monitor",
         ea_inputs=mon_inputs,
         left=left,
         top=top,
@@ -491,33 +437,56 @@ InpClearStopOnRemove=false"""
     with open(os.path.join(out_dir, "order.wnd"), "wb") as f:
         f.write(b"\xff\xfe" + order_txt.encode("utf-16-le"))
 
-    print(f"[OK] Perfil '{profile_name}' gerado com {m_idx} gráficos ({len(robot_ids)} robôs + Monitor | InpUseFlowFilter={flow_str}).")
+    print(f"[OK] Perfil '{profile_name}' gerado com {m_idx} gráficos ({len(robot_ids)} robôs + Monitor | Stop={stop_global:.0f}/{stop_win:.0f}/{stop_wdo:.0f}).")
     return out_dir
 
 
+def safe_remove_path(p: str):
+    try:
+        if os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+        elif os.path.isfile(p):
+            os.remove(p)
+    except Exception:
+        pass
+
+
 def sync_everything_to_terminals(term_dirs: list, profile_names: list):
+    keep_set = set(profile_names)
     for tdir in term_dirs:
         mql5_dir = os.path.join(tdir, "MQL5")
         if not os.path.isdir(mql5_dir):
             continue
 
-        # 1. Sync Include/*.mqh
+        # 1. Include/*.mqh (instala MagicWalls_*.mqh e remove Jumba_*.mqh antigos)
         inc_dst = os.path.join(mql5_dir, "Include")
         os.makedirs(inc_dst, exist_ok=True)
-        for mqh in glob.glob(os.path.join(INCLUDE_DIR, "*.mqh")):
+        for old_inc in glob.glob(os.path.join(inc_dst, "Jumba_*.mqh")):
+            safe_remove_path(old_inc)
+        for mqh in glob.glob(os.path.join(INCLUDE_DIR, "MagicWalls_*.mqh")):
             shutil.copy2(mqh, os.path.join(inc_dst, os.path.basename(mqh)))
 
-        # 2. Sync Experts/*.ex5 and Experts/Jumba_GEX_NWE/*.ex5
+        # 2. Experts (instala Experts/MagicWalls/ + Experts/ e limpa Jumba_* antigos)
         exp_dst = os.path.join(mql5_dir, "Experts")
-        sub_dst = os.path.join(exp_dst, "Jumba_GEX_NWE")
+        sub_dst = os.path.join(exp_dst, "MagicWalls")
         os.makedirs(sub_dst, exist_ok=True)
-        for f in glob.glob(os.path.join(EXPERTS_DIR, "Jumba_*.*")):
+        for f in glob.glob(os.path.join(SUB_EXPERTS_DIR, "MagicWalls_*.*")):
             if f.endswith((".mq5", ".ex5")):
                 shutil.copy2(f, os.path.join(exp_dst, os.path.basename(f)))
                 shutil.copy2(f, os.path.join(sub_dst, os.path.basename(f)))
+        safe_remove_path(os.path.join(exp_dst, "Jumba_GEX_NWE"))
+        for old_e in glob.glob(os.path.join(exp_dst, "Jumba_*.*")):
+            safe_remove_path(old_e)
 
-        # 3. Sync ONLY active Jumba profiles and prune old Jumba_* profiles (preserving non-Jumba profiles!)
-        keep_set = set(profile_names)
+        # 3. Indicators (instala Indicators/MagicWalls/ e limpa Indicators/Jumba_GEX_NWE/)
+        ind_dst = os.path.join(mql5_dir, "Indicators", "MagicWalls")
+        os.makedirs(ind_dst, exist_ok=True)
+        for f in glob.glob(os.path.join(IND_SUB_DIR, "MagicWalls_*.*")):
+            if f.endswith((".mq5", ".ex5")):
+                shutil.copy2(f, os.path.join(ind_dst, os.path.basename(f)))
+        safe_remove_path(os.path.join(mql5_dir, "Indicators", "Jumba_GEX_NWE"))
+
+        # 4. Profiles (instala apenas MagicWalls_8 e MagicWalls_10; remove Jumba_* e MagicWalls_* antigos)
         for prof_sub in [
             os.path.join(mql5_dir, "Profiles", "Charts"),
             os.path.join(tdir, "profiles", "Charts"),
@@ -525,13 +494,13 @@ def sync_everything_to_terminals(term_dirs: list, profile_names: list):
             os.makedirs(prof_sub, exist_ok=True)
             for existing in os.listdir(prof_sub):
                 full_p = os.path.join(prof_sub, existing)
-                if os.path.isdir(full_p) and existing.startswith("Jumba_") and existing not in keep_set:
-                    shutil.rmtree(full_p, ignore_errors=True)
+                if os.path.isdir(full_p) and (existing.startswith("Jumba_") or (existing.startswith("MagicWalls_") and existing not in keep_set)):
+                    safe_remove_path(full_p)
             for pname in profile_names:
                 src_p = os.path.join(PROFILES_DIR, pname)
                 dst_p = os.path.join(prof_sub, pname)
                 if os.path.exists(dst_p):
-                    shutil.rmtree(dst_p)
+                    safe_remove_path(dst_p)
                 shutil.copytree(src_p, dst_p)
 
         orig_file = os.path.join(tdir, "origin.txt")
@@ -542,15 +511,15 @@ def sync_everything_to_terminals(term_dirs: list, profile_names: list):
 
 
 if __name__ == "__main__":
+    migrate_common_files()
     term_dirs = update_and_compile_all()
 
     SIDS_8 = ["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"]
     SIDS_10 = ["EST_04", "EST_07", "EST_09", "EST_10", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"]
 
-    # Manter APENAS o ultimo perfil de 8 e o atual de 10
     profiles_to_build = [
-        ("Jumba_8_SEM_FILTRO",  SIDS_8,  False, 850.0, 400.0, 550.0),
-        ("Jumba_10_SEM_FILTRO", SIDS_10, False, 950.0, 400.0, 0.0),
+        ("MagicWalls_8",  SIDS_8,  False, 850.0, 400.0, 550.0),
+        ("MagicWalls_10", SIDS_10, False, 950.0, 400.0, 0.0),
     ]
 
     built_names = []
@@ -558,12 +527,12 @@ if __name__ == "__main__":
         build_profile(pname, rids, use_flow, stop_global=sg, stop_win=sw, stop_wdo=sd)
         built_names.append(pname)
 
-    # Limpar perfis antigos Jumba_* tambem do repositorio mt5/Profiles/Charts
+    # Limpar perfis antigos do repositorio mt5/Profiles/Charts
     keep_set = set(built_names)
     for existing in os.listdir(PROFILES_DIR):
         full_p = os.path.join(PROFILES_DIR, existing)
-        if os.path.isdir(full_p) and existing.startswith("Jumba_") and existing not in keep_set:
-            shutil.rmtree(full_p, ignore_errors=True)
+        if os.path.isdir(full_p) and (existing.startswith("Jumba_") or (existing.startswith("MagicWalls_") and existing not in keep_set)):
+            safe_remove_path(full_p)
 
     sync_everything_to_terminals(term_dirs, built_names)
-    print("\n[SUCESSO TOTAL] Monitor v4.20 compilado e apenas Jumba_8_SEM_FILTRO + Jumba_10_SEM_FILTRO mantidos nos MT5!")
+    print("\n[SUCESSO TOTAL] Suite 100% Magic Walls compilada e instalada nos terminais MT5!")

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-JUMBA WALLS - PROFIT SCALPER PRO RTD BRIDGE
+MAGIC WALLS WALLS - PROFIT SCALPER PRO RTD BRIDGE
 Ponte de Sincronização em Tempo Real entre o Profit e o Regime Dashboard
 
 Como rodar:

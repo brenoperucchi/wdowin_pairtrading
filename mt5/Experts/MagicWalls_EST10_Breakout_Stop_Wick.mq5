@@ -1,0 +1,44 @@
+﻿//+------------------------------------------------------------------+
+//| MagicWalls_EST10_Breakout_Stop_Wick.mq5
+//| EST-10 [Matriz WDO MainWalls pos50+GammaFlip + BE_177k(240/45)] (Ret/DD 5.20)
+//+------------------------------------------------------------------+
+#property copyright "Magic Walls"
+#property description "EST-10 [Validado 5/5 · MaxTr=1/dia] MainWalls Breakout Stop & Limit (MT5 Ret/DD 2.39x · OOS PF 2.34)"
+#property version   "2.10"
+#property strict
+
+#include <MagicWalls_GEX_NWE_Core.mqh>
+
+input ENUM_EXECUTION_MODE InpExecMode      = EXEC_HEDGING_DIRECT_MAGIC; // Modo de Execução
+input double              InpLotMultiplier = 1.0;    // Multiplicador de Lotes
+input double              InpMaxDailyLoss  = 1000.0; // Perda Máxima Diária Individual (R$)
+input ulong               InpMagicNumber   = 88010; // Magic Number Base
+input bool                InpDrawLevels    = true;   // Desenhar MagicWalls no Gráfico
+input string              InpWdoSymbol     = "WDO$N"; // Símbolo do Dólar (se usado)
+input bool                InpUseFlowFilter = false;   // Filtro de Fluxo Institucional Nativo (CopyTicks)
+input string              InpMaxEntryTime  = "16:00"; // Horario Limite Novas Entradas (HH:MM, vazio=off)
+
+CMagicWallsGexNweEngine g_engine;
+
+int OnInit()
+  {
+   g_engine.Init(InpMagicNumber - 10, InpExecMode, InpLotMultiplier, InpMaxDailyLoss, InpDrawLevels, InpWdoSymbol);
+   g_engine.ConfigurePreset(
+      PRESET_SINGLE_ROBOT, 10,
+      false,false,false,false,false,false,false,false,
+      false,false,false,false,false,false,false,false
+   );
+   g_engine.SetUseFlowFilter(InpUseFlowFilter);
+   g_engine.SetMaxEntryTime(InpMaxEntryTime);
+   return(INIT_SUCCEEDED);
+  }
+
+void OnDeinit(const int reason)
+  {
+   g_engine.Deinit();
+  }
+
+void OnTick()
+  {
+   g_engine.OnTickProcess();
+  }

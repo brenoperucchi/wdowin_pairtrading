@@ -106,8 +106,8 @@ def list_available_gex_dates(limit: int = 260) -> list:
     today_iso = datetime.now().strftime("%Y-%m-%d")
     dates_set = {today_iso}
     hist_candidates = [
-        os.path.join(PROJECT_ROOT, "mt5", "Files", "jumba_gex_win_history.csv"),
-        os.path.join(COMMON_FILES_DIR, "jumba_gex_win_history.csv"),
+        os.path.join(PROJECT_ROOT, "mt5", "Files", "magicwalls_gex_win_history.csv"),
+        os.path.join(COMMON_FILES_DIR, "magicwalls_gex_win_history.csv"),
     ]
     for path in hist_candidates:
         if os.path.exists(path):
@@ -124,7 +124,7 @@ def list_available_gex_dates(limit: int = 260) -> list:
     return sorted(dates_set, reverse=True)[:limit]
 
 
-PINE_SCRIPT_PATH = os.path.join(PROJECT_ROOT, "gex", "docs", "jumba_tradingview.pine")
+PINE_SCRIPT_PATH = os.path.join(PROJECT_ROOT, "gex", "docs", "magicwalls_tradingview.pine")
 
 
 def _default_pine_meta(w_type: str, w_width: int, strike_extra: str = "") -> dict:
@@ -142,9 +142,9 @@ def _default_pine_meta(w_type: str, w_width: int, strike_extra: str = "") -> dic
     return {"label": f"MAGICWALL {stars}{suffix}", "color": "#00e676", "style": "solid"}
 
 
-def parse_jumba_tradingview_pine(asset: str) -> list:
+def parse_magicwalls_tradingview_pine(asset: str) -> list:
     """
-    Lê diretamente as Walls já calculadas no arquivo `gex/docs/jumba_tradingview.pine`
+    Lê diretamente as Walls já calculadas no arquivo `gex/docs/magicwalls_tradingview.pine`
     (`populate_win_0` para WIN e `populate_dol_0` para WDO/DOL), preservando preço,
     label oficial (ex: MAGICWALL ** (IBOV 178000)), cor hex, espessura e estilo (solid/dashed).
     """
@@ -201,7 +201,7 @@ def parse_jumba_tradingview_pine(asset: str) -> list:
                 "label": w_label,
                 "color": w_color,
                 "style": w_style,
-                "source": "jumba_tradingview.pine",
+                "source": "magicwalls_tradingview.pine",
             })
 
     return sorted(walls, key=lambda x: x["price"])
@@ -211,20 +211,20 @@ def load_daily_magic_walls(asset: str, target_date: str = None):
     """
     Carrega as MagicWalls para 'WIN' ou 'WDO':
     - Para o pregão atual (`target_date is None` ou `target_date == hoje`), lê diretamente
-      de `gex/docs/jumba_tradingview.pine` (já calculado com labels, cores, espessuras e estilos).
-    - Para datas históricas passadas, busca em `jumba_gex_*_history.csv` e aplica metadados compatíveis.
+      de `gex/docs/magicwalls_tradingview.pine` (já calculado com labels, cores, espessuras e estilos).
+    - Para datas históricas passadas, busca em `magicwalls_gex_*_history.csv` e aplica metadados compatíveis.
     """
     is_win = asset.upper() == "WIN"
     today_iso = datetime.now().strftime("%Y-%m-%d")
 
-    # 1. Para o pregão atual (ou sem data fixa), prioriza `gex/docs/jumba_tradingview.pine`
+    # 1. Para o pregão atual (ou sem data fixa), prioriza `gex/docs/magicwalls_tradingview.pine`
     if not target_date or target_date == today_iso:
-        pine_walls = parse_jumba_tradingview_pine(asset)
+        pine_walls = parse_magicwalls_tradingview_pine(asset)
         if pine_walls:
             return pine_walls
 
-    daily_fname = "jumba_gex_win_daily.csv" if is_win else "jumba_gex_wdo_daily.csv"
-    hist_fname = "jumba_gex_win_history.csv" if is_win else "jumba_gex_wdo_history.csv"
+    daily_fname = "magicwalls_gex_win_daily.csv" if is_win else "magicwalls_gex_wdo_daily.csv"
+    hist_fname = "magicwalls_gex_win_history.csv" if is_win else "magicwalls_gex_wdo_history.csv"
 
     walls = []
 
@@ -276,7 +276,7 @@ def load_daily_magic_walls(asset: str, target_date: str = None):
                     pass
 
     # 3. Fallback: tenta o Pine Script ou o CSV diário
-    pine_fallback = parse_jumba_tradingview_pine(asset)
+    pine_fallback = parse_magicwalls_tradingview_pine(asset)
     if pine_fallback:
         return pine_fallback
 
@@ -403,7 +403,7 @@ class SymbolMicrostructureState:
                 "label": w.get("label", w["type"]),
                 "color": w.get("color", "#00e676"),
                 "style": w.get("style", "solid"),
-                "source": w.get("source", "jumba_tradingview.pine"),
+                "source": w.get("source", "magicwalls_tradingview.pine"),
                 "buy_vol": 0.0,
                 "sell_vol": 0.0,
                 "inst_buy_vol": 0.0,
@@ -858,7 +858,7 @@ class SymbolMicrostructureState:
                 "label": w.get("label", w["type"]),
                 "color": w.get("color", "#00e676"),
                 "style": w.get("style", "solid"),
-                "source": w.get("source", "jumba_tradingview.pine"),
+                "source": w.get("source", "magicwalls_tradingview.pine"),
                 "dist_pts": dist_pts,
                 "in_zone": in_zone,
                 "session_buy_vol": round(ws.get("buy_vol", 0.0), 0),
@@ -1060,7 +1060,7 @@ class SymbolMicrostructureState:
                 "label": w.get("label", w["type"]),
                 "color": w.get("color", "#00e676"),
                 "style": w.get("style", "solid"),
-                "source": w.get("source", "jumba_tradingview.pine"),
+                "source": w.get("source", "magicwalls_tradingview.pine"),
                 "buy_vol": round(tb, 0),
                 "sell_vol": round(ts, 0),
                 "total_vol": round(tot_w, 0),

@@ -84,7 +84,7 @@ def run_us_gex_pipeline():
     print(f"      Sincronização MT5: {ratio_msg}")
 
     # 3. Agrupar strikes na grade de 25 pontos do SPX (ou 10 pontos perto do ATM)
-    print(f"\n[3/5] Calculando GEX Institucional (_SPX + SPY) e gerando Jumba Walls...")
+    print(f"\n[3/5] Calculando GEX Institucional (_SPX + SPY) e gerando Magic Walls Walls...")
     df_options["strike_round"] = (df_options["strike"] / 10.0).round() * 10.0
 
     # Cálculo vetorizado de GEX por contrato no spot atual do SPX
@@ -210,7 +210,7 @@ def run_us_gex_pipeline():
 
     report_lines = [
         "=" * 65,
-        "  RELATORIO DIARIO DE TENDENCIA E JUMBA WALLS - S&P 500 / US500 (CBOE)",
+        "  RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - S&P 500 / US500 (CBOE)",
         f"  Vencimento de Referencia: {expiry_str} | Data Ref: {today.strftime('%d/%m/%Y')}",
         "=" * 65,
         "",
@@ -226,7 +226,7 @@ def run_us_gex_pipeline():
         f"    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US500 {flip_es:.2f}",
         f"    [+] MAX GAMMA (Teto Gravitacional)    : US500 {max_gamma_es:.2f}",
         "",
-        "[+] JUMBA WALLS DETECTADAS (Strikes Proximos):",
+        "[+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):",
         "-" * 65,
         f"  {'TIPO':10s} | {'STRIKE SPY':12s} | {'EQUIVALENTE ES':16s} | {'GEX NET ($ Milhoes)':22s} | {'LARGURA'}",
         "-" * 65,
@@ -241,7 +241,7 @@ def run_us_gex_pipeline():
 
     report_lines.extend([
         "-" * 65,
-        "Nota: As Jumba Walls acima mapeiam o Open Interest consolidado da CBOE (_SPX + SPY).",
+        "Nota: As Magic Walls Walls acima mapeiam o Open Interest consolidado da CBOE (_SPX + SPY).",
         "Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.",
         "=" * 65,
     ])
@@ -251,7 +251,7 @@ def run_us_gex_pipeline():
 
     print(f"      Relatório escrito em: {report_path}")
 
-    tv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")
+    tv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "magicwalls_tradingview.pine")
     try:
         save_walls_to_cache(walls, ticker="sp500_es", ref_date=today, current_price=current_us500)
         export_unified_tradingview(output_path=tv_path)

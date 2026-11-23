@@ -222,6 +222,9 @@ class BaseDatabase:
     def clear_active_session(self, user_id: int, reason: str = "REVOKED") -> None:
         raise NotImplementedError
 
+    def get_active_session(self, user_id: int) -> Optional[dict[str, Any]]:
+        raise NotImplementedError
+
     def log_audit(
         self,
         user_id: Optional[int],
@@ -682,6 +685,19 @@ class SQLiteDatabase(BaseDatabase):
                 (reason[:64], now, int(user_id)),
             )
             self._conn.commit()
+
+    def get_active_session(self, user_id: int) -> Optional[dict[str, Any]]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT session_id, ip, device_fp, created_at
+                FROM active_sessions
+                WHERE user_id = ? AND is_active = 1
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(user_id),),
+            ).fetchone()
+            return dict(row) if row else None
 
     def log_audit(
         self,
@@ -1206,6 +1222,19 @@ class SupabaseRestDatabase(BaseDatabase):
             {"user_id": f"eq.{int(user_id)}", "is_active": "eq.true"},
             {"is_active": False, "revoked_reason": reason[:64], "revoked_at": now},
         )
+
+    def get_active_session(self, user_id: int) -> Optional[dict[str, Any]]:
+        rows = self._get(
+            "active_sessions",
+            {
+                "select": "session_id,ip,device_fp,created_at",
+                "user_id": f"eq.{int(user_id)}",
+                "is_active": "eq.true",
+                "order": "id.desc",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
 
     def log_audit(
         self,

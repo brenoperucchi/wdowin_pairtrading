@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import gzip
+import hashlib
 import json
 import os
 import socket
@@ -216,6 +217,8 @@ class CloudPublisher:
         self._last_fetch_ts: dict[str, float] = {}
         self._cached_raw: dict[str, bytes] = {}
         self._day_cache_pushed_ts: dict[str, float] = {}
+        self._last_sent_hashes: dict[str, str] = {}
+        self._last_backfill_mono: float = 0.0
         self._last_standby_hb_ts = 0.0
 
     def close(self) -> None:
@@ -254,13 +257,13 @@ class CloudPublisher:
 
     def build_snapshots(self, force_all: bool = False, include_days: bool = True) -> dict[str, dict[str, Any]]:
         etapa1_lite_raw = self._fetch_throttled("etapa1_lite", "/api/compass/etapa1?lite=1", 2.0, timeout=15.0, force=force_all)
-        etapa1_full_raw = self._fetch_throttled("etapa1_full", "/api/compass/etapa1", 15.0, timeout=25.0, force=force_all)
+        etapa1_full_raw = self._fetch_throttled("etapa1_full", "/api/compass/etapa1", 60.0, timeout=25.0, force=force_all)
         m1_raw = self._fetch_throttled("m1_series", "/api/compass/m1_series", 20.0, timeout=12.0, force=force_all)
         regime_raw = self._fetch_throttled("regime", "/api/v2/regime", 5.0, timeout=8.0, force=force_all)
         perf_raw = self._fetch_throttled("performance", "/api/performance", 5.0, timeout=8.0, force=force_all)
         di_raw = self._fetch_throttled("di_regime", "/api/di-regime", 5.0, timeout=8.0, force=force_all)
         gex_raw = self._fetch_throttled("gex_walls", "/api/gex-walls", 15.0, timeout=8.0, force=force_all)
-        hist_raw = self._fetch_throttled("history", "/api/history?days=30", 60.0, timeout=20.0, force=force_all)
+        hist_raw = self._fetch_throttled("history", "/api/history?days=30", 300.0, timeout=20.0, force=force_all)
         morning_brief_raw = self._fetch_throttled(
             "morning_brief",
             "/api/morning-brief",
@@ -430,6 +433,7 @@ class CloudPublisher:
             else:
                 failed_batches.append({"days": [d for d, _, _ in chunk], "error": res})
 
+        self._last_backfill_mono = time.monotonic()
         return {
             "ok": len(failed_batches) == 0,
             "requested_days": target_days,
@@ -451,7 +455,53 @@ class CloudPublisher:
             return self._post_snapshots_payload(heartbeat_only=True)
 
         snapshots = self.build_snapshots(force_all=force_all, include_days=not force_all)
-        return self._post_snapshots_payload(snapshots, heartbeat_only=False)
+        if not force_all:
+            changed_snapshots: dict[str, dict[str, Any]] = {}
+            pending_hashes: dict[str, str] = {}
+            for tier in ("core", "pro", "admin"):
+                tier_map = snapshots.get(tier) or {}
+                changed_tier: dict[str, Any] = {}
+                for ep_name, ep_val in tier_map.items():
+                    if ep_val is None:
+                        continue
+                    h_key = f"{tier}:{ep_name}"
+                    digest = hashlib.sha256(
+                        json.dumps(ep_val, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                    ).hexdigest()
+                    if self._last_sent_hashes.get(h_key) != digest:
+                        changed_tier[ep_name] = ep_val
+                        pending_hashes[h_key] = digest
+                if changed_tier:
+                    changed_snapshots[tier] = changed_tier
+            if not changed_snapshots:
+                ok, res = self._post_snapshots_payload(heartbeat_only=True)
+            else:
+                ok, res = self._post_snapshots_payload(changed_snapshots, heartbeat_only=False)
+                if ok:
+                    self._last_sent_hashes.update(pending_hashes)
+        else:
+            ok, res = self._post_snapshots_payload(snapshots, heartbeat_only=False)
+            if ok:
+                for tier in ("core", "pro", "admin"):
+                    for ep_name, ep_val in (snapshots.get(tier) or {}).items():
+                        if ep_val is not None:
+                            self._last_sent_hashes[f"{tier}:{ep_name}"] = hashlib.sha256(
+                                json.dumps(ep_val, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                            ).hexdigest()
+
+        if (
+            ok
+            and isinstance(res, dict)
+            and res.get("needs_backfill")
+            and not force_all
+            and (time.monotonic() - self._last_backfill_mono) >= 120.0
+        ):
+            self._last_backfill_mono = time.monotonic()
+            self._last_sent_hashes.clear()
+            bf_res = self.push_backfill_days(max_days=self.max_backfill_days, batch_size=3)
+            print(f"[AUTO-BACKFILL] {bf_res}", flush=True)
+
+        return ok, res
 
 
 def _load_default_env(env_file: Optional[str] = None) -> None:

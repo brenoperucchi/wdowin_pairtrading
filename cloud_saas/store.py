@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import json
 import threading
 import time
@@ -101,12 +102,21 @@ class UpstashRestStore(BaseCacheStore):
         val = self._cmd(["GET", key])
         if val is None:
             return None
+        if isinstance(val, str) and val.startswith("gz64:"):
+            return gzip.decompress(base64.b64decode(val[5:].encode("ascii")))
         if isinstance(val, str) and val.startswith("b64:"):
             return base64.b64decode(val[4:].encode("ascii"))
         return str(val).encode("utf-8")
 
     def set_bytes(self, key: str, data: bytes, ttl_sec: Optional[int] = None) -> None:
-        encoded = "b64:" + base64.b64encode(data).decode("ascii")
+        if len(data) >= 1024:
+            gz = gzip.compress(data, compresslevel=6)
+            if len(gz) < len(data):
+                encoded = "gz64:" + base64.b64encode(gz).decode("ascii")
+            else:
+                encoded = "b64:" + base64.b64encode(data).decode("ascii")
+        else:
+            encoded = "b64:" + base64.b64encode(data).decode("ascii")
         if ttl_sec and ttl_sec > 0:
             self._cmd(["SET", key, encoded, "EX", int(ttl_sec)])
         else:
@@ -116,10 +126,61 @@ class UpstashRestStore(BaseCacheStore):
         self._cmd(["DEL", key])
 
 
+class CachedResilientStore(BaseCacheStore):
+    """Cache L1 em memória RAM com backup opcional L2 (Upstash) e circuito de backoff sem derrubar a API."""
+
+    backend_name = "memory_l1+upstash"
+
+    def __init__(self, l1: MemoryTTLStore, l2: BaseCacheStore, backoff_sec: float = 60.0) -> None:
+        self.l1 = l1
+        self.l2 = l2
+        self.backoff_sec = float(backoff_sec)
+        self._l2_backoff_until: float = 0.0
+
+    def get_bytes(self, key: str) -> Optional[bytes]:
+        cached = self.l1.get_bytes(key)
+        if cached is not None:
+            return cached
+        if time.monotonic() < self._l2_backoff_until:
+            return None
+        try:
+            data = self.l2.get_bytes(key)
+        except Exception:
+            self._l2_backoff_until = time.monotonic() + self.backoff_sec
+            return None
+        if data is not None:
+            self.l1.set_bytes(key, data, ttl_sec=600)
+        return data
+
+    def set_bytes(self, key: str, data: bytes, ttl_sec: Optional[int] = None) -> None:
+        self.l1.set_bytes(key, data, ttl_sec=ttl_sec)
+        if time.monotonic() < self._l2_backoff_until:
+            return
+        try:
+            self.l2.set_bytes(key, data, ttl_sec=ttl_sec)
+        except Exception:
+            self._l2_backoff_until = time.monotonic() + self.backoff_sec
+
+    def delete(self, key: str) -> None:
+        self.l1.delete(key)
+        if time.monotonic() < self._l2_backoff_until:
+            return
+        try:
+            self.l2.delete(key)
+        except Exception:
+            self._l2_backoff_until = time.monotonic() + self.backoff_sec
+
+
 def create_store(settings) -> BaseCacheStore:
+    backend_pref = (getattr(settings, "store_backend", "auto") or "auto").strip().lower()
+    if backend_pref == "memory":
+        return MemoryTTLStore()
     if settings.upstash_redis_rest_url and settings.upstash_redis_rest_token:
-        return UpstashRestStore(
-            base_url=settings.upstash_redis_rest_url,
-            token=settings.upstash_redis_rest_token,
+        return CachedResilientStore(
+            MemoryTTLStore(),
+            UpstashRestStore(
+                base_url=settings.upstash_redis_rest_url,
+                token=settings.upstash_redis_rest_token,
+            ),
         )
     return MemoryTTLStore()

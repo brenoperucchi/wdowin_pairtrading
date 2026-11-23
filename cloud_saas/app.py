@@ -15,14 +15,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import gzip
+import hashlib
 import hmac
 import json
 import secrets
 import time
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, Query, Request
+from fastapi import Depends, FastAPI, Header, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -150,7 +152,71 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["ETag"],
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+    hb_db_last: dict[str, tuple[float, str]] = {}
+
+    def _get_cached_user(user_id: int) -> Optional[dict[str, Any]]:
+        uid = int(user_id)
+        cache_key = f"user:{uid}"
+        cached = store.get_json(cache_key)
+        if isinstance(cached, dict) and cached.get("id") == uid:
+            return cached
+        u = db.get_user_by_id(uid)
+        if u is not None:
+            store.set_json(cache_key, u, ttl_sec=30)
+        return u
+
+    def _invalidate_user_cache(user_id: Optional[int]) -> None:
+        if user_id is not None:
+            store.delete(f"user:{int(user_id)}")
+
+    def _record_heartbeat(producer_id: str, role: str, payload_bytes: int, status: str) -> None:
+        now = time.time()
+        last = hb_db_last.get(producer_id)
+        if (
+            db.backend_name == "sqlite"
+            or last is None
+            or last[1] != status
+            or (now - last[0]) >= 60.0
+        ):
+            db.update_producer_heartbeat(producer_id, role, payload_bytes, status)
+            hb_db_last[producer_id] = (now, status)
+
+    def _store_snapshot_with_etag(tier: str, ep_name: str, ep_val: Any, ttl: int) -> None:
+        raw = json.dumps(ep_val, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        store.set_bytes(f"snap:{tier}:{ep_name}", raw, ttl_sec=ttl)
+        etag = hashlib.blake2b(raw, digest_size=12).hexdigest()
+        store.set_bytes(f"etag:{tier}:{ep_name}", etag.encode("ascii"), ttl_sec=ttl)
+        if ep_name.startswith("etapa1_day_"):
+            store.set_bytes("snap:has_backfill", b"1", ttl_sec=ttl)
+
+    def _etag_response(request: Request, cache_key: str, etag_key: str) -> Optional[Response]:
+        raw = store.get_bytes(cache_key)
+        if raw is None:
+            return None
+        etag_b = store.get_bytes(etag_key)
+        etag_val = etag_b.decode("ascii") if etag_b else hashlib.blake2b(raw, digest_size=12).hexdigest()
+        etag_hdr = f'"{etag_val}"'
+        if_none_match = (request.headers.get("if-none-match") or "").strip()
+        if if_none_match:
+            for raw_tok in if_none_match.split(","):
+                tok = raw_tok.strip()
+                if tok.startswith("W/"):
+                    tok = tok[2:].strip()
+                tok = tok.strip('"')
+                if tok == etag_val:
+                    return Response(
+                        status_code=304,
+                        headers={"ETag": etag_hdr, "Cache-Control": "private, no-cache"},
+                    )
+        return Response(
+            content=raw,
+            media_type="application/json",
+            headers={"ETag": etag_hdr, "Cache-Control": "private, no-cache"},
+        )
 
     @app.exception_handler(ApiRuleError)
     async def api_rule_error_handler(_request: Request, exc: ApiRuleError):
@@ -180,12 +246,21 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             except ValueError:
                 raise ApiRuleError(401, "UNAUTHENTICATED", "Token malformado.")
 
-            user = db.get_user_by_id(user_id)
+            user = _get_cached_user(user_id)
             if not user:
                 raise ApiRuleError(401, "UNAUTHENTICATED", "Usuário não encontrado.")
 
-            # Anti-Rateio Camada 1: Sessão Única no Redis/Store
+            # Anti-Rateio Camada 1: Sessão Única no Cache/RAM (com re-hidratação automática do DB)
             active_sess = store.get_json(f"sess:{user_id}")
+            if active_sess is None:
+                db_sess = db.get_active_session(user_id)
+                if db_sess and db_sess.get("session_id"):
+                    active_sess = {
+                        "sid": db_sess["session_id"],
+                        "ip": db_sess.get("ip", ""),
+                        "device_fp": db_sess.get("device_fp", ""),
+                    }
+                    store.set_json(f"sess:{user_id}", active_sess, ttl_sec=cfg.jwt_ttl_sec)
             if not active_sess or active_sess.get("sid") != payload["sid"]:
                 raise ApiRuleError(401, "SESSION_REPLACED", "Acesso iniciado em outro dispositivo.")
 
@@ -232,7 +307,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/api/v1/feed/status")
     def feed_status():
         meta = store.get_json("snap:meta") or {}
-        hb = db.get_latest_active_heartbeat()
+        hb = db.get_latest_active_heartbeat() if not meta.get("producer_id") else None
         now = time.time()
         pushed_at = meta.get("pushed_at")
         age_sec = round(now - pushed_at, 2) if isinstance(pushed_at, (int, float)) else None
@@ -296,7 +371,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         if role == "standby":
             primary_hb = db.get_primary_heartbeat()
             if primary_hb and (time.time() - float(primary_hb["last_seen_ts"])) < cfg.primary_failover_sec:
-                db.update_producer_heartbeat(producer_id, "standby", len(raw_body), "standby_idle")
+                _record_heartbeat(producer_id, "standby", len(raw_body), "standby_idle")
                 return {
                     "ok": True,
                     "accepted": False,
@@ -304,10 +379,21 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                     "active_role": "primary",
                 }
 
-        db.update_producer_heartbeat(producer_id, role, len(raw_body), "active")
+        _record_heartbeat(producer_id, role, len(raw_body), "active")
 
         if payload.get("heartbeat_only"):
-            return {"ok": True, "accepted": False, "mode": "heartbeat_only", "active_role": role}
+            existing_meta = store.get_json("snap:meta") or {}
+            existing_meta["producer_id"] = producer_id
+            existing_meta["producer_role"] = role
+            existing_meta["pushed_at"] = time.time()
+            store.set_json("snap:meta", existing_meta, ttl_sec=cfg.snapshot_ttl_sec)
+            return {
+                "ok": True,
+                "accepted": False,
+                "mode": "heartbeat_only",
+                "active_role": role,
+                "needs_backfill": store.get_bytes("snap:has_backfill") is None,
+            }
 
         snapshots = payload.get("snapshots") or {}
         ttl = cfg.snapshot_ttl_sec
@@ -319,7 +405,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             for ep_name, ep_val in tier_map.items():
                 if ep_val is None:
                     continue
-                store.set_json(f"snap:{tier}:{ep_name}", ep_val, ttl_sec=ttl)
+                _store_snapshot_with_etag(tier, ep_name, ep_val, ttl)
                 stored_keys.append(f"{tier}:{ep_name}")
 
         store.set_json(
@@ -338,6 +424,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "mode": "active",
             "active_role": role,
             "stored_count": len(stored_keys),
+            "needs_backfill": store.get_bytes("snap:has_backfill") is None,
         }
 
     # ── Auth & Anti-Rateio (Sessão Única + Detector de Abuso + Termos) ────────
@@ -365,6 +452,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         )
         if abuse["blocked"]:
             store.delete(f"sess:{user['id']}")
+            _invalidate_user_cache(user["id"])
             notify_admin_telegram(
                 cfg.telegram_bot_token,
                 cfg.telegram_chat_id,
@@ -432,6 +520,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         client_ip = _extract_client_ip(request)
         ua = request.headers.get("user-agent", "")
         updated = db.accept_terms(user["id"], version, client_ip, user_agent=ua)
+        _invalidate_user_cache(user["id"])
         db.log_audit(
             user_id=user["id"],
             event_type="TERMS_ACCEPTED",
@@ -468,6 +557,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     @app.get("/api/compass/etapa1")
     def get_etapa1(
+        request: Request,
         lite: str = Query(default="0"),
         date_str: Optional[str] = Query(default=None),
         user: dict = Depends(auth_core),
@@ -483,12 +573,27 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             and clean_date[8:].isdigit()
         )
         if is_valid_date:
-            day_data = store.get_json(f"snap:{tier}:etapa1_day_{clean_date}")
-            if day_data is not None:
-                return day_data
+            day_resp = _etag_response(
+                request,
+                f"snap:{tier}:etapa1_day_{clean_date}",
+                f"etag:{tier}:etapa1_day_{clean_date}",
+            )
+            if day_resp is not None:
+                return day_resp
         want_lite = lite in ("1", "true", "True")
-        primary_key = f"snap:{tier}:etapa1_lite" if want_lite else f"snap:{tier}:etapa1_full"
-        fallback_key = f"snap:{tier}:etapa1_full" if want_lite else f"snap:{tier}:etapa1_lite"
+        primary_ep = "etapa1_lite" if want_lite else "etapa1_full"
+        fallback_ep = "etapa1_full" if want_lite else "etapa1_lite"
+        primary_key = f"snap:{tier}:{primary_ep}"
+        fallback_key = f"snap:{tier}:{fallback_ep}"
+        primary_etag_key = f"etag:{tier}:{primary_ep}"
+        fallback_etag_key = f"etag:{tier}:{fallback_ep}"
+        if not is_valid_date:
+            resp = _etag_response(request, primary_key, primary_etag_key) or _etag_response(
+                request, fallback_key, fallback_etag_key
+            )
+            if resp is None:
+                raise ApiRuleError(503, "FEED_UNAVAILABLE", "Dados ao vivo ainda não publicados pelo produtor.")
+            return resp
         data = store.get_json(primary_key) or store.get_json(fallback_key)
         if data is None:
             raise ApiRuleError(503, "FEED_UNAVAILABLE", "Dados ao vivo ainda não publicados pelo produtor.")
@@ -527,10 +632,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                     "WIN": empty_assets["WIN"],
                     "WDO": empty_assets["WDO"],
                 }
-        return data
+        return (
+            _etag_response(request, primary_key, primary_etag_key)
+            or _etag_response(request, fallback_key, fallback_etag_key)
+            or data
+        )
 
     @app.get("/api/compass/m1_series")
     def get_m1_series(
+        request: Request,
         date_str: Optional[str] = Query(default=None),
         user: dict = Depends(auth_core),
     ):
@@ -544,13 +654,23 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             and clean_date[5:7].isdigit()
             and clean_date[8:].isdigit()
         ):
-            day_m1 = store.get_json(f"snap:{tier}:m1_series_day_{clean_date}") or store.get_json(f"snap:core:m1_series_day_{clean_date}")
-            if day_m1 is not None:
-                return day_m1
-        data = store.get_json(f"snap:{tier}:m1_series") or store.get_json("snap:core:m1_series")
-        if data is None:
+            day_resp = _etag_response(
+                request,
+                f"snap:{tier}:m1_series_day_{clean_date}",
+                f"etag:{tier}:m1_series_day_{clean_date}",
+            ) or _etag_response(
+                request,
+                f"snap:core:m1_series_day_{clean_date}",
+                f"etag:core:m1_series_day_{clean_date}",
+            )
+            if day_resp is not None:
+                return day_resp
+        resp = _etag_response(request, f"snap:{tier}:m1_series", f"etag:{tier}:m1_series") or _etag_response(
+            request, "snap:core:m1_series", "etag:core:m1_series"
+        )
+        if resp is None:
             raise ApiRuleError(503, "FEED_UNAVAILABLE", "Série M1 ainda não disponível.")
-        return data
+        return resp
 
     def _serve_pro_snapshot(snapshot_key: str):
         data = store.get_json(f"snap:pro:{snapshot_key}")
@@ -689,6 +809,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 gateway=gateway,
                 external_sub_id=external_sub_id,
             )
+            _invalidate_user_cache(user["id"])
             db.log_audit(
                 user_id=user["id"],
                 event_type="BILLING_EVENT",
@@ -710,6 +831,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 gateway=gateway,
                 external_sub_id=external_sub_id,
             )
+            _invalidate_user_cache(existing["id"])
             db.log_audit(
                 user_id=existing["id"],
                 event_type="BILLING_EVENT",
@@ -720,6 +842,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         if event in ("canceled", "refunded", "chargeback", "subscription.canceled"):
             db.update_user_status(existing["id"], "suspended")
             store.delete(f"sess:{existing['id']}")
+            _invalidate_user_cache(existing["id"])
             db.clear_active_session(existing["id"], reason=f"BILLING_{event.upper()}")
             db.log_audit(
                 user_id=existing["id"],
@@ -756,6 +879,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             mt5_license_token=req.mt5_license_token,
             terms_version=req.terms_version,
         )
+        _invalidate_user_cache(user["id"])
         return {
             "ok": True,
             "user": _sanitize_user_public(user, cfg.terms_version),
@@ -765,6 +889,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.post("/api/v1/admin/users/{user_id}/kick", dependencies=[Depends(_require_admin)])
     def admin_kick_user(user_id: int):
         store.delete(f"sess:{int(user_id)}")
+        _invalidate_user_cache(int(user_id))
         db.clear_active_session(int(user_id), reason="ADMIN_KICK")
         db.log_audit(user_id=int(user_id), event_type="ADMIN_KICK", details={"kicked_by": "admin_api"})
         return {"ok": True, "kicked_user_id": int(user_id)}
@@ -774,6 +899,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         updated = db.unblock_user(user_id)
         if not updated:
             raise ApiRuleError(404, "USER_NOT_FOUND", "Usuário não encontrado.")
+        _invalidate_user_cache(int(user_id))
         return {"ok": True, "user": _sanitize_user_public(updated, cfg.terms_version)}
 
     return app

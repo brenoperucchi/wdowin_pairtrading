@@ -58,7 +58,7 @@ def run_dxy_gex_pipeline():
     print(f"      Referência: {expiry_str}")
     print(f"      r = {r*100:.2f}% | Multiplicador UUP->DXY: {conv_factor:.6f}")
 
-    print(f"\n[3/5] Calculando GEX Institucional (UUP) e gerando Jumba Walls...")
+    print(f"\n[3/5] Calculando GEX Institucional (UUP) e gerando Magic Walls Walls...")
     df_options["strike_round"] = (df_options["strike"] / 0.50).round() * 0.50
 
     K = df_options["strike"].to_numpy()
@@ -179,7 +179,7 @@ def run_dxy_gex_pipeline():
     report_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "DAILY_REPORT_DXY.txt")
 
     save_walls_to_cache(walls, ticker="dxy_uup", ref_date=today.isoformat(), current_price=current_dxy)
-    tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "jumba_tradingview.pine")
+    tv_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "magicwalls_tradingview.pine")
     export_unified_tradingview(output_path=tv_file)
 
     print("\n" + "=" * 60)

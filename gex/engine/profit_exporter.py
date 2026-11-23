@@ -862,7 +862,7 @@ def export_all(ticker="WIN", walls=None, current_price=None, strategy_name="Magi
     doc_suffix = "" if strategy_name == "MagicWall" else "_dinamico"
     base_file = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "gex", "docs", f"jumba_neologica{doc_suffix}"
+        "gex", "docs", f"magicwalls_neologica{doc_suffix}"
     )
     
     # 2. Gerar e salvar no repositorio

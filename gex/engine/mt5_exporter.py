@@ -28,11 +28,11 @@ def _norm_wall_type(raw_t):
 
 def export_to_mt5_common(walls, ref_date=None, session_date=None, current_win=None):
     """
-    Exporta os níveis GEX MagicWalls do WIN para a pasta universal Common\\Files do MetaTrader 5:
-      1. jumba_gex_win_daily.csv   -> Níveis ativos para o pregão de hoje (Operação ao Vivo / Demo)
-      2. jumba_gex_win_history.csv -> Histórico completo sincronizado com irai_live.db + pregão atual
-                                      (Permite rodar Backtest no Strategy Tester do MT5 e plotar histórico)
-      3. jumba_gex_win_daily.json  -> Espelho JSON local do nó Firebase (/daily_levels/win_gex)
+    Exporta os níveis GEX Magic Walls do WIN para a pasta universal Common\\Files do MetaTrader 5:
+      1. magicwalls_gex_win_daily.csv   -> Níveis ativos para o pregão de hoje (Operação ao Vivo / Demo)
+      2. magicwalls_gex_win_history.csv -> Histórico completo sincronizado com irai_live.db + pregão atual
+                                           (Permite rodar Backtest no Strategy Tester do MT5 e plotar histórico)
+      3. magicwalls_gex_win_daily.json  -> Espelho JSON local do nó Firebase (/daily_levels/win_gex)
     """
     common_dir = get_mt5_common_files_dir()
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -53,7 +53,7 @@ def export_to_mt5_common(walls, ref_date=None, session_date=None, current_win=No
     else:
         session_date_str = str(session_date)[:10]
 
-    # 1. Gravar jumba_gex_win_daily.csv (ANSI/ASCII, separador ';')
+    # 1. Gravar magicwalls_gex_win_daily.csv (ANSI/ASCII, separador ';')
     daily_lines = ["session_date;ref_oi_date;type;price;width;strike_ibov"]
     for w in walls:
         w_type = _norm_wall_type(w.get("type", "Wall"))
@@ -64,7 +64,7 @@ def export_to_mt5_common(walls, ref_date=None, session_date=None, current_win=No
 
     daily_content = "\n".join(daily_lines) + "\n"
     for target_dir in (common_dir, local_mt5_dir):
-        daily_path = os.path.join(target_dir, "jumba_gex_win_daily.csv")
+        daily_path = os.path.join(target_dir, "magicwalls_gex_win_daily.csv")
         with open(daily_path, "w", encoding="ascii", errors="ignore") as f:
             f.write(daily_content)
 
@@ -77,15 +77,17 @@ def export_to_mt5_common(walls, ref_date=None, session_date=None, current_win=No
         "walls": walls,
     }
     for target_dir in (common_dir, local_mt5_dir):
-        json_path = os.path.join(target_dir, "jumba_gex_win_daily.json")
+        json_path = os.path.join(target_dir, "magicwalls_gex_win_daily.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_payload, f, indent=2)
 
-    # 3. Sincronizar jumba_gex_win_history.csv preservando datas anteriores + irai_live.db + walls atuais
+    # 3. Sincronizar magicwalls_gex_win_history.csv preservando datas anteriores + irai_live.db + walls atuais
     db_path = r"C:\Users\ryzen\Downloads\Antigravity\rastro_irado\data\irai_live.db"
     hist_map = {}  # session_date -> list of (type, price, width)
 
-    existing_hist = os.path.join(local_mt5_dir, "jumba_gex_win_history.csv")
+    existing_hist = os.path.join(local_mt5_dir, "magicwalls_gex_win_history.csv")
+    if not os.path.exists(existing_hist):
+        existing_hist = os.path.join(local_mt5_dir, "jumba_gex_win_history.csv")
     if os.path.exists(existing_hist):
         with open(existing_hist, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
@@ -135,20 +137,20 @@ def export_to_mt5_common(walls, ref_date=None, session_date=None, current_win=No
 
     hist_content = "\n".join(hist_lines) + "\n"
     for target_dir in (common_dir, local_mt5_dir):
-        hist_path = os.path.join(target_dir, "jumba_gex_win_history.csv")
+        hist_path = os.path.join(target_dir, "magicwalls_gex_win_history.csv")
         with open(hist_path, "w", encoding="ascii", errors="ignore") as f:
             f.write(hist_content)
 
-    print(f"      [MT5 Exporter] Arquivos atualizados em Common\\Files ({len(walls)} niveis hoje | {len(hist_map)} dias no historico)")
+    print(f"      [MT5 Exporter] Arquivos Magic Walls atualizados em Common\\Files ({len(walls)} niveis hoje | {len(hist_map)} dias no historico)")
     return common_dir
 
 
 def export_wdo_to_mt5_common(walls, ref_date=None, session_date=None, current_wdo=None):
     """
-    Exporta os níveis GEX MagicWalls do WDO/DOL para Common\\Files e mt5\\Files:
-      1. jumba_gex_wdo_daily.csv   -> Níveis ativos para o pregão atual
-      2. jumba_gex_wdo_history.csv -> Histórico completo acumulado + pregão atual
-      3. jumba_gex_wdo_daily.json  -> Espelho JSON local
+    Exporta os níveis GEX Magic Walls do WDO/DOL para Common\\Files e mt5\\Files:
+      1. magicwalls_gex_wdo_daily.csv   -> Níveis ativos para o pregão atual
+      2. magicwalls_gex_wdo_history.csv -> Histórico completo acumulado + pregão atual
+      3. magicwalls_gex_wdo_daily.json  -> Espelho JSON local
     """
     common_dir = get_mt5_common_files_dir()
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -171,12 +173,14 @@ def export_wdo_to_mt5_common(walls, ref_date=None, session_date=None, current_wd
 
     daily_content = "\n".join(daily_lines) + "\n"
     for target_dir in (common_dir, local_mt5_dir):
-        with open(os.path.join(target_dir, "jumba_gex_wdo_daily.csv"), "w", encoding="ascii", errors="ignore") as f:
+        with open(os.path.join(target_dir, "magicwalls_gex_wdo_daily.csv"), "w", encoding="ascii", errors="ignore") as f:
             f.write(daily_content)
 
-    # Atualiza jumba_gex_wdo_history.csv preservando datas anteriores
+    # Atualiza magicwalls_gex_wdo_history.csv preservando datas anteriores
     hist_map = {}
-    existing_hist = os.path.join(local_mt5_dir, "jumba_gex_wdo_history.csv")
+    existing_hist = os.path.join(local_mt5_dir, "magicwalls_gex_wdo_history.csv")
+    if not os.path.exists(existing_hist):
+        existing_hist = os.path.join(local_mt5_dir, "jumba_gex_wdo_history.csv")
     if os.path.exists(existing_hist):
         with open(existing_hist, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
@@ -200,17 +204,17 @@ def export_wdo_to_mt5_common(walls, ref_date=None, session_date=None, current_wd
 
     hist_content = "\n".join(hist_lines) + "\n"
     for target_dir in (common_dir, local_mt5_dir):
-        with open(os.path.join(target_dir, "jumba_gex_wdo_history.csv"), "w", encoding="ascii", errors="ignore") as f:
+        with open(os.path.join(target_dir, "magicwalls_gex_wdo_history.csv"), "w", encoding="ascii", errors="ignore") as f:
             f.write(hist_content)
 
     try:
         import json
         gex_data_dir = os.path.join(project_root, "gex", "data")
         os.makedirs(gex_data_dir, exist_ok=True)
-        with open(os.path.join(gex_data_dir, "jumba_gex_wdo_daily.json"), "w", encoding="utf-8") as jf:
+        with open(os.path.join(gex_data_dir, "magicwalls_gex_wdo_daily.json"), "w", encoding="utf-8") as jf:
             json.dump({"session_date": session_date_str, "current_wdo": current_wdo, "walls": walls}, jf, indent=2)
     except Exception:
         pass
-    print(f"      [MT5 WDO Exporter] Arquivos WDO atualizados em Common\\Files ({len(walls)} niveis hoje | {len(hist_map)} dias no historico)")
+    print(f"      [MT5 WDO Exporter] Arquivos Magic Walls WDO atualizados em Common\\Files ({len(walls)} niveis hoje | {len(hist_map)} dias no historico)")
     return common_dir
 

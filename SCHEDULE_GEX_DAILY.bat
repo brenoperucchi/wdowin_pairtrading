@@ -15,7 +15,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-set TASK_NAME=GEX Daily Update (Jumba Walls)
+set TASK_NAME=GEX Daily Update (Magic Walls Walls)
 set XML_PATH=%~dp0gex_daily_task.xml
 
 echo ==================================================

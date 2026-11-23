@@ -1,11 +1,11 @@
 @echo off
 REM ============================================================================
-REM  INSTALADOR PLUG-AND-PLAY JUMBA QUANT GEX + NWE PARA METATRADER 5
+REM  INSTALADOR PLUG-AND-PLAY MAGIC WALLS QUANT GEX + NWE PARA METATRADER 5
 REM  Instala:
 REM    - 17 Robos .ex5 (1 EA Mestre de Portfolio + 16 EAs Individuais)
-REM    - 2 Indicadores Visuais .ex5 (Jumba_NWE_Envelope + Jumba_GEX_MagicWalls_Ind)
+REM    - 2 Indicadores Visuais .ex5 (MagicWalls_NWE_Envelope + MagicWalls_GEX_Ind)
 REM    - 4 Templates (.tpl) e 6 Perfis (Profiles) prontos em WIN$N M5
-REM    - Atualiza Common\Files\jumba_gex_win_daily.csv e jumba_gex_win_history.csv
+REM    - Atualiza Common\Files\magicwalls_gex_win_daily.csv e magicwalls_gex_win_history.csv
 REM ============================================================================
 
 cd /d "%~dp0"
@@ -17,6 +17,6 @@ echo [2/3] Compilando e Instalando Robos (.ex5), Indicadores (.ex5), Templates e
 .\.venv\Scripts\python.exe "mt5\build_indicators_and_profiles.py"
 
 echo [3/3] Instalacao Plug-and-Play concluida com sucesso!
-echo Para abrir o MetaTrader 5 direto no perfil Jumba_PORT_01_Master:
-echo "C:\Program Files\MetaTrader 5\terminal64.exe" /profile:Jumba_PORT_01_Master
+echo Para abrir o MetaTrader 5 direto no perfil Magic Walls_PORT_01_Master:
+echo "C:\Program Files\MetaTrader 5\terminal64.exe" /profile:Magic Walls_PORT_01_Master
 pause

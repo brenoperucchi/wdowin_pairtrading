@@ -144,7 +144,7 @@ def prompt_user_anomaly(expected_date, trading_date, mt5_date, default_win, defa
 
 def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     """
-    Pipeline completo: B3 CSV -> Black-76 GEX -> Jumba Walls -> Firebase.
+    Pipeline completo: B3 CSV -> Black-76 GEX -> Magic Walls Walls -> Firebase.
     
     Parametros:
         current_win:  Preco atual do contrato futuro WIN (ex: WINM26 = 188902)
@@ -154,7 +154,7 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     expected_date = get_expected_trading_day()
     
     print("=" * 50)
-    print("  GEX ENGINE - Jumba Walls Replicator")
+    print("  GEX ENGINE - Magic Walls Walls Replicator")
     print("=" * 50)
     print(f"  F_WIN  = {current_win}")
     print(f"  S_IBOV = {current_ibov}")
@@ -372,14 +372,14 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
         # Fallback: pelo menos salvar o arquivo base
         try:
             from .profit_exporter import export_to_profit
-            export_to_profit(walls, output_path="gex/docs/jumba_neologica", current_win=current_win)
+            export_to_profit(walls, output_path="gex/docs/magicwalls_neologica", current_win=current_win)
         except Exception:
             pass
         
     # 7. Export to TradingView
     print("\n[7/7] Gerando arquivo unificado para TradingView Pine Script...")
     from .tradingview_exporter import save_walls_to_cache, export_unified_tradingview
-    tv_file = "gex/docs/jumba_tradingview.pine"
+    tv_file = "gex/docs/magicwalls_tradingview.pine"
     try:
         save_walls_to_cache(walls, ticker="WIN", ref_date=trading_date, current_price=current_win)
         export_unified_tradingview(output_path=tv_file)

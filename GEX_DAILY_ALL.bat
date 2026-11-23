@@ -1,6 +1,6 @@
 @echo off
 echo ==================================================
-echo   JUMBA GEX WALLS - ATUALIZACAO DIARIA (14 ATIVOS)
+echo   MAGIC WALLS GEX WALLS - ATUALIZACAO DIARIA (14 ATIVOS)
 echo ==================================================
 echo.
 echo Iniciando a atualizacao automatica de todos os mercados...
@@ -123,7 +123,7 @@ echo [SYNC] Sincronizando GEX e Pine Script com IRAI + Firebase (rastromacro.web
 echo.
 
 echo Salvando relatorios e indicador consolidado no Git...
-git add -f "gex/data/*.csv" "gex/docs/jumba_neologica" "gex/docs/MagicWallManual.nts" "gex/docs/jumba_tradingview.pine" "gex/docs/DAILY_REPORT*.txt" "gex/docs/DAILY_ECONOMIC_CALENDAR.txt"
+git add -f "gex/data/*.csv" "gex/docs/magicwalls_neologica" "gex/docs/MagicWallManual.nts" "gex/docs/magicwalls_tradingview.pine" "gex/docs/DAILY_REPORT*.txt" "gex/docs/DAILY_ECONOMIC_CALENDAR.txt"
 git commit -m "chore(gex): atualizacao consolidada de GEX para 15 ativos e relatorios diarios"
 
 echo.

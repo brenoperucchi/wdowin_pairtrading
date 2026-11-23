@@ -412,7 +412,9 @@ function FluxoRealAsgChart({
         loadM1(!cachedHasBars);
         let pollTimer = null;
         if (chartTf === "M1") {
-            pollTimer = setInterval(() => loadM1(true), 5000);
+            pollTimer = setInterval(() => {
+                if (typeof document === "undefined" || !document.hidden) loadM1(true);
+            }, 5000);
         }
         return () => {
             cancelled = true;
@@ -1462,7 +1464,7 @@ function FluxoRealAsgChart({
     const inspectedPt = hoverIdx !== null && series[hoverIdx] ? series[hoverIdx] : lastPt;
     const inspectedSub = subPanelBars[hoverIdx !== null && subPanelBars[hoverIdx] ? hoverIdx : n - 1] || subPanelBars[0];
 
-    // ── Paredes GEX vindas do `gex/docs/jumba_tradingview.pine` dentro da janela [minP, maxP] ──
+    // ── Paredes GEX vindas do `gex/docs/magicwalls_tradingview.pine` dentro da janela [minP, maxP] ──
     const rawWallsList = (Array.isArray(allWalls) && allWalls.length > 0)
         ? allWalls
         : [
@@ -2686,7 +2688,7 @@ function FluxoRealAsgChart({
                     });
                 })()}
 
-                {/* ── LINHAS E LABELS OFICIAIS DO `jumba_tradingview.pine` + TRADUÇÃO DINÂMICA (Vai Defender / Violinada / Romperam / Virou) ── */}
+                {/* ── LINHAS E LABELS OFICIAIS DO `magicwalls_tradingview.pine` + TRADUÇÃO DINÂMICA (Vai Defender / Violinada / Romperam / Virou) ── */}
                 {[...nearbyWalls]
                     .sort((a, b) => {
                         const aFlip = String(a.type || "") === "GammaFlip" || /flip/i.test(String(a.label || ""));

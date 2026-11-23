@@ -1,6 +1,6 @@
 @echo off
 echo ==================================================
-echo   SP500 GEX JUMBA WALLS - ATUALIZACAO DIARIA (US)
+echo   SP500 GEX MAGIC WALLS WALLS - ATUALIZACAO DIARIA (US)
 echo ==================================================
 echo.
 echo Iniciando pipeline GEX do SP500 / ES...
@@ -18,8 +18,8 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Salvando historico do SP500 no Git...
-git add -f "gex/docs/jumba_tradingview.pine" "gex/docs/DAILY_REPORT_US.txt"
-git commit -m "chore(gex): atualizacao diaria do jumba walls e relatorio do SP500"
+git add -f "gex/docs/magicwalls_tradingview.pine" "gex/docs/DAILY_REPORT_US.txt"
+git commit -m "chore(gex): atualizacao diaria do magicwalls walls e relatorio do SP500"
 
 echo.
 echo ==================================================

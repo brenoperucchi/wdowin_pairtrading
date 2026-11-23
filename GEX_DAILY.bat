@@ -1,6 +1,6 @@
 @echo off
 echo ==================================================
-echo   GEX JUMBA WALLS - ATUALIZACAO DIARIA (17:00)
+echo   GEX MAGIC WALLS WALLS - ATUALIZACAO DIARIA (17:00)
 echo ==================================================
 echo.
 echo O download do arquivo "Posições em aberto.csv" da B3 agora é 
@@ -22,8 +22,8 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Salvando historico no Git...
-git add -f "gex/data/*.csv" "gex/docs/jumba_neologica" "gex/docs/DAILY_REPORT.txt" "gex/docs/jumba_tradingview.pine"
-git commit -m "chore(gex): atualizacao diaria do jumba walls e relatorio de tendencia"
+git add -f "gex/data/*.csv" "gex/docs/magicwalls_neologica" "gex/docs/DAILY_REPORT.txt" "gex/docs/magicwalls_tradingview.pine"
+git commit -m "chore(gex): atualizacao diaria do magicwalls walls e relatorio de tendencia"
 
 echo.
 echo ==================================================

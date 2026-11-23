@@ -1,13 +1,12 @@
 """
-Calendário do Live Trading (Jumba GEX/NWE)
-==========================================
-Fonte: jumba_live_deals_<Login>.csv, exportado em MQL5\\Files\\Common pelo
-`Jumba_Portfolio_Live_Monitor` que roda no terminal da carteira ao vivo
-("MetaTrader 5 Terminal - milhao", perfil Jumba_11_CARTEIRA_ALINHADA).
+Calendário do Live Trading (Magic Walls GEX/NWE)
+================================================
+Fonte: magicwalls_live_deals_<Login>.csv, exportado em MQL5\\Files\\Common pelo
+`MagicWalls_Portfolio_Live_Monitor` que roda no terminal da carteira ao vivo
+(perfil MagicWalls_10).
 
-Não usa a API Python do MT5 (que só se conecta a um terminal por processo e
-não responde via IPC para o terminal milhao). Agrega deals -> posição fechada
--> dia -> robô.
+Não usa a API Python do MT5 (que só se conecta a um terminal por processo).
+Agrega deals -> posição fechada -> dia -> robô.
 
 Uso standalone:
     python -m core.live_calendar            # imprime JSON
@@ -19,20 +18,22 @@ import json
 from datetime import datetime
 
 COMMON_FILES = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal", "Common", "Files")
-LIVE_ACCOUNT = os.environ.get("JUMBA_LIVE_ACCOUNT", "62033102")  # conta do terminal milhao (XPMT5-DEMO)
+LIVE_ACCOUNT = os.environ.get("MW_LIVE_ACCOUNT", os.environ.get("JUMBA_LIVE_ACCOUNT", "2004051"))
 
 # Custos operacionais usados em todo o projeto (iguais aos backtests alinhados)
 COST_PER_CONTRACT = {"WIN": 2.0, "WDO": 5.0}
 
-# Carteira aprovada (perfil Jumba_11_CARTEIRA_ALINHADA)
-ACTIVE_PORTFOLIO = {88001, 88004, 88007, 88013, 88014, 88015, 88016, 89002, 89007, 89009, 89010}
+# Carteira ativa (perfil MagicWalls_10)
+ACTIVE_PORTFOLIO = {88004, 88007, 88009, 88010, 88013, 88014, 88015, 89001, 89005, 89007}
 
 ROBOT_NAMES = {
     88001: "Quebra/Absorção Mkt Wall", 88002: "Scalper Híbrido Limit B1", 88004: "Pullback Tendência WDO-Alinhado",
     88006: "Breno Stop B1 Ext", 88007: "Absorção Mkt Wall NY", 88008: "Fade Wall s/ Lunch",
+    88009: "Breakout Stop/Lim NY (2/dia)", 88010: "MainWall Stop Wick (1/dia)",
     88012: "Piramidação 1+1L NY", 88013: "SmartGrid GEX+NWE", 88014: "SmartGrid Vel 1+2L",
     88015: "SmartGrid MainWall Z30", 88016: "SmartGrid MidWall",
-    89002: "Scalper Híbrido CORE", 89006: "Breno Absorption Wick", 89007: "Absorção Mkt Wall NY",
+    89001: "Scalper Híbrido NY", 89002: "Scalper Híbrido CORE", 89005: "Cluster NWE30+50",
+    89006: "Breno Absorption Wick", 89007: "Absorção Mkt Wall NY",
     89009: "Cluster NWE30+50 Limit Wall", 89010: "Reversão NWE 12h-14h30", 89011: "SmartGrid GF+NextWall",
     89015: "MainWall Z30 Rev070",
 }
@@ -50,16 +51,23 @@ def magic_to_code(magic: int):
 
 
 def _deals_file(account: str):
-    f = os.path.join(COMMON_FILES, f"jumba_live_deals_{account}.csv")
-    if os.path.exists(f):
-        return f
-    cands = sorted(glob.glob(os.path.join(COMMON_FILES, "jumba_live_deals_*.csv")), key=os.path.getmtime)
+    for prefix in ("magicwalls_live_deals_", "jumba_live_deals_"):
+        f = os.path.join(COMMON_FILES, f"{prefix}{account}.csv")
+        if os.path.exists(f):
+            return f
+    cands = sorted(
+        glob.glob(os.path.join(COMMON_FILES, "magicwalls_live_deals_*.csv"))
+        + glob.glob(os.path.join(COMMON_FILES, "jumba_live_deals_*.csv")),
+        key=os.path.getmtime,
+    )
     return cands[-1] if cands else None
 
 
 def _open_positions(account: str):
-    """Posições abertas pelo snapshot do monitor (jumba_portfolio_live_monitor_<login>.csv)."""
-    f = os.path.join(COMMON_FILES, f"jumba_portfolio_live_monitor_{account}.csv")
+    """Posições abertas pelo snapshot do monitor (magicwalls_portfolio_live_monitor_<login>.csv)."""
+    f = os.path.join(COMMON_FILES, f"magicwalls_portfolio_live_monitor_{account}.csv")
+    if not os.path.exists(f):
+        f = os.path.join(COMMON_FILES, f"jumba_portfolio_live_monitor_{account}.csv")
     out = []
     if not os.path.exists(f):
         return out
@@ -80,10 +88,10 @@ def _open_positions(account: str):
 def load_live_calendar(account: str = LIVE_ACCOUNT) -> dict:
     path = _deals_file(account)
     if not path:
-        return dict(ok=False, error="Arquivo jumba_live_deals_<login>.csv não encontrado em Common\\Files. "
-                                    "Confira se o Jumba_Portfolio_Live_Monitor está rodando no MT5 milhao.",
+        return dict(ok=False, error="Arquivo magicwalls_live_deals_<login>.csv não encontrado em Common\\Files. "
+                                    "Confira se o MagicWalls_Portfolio_Live_Monitor está rodando no MT5.",
                     trades=[], open_positions=[])
-    acc = os.path.basename(path).replace("jumba_live_deals_", "").replace(".csv", "")
+    acc = os.path.basename(path).replace("magicwalls_live_deals_", "").replace("jumba_live_deals_", "").replace(".csv", "")
 
     pos = {}
     with open(path, encoding="latin-1", newline="") as fh:

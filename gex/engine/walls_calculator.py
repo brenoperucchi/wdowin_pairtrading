@@ -6,7 +6,7 @@ from .mt5_prices import get_b3_expected_win_contract
 
 def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry_days=27, r=0.1425, use_anchored_factor=True, ref_date=None):
     """
-    Calcula o perfil GEX completo e gera as Jumba Walls.
+    Calcula o perfil GEX completo e gera as Magic Walls Walls.
     
     Se use_anchored_factor=True: usa o fator sincronizado do contrato WIN ativo (current_win / current_ibov),
     ajustando perfeitamente o carry real até o vencimento do contrato futuro ativo (inclusive nos dias de rolagem).

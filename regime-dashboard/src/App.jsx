@@ -314,7 +314,8 @@ export default function App() {
         if (USE_FIREBASE) return;
         let active = true;
         let compassInFlight = false;
-        async function pollCompass() {
+        async function pollCompass(force = false) {
+            if (!force && typeof document !== "undefined" && document.hidden) return;
             if (compassInFlight) return;
             compassInFlight = true;
             const ctrl = new AbortController();
@@ -323,7 +324,7 @@ export default function App() {
                 const hasBtCache = Array.isArray(btDaysRef.current) && btDaysRef.current.length > 0;
                 const params = new URLSearchParams();
                 if (selectedDate) params.set("date_str", selectedDate);
-                if (hasBtCache) params.set("lite", "1");
+                if (isManual || hasBtCache) params.set("lite", "1");
                 const qs = params.toString();
                 const url = qs ? `${API_COMPASS_URL}?${qs}` : API_COMPASS_URL;
                 const res = await authFetch(url, { signal: ctrl.signal });
@@ -369,13 +370,25 @@ export default function App() {
                 compassInFlight = false;
             }
         }
-        pollCompass();
+        pollCompass(true);
         if (!selectedDate) {
-            const t = setInterval(pollCompass, 2500);
-            return () => { active = false; clearInterval(t); };
+            const t = setInterval(() => pollCompass(false), 2500);
+            const onVisibility = () => {
+                if (typeof document !== "undefined" && !document.hidden) pollCompass(true);
+            };
+            if (typeof document !== "undefined") {
+                document.addEventListener("visibilitychange", onVisibility);
+            }
+            return () => {
+                active = false;
+                clearInterval(t);
+                if (typeof document !== "undefined") {
+                    document.removeEventListener("visibilitychange", onVisibility);
+                }
+            };
         }
         return () => { active = false; };
-    }, [selectedDate]);
+    }, [selectedDate, isManual]);
 
     // Simulação quando offline
     useEffect(() => {
