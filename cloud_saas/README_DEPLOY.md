@@ -11,12 +11,19 @@
 
 ---
 
-## Passo 1 — Banco Supabase (6 Tabelas + RLS)
+## Passo 1 — Banco Supabase (6+2 Tabelas + RLS)
 1. Crie um projeto no Supabase (região América do Sul / São Paulo quando disponível).
-2. Abra **SQL Editor** e execute integralmente [supabase_schema.sql](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/cloud_saas/supabase_schema.sql).
+2. Abra **SQL Editor** e execute integralmente [supabase_schema.sql](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/cloud_saas/supabase_schema.sql) (em instalações novas) ou a migração incremental idempotente [002_trial_activation.sql](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/cloud_saas/migrations/002_trial_activation.sql) (para ativação de trials de 15 dias, convites e lista de espera).
 3. Em **Project Settings -> API**, copie:
    - `SUPABASE_URL` (`https://<ref>.supabase.co`)
    - `SUPABASE_SERVICE_ROLE_KEY` (nunca use no frontend; nunca versione em Git; nunca use `serviceAccountKey.json`).
+
+### Variáveis do Ambiente de Trials (15 dias)
+- `MW_TRIAL_MODE=open` (`open` | `invite_only` | `paused`)
+- `MW_TRIAL_DAYS=15`
+- `MW_TRIAL_MAX_ACTIVE=50` (`0` = sem teto)
+- `MW_TRIAL_MAX_PER_IP_24H=3` e `MW_TRIAL_MAX_PER_FP_30D=2`
+- `MW_TURNSTILE_SITE_KEY` e `MW_TURNSTILE_SECRET_KEY` (Cloudflare Turnstile anti-bot; opcional)
 
 ---
 

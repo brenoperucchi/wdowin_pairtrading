@@ -5,12 +5,121 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import secrets
 import time
 from typing import Any, Optional
 
 import httpx
 import jwt
+
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$")
+
+_DISPOSABLE_EMAIL_DOMAINS = frozenset(
+    {
+        "mailinator.com",
+        "guerrillamail.com",
+        "10minutemail.com",
+        "temp-mail.org",
+        "tempmail.com",
+        "yopmail.com",
+        "sharklasers.com",
+        "trashmail.com",
+        "getnada.com",
+        "mohmal.com",
+        "dispostable.com",
+        "maildrop.cc",
+        "fakeinbox.com",
+        "throwawaymail.com",
+        "mintemail.com",
+    }
+)
+
+
+def is_valid_email(email: str) -> bool:
+    clean = (email or "").strip()
+    if not clean or len(clean) > 254 or " " in clean:
+        return False
+    return bool(_EMAIL_RE.match(clean))
+
+
+def canonicalize_email(email: str) -> str:
+    clean = (email or "").strip().lower()
+    if "@" not in clean:
+        return clean
+    local, domain = clean.split("@", 1)
+    if "+" in local:
+        local = local.split("+", 1)[0]
+    if domain in ("gmail.com", "googlemail.com"):
+        local = local.replace(".", "")
+        domain = "gmail.com"
+    return f"{local}@{domain}"
+
+
+def is_disposable_email_domain(email: str) -> bool:
+    clean = (email or "").strip().lower()
+    if "@" not in clean:
+        return False
+    domain = clean.split("@", 1)[1]
+    if domain in _DISPOSABLE_EMAIL_DOMAINS:
+        return True
+    return any(domain.endswith(f".{d}") for d in _DISPOSABLE_EMAIL_DOMAINS)
+
+
+def normalize_br_phone(raw_phone: str) -> str:
+    digits = "".join(ch for ch in str(raw_phone or "") if ch.isdigit())
+    if not digits:
+        return ""
+    if len(digits) in (12, 13) and digits.startswith("55"):
+        national = digits[2:]
+    elif len(digits) in (10, 11):
+        national = digits
+    else:
+        return ""
+    if len(national) not in (10, 11):
+        return ""
+    try:
+        ddd = int(national[:2])
+    except ValueError:
+        return ""
+    if ddd < 11 or ddd > 99:
+        return ""
+    subscriber = national[2:]
+    if len(set(national)) <= 1 or len(set(subscriber)) <= 1:
+        return ""
+    return f"55{national}"
+
+
+def verify_turnstile_token(
+    secret_key: str,
+    token: str,
+    remote_ip: str = "",
+    timeout: float = 5.0,
+) -> tuple[bool, str]:
+    clean_secret = (secret_key or "").strip()
+    if not clean_secret:
+        return True, "TURNSTILE_DISABLED"
+    clean_token = (token or "").strip()
+    if not clean_token:
+        return False, "TURNSTILE_TOKEN_REQUIRED"
+    data: dict[str, str] = {"secret": clean_secret, "response": clean_token}
+    if remote_ip and remote_ip != "unknown":
+        data["remoteip"] = remote_ip
+    try:
+        resp = httpx.post(
+            "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+            data=data,
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            return False, f"TURNSTILE_HTTP_{resp.status_code}"
+        body = resp.json()
+        if isinstance(body, dict) and body.get("success") is True:
+            return True, "OK"
+        codes = body.get("error-codes") if isinstance(body, dict) else None
+        return False, f"TURNSTILE_REJECTED:{','.join(codes) if isinstance(codes, list) else 'unknown'}"
+    except Exception:
+        return False, "TURNSTILE_UNREACHABLE"
 
 
 def hash_password(password: str, iterations: int = 260_000) -> str:

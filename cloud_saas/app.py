@@ -29,14 +29,19 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from cloud_saas.config import Settings
-from cloud_saas.database import create_database, utc_today_str
+from cloud_saas.database import compute_days_left, create_database, utc_today_str
 from cloud_saas.security import (
+    canonicalize_email,
     create_access_token,
     decode_access_token,
+    is_disposable_email_domain,
+    is_valid_email,
+    normalize_br_phone,
     notify_admin_telegram,
     sign_mt5_license,
     verify_password,
     verify_push_signature,
+    verify_turnstile_token,
     verify_webhook_signature,
 )
 from cloud_saas.store import create_store
@@ -83,6 +88,53 @@ class AdminUpsertUserRequest(BaseModel):
     terms_version: Optional[str] = None
 
 
+class TrialRegisterRequest(BaseModel):
+    full_name: str
+    email: str
+    phone: str
+    password: str
+    accept_terms: bool = False
+    terms_version: str = ""
+    device_fp: str = "browser-default"
+    turnstile_token: str = ""
+    invite_code: str = ""
+    utm_source: str = ""
+    utm_medium: str = ""
+    utm_campaign: str = ""
+    ref: str = ""
+
+
+class WaitlistRequest(BaseModel):
+    full_name: str = ""
+    email: str
+    phone: str = ""
+    turnstile_token: str = ""
+    source: str = "waitlist"
+    utm_source: str = ""
+    utm_medium: str = ""
+    utm_campaign: str = ""
+    ref: str = ""
+
+
+class ConversionIntentRequest(BaseModel):
+    email: str = ""
+    phone: str = ""
+    note: str = ""
+
+
+class AdminInviteRequest(BaseModel):
+    code: str
+    label: str = ""
+    trial_days: int = 15
+    max_uses: Optional[int] = None
+    expires_at: Optional[str] = None
+    is_active: bool = True
+
+
+class AdminExtendTrialRequest(BaseModel):
+    days: int = 15
+
+
 def _parse_iso_utc(raw: Optional[str]) -> Optional[datetime]:
     if not raw:
         return None
@@ -109,13 +161,18 @@ def _extract_client_ip(request: Request) -> str:
 
 
 def _sanitize_user_public(user: dict[str, Any], terms_version_req: str) -> dict[str, Any]:
+    plan = (user.get("plan") or "none").lower()
+    expires_at = user.get("expires_at")
     return {
         "id": user["id"],
         "email": user["email"],
         "full_name": user.get("full_name") or "",
+        "phone": user.get("phone") or "",
         "plan": user.get("plan") or "none",
+        "is_trial": plan == "trial",
+        "trial_days_left": compute_days_left(expires_at),
         "status": user.get("status") or "suspended",
-        "expires_at": user.get("expires_at"),
+        "expires_at": expires_at,
         "terms_version": user.get("terms_version") or "",
         "terms_accepted": bool(user.get("terms_version") == terms_version_req and user.get("terms_accepted_at")),
         "required_terms_version": terms_version_req,
@@ -133,6 +190,8 @@ def _check_subscription_access(user: dict[str, Any]) -> None:
         raise ApiRuleError(403, "SUBSCRIPTION_INACTIVE", "Assinatura inativa ou suspensa.")
     exp = _parse_iso_utc(user.get("expires_at"))
     if exp is not None and datetime.now(timezone.utc) > exp:
+        if plan == "trial":
+            raise ApiRuleError(403, "TRIAL_EXPIRED", "Seu período de teste de 15 dias foi encerrado.")
         raise ApiRuleError(403, "SUBSCRIPTION_INACTIVE", "Assinatura expirada.")
 
 
@@ -172,6 +231,18 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     def _invalidate_user_cache(user_id: Optional[int]) -> None:
         if user_id is not None:
             store.delete(f"user:{int(user_id)}")
+
+    def _invalidate_trial_config_cache() -> None:
+        store.delete("public:trial_config")
+
+    def _bump_ip_rate_limit(prefix: str, ip: str, limit: int, window_sec: int = 3600) -> bool:
+        key = f"{prefix}:{ip or 'unknown'}"
+        raw = store.get_json(key)
+        count = int(raw.get("count") or 0) if isinstance(raw, dict) else 0
+        if count >= limit:
+            return False
+        store.set_json(key, {"count": count + 1}, ttl_sec=window_sec)
+        return True
 
     def _record_heartbeat(producer_id: str, role: str, payload_bytes: int, status: str) -> None:
         now = time.time()
@@ -553,6 +624,334 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         )
         return {"ok": True}
 
+    # ── Ambiente de Ativação de Trials (15 Dias) & Lista de Espera ───────────
+
+    @app.get("/api/v1/public/trial-config")
+    def public_trial_config():
+        cached = store.get_json("public:trial_config")
+        if isinstance(cached, dict) and cached.get("ok") is True:
+            return cached
+        active_trials = db.count_active_trials()
+        max_active = int(cfg.trial_max_active)
+        slots_remaining = max(0, max_active - active_trials) if max_active > 0 else None
+        accepting_trials = (cfg.trial_mode != "paused") and (max_active <= 0 or active_trials < max_active)
+        payload = {
+            "ok": True,
+            "mode": cfg.trial_mode,
+            "trial_days": cfg.trial_days,
+            "accepting_trials": accepting_trials,
+            "max_active": max_active,
+            "active_trials": active_trials,
+            "slots_remaining": slots_remaining,
+            "require_invite_code": cfg.trial_mode == "invite_only",
+            "turnstile_site_key": cfg.turnstile_site_key,
+            "terms_version": cfg.terms_version,
+        }
+        store.set_json("public:trial_config", payload, ttl_sec=15)
+        return payload
+
+    @app.post("/auth/trial/register")
+    def register_trial(req: TrialRegisterRequest, request: Request):
+        if cfg.trial_mode == "paused":
+            raise ApiRuleError(
+                403,
+                "TRIAL_PAUSED",
+                "Novas ativações de teste estão pausadas no momento. Entre na lista de espera.",
+            )
+
+        full_name = req.full_name.strip()
+        if len(full_name) < 3:
+            raise ApiRuleError(400, "INVALID_NAME", "Informe seu nome completo (mínimo 3 caracteres).")
+
+        clean_email = req.email.strip().lower()
+        if not is_valid_email(clean_email):
+            raise ApiRuleError(400, "INVALID_EMAIL", "Informe um e-mail válido.")
+        if is_disposable_email_domain(clean_email):
+            raise ApiRuleError(
+                400,
+                "DISPOSABLE_EMAIL_NOT_ALLOWED",
+                "Use um e-mail permanente; endereços temporários não são aceitos.",
+            )
+
+        norm_phone = normalize_br_phone(req.phone)
+        if not norm_phone:
+            raise ApiRuleError(
+                400,
+                "INVALID_PHONE",
+                "Informe um WhatsApp brasileiro válido com DDD (ex.: (11) 99999-9999).",
+            )
+
+        if len(req.password or "") < 8:
+            raise ApiRuleError(400, "WEAK_PASSWORD", "A senha deve ter pelo menos 8 caracteres.")
+
+        req_terms = (req.terms_version or cfg.terms_version).strip()
+        if not req.accept_terms or req_terms != cfg.terms_version:
+            raise ApiRuleError(
+                400,
+                "TERMS_REQUIRED",
+                "É obrigatório aceitar os Termos de Uso CVM/LGPD para ativar o teste.",
+            )
+
+        client_ip = _extract_client_ip(request)
+        ok_ts, _ts_reason = verify_turnstile_token(
+            cfg.turnstile_secret_key,
+            req.turnstile_token,
+            remote_ip=client_ip,
+        )
+        if not ok_ts:
+            raise ApiRuleError(
+                400,
+                "TURNSTILE_FAILED",
+                "Validação anti-robô falhou. Conclua a verificação e tente novamente.",
+            )
+
+        clean_invite = req.invite_code.strip().upper()
+        invite_row: Optional[dict[str, Any]] = None
+        effective_days = cfg.trial_days
+        if clean_invite or cfg.trial_mode == "invite_only":
+            if not clean_invite:
+                raise ApiRuleError(400, "INVALID_INVITE_CODE", "Código de convite obrigatório no momento.")
+            invite_row = db.get_invite(clean_invite)
+            if not invite_row or not invite_row.get("is_active"):
+                raise ApiRuleError(400, "INVALID_INVITE_CODE", "Código de convite inválido ou inativo.")
+            inv_exp = _parse_iso_utc(invite_row.get("expires_at"))
+            if inv_exp is not None and datetime.now(timezone.utc) > inv_exp:
+                raise ApiRuleError(400, "INVALID_INVITE_CODE", "Código de convite expirado.")
+            max_uses = invite_row.get("max_uses")
+            if max_uses is not None and int(invite_row.get("used_count") or 0) >= int(max_uses):
+                raise ApiRuleError(400, "INVALID_INVITE_CODE", "Este código de convite já atingiu o limite de usos.")
+            effective_days = max(1, min(90, int(invite_row.get("trial_days") or cfg.trial_days)))
+
+        if invite_row is None and cfg.trial_max_active > 0:
+            active_trials = db.count_active_trials()
+            if active_trials >= cfg.trial_max_active:
+                raise ApiRuleError(
+                    409,
+                    "TRIAL_CAPACITY_REACHED",
+                    f"Lote atual de {cfg.trial_max_active} vagas preenchido. Entre na lista de espera para a próxima abertura.",
+                )
+
+        recent = db.count_recent_trial_registrations(client_ip, req.device_fp)
+        if (
+            (cfg.trial_max_per_ip_24h > 0 and recent["ip_24h"] >= cfg.trial_max_per_ip_24h)
+            or (cfg.trial_max_per_fp_30d > 0 and recent["fp_30d"] >= cfg.trial_max_per_fp_30d)
+        ):
+            raise ApiRuleError(
+                429,
+                "TRIAL_RATE_LIMITED",
+                "Limite de ativações de teste atingido para esta rede ou dispositivo.",
+            )
+
+        canon_email = canonicalize_email(clean_email)
+        existing_user = (
+            db.get_user_by_email(clean_email)
+            or db.get_user_by_email(canon_email)
+            or db.get_user_by_canonical_email(canon_email)
+            or db.get_user_by_phone(norm_phone)
+        )
+        if existing_user is not None:
+            raise ApiRuleError(
+                409,
+                "TRIAL_ALREADY_USED",
+                "Já existe uma conta cadastrada para este e-mail ou WhatsApp. Use a aba Entrar.",
+            )
+
+        ua = request.headers.get("user-agent", "")
+        acq_source = (req.utm_source or req.ref or ("invite" if invite_row else "direct")).strip()[:120]
+        acq_meta = {
+            k: v
+            for k, v in {
+                "utm_source": req.utm_source.strip()[:120],
+                "utm_medium": req.utm_medium.strip()[:120],
+                "utm_campaign": req.utm_campaign.strip()[:120],
+                "ref": req.ref.strip()[:120],
+                "invite_code": clean_invite[:64],
+            }.items()
+            if v
+        }
+        gateway = "trial_invite" if invite_row else "trial_self_serve"
+
+        user = db.create_trial_user(
+            email=clean_email,
+            email_canonical=canon_email,
+            password=req.password,
+            full_name=full_name,
+            phone=norm_phone,
+            trial_days=effective_days,
+            terms_version=cfg.terms_version,
+            ip=client_ip,
+            user_agent=ua,
+            acquisition_source=acq_source,
+            acquisition_meta=acq_meta,
+            gateway=gateway,
+            external_sub_id=clean_invite,
+        )
+        if invite_row:
+            db.increment_invite_usage(clean_invite)
+
+        sid = secrets.token_urlsafe(24)
+        db.set_active_session(user["id"], sid, client_ip, req.device_fp, user_agent=ua)
+        store.set_json(
+            f"sess:{user['id']}",
+            {
+                "sid": sid,
+                "ip": client_ip,
+                "device_fp": req.device_fp,
+                "created_at": int(time.time()),
+            },
+            ttl_sec=cfg.jwt_ttl_sec,
+        )
+        _invalidate_user_cache(user["id"])
+        _invalidate_trial_config_cache()
+        db.log_audit(
+            user_id=user["id"],
+            event_type="TRIAL_ACTIVATED",
+            ip=client_ip,
+            device_fp=req.device_fp,
+            user_agent=ua,
+            details={
+                "trial_days": effective_days,
+                "invite_code": clean_invite,
+                "source": acq_source,
+                "phone": norm_phone,
+            },
+        )
+        notify_admin_telegram(
+            cfg.telegram_bot_token,
+            cfg.telegram_chat_id,
+            f"[NOVO TRIAL {effective_days}D] {full_name} · {clean_email} · {norm_phone} · origem: {acq_source}",
+        )
+
+        token = create_access_token(
+            jwt_secret=cfg.jwt_secret,
+            user_id=user["id"],
+            email=user["email"],
+            plan=user["plan"],
+            session_id=sid,
+            ttl_sec=cfg.jwt_ttl_sec,
+        )
+        return {
+            "ok": True,
+            "access_token": token,
+            "token_type": "bearer",
+            "session_id": sid,
+            "user": _sanitize_user_public(user, cfg.terms_version),
+        }
+
+    @app.post("/api/v1/public/waitlist")
+    def join_waitlist(req: WaitlistRequest, request: Request):
+        clean_email = req.email.strip().lower()
+        if not is_valid_email(clean_email):
+            raise ApiRuleError(400, "INVALID_EMAIL", "Informe um e-mail válido.")
+        if is_disposable_email_domain(clean_email):
+            raise ApiRuleError(400, "DISPOSABLE_EMAIL_NOT_ALLOWED", "Use um e-mail permanente.")
+        norm_phone = normalize_br_phone(req.phone)
+        if not norm_phone:
+            raise ApiRuleError(400, "INVALID_PHONE", "Informe um WhatsApp brasileiro válido com DDD.")
+        full_name = req.full_name.strip()
+        if len(full_name) < 2:
+            raise ApiRuleError(400, "INVALID_NAME", "Informe seu nome.")
+
+        client_ip = _extract_client_ip(request)
+        ok_ts, _ts_reason = verify_turnstile_token(
+            cfg.turnstile_secret_key,
+            req.turnstile_token,
+            remote_ip=client_ip,
+        )
+        if not ok_ts:
+            raise ApiRuleError(400, "TURNSTILE_FAILED", "Validação anti-robô falhou.")
+
+        if not _bump_ip_rate_limit("wl_rl", client_ip, limit=5, window_sec=3600):
+            raise ApiRuleError(429, "WAITLIST_RATE_LIMITED", "Muitas solicitações. Tente novamente mais tarde.")
+
+        acq_source = (req.utm_source or req.ref or req.source or "waitlist").strip()[:120]
+        meta = {
+            k: v
+            for k, v in {
+                "utm_source": req.utm_source.strip()[:120],
+                "utm_medium": req.utm_medium.strip()[:120],
+                "utm_campaign": req.utm_campaign.strip()[:120],
+                "ref": req.ref.strip()[:120],
+                "ip": client_ip,
+            }.items()
+            if v
+        }
+        lead = db.upsert_waitlist_lead(
+            email=clean_email,
+            full_name=full_name,
+            phone=norm_phone,
+            source=acq_source,
+            meta=meta,
+        )
+        db.log_audit(
+            user_id=None,
+            event_type="WAITLIST_JOINED",
+            ip=client_ip,
+            user_agent=request.headers.get("user-agent", ""),
+            details={"email": clean_email, "phone": norm_phone, "source": acq_source},
+        )
+        notify_admin_telegram(
+            cfg.telegram_bot_token,
+            cfg.telegram_chat_id,
+            f"[LISTA DE ESPERA] {full_name} · {clean_email} · {norm_phone}",
+        )
+        return {"ok": True, "lead": lead}
+
+    @app.post("/auth/trial/conversion-intent")
+    def trial_conversion_intent(
+        req: ConversionIntentRequest,
+        request: Request,
+        authorization: str = Header(default=""),
+    ):
+        client_ip = _extract_client_ip(request)
+        if not _bump_ip_rate_limit("ci_rl", client_ip, limit=10, window_sec=3600):
+            raise ApiRuleError(429, "RATE_LIMITED", "Muitas solicitações. Tente novamente em instantes.")
+
+        user: Optional[dict[str, Any]] = None
+        if authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+            payload = decode_access_token(cfg.jwt_secret, token)
+            if payload and payload.get("sub"):
+                try:
+                    user = db.get_user_by_id(int(payload["sub"]))
+                except ValueError:
+                    user = None
+
+        if user is None and req.email.strip():
+            clean_email = req.email.strip().lower()
+            canon = canonicalize_email(clean_email)
+            user = (
+                db.get_user_by_email(clean_email)
+                or db.get_user_by_canonical_email(canon)
+            )
+
+        if user is None:
+            raise ApiRuleError(404, "USER_NOT_FOUND", "Conta de teste não localizada.")
+
+        phone_val = normalize_br_phone(req.phone) or (user.get("phone") or "")
+        note = req.note.strip()[:240]
+        ua = request.headers.get("user-agent", "")
+        db.log_audit(
+            user_id=user["id"],
+            event_type="TRIAL_CONVERSION_INTENT",
+            ip=client_ip,
+            user_agent=ua,
+            details={"email": user["email"], "phone": phone_val, "note": note},
+        )
+        db.upsert_waitlist_lead(
+            email=user["email"],
+            full_name=user.get("full_name") or "",
+            phone=phone_val,
+            source="trial_conversion_intent",
+            meta={"user_id": user["id"], "note": note, "plan": user.get("plan") or "trial"},
+        )
+        notify_admin_telegram(
+            cfg.telegram_bot_token,
+            cfg.telegram_chat_id,
+            f"[INTERESSE PAGAMENTO] {user.get('full_name') or user['email']} · {phone_val}",
+        )
+        return {"ok": True, "message": "Interesse registrado. Nossa equipe avisará no WhatsApp/e-mail assim que a cobrança abrir."}
+
     # ── Rotas do Terminal Web (Servidas do Cache + Server-Side Entitlements) ──
 
     @app.get("/api/compass/etapa1")
@@ -810,6 +1209,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 external_sub_id=external_sub_id,
             )
             _invalidate_user_cache(user["id"])
+            _invalidate_trial_config_cache()
             db.log_audit(
                 user_id=user["id"],
                 event_type="BILLING_EVENT",
@@ -843,6 +1243,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             db.update_user_status(existing["id"], "suspended")
             store.delete(f"sess:{existing['id']}")
             _invalidate_user_cache(existing["id"])
+            _invalidate_trial_config_cache()
             db.clear_active_session(existing["id"], reason=f"BILLING_{event.upper()}")
             db.log_audit(
                 user_id=existing["id"],
@@ -880,6 +1281,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             terms_version=req.terms_version,
         )
         _invalidate_user_cache(user["id"])
+        _invalidate_trial_config_cache()
         return {
             "ok": True,
             "user": _sanitize_user_public(user, cfg.terms_version),
@@ -900,6 +1302,54 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         if not updated:
             raise ApiRuleError(404, "USER_NOT_FOUND", "Usuário não encontrado.")
         _invalidate_user_cache(int(user_id))
+        _invalidate_trial_config_cache()
+        return {"ok": True, "user": _sanitize_user_public(updated, cfg.terms_version)}
+
+    @app.get("/api/v1/admin/trials", dependencies=[Depends(_require_admin)])
+    def admin_trials_report():
+        report = db.get_admin_trials_report()
+        report["ok"] = True
+        return report
+
+    @app.get("/api/v1/admin/invites", dependencies=[Depends(_require_admin)])
+    def admin_list_invites():
+        return {"ok": True, "invites": db.list_invites()}
+
+    @app.post("/api/v1/admin/invites", dependencies=[Depends(_require_admin)])
+    def admin_upsert_invite(req: AdminInviteRequest):
+        clean_code = req.code.strip().upper()
+        if not clean_code or len(clean_code) < 2:
+            raise ApiRuleError(400, "INVALID_INVITE_CODE", "Código de convite inválido.")
+        days = max(1, min(90, int(req.trial_days)))
+        inv = db.upsert_invite(
+            code=clean_code,
+            label=req.label,
+            trial_days=days,
+            max_uses=req.max_uses,
+            expires_at=req.expires_at,
+            is_active=req.is_active,
+        )
+        _invalidate_trial_config_cache()
+        db.log_audit(
+            user_id=None,
+            event_type="ADMIN_INVITE_UPSERT",
+            details={"code": clean_code, "trial_days": days, "max_uses": req.max_uses, "is_active": req.is_active},
+        )
+        return {"ok": True, "invite": inv}
+
+    @app.post("/api/v1/admin/users/{user_id}/extend", dependencies=[Depends(_require_admin)])
+    def admin_extend_user(user_id: int, req: AdminExtendTrialRequest):
+        extra_days = max(1, min(365, int(req.days)))
+        updated = db.extend_user_subscription(user_id, extra_days)
+        if not updated:
+            raise ApiRuleError(404, "USER_NOT_FOUND", "Usuário não encontrado.")
+        _invalidate_user_cache(int(user_id))
+        _invalidate_trial_config_cache()
+        db.log_audit(
+            user_id=int(user_id),
+            event_type="ADMIN_EXTEND_TRIAL",
+            details={"extra_days": extra_days, "expires_at": updated.get("expires_at")},
+        )
         return {"ok": True, "user": _sanitize_user_public(updated, cfg.terms_version)}
 
     return app

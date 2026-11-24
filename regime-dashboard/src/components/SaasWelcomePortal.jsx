@@ -69,8 +69,8 @@ const FAQ_ITEMS = [
         a: "Não. O Magic Walls é um software analítico e educacional de leitura de liquidez e fluxo (Resolução CVM nº 20/2021). Ele não envia ordens automáticas nem faz recomendação de compra ou venda — toda decisão operacional é exclusivamente sua.",
     },
     {
-        q: "Como faço para contratar ou acompanhar o trabalho antes de assinar?",
-        a: "Fale diretamente com nossa equipe pelo Instagram oficial @magicwallsb3. Por lá também publicamos estudos do dia e resumos visuais de fechamento de pregão.",
+        q: "Como faço para testar ou contratar o terminal antes de assinar?",
+        a: "Você pode ativar um período de teste gratuito de 15 dias diretamente nesta página (na aba Testar 15 dias) usando seu nome, e-mail e WhatsApp, com acesso imediato ao terminal. Para dúvidas ou suporte, fale com nossa equipe pelo Instagram oficial @magicwallsb3.",
     },
 ];
 
@@ -247,46 +247,46 @@ const STATS_30D = {
     period: "07/10 a 19/11/2026",
     sessions: 30,
     win: {
-        posDays: 28,
-        negDays: 2,
+        posDays: 29,
+        negDays: 1,
         totalSignals: 122,
-        paidCount: 88,
-        paidPct: 72.1,
+        paidCount: 89,
+        paidPct: 73.0,
         neutralCount: 6,
         neutralPct: 4.9,
-        stopCount: 28,
-        stopPct: 23.0,
-        grossPts: 107005,
-        stopPts: -10540,
-        netPts: 96465,
-        avgPerDay: 3216,
-        avgPerSignal: 791,
+        stopCount: 27,
+        stopPct: 22.1,
+        grossPts: 102110,
+        stopPts: -11785,
+        netPts: 90325,
+        avgPerDay: 3011,
+        avgPerSignal: 740,
         bestDayLabel: "26/10",
-        bestDayPts: 10729,
+        bestDayPts: 9275,
         worstDayLabel: "17/11",
-        worstDayPts: -919,
+        worstDayPts: -370,
         maxLegPts: 7180,
         maxLegMeta: "26/10 · 11:25",
     },
     wdo: {
-        posDays: 29,
-        negDays: 1,
+        posDays: 30,
+        negDays: 0,
         totalSignals: 122,
-        paidCount: 87,
-        paidPct: 71.3,
-        neutralCount: 8,
-        neutralPct: 6.6,
-        stopCount: 27,
-        stopPct: 22.1,
-        grossPts: 1869.5,
-        stopPts: -276.0,
-        netPts: 1593.5,
-        avgPerDay: 53.1,
-        avgPerSignal: 13.1,
+        paidCount: 89,
+        paidPct: 73.0,
+        neutralCount: 5,
+        neutralPct: 4.1,
+        stopCount: 28,
+        stopPct: 23.0,
+        grossPts: 1796.5,
+        stopPts: -167.5,
+        netPts: 1629.0,
+        avgPerDay: 54.3,
+        avgPerSignal: 13.4,
         bestDayLabel: "29/10",
-        bestDayPts: 216.5,
+        bestDayPts: 187.5,
         worstDayLabel: "11/11",
-        worstDayPts: -12.0,
+        worstDayPts: 1.5,
         maxLegPts: 71.5,
         maxLegMeta: "29/10 · 10:10",
     },
@@ -317,6 +317,105 @@ function fmtSignedDec1(val) {
     if (r > 0) return `+${fmtPtDec1(r)}`;
     if (r < 0) return `-${fmtPtDec1(Math.abs(r))}`;
     return fmtPtDec1(0);
+}
+
+function formatBrPhoneInput(raw) {
+    let digits = String(raw || "").replace(/\D/g, "");
+    if (digits.length > 11 && digits.startsWith("55")) {
+        digits = digits.slice(2);
+    }
+    digits = digits.slice(0, 11);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+    if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function TurnstileBox({ siteKey, resetKey, onToken }) {
+    const hostRef = useRef(null);
+    const widgetIdRef = useRef(null);
+    const onTokenRef = useRef(onToken);
+
+    useEffect(() => {
+        onTokenRef.current = onToken;
+    }, [onToken]);
+
+    useEffect(() => {
+        if (!siteKey || typeof window === "undefined") return undefined;
+        let cancelled = false;
+
+        const renderWidget = () => {
+            if (cancelled || !hostRef.current || !window.turnstile) return;
+            if (widgetIdRef.current !== null) {
+                try {
+                    window.turnstile.remove(widgetIdRef.current);
+                } catch {
+                    // ignore
+                }
+                widgetIdRef.current = null;
+            }
+            widgetIdRef.current = window.turnstile.render(hostRef.current, {
+                sitekey: siteKey,
+                theme: "dark",
+                callback: (tok) => onTokenRef.current?.(tok || ""),
+                "expired-callback": () => onTokenRef.current?.(""),
+                "error-callback": () => onTokenRef.current?.(""),
+            });
+        };
+
+        if (window.turnstile) {
+            renderWidget();
+        } else {
+            let script = document.querySelector('script[data-mw-turnstile="1"]');
+            if (!script) {
+                script = document.createElement("script");
+                script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+                script.async = true;
+                script.defer = true;
+                script.dataset.mwTurnstile = "1";
+                document.head.appendChild(script);
+            }
+            const onLoad = () => renderWidget();
+            script.addEventListener("load", onLoad);
+            return () => {
+                cancelled = true;
+                script.removeEventListener("load", onLoad);
+                if (widgetIdRef.current !== null && window.turnstile) {
+                    try {
+                        window.turnstile.remove(widgetIdRef.current);
+                    } catch {
+                        // ignore
+                    }
+                    widgetIdRef.current = null;
+                }
+            };
+        }
+
+        return () => {
+            cancelled = true;
+            if (widgetIdRef.current !== null && window.turnstile) {
+                try {
+                    window.turnstile.remove(widgetIdRef.current);
+                } catch {
+                    // ignore
+                }
+                widgetIdRef.current = null;
+            }
+        };
+    }, [siteKey]);
+
+    useEffect(() => {
+        if (resetKey > 0 && widgetIdRef.current !== null && typeof window !== "undefined" && window.turnstile) {
+            try {
+                window.turnstile.reset(widgetIdRef.current);
+            } catch {
+                // ignore
+            }
+        }
+    }, [resetKey]);
+
+    if (!siteKey) return null;
+    return <div ref={hostRef} style={{ minHeight: 65 }} />;
 }
 
 function WallsMark() {
@@ -385,17 +484,65 @@ export default function SaasWelcomePortal({
     feedStatus,
     cloudReachable,
     onSubmit,
+    trialConfig,
+    onTrialRegister,
+    onWaitlistSubmit,
 }) {
     const [prefersReducedMotion] = useState(
         () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)
     );
+    const urlMeta = useMemo(() => {
+        if (typeof window === "undefined") {
+            return { openTrial: false, invite: "", utm_source: "", utm_medium: "", utm_campaign: "", ref: "" };
+        }
+        try {
+            const p = new URLSearchParams(window.location.search || "");
+            const invite = (p.get("invite") || "").trim().toUpperCase();
+            const openTrial = p.get("trial") === "1" || p.get("mode") === "trial" || Boolean(invite);
+            return {
+                openTrial,
+                invite,
+                utm_source: (p.get("utm_source") || "").trim(),
+                utm_medium: (p.get("utm_medium") || "").trim(),
+                utm_campaign: (p.get("utm_campaign") || "").trim(),
+                ref: (p.get("ref") || "").trim(),
+            };
+        } catch {
+            return { openTrial: false, invite: "", utm_source: "", utm_medium: "", utm_campaign: "", ref: "" };
+        }
+    }, []);
+
+    const [authTab, setAuthTab] = useState(() => (urlMeta.openTrial ? "trial" : "login"));
+    const [trialName, setTrialName] = useState("");
+    const [trialEmail, setTrialEmail] = useState("");
+    const [trialPhone, setTrialPhone] = useState("");
+    const [trialPassword, setTrialPassword] = useState("");
+    const [showTrialPassword, setShowTrialPassword] = useState(false);
+    const [trialInviteCode, setTrialInviteCode] = useState(() => urlMeta.invite || "");
+    const [trialTermsAccepted, setTrialTermsAccepted] = useState(false);
+    const [showTermsSummary, setShowTermsSummary] = useState(false);
+    const [trialSubmitting, setTrialSubmitting] = useState(false);
+    const [trialError, setTrialError] = useState("");
+    const [turnstileToken, setTurnstileToken] = useState("");
+    const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+
+    const [wlName, setWlName] = useState("");
+    const [wlEmail, setWlEmail] = useState("");
+    const [wlPhone, setWlPhone] = useState("");
+    const [wlSubmitting, setWlSubmitting] = useState(false);
+    const [wlError, setWlError] = useState("");
+    const [wlSuccess, setWlSuccess] = useState(false);
+
+    const loginCardRef = useRef(null);
+    const trialNameRef = useRef(null);
+
     const [regimeMode, setRegimeMode] = useState("positive");
     const [activePrint, setActivePrint] = useState(null);
     const [openFaqIdx, setOpenFaqIdx] = useState(0);
 
-    // Simulação animada na Anatomia do Método (#regimes-gex)
+    // Simulação animada na Anatomia do Método (#regimes-gex); começa pausada fora da viewport
     const anatomyRef = useRef(null);
-    const [anatomyInView, setAnatomyInView] = useState(true);
+    const [anatomyInView, setAnatomyInView] = useState(false);
     const [simPlaying, setSimPlaying] = useState(() => !prefersReducedMotion);
     const [simProgress, setSimProgress] = useState(() => (prefersReducedMotion ? 13 : 0));
 
@@ -686,6 +833,93 @@ export default function SaasWelcomePortal({
         },
     ];
 
+    const trialDays = Number(trialConfig?.trial_days || 15);
+    const acceptingTrials = trialConfig ? trialConfig.accepting_trials !== false : true;
+    const slotsRemaining =
+        trialConfig && trialConfig.slots_remaining !== null && trialConfig.slots_remaining !== undefined
+            ? Number(trialConfig.slots_remaining)
+            : null;
+    const requireInviteCode = Boolean(trialConfig?.require_invite_code);
+    const turnstileSiteKey = String(trialConfig?.turnstile_site_key || "");
+
+    const goToTrialForm = () => {
+        setAuthTab("trial");
+        setTrialError("");
+        setWlError("");
+        if (loginCardRef.current) {
+            loginCardRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        setTimeout(() => {
+            trialNameRef.current?.focus();
+        }, 250);
+    };
+
+    const handleTrialFormSubmit = async (e) => {
+        e.preventDefault();
+        if (!onTrialRegister || trialSubmitting) return;
+        setTrialError("");
+        if (turnstileSiteKey && !turnstileToken) {
+            setTrialError("Conclua a verificação anti-robô antes de ativar o teste.");
+            return;
+        }
+        setTrialSubmitting(true);
+        try {
+            const res = await onTrialRegister({
+                full_name: trialName.trim(),
+                email: trialEmail.trim(),
+                phone: trialPhone.trim(),
+                password: trialPassword,
+                accept_terms: trialTermsAccepted,
+                turnstile_token: turnstileToken,
+                invite_code: trialInviteCode.trim().toUpperCase(),
+                utm_source: urlMeta.utm_source,
+                utm_medium: urlMeta.utm_medium,
+                utm_campaign: urlMeta.utm_campaign,
+                ref: urlMeta.ref,
+            });
+            if (!res?.ok) {
+                setTrialError(res?.detail || "Não foi possível ativar o teste agora.");
+                setTurnstileToken("");
+                setTurnstileResetKey((k) => k + 1);
+            }
+        } finally {
+            setTrialSubmitting(false);
+        }
+    };
+
+    const handleWaitlistFormSubmit = async (e) => {
+        e.preventDefault();
+        if (!onWaitlistSubmit || wlSubmitting) return;
+        setWlError("");
+        if (turnstileSiteKey && !turnstileToken) {
+            setWlError("Conclua a verificação anti-robô antes de enviar.");
+            return;
+        }
+        setWlSubmitting(true);
+        try {
+            const res = await onWaitlistSubmit({
+                full_name: wlName.trim(),
+                email: wlEmail.trim(),
+                phone: wlPhone.trim(),
+                turnstile_token: turnstileToken,
+                source: "waitlist",
+                utm_source: urlMeta.utm_source,
+                utm_medium: urlMeta.utm_medium,
+                utm_campaign: urlMeta.utm_campaign,
+                ref: urlMeta.ref,
+            });
+            if (res?.ok) {
+                setWlSuccess(true);
+            } else {
+                setWlError(res?.detail || "Não foi possível registrar seu contato agora.");
+                setTurnstileToken("");
+                setTurnstileResetKey((k) => k + 1);
+            }
+        } finally {
+            setWlSubmitting(false);
+        }
+    };
+
     const statusLabel =
         cloudReachable === null
             ? "Conectando"
@@ -713,6 +947,23 @@ export default function SaasWelcomePortal({
                 .mw-portal-root {
                     --p-ease: cubic-bezier(0.22, 1, 0.36, 1);
                     overflow-x: clip;
+                }
+                #login-card,
+                #regimes-gex,
+                #resultados-30d,
+                #dias-reais,
+                #como-funciona,
+                #o-que-inclui,
+                #faq {
+                    scroll-margin-top: 72px;
+                }
+                .mw-regime-tabs {
+                    position: relative;
+                    z-index: 2;
+                }
+                .mw-p-tab {
+                    position: relative;
+                    z-index: 1;
                 }
                 .mw-portal-root * {
                     box-sizing: border-box;
@@ -1094,7 +1345,8 @@ export default function SaasWelcomePortal({
                         padding: 6px 0 !important;
                     }
                     .mw-header-sub,
-                    .mw-header-status-text {
+                    .mw-header-status-text,
+                    .mw-header-trial-cta {
                         display: none !important;
                     }
                     .mw-header-ig-btn {
@@ -1214,6 +1466,15 @@ export default function SaasWelcomePortal({
                             <span className="mw-header-status-text">{statusLabel}</span>
                         </span>
 
+                        <button
+                            type="button"
+                            onClick={goToTrialForm}
+                            className="mw-p-btn-primary mw-header-trial-cta"
+                            style={{ height: 32, padding: "0 12px", fontSize: 12.5 }}
+                        >
+                            {acceptingTrials ? `Testar ${trialDays} dias` : "Lista de espera"}
+                        </button>
+
                         <a
                             href="https://instagram.com/magicwallsb3"
                             target="_blank"
@@ -1289,10 +1550,9 @@ export default function SaasWelcomePortal({
                         </div>
                     </div>
 
-                    {/* Card de Acesso do Assinante */}
-                    <aside id="login-card">
-                        <form
-                            onSubmit={onSubmit}
+                    {/* Card de Acesso / Ativação Trial 15 dias */}
+                    <aside id="login-card" ref={loginCardRef}>
+                        <div
                             style={{
                                 background: "#131720",
                                 border: "1px solid rgba(238, 240, 245, 0.1)",
@@ -1303,127 +1563,550 @@ export default function SaasWelcomePortal({
                                 gap: 16,
                             }}
                         >
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: "#eef0f5", lineHeight: 1.25 }}>
-                                    Acesso ao terminal
-                                </h2>
-                                <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2" }}>
-                                    Magic Walls · WIN × WDO
-                                </span>
-                            </div>
-
-                            {bannerMsg && (
-                                <div
-                                    data-testid="saas-auth-banner"
-                                    style={{
-                                        padding: "10px 12px",
-                                        borderRadius: 8,
-                                        background: "#261316",
-                                        border: "1px solid rgba(229, 72, 77, 0.36)",
-                                        color: "#fca5a5",
-                                        fontSize: 13,
-                                        lineHeight: 1.45,
-                                    }}
-                                >
-                                    {bannerMsg}
-                                </div>
-                            )}
-
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                <label
-                                    htmlFor="mw-email-input"
-                                    style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}
-                                >
-                                    E-mail da assinatura
-                                </label>
-                                <input
-                                    id="mw-email-input"
-                                    data-testid="saas-email-input"
-                                    type="email"
-                                    required
-                                    autoComplete="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="voce@exemplo.com"
-                                    className="mw-p-input"
-                                />
-                            </div>
-
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                <label
-                                    htmlFor="mw-password-input"
-                                    style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}
-                                >
-                                    Senha
-                                </label>
-                                <div style={{ position: "relative" }}>
-                                    <input
-                                        id="mw-password-input"
-                                        data-testid="saas-password-input"
-                                        type={showPassword ? "text" : "password"}
-                                        required
-                                        autoComplete="current-password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="••••••••"
-                                        className="mw-p-input"
-                                        style={{ paddingRight: 76 }}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPassword((prev) => !prev)}
-                                        style={{
-                                            position: "absolute",
-                                            right: 6,
-                                            top: "50%",
-                                            transform: "translateY(-50%)",
-                                            height: 28,
-                                            padding: "0 8px",
-                                            borderRadius: 6,
-                                            border: "1px solid rgba(238, 240, 245, 0.1)",
-                                            background: "#1b212e",
-                                            color: "#a3a9b8",
-                                            fontFamily: FONT_MONO,
-                                            fontSize: 11,
-                                            fontWeight: 400,
-                                            cursor: "pointer",
-                                        }}
-                                    >
-                                        {showPassword ? "Ocultar" : "Mostrar"}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <button
-                                data-testid="saas-login-btn"
-                                type="submit"
-                                disabled={submitting}
-                                className="mw-p-btn-primary"
-                                style={{ marginTop: 4 }}
-                            >
-                                {submitting ? "Autenticando..." : "Entrar no terminal"}
-                            </button>
-
+                            {/* Seletor de aba: Entrar | Testar 15 dias */}
                             <div
+                                role="tablist"
+                                aria-label="Modo de acesso"
                                 style={{
-                                    borderTop: "1px solid rgba(238, 240, 245, 0.08)",
-                                    paddingTop: 12,
-                                    fontSize: 12,
-                                    color: "#848da2",
-                                    lineHeight: 1.5,
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                                    background: "#0a0c12",
+                                    border: "1px solid rgba(238, 240, 245, 0.08)",
+                                    borderRadius: 8,
+                                    padding: 4,
+                                    gap: 4,
                                 }}
                             >
-                                Sem acesso ou precisa de suporte? Fale em{" "}
-                                <a
-                                    href="https://instagram.com/magicwallsb3"
-                                    target="_blank"
-                                    rel="noreferrer noopener"
-                                    className="mw-p-text-link"
+                                <button
+                                    type="button"
+                                    role="tab"
+                                    data-testid="saas-tab-login"
+                                    aria-selected={authTab === "login"}
+                                    onClick={() => setAuthTab("login")}
+                                    className="mw-p-tab"
+                                    style={{ justifyContent: "center" }}
                                 >
-                                    @magicwallsb3
-                                </a>
+                                    Entrar
+                                </button>
+                                <button
+                                    type="button"
+                                    role="tab"
+                                    data-testid="saas-tab-trial"
+                                    aria-selected={authTab === "trial"}
+                                    onClick={() => setAuthTab("trial")}
+                                    className="mw-p-tab"
+                                    style={{ justifyContent: "center" }}
+                                >
+                                    {acceptingTrials ? `Testar ${trialDays} dias` : "Lista de espera"}
+                                </button>
                             </div>
-                        </form>
+
+                            {authTab === "login" ? (
+                                <form
+                                    onSubmit={onSubmit}
+                                    style={{ display: "flex", flexDirection: "column", gap: 16 }}
+                                >
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: "#eef0f5", lineHeight: 1.25 }}>
+                                            Acesso ao terminal
+                                        </h2>
+                                        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2" }}>
+                                            Magic Walls · WIN × WDO
+                                        </span>
+                                    </div>
+
+                                    {bannerMsg && (
+                                        <div
+                                            data-testid="saas-auth-banner"
+                                            style={{
+                                                padding: "10px 12px",
+                                                borderRadius: 8,
+                                                background: "#261316",
+                                                border: "1px solid rgba(229, 72, 77, 0.36)",
+                                                color: "#fca5a5",
+                                                fontSize: 13,
+                                                lineHeight: 1.45,
+                                            }}
+                                        >
+                                            {bannerMsg}
+                                        </div>
+                                    )}
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        <label
+                                            htmlFor="mw-email-input"
+                                            style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}
+                                        >
+                                            E-mail da assinatura
+                                        </label>
+                                        <input
+                                            id="mw-email-input"
+                                            data-testid="saas-email-input"
+                                            type="email"
+                                            required
+                                            autoComplete="email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            placeholder="voce@exemplo.com"
+                                            className="mw-p-input"
+                                        />
+                                    </div>
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        <label
+                                            htmlFor="mw-password-input"
+                                            style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}
+                                        >
+                                            Senha
+                                        </label>
+                                        <div style={{ position: "relative" }}>
+                                            <input
+                                                id="mw-password-input"
+                                                data-testid="saas-password-input"
+                                                type={showPassword ? "text" : "password"}
+                                                required
+                                                autoComplete="current-password"
+                                                value={password}
+                                                onChange={(e) => setPassword(e.target.value)}
+                                                placeholder="••••••••"
+                                                className="mw-p-input"
+                                                style={{ paddingRight: 76 }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword((prev) => !prev)}
+                                                style={{
+                                                    position: "absolute",
+                                                    right: 6,
+                                                    top: "50%",
+                                                    transform: "translateY(-50%)",
+                                                    height: 28,
+                                                    padding: "0 8px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid rgba(238, 240, 245, 0.1)",
+                                                    background: "#1b212e",
+                                                    color: "#a3a9b8",
+                                                    fontFamily: FONT_MONO,
+                                                    fontSize: 11,
+                                                    fontWeight: 400,
+                                                    cursor: "pointer",
+                                                }}
+                                            >
+                                                {showPassword ? "Ocultar" : "Mostrar"}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        data-testid="saas-login-btn"
+                                        type="submit"
+                                        disabled={submitting}
+                                        className="mw-p-btn-primary"
+                                        style={{ marginTop: 4 }}
+                                    >
+                                        {submitting ? "Autenticando..." : "Entrar no terminal"}
+                                    </button>
+
+                                    <div
+                                        style={{
+                                            borderTop: "1px solid rgba(238, 240, 245, 0.08)",
+                                            paddingTop: 12,
+                                            fontSize: 12,
+                                            color: "#848da2",
+                                            lineHeight: 1.5,
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            gap: 6,
+                                        }}
+                                    >
+                                        <div>
+                                            Ainda não tem acesso?{" "}
+                                            <button
+                                                type="button"
+                                                onClick={() => setAuthTab("trial")}
+                                                style={{
+                                                    background: "none",
+                                                    border: "none",
+                                                    padding: 0,
+                                                    color: "#7dd3fc",
+                                                    fontFamily: FONT_SANS,
+                                                    fontSize: 12,
+                                                    fontWeight: 500,
+                                                    cursor: "pointer",
+                                                }}
+                                            >
+                                                {acceptingTrials ? `Ativar teste de ${trialDays} dias` : "Entrar na lista de espera"}
+                                            </button>
+                                        </div>
+                                        <div>
+                                            Suporte:{" "}
+                                            <a
+                                                href="https://instagram.com/magicwallsb3"
+                                                target="_blank"
+                                                rel="noreferrer noopener"
+                                                className="mw-p-text-link"
+                                            >
+                                                @magicwallsb3
+                                            </a>
+                                        </div>
+                                    </div>
+                                </form>
+                            ) : acceptingTrials ? (
+                                <form
+                                    data-testid="saas-trial-form"
+                                    onSubmit={handleTrialFormSubmit}
+                                    style={{ display: "flex", flexDirection: "column", gap: 14 }}
+                                >
+                                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: "#eef0f5", lineHeight: 1.25 }}>
+                                                Teste grátis por {trialDays} dias
+                                            </h2>
+                                            <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "#848da2" }}>
+                                                Acesso imediato · WIN × WDO
+                                            </span>
+                                        </div>
+                                        {slotsRemaining !== null && (
+                                            <span
+                                                data-testid="trial-slots-badge"
+                                                style={{
+                                                    padding: "2px 8px",
+                                                    borderRadius: 6,
+                                                    background: "#1b212e",
+                                                    border: "1px solid rgba(125, 211, 252, 0.25)",
+                                                    fontFamily: FONT_MONO,
+                                                    fontSize: 11,
+                                                    fontVariantNumeric: "tabular-nums",
+                                                    color: "#7dd3fc",
+                                                    whiteSpace: "nowrap",
+                                                }}
+                                            >
+                                                {slotsRemaining} vagas
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {trialError && (
+                                        <div
+                                            data-testid="trial-error-banner"
+                                            style={{
+                                                padding: "10px 12px",
+                                                borderRadius: 8,
+                                                background: "#261316",
+                                                border: "1px solid rgba(229, 72, 77, 0.36)",
+                                                color: "#fca5a5",
+                                                fontSize: 13,
+                                                lineHeight: 1.45,
+                                            }}
+                                        >
+                                            {trialError}
+                                        </div>
+                                    )}
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        <label htmlFor="mw-trial-name" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                            Nome completo
+                                        </label>
+                                        <input
+                                            ref={trialNameRef}
+                                            id="mw-trial-name"
+                                            data-testid="trial-name-input"
+                                            type="text"
+                                            required
+                                            minLength={3}
+                                            autoComplete="name"
+                                            value={trialName}
+                                            onChange={(e) => setTrialName(e.target.value)}
+                                            placeholder="Seu nome"
+                                            className="mw-p-input"
+                                        />
+                                    </div>
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        <label htmlFor="mw-trial-email" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                            E-mail
+                                        </label>
+                                        <input
+                                            id="mw-trial-email"
+                                            data-testid="trial-email-input"
+                                            type="email"
+                                            required
+                                            autoComplete="email"
+                                            value={trialEmail}
+                                            onChange={(e) => setTrialEmail(e.target.value)}
+                                            placeholder="voce@exemplo.com"
+                                            className="mw-p-input"
+                                        />
+                                    </div>
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        <label htmlFor="mw-trial-phone" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                            WhatsApp (com DDD)
+                                        </label>
+                                        <input
+                                            id="mw-trial-phone"
+                                            data-testid="trial-phone-input"
+                                            type="tel"
+                                            required
+                                            autoComplete="tel"
+                                            value={trialPhone}
+                                            onChange={(e) => setTrialPhone(formatBrPhoneInput(e.target.value))}
+                                            placeholder="(11) 99999-9999"
+                                            className="mw-p-input"
+                                        />
+                                    </div>
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        <label htmlFor="mw-trial-password" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                            Senha de acesso (mín. 8 caracteres)
+                                        </label>
+                                        <div style={{ position: "relative" }}>
+                                            <input
+                                                id="mw-trial-password"
+                                                data-testid="trial-password-input"
+                                                type={showTrialPassword ? "text" : "password"}
+                                                required
+                                                minLength={8}
+                                                autoComplete="new-password"
+                                                value={trialPassword}
+                                                onChange={(e) => setTrialPassword(e.target.value)}
+                                                placeholder="Mínimo 8 caracteres"
+                                                className="mw-p-input"
+                                                style={{ paddingRight: 76 }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowTrialPassword((prev) => !prev)}
+                                                style={{
+                                                    position: "absolute",
+                                                    right: 6,
+                                                    top: "50%",
+                                                    transform: "translateY(-50%)",
+                                                    height: 28,
+                                                    padding: "0 8px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid rgba(238, 240, 245, 0.1)",
+                                                    background: "#1b212e",
+                                                    color: "#a3a9b8",
+                                                    fontFamily: FONT_MONO,
+                                                    fontSize: 11,
+                                                    fontWeight: 400,
+                                                    cursor: "pointer",
+                                                }}
+                                            >
+                                                {showTrialPassword ? "Ocultar" : "Mostrar"}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {(requireInviteCode || trialInviteCode.length > 0) && (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                            <label htmlFor="mw-trial-invite" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                                Código de convite
+                                            </label>
+                                            <input
+                                                id="mw-trial-invite"
+                                                data-testid="trial-invite-input"
+                                                type="text"
+                                                required={requireInviteCode}
+                                                value={trialInviteCode}
+                                                onChange={(e) => setTrialInviteCode(e.target.value.toUpperCase())}
+                                                placeholder="EX: TURMA15"
+                                                className="mw-p-input"
+                                                style={{ fontFamily: FONT_MONO }}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <TurnstileBox
+                                        siteKey={turnstileSiteKey}
+                                        resetKey={turnstileResetKey}
+                                        onToken={setTurnstileToken}
+                                    />
+
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 12, lineHeight: 1.45, color: "#a3a9b8", cursor: "pointer" }}>
+                                            <input
+                                                data-testid="trial-terms-checkbox"
+                                                type="checkbox"
+                                                checked={trialTermsAccepted}
+                                                onChange={(e) => setTrialTermsAccepted(e.target.checked)}
+                                                style={{ marginTop: 2 }}
+                                            />
+                                            <span>
+                                                Aceito os Termos de Uso (software analítico CVM 20, LGPD e licença individual).{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowTermsSummary((s) => !s)}
+                                                    style={{
+                                                        background: "none",
+                                                        border: "none",
+                                                        padding: 0,
+                                                        color: "#7dd3fc",
+                                                        fontFamily: FONT_SANS,
+                                                        fontSize: 12,
+                                                        cursor: "pointer",
+                                                    }}
+                                                >
+                                                    {showTermsSummary ? "Ocultar resumo" : "Ver resumo"}
+                                                </button>
+                                            </span>
+                                        </label>
+
+                                        {showTermsSummary && (
+                                            <div
+                                                style={{
+                                                    padding: 10,
+                                                    borderRadius: 6,
+                                                    background: "#0a0c12",
+                                                    border: "1px solid rgba(238, 240, 245, 0.08)",
+                                                    fontSize: 11.5,
+                                                    lineHeight: 1.5,
+                                                    color: "#848da2",
+                                                }}
+                                            >
+                                                1. Software estritamente analítico/educacional (CVM 20/2021), sem recomendação de compra ou venda. 2. Risco elevado em futuros. 3. Sessão única por usuário com marca d&apos;água forense.
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        data-testid="trial-submit-btn"
+                                        type="submit"
+                                        disabled={trialSubmitting}
+                                        className="mw-p-btn-primary"
+                                    >
+                                        {trialSubmitting ? "Ativando acesso..." : `Ativar ${trialDays} dias grátis`}
+                                    </button>
+                                </form>
+                            ) : (
+                                <form
+                                    data-testid="saas-waitlist-form"
+                                    onSubmit={handleWaitlistFormSubmit}
+                                    style={{ display: "flex", flexDirection: "column", gap: 14 }}
+                                >
+                                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 500, color: "#eef0f5", lineHeight: 1.25 }}>
+                                                Lista de espera · Nova turma
+                                            </h2>
+                                            <span style={{ fontSize: 12.5, color: "#a3a9b8", lineHeight: 1.45 }}>
+                                                As vagas deste lote foram preenchidas. Avise-me assim que liberar.
+                                            </span>
+                                        </div>
+                                        <span
+                                            style={{
+                                                padding: "2px 8px",
+                                                borderRadius: 6,
+                                                background: "#211d17",
+                                                border: "1px solid rgba(212, 162, 89, 0.3)",
+                                                fontFamily: FONT_MONO,
+                                                fontSize: 11,
+                                                color: "#d4a259",
+                                                whiteSpace: "nowrap",
+                                            }}
+                                        >
+                                            Lote cheio
+                                        </span>
+                                    </div>
+
+                                    {wlError && (
+                                        <div
+                                            data-testid="waitlist-error-banner"
+                                            style={{
+                                                padding: "10px 12px",
+                                                borderRadius: 8,
+                                                background: "#261316",
+                                                border: "1px solid rgba(229, 72, 77, 0.36)",
+                                                color: "#fca5a5",
+                                                fontSize: 13,
+                                                lineHeight: 1.45,
+                                            }}
+                                        >
+                                            {wlError}
+                                        </div>
+                                    )}
+
+                                    {wlSuccess ? (
+                                        <div
+                                            data-testid="waitlist-success-banner"
+                                            style={{
+                                                padding: 14,
+                                                borderRadius: 8,
+                                                background: "#10231b",
+                                                border: "1px solid rgba(76, 195, 138, 0.36)",
+                                                color: "#4cc38a",
+                                                fontSize: 13,
+                                                lineHeight: 1.55,
+                                            }}
+                                        >
+                                            Contato salvo na lista de espera. Avisaremos pelo WhatsApp e e-mail na próxima abertura de vagas.
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                <label htmlFor="mw-wl-name" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                                    Nome completo
+                                                </label>
+                                                <input
+                                                    id="mw-wl-name"
+                                                    data-testid="waitlist-name-input"
+                                                    type="text"
+                                                    required
+                                                    value={wlName}
+                                                    onChange={(e) => setWlName(e.target.value)}
+                                                    placeholder="Seu nome"
+                                                    className="mw-p-input"
+                                                />
+                                            </div>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                <label htmlFor="mw-wl-email" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                                    E-mail
+                                                </label>
+                                                <input
+                                                    id="mw-wl-email"
+                                                    data-testid="waitlist-email-input"
+                                                    type="email"
+                                                    required
+                                                    value={wlEmail}
+                                                    onChange={(e) => setWlEmail(e.target.value)}
+                                                    placeholder="voce@exemplo.com"
+                                                    className="mw-p-input"
+                                                />
+                                            </div>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                                <label htmlFor="mw-wl-phone" style={{ fontSize: 12, fontWeight: 500, color: "#a3a9b8" }}>
+                                                    WhatsApp (com DDD)
+                                                </label>
+                                                <input
+                                                    id="mw-wl-phone"
+                                                    data-testid="waitlist-phone-input"
+                                                    type="tel"
+                                                    required
+                                                    value={wlPhone}
+                                                    onChange={(e) => setWlPhone(formatBrPhoneInput(e.target.value))}
+                                                    placeholder="(11) 99999-9999"
+                                                    className="mw-p-input"
+                                                />
+                                            </div>
+                                            <TurnstileBox
+                                                siteKey={turnstileSiteKey}
+                                                resetKey={turnstileResetKey}
+                                                onToken={setTurnstileToken}
+                                            />
+                                            <button
+                                                data-testid="waitlist-submit-btn"
+                                                type="submit"
+                                                disabled={wlSubmitting}
+                                                className="mw-p-btn-primary"
+                                            >
+                                                {wlSubmitting ? "Enviando..." : "Entrar na lista de espera"}
+                                            </button>
+                                        </>
+                                    )}
+                                </form>
+                            )}
+                        </div>
                     </aside>
                 </section>
 
@@ -1468,22 +2151,24 @@ export default function SaasWelcomePortal({
                             <button
                                 type="button"
                                 role="tab"
+                                data-testid="regime-tab-positive"
                                 aria-selected={regimeMode === "positive"}
                                 onClick={() => handleRegimeChange("positive")}
                                 className="mw-p-tab"
                             >
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4cc38a" }} />
-                                <span>Gamma positivo</span>
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4cc38a", pointerEvents: "none" }} />
+                                <span style={{ pointerEvents: "none" }}>Gamma positivo</span>
                             </button>
                             <button
                                 type="button"
                                 role="tab"
+                                data-testid="regime-tab-negative"
                                 aria-selected={regimeMode === "negative"}
                                 onClick={() => handleRegimeChange("negative")}
                                 className="mw-p-tab"
                             >
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#e5484d" }} />
-                                <span>Gamma negativo</span>
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#e5484d", pointerEvents: "none" }} />
+                                <span style={{ pointerEvents: "none" }}>Gamma negativo</span>
                             </button>
                         </div>
                     </div>
@@ -2411,31 +3096,34 @@ export default function SaasWelcomePortal({
                         >
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                 <h3 style={{ margin: 0, fontSize: 16, fontWeight: 500, color: "#eef0f5" }}>
-                                    Quer contratar ou conhecer o terminal?
+                                    {acceptingTrials
+                                        ? `Teste o terminal por ${trialDays} dias no pregão real`
+                                        : "Entre na lista de espera da próxima turma"}
                                 </h3>
                                 <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: "#a3a9b8" }}>
-                                    Fale diretamente com nossa equipe pelo Instagram oficial{" "}
-                                    <span style={{ color: "#eef0f5", fontFamily: FONT_MONO }}>@magicwallsb3</span> para liberar seu acesso ao terminal ou acompanhar os estudos de pregão.
+                                    Ativação imediata com acesso ao painel WIN × WDO em tempo real, níveis diários de GEX e Fluxo Smart Money com marcação de divergências.
                                 </p>
                             </div>
 
                             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                <button
+                                    type="button"
+                                    data-testid="portal-cta-trial"
+                                    onClick={goToTrialForm}
+                                    className="mw-p-btn-primary"
+                                >
+                                    <span>{acceptingTrials ? `Ativar ${trialDays} dias grátis` : "Entrar na lista de espera"}</span>
+                                </button>
+
                                 <a
                                     href="https://instagram.com/magicwallsb3"
                                     target="_blank"
                                     rel="noreferrer noopener"
-                                    className="mw-p-btn-primary"
-                                >
-                                    <span>Falar no @magicwallsb3</span>
-                                    <IconArrowUpRight />
-                                </a>
-
-                                <a
-                                    href="#login-card"
                                     className="mw-p-btn-secondary"
                                     style={{ height: 40 }}
                                 >
-                                    Já sou assinante · Ir para o login
+                                    <span>Falar no @magicwallsb3</span>
+                                    <IconArrowUpRight />
                                 </a>
                             </div>
                         </div>

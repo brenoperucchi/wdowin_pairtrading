@@ -3,17 +3,30 @@
 -- O backend FastAPI (cloud_saas) conecta exclusivamente via PostgREST usando SUPABASE_SERVICE_ROLE_KEY.
 
 CREATE TABLE IF NOT EXISTS profiles (
-    id              BIGSERIAL PRIMARY KEY,
-    email           TEXT NOT NULL UNIQUE,
-    password_hash   TEXT NOT NULL,
-    full_name       TEXT NOT NULL DEFAULT '',
-    cpf_masked      TEXT NOT NULL DEFAULT '',
-    role            TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'admin')),
-    is_blocked      BOOLEAN NOT NULL DEFAULT FALSE,
-    blocked_reason  TEXT NOT NULL DEFAULT '',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_login_at   TIMESTAMPTZ
+    id                 BIGSERIAL PRIMARY KEY,
+    email              TEXT NOT NULL UNIQUE,
+    password_hash      TEXT NOT NULL,
+    full_name          TEXT NOT NULL DEFAULT '',
+    cpf_masked         TEXT NOT NULL DEFAULT '',
+    phone              TEXT NOT NULL DEFAULT '',
+    email_canonical    TEXT NOT NULL DEFAULT '',
+    trial_started_at   TIMESTAMPTZ,
+    acquisition_source TEXT NOT NULL DEFAULT '',
+    acquisition_meta   JSONB NOT NULL DEFAULT '{}'::jsonb,
+    role               TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'admin')),
+    is_blocked         BOOLEAN NOT NULL DEFAULT FALSE,
+    blocked_reason     TEXT NOT NULL DEFAULT '',
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_login_at      TIMESTAMPTZ
 );
+
+CREATE INDEX IF NOT EXISTS idx_profiles_email_canonical
+    ON profiles (email_canonical)
+    WHERE email_canonical <> '';
+
+CREATE INDEX IF NOT EXISTS idx_profiles_phone
+    ON profiles (phone)
+    WHERE phone <> '';
 
 CREATE TABLE IF NOT EXISTS subscriptions (
     id                BIGSERIAL PRIMARY KEY,
@@ -89,6 +102,27 @@ CREATE TABLE IF NOT EXISTS producer_heartbeats (
     status        TEXT NOT NULL DEFAULT 'online'
 );
 
+CREATE TABLE IF NOT EXISTS trial_invites (
+    code        TEXT PRIMARY KEY,
+    label       TEXT NOT NULL DEFAULT '',
+    trial_days  INTEGER NOT NULL DEFAULT 15,
+    max_uses    INTEGER,
+    used_count  INTEGER NOT NULL DEFAULT 0,
+    expires_at  TIMESTAMPTZ,
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS waitlist_leads (
+    id          BIGSERIAL PRIMARY KEY,
+    email       TEXT NOT NULL UNIQUE,
+    full_name   TEXT NOT NULL DEFAULT '',
+    phone       TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT '',
+    meta        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Segurança Supabase: habilita Row Level Security em todas as tabelas.
 -- Acessos públicos via anon key ficam bloqueados; a Cloud API usa SUPABASE_SERVICE_ROLE_KEY no servidor.
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
@@ -97,3 +131,5 @@ ALTER TABLE active_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE terms_acceptance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE producer_heartbeats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trial_invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE waitlist_leads ENABLE ROW LEVEL SECURITY;

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import math
 import os
 import secrets
 import sqlite3
@@ -19,7 +20,7 @@ from typing import Any, Optional, Sequence
 
 import httpx
 
-from cloud_saas.security import hash_password
+from cloud_saas.security import canonicalize_email, hash_password
 
 
 def utc_now_iso() -> str:
@@ -48,6 +49,190 @@ def _clean_fp(device_fp: str) -> str:
 
 def _clean_ua(user_agent: str) -> str:
     return (user_agent or "").strip()[:240]
+
+
+def _parse_iso_dt_utc(raw: Optional[str]) -> Optional[datetime]:
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _parse_json_obj(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def compute_days_left(expires_at: Optional[str], now_utc: Optional[datetime] = None) -> Optional[int]:
+    exp = _parse_iso_dt_utc(expires_at)
+    if exp is None:
+        return None
+    now = now_utc or datetime.now(timezone.utc)
+    diff = (exp - now).total_seconds()
+    if diff <= 0:
+        return 0
+    return int(math.ceil(diff / 86400.0))
+
+
+def _compute_recent_trial_counts(
+    rows: Sequence[dict[str, Any]],
+    ip: str,
+    device_fp: str,
+    now_utc: Optional[datetime] = None,
+) -> dict[str, int]:
+    now = now_utc or datetime.now(timezone.utc)
+    cutoff_24h = now - timedelta(hours=24)
+    cutoff_30d = now - timedelta(days=30)
+    clean_ip = _clean_ip(ip)
+    clean_fp = _clean_fp(device_fp)
+    check_ip = clean_ip not in ("", "unknown")
+    check_fp = clean_fp not in ("", "unknown", "browser-default", "mwfp_fallback")
+
+    ip_24h = 0
+    fp_30d = 0
+    for row in rows:
+        dt = _parse_iso_dt_utc(row.get("created_at"))
+        if dt is None or dt < cutoff_30d:
+            continue
+        if check_ip and dt >= cutoff_24h and str(row.get("ip") or "") == clean_ip:
+            ip_24h += 1
+        if check_fp and str(row.get("device_fp") or "") == clean_fp:
+            fp_30d += 1
+    return {"ip_24h": ip_24h, "fp_30d": fp_30d}
+
+
+def _build_trials_report_from_rows(
+    profiles: Sequence[dict[str, Any]],
+    subs: Sequence[dict[str, Any]],
+    waitlist: Sequence[dict[str, Any]],
+    invites: Sequence[dict[str, Any]],
+    conversion_intents_count: int,
+    now_utc: Optional[datetime] = None,
+) -> dict[str, Any]:
+    now = now_utc or datetime.now(timezone.utc)
+    sub_by_uid = {int(s["user_id"]): s for s in subs if s.get("user_id") is not None}
+
+    trials_out: list[dict[str, Any]] = []
+    total_trials = 0
+    active_trials = 0
+    expiring_3d = 0
+    expired_trials = 0
+    converted_trials = 0
+    never_logged_in = 0
+
+    for p in profiles:
+        uid = int(p["id"])
+        s = sub_by_uid.get(uid) or {}
+        plan = str(s.get("plan") or "none").lower()
+        trial_started = p.get("trial_started_at")
+        if plan != "trial" and not trial_started:
+            continue
+
+        total_trials += 1
+        is_blocked = bool(p.get("is_blocked"))
+        raw_status = str(s.get("status") or "suspended").lower()
+        effective_status = "blocked" if is_blocked else raw_status
+        expires_at = s.get("expires_at")
+        exp_dt = _parse_iso_dt_utc(expires_at)
+        days_left = compute_days_left(expires_at, now_utc=now)
+        is_expired = exp_dt is not None and now > exp_dt
+        converted = plan not in ("none", "trial")
+        is_active_trial = (
+            plan == "trial"
+            and effective_status == "active"
+            and not is_expired
+        )
+
+        if converted:
+            converted_trials += 1
+        elif is_active_trial:
+            active_trials += 1
+            if days_left is not None and days_left <= 3:
+                expiring_3d += 1
+        else:
+            expired_trials += 1
+
+        if not p.get("last_login_at"):
+            never_logged_in += 1
+
+        trials_out.append(
+            {
+                "id": uid,
+                "email": p.get("email") or "",
+                "full_name": p.get("full_name") or "",
+                "phone": p.get("phone") or "",
+                "plan": plan,
+                "status": "expired" if (plan == "trial" and effective_status == "active" and is_expired) else effective_status,
+                "is_active_trial": is_active_trial,
+                "converted": converted,
+                "expires_at": expires_at,
+                "days_left": days_left,
+                "trial_started_at": trial_started or p.get("created_at"),
+                "last_login_at": p.get("last_login_at"),
+                "acquisition_source": p.get("acquisition_source") or "",
+                "acquisition_meta": _parse_json_obj(p.get("acquisition_meta")),
+                "gateway": s.get("gateway") or "",
+                "created_at": p.get("created_at"),
+            }
+        )
+
+    trials_out.sort(key=lambda item: int(item["id"]), reverse=True)
+    waitlist_out = [
+        {
+            "id": w.get("id"),
+            "email": w.get("email") or "",
+            "full_name": w.get("full_name") or "",
+            "phone": w.get("phone") or "",
+            "source": w.get("source") or "",
+            "meta": _parse_json_obj(w.get("meta")),
+            "created_at": w.get("created_at"),
+        }
+        for w in waitlist
+    ]
+    invites_out = [
+        {
+            "code": inv.get("code") or "",
+            "label": inv.get("label") or "",
+            "trial_days": int(inv.get("trial_days") or 15),
+            "max_uses": int(inv["max_uses"]) if inv.get("max_uses") is not None else None,
+            "used_count": int(inv.get("used_count") or 0),
+            "expires_at": inv.get("expires_at"),
+            "is_active": bool(inv.get("is_active", True)),
+            "created_at": inv.get("created_at"),
+        }
+        for inv in invites
+    ]
+
+    return {
+        "summary": {
+            "total_trials": total_trials,
+            "active_trials": active_trials,
+            "expiring_3d": expiring_3d,
+            "expired_trials": expired_trials,
+            "converted_trials": converted_trials,
+            "never_logged_in": never_logged_in,
+            "waitlist_count": len(waitlist_out),
+            "conversion_intents_count": int(conversion_intents_count),
+        },
+        "trials": trials_out,
+        "waitlist": waitlist_out,
+        "invites": invites_out,
+    }
 
 
 def _resolve_mt5_token(
@@ -111,6 +296,11 @@ def _compose_user_dict(
         "password_hash": profile["password_hash"],
         "full_name": profile.get("full_name") or "",
         "cpf_masked": profile.get("cpf_masked") or "",
+        "phone": profile.get("phone") or "",
+        "email_canonical": profile.get("email_canonical") or "",
+        "trial_started_at": profile.get("trial_started_at"),
+        "acquisition_source": profile.get("acquisition_source") or "",
+        "acquisition_meta": _parse_json_obj(profile.get("acquisition_meta")),
         "role": profile.get("role") or "member",
         "is_blocked": is_blocked,
         "blocked_reason": profile.get("blocked_reason") or "",
@@ -253,6 +443,75 @@ class BaseDatabase:
     def get_admin_overview(self) -> dict[str, Any]:
         raise NotImplementedError
 
+    def get_user_by_canonical_email(self, email_canonical: str) -> Optional[dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_user_by_phone(self, phone: str) -> Optional[dict[str, Any]]:
+        raise NotImplementedError
+
+    def count_active_trials(self) -> int:
+        raise NotImplementedError
+
+    def count_recent_trial_registrations(self, ip: str, device_fp: str) -> dict[str, int]:
+        raise NotImplementedError
+
+    def create_trial_user(
+        self,
+        email: str,
+        email_canonical: str,
+        password: str,
+        full_name: str,
+        phone: str,
+        trial_days: int,
+        terms_version: str,
+        ip: str,
+        user_agent: str = "",
+        acquisition_source: str = "",
+        acquisition_meta: Optional[dict[str, Any]] = None,
+        gateway: str = "trial_self_serve",
+        external_sub_id: str = "",
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def extend_user_subscription(self, user_id: int, extra_days: int) -> Optional[dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_invite(self, code: str) -> Optional[dict[str, Any]]:
+        raise NotImplementedError
+
+    def increment_invite_usage(self, code: str) -> None:
+        raise NotImplementedError
+
+    def upsert_invite(
+        self,
+        code: str,
+        label: str = "",
+        trial_days: int = 15,
+        max_uses: Optional[int] = None,
+        expires_at: Optional[str] = None,
+        is_active: bool = True,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def list_invites(self) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def upsert_waitlist_lead(
+        self,
+        email: str,
+        full_name: str = "",
+        phone: str = "",
+        source: str = "",
+        meta: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def list_waitlist_leads(self, limit: int = 200) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_admin_trials_report(self) -> dict[str, Any]:
+        raise NotImplementedError
+
 
 class SQLiteDatabase(BaseDatabase):
     """Repositório SQLite local com schema espelho 5+1 do Supabase para dev/testes."""
@@ -285,6 +544,11 @@ class SQLiteDatabase(BaseDatabase):
                     password_hash TEXT NOT NULL,
                     full_name TEXT NOT NULL DEFAULT '',
                     cpf_masked TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    email_canonical TEXT NOT NULL DEFAULT '',
+                    trial_started_at TEXT,
+                    acquisition_source TEXT NOT NULL DEFAULT '',
+                    acquisition_meta TEXT NOT NULL DEFAULT '{}',
                     role TEXT NOT NULL DEFAULT 'member',
                     is_blocked INTEGER NOT NULL DEFAULT 0,
                     blocked_reason TEXT NOT NULL DEFAULT '',
@@ -365,7 +629,50 @@ class SQLiteDatabase(BaseDatabase):
                     payload_bytes INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL DEFAULT 'online'
                 );
+
+                CREATE TABLE IF NOT EXISTS trial_invites (
+                    code TEXT PRIMARY KEY,
+                    label TEXT NOT NULL DEFAULT '',
+                    trial_days INTEGER NOT NULL DEFAULT 15,
+                    max_uses INTEGER,
+                    used_count INTEGER NOT NULL DEFAULT 0,
+                    expires_at TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS waitlist_leads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT '',
+                    meta TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
                 """
+            )
+            existing_cols = {
+                str(r["name"]) for r in self._conn.execute("PRAGMA table_info(profiles)").fetchall()
+            }
+            alter_specs = [
+                ("phone", "TEXT NOT NULL DEFAULT ''"),
+                ("email_canonical", "TEXT NOT NULL DEFAULT ''"),
+                ("trial_started_at", "TEXT"),
+                ("acquisition_source", "TEXT NOT NULL DEFAULT ''"),
+                ("acquisition_meta", "TEXT NOT NULL DEFAULT '{}'"),
+            ]
+            for col_name, col_def in alter_specs:
+                if col_name not in existing_cols:
+                    self._conn.execute(f"ALTER TABLE profiles ADD COLUMN {col_name} {col_def}")
+            self._conn.execute(
+                "UPDATE profiles SET email_canonical = lower(trim(email)) WHERE email_canonical = ''"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_profiles_email_canonical ON profiles(email_canonical)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_profiles_phone ON profiles(phone)"
             )
             self._conn.commit()
 
@@ -440,11 +747,11 @@ class SQLiteDatabase(BaseDatabase):
                 cur = self._conn.execute(
                     """
                     INSERT INTO profiles (
-                        email, password_hash, full_name, cpf_masked, role, is_blocked,
+                        email, email_canonical, password_hash, full_name, cpf_masked, role, is_blocked,
                         blocked_reason, created_at, last_login_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (clean_email, hash_password(pw), full_name, cpf_masked, role, is_blocked, blocked_reason, now, None),
+                    (clean_email, canonicalize_email(clean_email), hash_password(pw), full_name, cpf_masked, role, is_blocked, blocked_reason, now, None),
                 )
                 uid = int(cur.lastrowid)
                 self._conn.execute(
@@ -852,6 +1159,274 @@ class SQLiteDatabase(BaseDatabase):
                 ],
                 "producers": [dict(r) for r in hb_rows],
             }
+
+    def get_user_by_canonical_email(self, email_canonical: str) -> Optional[dict[str, Any]]:
+        clean = (email_canonical or "").strip().lower()
+        if not clean:
+            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM profiles WHERE email_canonical = ? LIMIT 1",
+                (clean,),
+            ).fetchone()
+            if row is not None:
+                return self._hydrate_user(row)
+            all_rows = self._conn.execute("SELECT * FROM profiles").fetchall()
+            for r in all_rows:
+                if canonicalize_email(str(r["email"] or "")) == clean:
+                    return self._hydrate_user(r)
+            return None
+
+    def get_user_by_phone(self, phone: str) -> Optional[dict[str, Any]]:
+        clean = (phone or "").strip()
+        if not clean:
+            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM profiles WHERE phone = ? LIMIT 1",
+                (clean,),
+            ).fetchone()
+            return self._hydrate_user(row)
+
+    def count_active_trials(self) -> int:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT s.expires_at
+                FROM subscriptions s
+                JOIN profiles p ON p.id = s.user_id
+                WHERE s.plan = 'trial' AND s.status = 'active' AND p.is_blocked = 0
+                """
+            ).fetchall()
+            active = 0
+            for r in rows:
+                exp = _parse_iso_dt_utc(r["expires_at"])
+                if exp is None or exp > now:
+                    active += 1
+            return active
+
+    def count_recent_trial_registrations(self, ip: str, device_fp: str) -> dict[str, int]:
+        cutoff_30d = (datetime.now(timezone.utc) - timedelta(days=30)).replace(microsecond=0).isoformat()
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT ip, device_fp, created_at
+                FROM audit_logs
+                WHERE event_type = 'TRIAL_ACTIVATED' AND created_at >= ?
+                """,
+                (cutoff_30d,),
+            ).fetchall()
+            return _compute_recent_trial_counts([dict(r) for r in rows], ip, device_fp)
+
+    def create_trial_user(
+        self,
+        email: str,
+        email_canonical: str,
+        password: str,
+        full_name: str,
+        phone: str,
+        trial_days: int,
+        terms_version: str,
+        ip: str,
+        user_agent: str = "",
+        acquisition_source: str = "",
+        acquisition_meta: Optional[dict[str, Any]] = None,
+        gateway: str = "trial_self_serve",
+        external_sub_id: str = "",
+    ) -> dict[str, Any]:
+        clean_email = email.strip().lower()
+        clean_canon = (email_canonical or canonicalize_email(clean_email)).strip().lower()
+        now_dt = datetime.now(timezone.utc).replace(microsecond=0)
+        now = now_dt.isoformat()
+        expires_at = (now_dt + timedelta(days=max(1, int(trial_days)))).isoformat()
+        meta_json = json.dumps(acquisition_meta or {}, ensure_ascii=False, separators=(",", ":"))
+        clean_ip = _clean_ip(ip)
+        clean_ua = _clean_ua(user_agent)
+
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO profiles (
+                    email, password_hash, full_name, cpf_masked, phone, email_canonical,
+                    trial_started_at, acquisition_source, acquisition_meta,
+                    role, is_blocked, blocked_reason, created_at, last_login_at
+                ) VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'member', 0, '', ?, ?)
+                """,
+                (
+                    clean_email,
+                    hash_password(password),
+                    full_name.strip()[:160],
+                    phone.strip()[:32],
+                    clean_canon,
+                    now,
+                    acquisition_source.strip()[:120],
+                    meta_json,
+                    now,
+                    now,
+                ),
+            )
+            uid = int(cur.lastrowid)
+            self._conn.execute(
+                """
+                INSERT INTO subscriptions (
+                    user_id, plan, status, expires_at, gateway, external_sub_id,
+                    mt5_account_login, mt5_license_token, updated_at
+                ) VALUES (?, 'trial', 'active', ?, ?, ?, NULL, '', ?)
+                """,
+                (uid, expires_at, gateway[:64], external_sub_id[:128], now),
+            )
+            if terms_version:
+                self._conn.execute(
+                    """
+                    INSERT INTO terms_acceptance (user_id, terms_version, ip, user_agent, accepted_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, terms_version) DO UPDATE SET
+                        ip = excluded.ip,
+                        user_agent = excluded.user_agent,
+                        accepted_at = excluded.accepted_at
+                    """,
+                    (uid, terms_version, clean_ip, clean_ua, now),
+                )
+            self._conn.commit()
+            return self.get_user_by_id(uid)  # type: ignore[return-value]
+
+    def extend_user_subscription(self, user_id: int, extra_days: int) -> Optional[dict[str, Any]]:
+        uid = int(user_id)
+        with self._lock:
+            existing = self.get_user_by_id(uid)
+            if not existing:
+                return None
+            now_dt = datetime.now(timezone.utc).replace(microsecond=0)
+            curr_exp = _parse_iso_dt_utc(existing.get("expires_at"))
+            base_dt = curr_exp if (curr_exp is not None and curr_exp > now_dt) else now_dt
+            new_exp = (base_dt + timedelta(days=max(1, int(extra_days)))).isoformat()
+            new_status = existing["status"] if existing.get("is_blocked") else "active"
+            self._conn.execute(
+                "UPDATE subscriptions SET expires_at = ?, status = ?, updated_at = ? WHERE user_id = ?",
+                (new_exp, new_status, now_dt.isoformat(), uid),
+            )
+            self._conn.commit()
+            return self.get_user_by_id(uid)
+
+    def get_invite(self, code: str) -> Optional[dict[str, Any]]:
+        clean = (code or "").strip().upper()
+        if not clean:
+            return None
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM trial_invites WHERE code = ? LIMIT 1", (clean,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["is_active"] = bool(d.get("is_active"))
+            return d
+
+    def increment_invite_usage(self, code: str) -> None:
+        clean = (code or "").strip().upper()
+        if not clean:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE trial_invites SET used_count = used_count + 1 WHERE code = ?",
+                (clean,),
+            )
+            self._conn.commit()
+
+    def upsert_invite(
+        self,
+        code: str,
+        label: str = "",
+        trial_days: int = 15,
+        max_uses: Optional[int] = None,
+        expires_at: Optional[str] = None,
+        is_active: bool = True,
+    ) -> dict[str, Any]:
+        clean = code.strip().upper()[:64]
+        now = utc_now_iso()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO trial_invites (code, label, trial_days, max_uses, used_count, expires_at, is_active, created_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+                ON CONFLICT(code) DO UPDATE SET
+                    label = excluded.label,
+                    trial_days = excluded.trial_days,
+                    max_uses = excluded.max_uses,
+                    expires_at = excluded.expires_at,
+                    is_active = excluded.is_active
+                """,
+                (clean, label[:160], int(trial_days), max_uses, expires_at, 1 if is_active else 0, now),
+            )
+            self._conn.commit()
+            return self.get_invite(clean)  # type: ignore[return-value]
+
+    def list_invites(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM trial_invites ORDER BY created_at DESC").fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["is_active"] = bool(d.get("is_active"))
+                out.append(d)
+            return out
+
+    def upsert_waitlist_lead(
+        self,
+        email: str,
+        full_name: str = "",
+        phone: str = "",
+        source: str = "",
+        meta: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        clean_email = email.strip().lower()
+        now = utc_now_iso()
+        meta_json = json.dumps(meta or {}, ensure_ascii=False, separators=(",", ":"))
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO waitlist_leads (email, full_name, phone, source, meta, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(email) DO UPDATE SET
+                    full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE waitlist_leads.full_name END,
+                    phone = CASE WHEN excluded.phone != '' THEN excluded.phone ELSE waitlist_leads.phone END,
+                    source = CASE WHEN excluded.source != '' THEN excluded.source ELSE waitlist_leads.source END,
+                    meta = excluded.meta
+                """,
+                (clean_email, full_name.strip()[:160], phone.strip()[:32], source.strip()[:120], meta_json, now),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM waitlist_leads WHERE email = ? LIMIT 1",
+                (clean_email,),
+            ).fetchone()
+            d = dict(row) if row else {"email": clean_email}
+            d["meta"] = _parse_json_obj(d.get("meta"))
+            return d
+
+    def list_waitlist_leads(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM waitlist_leads ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["meta"] = _parse_json_obj(d.get("meta"))
+                out.append(d)
+            return out
+
+    def get_admin_trials_report(self) -> dict[str, Any]:
+        with self._lock:
+            profiles = [dict(r) for r in self._conn.execute("SELECT * FROM profiles ORDER BY id DESC").fetchall()]
+            subs = [dict(r) for r in self._conn.execute("SELECT * FROM subscriptions").fetchall()]
+            waitlist = self.list_waitlist_leads(limit=500)
+            invites = self.list_invites()
+            row_ci = self._conn.execute(
+                "SELECT COUNT(*) AS cnt FROM audit_logs WHERE event_type = 'TRIAL_CONVERSION_INTENT'"
+            ).fetchone()
+            ci_count = int(row_ci["cnt"]) if row_ci else 0
+            return _build_trials_report_from_rows(profiles, subs, waitlist, invites, ci_count)
 
 
 def build_supabase_headers(api_key: str) -> dict[str, str]:
@@ -1370,6 +1945,278 @@ class SupabaseRestDatabase(BaseDatabase):
             "open_abuse_flags": flags_out,
             "producers": hbs,
         }
+
+    def get_user_by_canonical_email(self, email_canonical: str) -> Optional[dict[str, Any]]:
+        clean = (email_canonical or "").strip().lower()
+        if not clean:
+            return None
+        rows = self._get("profiles", {"email_canonical": f"eq.{clean}", "limit": "1"})
+        if rows:
+            return self._hydrate_profile(rows[0])
+        return self.get_user_by_email(clean)
+
+    def get_user_by_phone(self, phone: str) -> Optional[dict[str, Any]]:
+        clean = (phone or "").strip()
+        if not clean:
+            return None
+        rows = self._get("profiles", {"phone": f"eq.{clean}", "limit": "1"})
+        return self._hydrate_profile(rows[0] if rows else None)
+
+    def count_active_trials(self) -> int:
+        now = datetime.now(timezone.utc)
+        subs = self._get(
+            "subscriptions",
+            {"select": "user_id,expires_at", "plan": "eq.trial", "status": "eq.active"},
+        )
+        if not subs:
+            return 0
+        blocked_rows = self._get("profiles", {"select": "id", "is_blocked": "eq.true"})
+        blocked_ids = {int(r["id"]) for r in blocked_rows if r.get("id") is not None}
+        active = 0
+        for s in subs:
+            uid = s.get("user_id")
+            if uid is not None and int(uid) in blocked_ids:
+                continue
+            exp = _parse_iso_dt_utc(s.get("expires_at"))
+            if exp is None or exp > now:
+                active += 1
+        return active
+
+    def count_recent_trial_registrations(self, ip: str, device_fp: str) -> dict[str, int]:
+        rows = self._get(
+            "audit_logs",
+            {
+                "select": "ip,device_fp,created_at",
+                "event_type": "eq.TRIAL_ACTIVATED",
+                "order": "id.desc",
+                "limit": "500",
+            },
+        )
+        return _compute_recent_trial_counts(rows, ip, device_fp)
+
+    def create_trial_user(
+        self,
+        email: str,
+        email_canonical: str,
+        password: str,
+        full_name: str,
+        phone: str,
+        trial_days: int,
+        terms_version: str,
+        ip: str,
+        user_agent: str = "",
+        acquisition_source: str = "",
+        acquisition_meta: Optional[dict[str, Any]] = None,
+        gateway: str = "trial_self_serve",
+        external_sub_id: str = "",
+    ) -> dict[str, Any]:
+        clean_email = email.strip().lower()
+        clean_canon = (email_canonical or canonicalize_email(clean_email)).strip().lower()
+        now_dt = datetime.now(timezone.utc).replace(microsecond=0)
+        now = now_dt.isoformat()
+        expires_at = (now_dt + timedelta(days=max(1, int(trial_days)))).isoformat()
+        clean_ip = _clean_ip(ip)
+        clean_ua = _clean_ua(user_agent)
+
+        prof_rows = self._post(
+            "profiles",
+            {
+                "email": clean_email,
+                "password_hash": hash_password(password),
+                "full_name": full_name.strip()[:160],
+                "cpf_masked": "",
+                "phone": phone.strip()[:32],
+                "email_canonical": clean_canon,
+                "trial_started_at": now,
+                "acquisition_source": acquisition_source.strip()[:120],
+                "acquisition_meta": acquisition_meta or {},
+                "role": "member",
+                "is_blocked": False,
+                "blocked_reason": "",
+                "created_at": now,
+                "last_login_at": now,
+            },
+        )
+        uid = int(prof_rows[0]["id"])
+        self._post(
+            "subscriptions",
+            {
+                "user_id": uid,
+                "plan": "trial",
+                "status": "active",
+                "expires_at": expires_at,
+                "gateway": gateway[:64],
+                "external_sub_id": external_sub_id[:128],
+                "mt5_account_login": None,
+                "mt5_license_token": "",
+                "updated_at": now,
+            },
+            params={"on_conflict": "user_id"},
+            prefer="resolution=merge-duplicates,return=representation",
+        )
+        if terms_version:
+            self._post(
+                "terms_acceptance",
+                {
+                    "user_id": uid,
+                    "terms_version": terms_version,
+                    "ip": clean_ip,
+                    "user_agent": clean_ua,
+                    "accepted_at": now,
+                },
+                params={"on_conflict": "user_id,terms_version"},
+                prefer="resolution=merge-duplicates,return=representation",
+            )
+        return self.get_user_by_id(uid)  # type: ignore[return-value]
+
+    def extend_user_subscription(self, user_id: int, extra_days: int) -> Optional[dict[str, Any]]:
+        uid = int(user_id)
+        existing = self.get_user_by_id(uid)
+        if not existing:
+            return None
+        now_dt = datetime.now(timezone.utc).replace(microsecond=0)
+        curr_exp = _parse_iso_dt_utc(existing.get("expires_at"))
+        base_dt = curr_exp if (curr_exp is not None and curr_exp > now_dt) else now_dt
+        new_exp = (base_dt + timedelta(days=max(1, int(extra_days)))).isoformat()
+        patch_body: dict[str, Any] = {"expires_at": new_exp, "updated_at": now_dt.isoformat()}
+        if not existing.get("is_blocked"):
+            patch_body["status"] = "active"
+        self._patch("subscriptions", {"user_id": f"eq.{uid}"}, patch_body)
+        return self.get_user_by_id(uid)
+
+    def get_invite(self, code: str) -> Optional[dict[str, Any]]:
+        clean = (code or "").strip().upper()
+        if not clean:
+            return None
+        rows = self._get("trial_invites", {"code": f"eq.{clean}", "limit": "1"})
+        if not rows:
+            return None
+        d = dict(rows[0])
+        d["is_active"] = bool(d.get("is_active"))
+        return d
+
+    def increment_invite_usage(self, code: str) -> None:
+        clean = (code or "").strip().upper()
+        if not clean:
+            return
+        inv = self.get_invite(clean)
+        if inv:
+            self._patch(
+                "trial_invites",
+                {"code": f"eq.{clean}"},
+                {"used_count": int(inv.get("used_count") or 0) + 1},
+            )
+
+    def upsert_invite(
+        self,
+        code: str,
+        label: str = "",
+        trial_days: int = 15,
+        max_uses: Optional[int] = None,
+        expires_at: Optional[str] = None,
+        is_active: bool = True,
+    ) -> dict[str, Any]:
+        clean = code.strip().upper()[:64]
+        existing = self.get_invite(clean)
+        now = utc_now_iso()
+        if existing:
+            rows = self._patch(
+                "trial_invites",
+                {"code": f"eq.{clean}"},
+                {
+                    "label": label[:160],
+                    "trial_days": int(trial_days),
+                    "max_uses": max_uses,
+                    "expires_at": expires_at,
+                    "is_active": bool(is_active),
+                },
+            )
+            row = rows[0] if rows else existing
+        else:
+            rows = self._post(
+                "trial_invites",
+                {
+                    "code": clean,
+                    "label": label[:160],
+                    "trial_days": int(trial_days),
+                    "max_uses": max_uses,
+                    "used_count": 0,
+                    "expires_at": expires_at,
+                    "is_active": bool(is_active),
+                    "created_at": now,
+                },
+                params={"on_conflict": "code"},
+                prefer="resolution=merge-duplicates,return=representation",
+            )
+            row = rows[0]
+        row["is_active"] = bool(row.get("is_active"))
+        return row
+
+    def list_invites(self) -> list[dict[str, Any]]:
+        rows = self._get("trial_invites", {"order": "created_at.desc"})
+        for r in rows:
+            r["is_active"] = bool(r.get("is_active"))
+        return rows
+
+    def upsert_waitlist_lead(
+        self,
+        email: str,
+        full_name: str = "",
+        phone: str = "",
+        source: str = "",
+        meta: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        clean_email = email.strip().lower()
+        now = utc_now_iso()
+        existing = self._get("waitlist_leads", {"email": f"eq.{clean_email}", "limit": "1"})
+        if existing:
+            cur = existing[0]
+            patch_data = {
+                "full_name": full_name.strip()[:160] or cur.get("full_name") or "",
+                "phone": phone.strip()[:32] or cur.get("phone") or "",
+                "source": source.strip()[:120] or cur.get("source") or "",
+                "meta": meta if meta is not None else _parse_json_obj(cur.get("meta")),
+            }
+            rows = self._patch("waitlist_leads", {"email": f"eq.{clean_email}"}, patch_data)
+            return rows[0] if rows else cur
+        rows = self._post(
+            "waitlist_leads",
+            {
+                "email": clean_email,
+                "full_name": full_name.strip()[:160],
+                "phone": phone.strip()[:32],
+                "source": source.strip()[:120],
+                "meta": meta or {},
+                "created_at": now,
+            },
+            params={"on_conflict": "email"},
+            prefer="resolution=merge-duplicates,return=representation",
+        )
+        return rows[0]
+
+    def list_waitlist_leads(self, limit: int = 200) -> list[dict[str, Any]]:
+        return self._get("waitlist_leads", {"order": "id.desc", "limit": str(int(limit))})
+
+    def get_admin_trials_report(self) -> dict[str, Any]:
+        profiles = self._get(
+            "profiles",
+            {
+                "select": "id,email,full_name,phone,email_canonical,trial_started_at,acquisition_source,acquisition_meta,is_blocked,created_at,last_login_at",
+                "order": "id.desc",
+                "limit": "1000",
+            },
+        )
+        subs = self._get(
+            "subscriptions",
+            {"select": "user_id,plan,status,expires_at,gateway"},
+        )
+        waitlist = self.list_waitlist_leads(limit=500)
+        invites = self.list_invites()
+        ci_rows = self._get(
+            "audit_logs",
+            {"select": "id", "event_type": "eq.TRIAL_CONVERSION_INTENT", "limit": "1000"},
+        )
+        return _build_trials_report_from_rows(profiles, subs, waitlist, invites, len(ci_rows))
 
 
 Database = SQLiteDatabase

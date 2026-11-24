@@ -18,7 +18,12 @@ import httpx
 from cloud_saas.app import create_app
 from cloud_saas.config import Settings
 from cloud_saas.database import SupabaseRestDatabase, brt_today_str, create_database
-from cloud_saas.security import compute_push_signature, compute_webhook_signature
+from cloud_saas.security import (
+    canonicalize_email,
+    compute_push_signature,
+    compute_webhook_signature,
+    normalize_br_phone,
+)
 from cloud_saas.store import CachedResilientStore, MemoryTTLStore, UpstashRestStore
 from scripts.cloud_publisher import CloudPublisher, HeartbeatMonitor, _attach_precomputed_divs
 from scripts.verify_cloud_connections import check_supabase, check_upstash
@@ -924,6 +929,411 @@ class CloudSaasArchitectureTests(unittest.TestCase):
             self.assertTrue(posted[1]["hb"])
         finally:
             pub.close()
+
+    def _register_trial(self, client: TestClient, **overrides) -> httpx.Response:
+        payload = {
+            "full_name": "Trader Teste",
+            "email": "trader1@gmail.com",
+            "phone": "(11) 98765-4321",
+            "password": "StrongPassword!123",
+            "accept_terms": True,
+            "terms_version": self.settings.terms_version,
+            "device_fp": "fp-trial-1",
+            "utm_source": "instagram",
+        }
+        payload.update(overrides)
+        ip = overrides.pop("_ip", "200.10.10.1")
+        payload.pop("_ip", None)
+        return client.post("/auth/trial/register", json=payload, headers={"X-Forwarded-For": ip})
+
+    def test_trial_registration_immediate_access_and_entitlements(self) -> None:
+        self._seed_sample_push()
+        cfg_resp = self.client.get("/api/v1/public/trial-config")
+        self.assertEqual(cfg_resp.status_code, 200)
+        cfg_body = cfg_resp.json()
+        self.assertEqual(cfg_body["mode"], "open")
+        self.assertEqual(cfg_body["trial_days"], 15)
+        self.assertTrue(cfg_body["accepting_trials"])
+        self.assertEqual(cfg_body["slots_remaining"], 50)
+
+        r_reg = self._register_trial(self.client)
+        self.assertEqual(r_reg.status_code, 200, r_reg.text)
+        reg_json = r_reg.json()
+        self.assertTrue(reg_json["ok"])
+        tok = reg_json["access_token"]
+        self.assertTrue(tok)
+        self.assertEqual(reg_json["user"]["plan"], "trial")
+        self.assertTrue(reg_json["user"]["is_trial"])
+        self.assertEqual(reg_json["user"]["trial_days_left"], 15)
+        self.assertEqual(reg_json["user"]["phone"], "5511987654321")
+        self.assertTrue(reg_json["user"]["terms_accepted"])
+
+        # Trial tem acesso CORE liberado na hora e PRO/ADMIN bloqueados
+        r_core = self.client.get("/api/compass/etapa1?lite=1", headers={"Authorization": f"Bearer {tok}"})
+        self.assertEqual(r_core.status_code, 200)
+        self.assertEqual(r_core.json()["tier"], "core")
+
+        r_pro = self.client.get("/api/v2/regime", headers={"Authorization": f"Bearer {tok}"})
+        self.assertEqual(r_pro.status_code, 403)
+        self.assertEqual(r_pro.json()["code"], "PLAN_UPGRADE_REQUIRED")
+
+        r_adm = self.client.get("/api/morning-brief", headers={"Authorization": f"Bearer {tok}"})
+        self.assertEqual(r_adm.status_code, 403)
+        self.assertEqual(r_adm.json()["code"], "PLAN_UPGRADE_REQUIRED")
+
+        cfg_after = self.client.get("/api/v1/public/trial-config").json()
+        self.assertEqual(cfg_after["active_trials"], 1)
+        self.assertEqual(cfg_after["slots_remaining"], 49)
+
+    def test_trial_anti_abuse_canonical_email_phone_disposable_and_rate_limit(self) -> None:
+        self.assertEqual(canonicalize_email("J.Oao.Silva+promo@googlemail.com"), "joaosilva@gmail.com")
+        self.assertEqual(normalize_br_phone("(11) 98765-4321"), "5511987654321")
+        self.assertEqual(normalize_br_phone("+55 11 98765-4321"), "5511987654321")
+        self.assertEqual(normalize_br_phone("11999999999"), "")
+        self.assertEqual(normalize_br_phone("05987654321"), "")
+
+        # E-mail descartável bloqueado
+        r_disp = self._register_trial(self.client, email="fake@mailinator.com")
+        self.assertEqual(r_disp.status_code, 400)
+        self.assertEqual(r_disp.json()["code"], "DISPOSABLE_EMAIL_NOT_ALLOWED")
+
+        # WhatsApp inválido bloqueado
+        r_ph = self._register_trial(self.client, phone="11999999999")
+        self.assertEqual(r_ph.status_code, 400)
+        self.assertEqual(r_ph.json()["code"], "INVALID_PHONE")
+
+        # 1º cadastro OK
+        r1 = self._register_trial(
+            self.client,
+            email="joao.silva@gmail.com",
+            phone="(11) 98765-4321",
+            device_fp="fp-a",
+            _ip="198.51.100.10",
+        )
+        self.assertEqual(r1.status_code, 200, r1.text)
+
+        # Alias Gmail (+tag / pontos) bloqueado como duplicado
+        r_alias = self._register_trial(
+            self.client,
+            email="joaosilva+teste2@gmail.com",
+            phone="(21) 98888-7777",
+            device_fp="fp-b",
+            _ip="198.51.100.11",
+        )
+        self.assertEqual(r_alias.status_code, 409)
+        self.assertEqual(r_alias.json()["code"], "TRIAL_ALREADY_USED")
+
+        # Mesmo WhatsApp com e-mail diferente bloqueado
+        r_same_phone = self._register_trial(
+            self.client,
+            email="outro.trader@outlook.com",
+            phone="+55 (11) 98765-4321",
+            device_fp="fp-c",
+            _ip="198.51.100.12",
+        )
+        self.assertEqual(r_same_phone.status_code, 409)
+        self.assertEqual(r_same_phone.json()["code"], "TRIAL_ALREADY_USED")
+
+        # Rate limit por IP/device_fp sobrevive a reset de RAM (consulta audit_logs)
+        r2 = self._register_trial(
+            self.client,
+            email="segundo@outlook.com",
+            phone="(21) 98111-2222",
+            device_fp="fp-a",
+            _ip="198.51.100.10",
+        )
+        self.assertEqual(r2.status_code, 200, r2.text)
+
+        self.app.state.store._data.clear()
+        r3_rl = self._register_trial(
+            self.client,
+            email="terceiro@outlook.com",
+            phone="(31) 98333-4444",
+            device_fp="fp-a",
+            _ip="198.51.100.10",
+        )
+        self.assertEqual(r3_rl.status_code, 429)
+        self.assertEqual(r3_rl.json()["code"], "TRIAL_RATE_LIMITED")
+
+    def test_trial_capacity_cap_and_waitlist_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg = _make_settings(os.path.join(td, "cap.db"))
+            cfg.trial_max_active = 2
+            app_cap = create_app(cfg)
+            client_cap = TestClient(app_cap)
+            try:
+                r1 = self._register_trial(client_cap, email="c1@mw.com", phone="(11) 98111-1111", device_fp="fp1", _ip="10.0.0.1")
+                r2 = self._register_trial(client_cap, email="c2@mw.com", phone="(11) 98222-2222", device_fp="fp2", _ip="10.0.0.2")
+                self.assertEqual(r1.status_code, 200)
+                self.assertEqual(r2.status_code, 200)
+
+                pub = client_cap.get("/api/v1/public/trial-config").json()
+                self.assertFalse(pub["accepting_trials"])
+                self.assertEqual(pub["slots_remaining"], 0)
+
+                r3 = self._register_trial(client_cap, email="c3@mw.com", phone="(11) 98333-3333", device_fp="fp3", _ip="10.0.0.3")
+                self.assertEqual(r3.status_code, 409)
+                self.assertEqual(r3.json()["code"], "TRIAL_CAPACITY_REACHED")
+
+                rwl = client_cap.post(
+                    "/api/v1/public/waitlist",
+                    json={"full_name": "Lead Espera", "email": "c3@mw.com", "phone": "(11) 98333-3333", "utm_source": "ig"},
+                )
+                self.assertEqual(rwl.status_code, 200, rwl.text)
+                self.assertTrue(rwl.json()["ok"])
+
+                rep = client_cap.get("/api/v1/admin/trials", headers={"X-Admin-Key": cfg.admin_api_key}).json()
+                self.assertEqual(rep["summary"]["active_trials"], 2)
+                self.assertEqual(rep["summary"]["waitlist_count"], 1)
+                self.assertEqual(rep["waitlist"][0]["email"], "c3@mw.com")
+            finally:
+                app_cap.state.db.close()
+
+    def test_trial_invite_only_mode_and_max_uses(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg = _make_settings(os.path.join(td, "inv.db"))
+            cfg.trial_mode = "invite_only"
+            app_inv = create_app(cfg)
+            client_inv = TestClient(app_inv)
+            adm_h = {"X-Admin-Key": cfg.admin_api_key}
+            try:
+                pub = client_inv.get("/api/v1/public/trial-config").json()
+                self.assertTrue(pub["require_invite_code"])
+
+                r_no = self._register_trial(client_inv, email="noinv@mw.com", phone="(11) 98444-4444", device_fp="f1", _ip="10.0.1.1")
+                self.assertEqual(r_no.status_code, 400)
+                self.assertEqual(r_no.json()["code"], "INVALID_INVITE_CODE")
+
+                r_create_inv = client_inv.post(
+                    "/api/v1/admin/invites",
+                    json={"code": "vip21", "label": "Turma VIP", "trial_days": 21, "max_uses": 1},
+                    headers=adm_h,
+                )
+                self.assertEqual(r_create_inv.status_code, 200)
+                self.assertEqual(r_create_inv.json()["invite"]["code"], "VIP21")
+
+                r_ok = self._register_trial(
+                    client_inv,
+                    email="vip1@mw.com",
+                    phone="(11) 98555-5555",
+                    invite_code="vip21",
+                    device_fp="f2",
+                    _ip="10.0.1.2",
+                )
+                self.assertEqual(r_ok.status_code, 200, r_ok.text)
+                self.assertEqual(r_ok.json()["user"]["trial_days_left"], 21)
+
+                r_exhausted = self._register_trial(
+                    client_inv,
+                    email="vip2@mw.com",
+                    phone="(11) 98666-6666",
+                    invite_code="VIP21",
+                    device_fp="f3",
+                    _ip="10.0.1.3",
+                )
+                self.assertEqual(r_exhausted.status_code, 400)
+                self.assertEqual(r_exhausted.json()["code"], "INVALID_INVITE_CODE")
+            finally:
+                app_inv.state.db.close()
+
+    @patch("cloud_saas.security.httpx.post")
+    def test_trial_turnstile_verification(self, mock_post) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg = _make_settings(os.path.join(td, "ts.db"))
+            cfg.turnstile_site_key = "0x4AAAAAAA_test_site"
+            cfg.turnstile_secret_key = "0x4AAAAAAA_test_secret"
+            app_ts = create_app(cfg)
+            client_ts = TestClient(app_ts)
+            try:
+                r_empty = self._register_trial(client_ts, email="ts0@mw.com", phone="(11) 98100-0001", turnstile_token="")
+                self.assertEqual(r_empty.status_code, 400)
+                self.assertEqual(r_empty.json()["code"], "TURNSTILE_FAILED")
+
+                mock_post.return_value = httpx.Response(200, json={"success": False, "error-codes": ["invalid-input-response"]})
+                r_fail = self._register_trial(client_ts, email="ts1@mw.com", phone="(11) 98100-0002", turnstile_token="bad-tok")
+                self.assertEqual(r_fail.status_code, 400)
+                self.assertEqual(r_fail.json()["code"], "TURNSTILE_FAILED")
+
+                mock_post.return_value = httpx.Response(200, json={"success": True})
+                r_pass = self._register_trial(client_ts, email="ts2@mw.com", phone="(11) 98100-0003", turnstile_token="good-tok")
+                self.assertEqual(r_pass.status_code, 200, r_pass.text)
+            finally:
+                app_ts.state.db.close()
+
+    def test_trial_expired_conversion_intent_extend_and_billing_upgrade(self) -> None:
+        r_reg = self._register_trial(self.client, email="exp@mw.com", phone="(11) 98777-8888", device_fp="fp-exp")
+        self.assertEqual(r_reg.status_code, 200)
+        uid = r_reg.json()["user"]["id"]
+        tok = r_reg.json()["access_token"]
+
+        # Simula expiração ontem
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).replace(microsecond=0).isoformat()
+        with self.app.state.db._lock:
+            self.app.state.db._conn.execute(
+                "UPDATE subscriptions SET expires_at = ? WHERE user_id = ?",
+                (yesterday, uid),
+            )
+            self.app.state.db._conn.commit()
+        self.app.state.store.delete(f"user:{uid}")
+
+        r_me_exp = self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"})
+        self.assertEqual(r_me_exp.status_code, 403)
+        self.assertEqual(r_me_exp.json()["code"], "TRIAL_EXPIRED")
+
+        r_login_exp = self.client.post("/auth/login", json={"email": "exp@mw.com", "password": "StrongPassword!123", "device_fp": "fp-exp"})
+        self.assertEqual(r_login_exp.status_code, 403)
+        self.assertEqual(r_login_exp.json()["code"], "TRIAL_EXPIRED")
+
+        # Usuário registra intenção de pagamento usando o próprio JWT expirado ou e-mail
+        r_ci = self.client.post(
+            "/auth/trial/conversion-intent",
+            json={"email": "exp@mw.com", "note": "Quero assinar PRO"},
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        self.assertEqual(r_ci.status_code, 200, r_ci.text)
+
+        rep = self.client.get("/api/v1/admin/trials", headers=self.admin_headers).json()
+        self.assertEqual(rep["summary"]["expired_trials"], 1)
+        self.assertEqual(rep["summary"]["conversion_intents_count"], 1)
+
+        # Admin estende por +10 dias e libera acesso novamente
+        r_ext = self.client.post(f"/api/v1/admin/users/{uid}/extend", json={"days": 10}, headers=self.admin_headers)
+        self.assertEqual(r_ext.status_code, 200)
+        self.assertEqual(r_ext.json()["user"]["trial_days_left"], 10)
+        self.assertEqual(self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"}).status_code, 200)
+
+        # Ponte futura: webhook de pagamento promove trial para PRO preservando user_id e senha
+        paid_body = json.dumps({"event": "paid", "email": "exp@mw.com", "plan": "pro", "days": 30, "gateway": "asaas"}).encode("utf-8")
+        sig = compute_webhook_signature(self.settings.billing_webhook_secret, paid_body)
+        r_paid = self.client.post("/webhooks/billing", content=paid_body, headers={"X-MW-Webhook-Signature": sig, "Content-Type": "application/json"})
+        self.assertEqual(r_paid.status_code, 200)
+        self.assertEqual(r_paid.json()["user_id"], uid)
+        self.assertEqual(r_paid.json()["plan"], "pro")
+
+        r_login_pro = self.client.post("/auth/login", json={"email": "exp@mw.com", "password": "StrongPassword!123", "device_fp": "fp-exp"})
+        self.assertEqual(r_login_pro.status_code, 200)
+        self.assertEqual(r_login_pro.json()["user"]["plan"], "pro")
+        self.assertFalse(r_login_pro.json()["user"]["is_trial"])
+
+    def test_supabase_rest_trial_invite_waitlist_flow(self) -> None:
+        tables: dict[str, list[dict]] = {
+            "profiles": [],
+            "subscriptions": [],
+            "active_sessions": [],
+            "terms_acceptance": [],
+            "audit_logs": [],
+            "producer_heartbeats": [],
+            "trial_invites": [],
+            "waitlist_leads": [],
+        }
+        seq = {"id": 0}
+
+        def _match_params(row: dict, params: dict[str, str]) -> bool:
+            for k, v in params.items():
+                if k in ("select", "order", "limit", "on_conflict"):
+                    continue
+                if "." not in v:
+                    continue
+                op, expected = v.split(".", 1)
+                actual = row.get(k)
+                if expected == "true":
+                    exp_val = True
+                elif expected == "false":
+                    exp_val = False
+                elif expected.lstrip("-").isdigit() and isinstance(actual, int):
+                    exp_val = int(expected)
+                else:
+                    exp_val = expected
+                if op == "eq" and actual != exp_val:
+                    return False
+                if op == "neq" and actual == exp_val:
+                    return False
+            return True
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            parts = [p for p in request.url.path.split("/") if p]
+            table = parts[-1]
+            params = dict(request.url.params)
+            body = json.loads(request.content.decode("utf-8")) if request.content else None
+
+            if request.method == "GET":
+                rows = [dict(r) for r in tables[table] if _match_params(r, params)]
+                if "order" in params and "desc" in params["order"] and rows and "id" in rows[0]:
+                    rows = list(reversed(rows))
+                if "limit" in params:
+                    rows = rows[: int(params["limit"])]
+                return httpx.Response(200, json=rows)
+
+            if request.method == "POST":
+                on_conf = params.get("on_conflict", "")
+                if on_conf:
+                    keys = [c.strip() for c in on_conf.split(",") if c.strip()]
+                    for existing in tables[table]:
+                        if all(existing.get(k) == body.get(k) for k in keys):
+                            existing.update(body)
+                            return httpx.Response(200, json=[dict(existing)])
+                seq["id"] += 1
+                row = dict(body)
+                if table not in ("producer_heartbeats", "trial_invites") and "id" not in row:
+                    row["id"] = seq["id"]
+                tables[table].append(row)
+                return httpx.Response(201, json=[dict(row)])
+
+            if request.method == "PATCH":
+                updated = []
+                for existing in tables[table]:
+                    if _match_params(existing, params):
+                        existing.update(body)
+                        updated.append(dict(existing))
+                return httpx.Response(200, json=updated)
+
+            if request.method == "DELETE":
+                tables[table] = [r for r in tables[table] if not _match_params(r, params)]
+                return httpx.Response(204)
+
+            return httpx.Response(405)
+
+        mock_client = httpx.Client(transport=httpx.MockTransport(_handler))
+        sb = SupabaseRestDatabase("https://demo.supabase.co", "srv-key-secret", client=mock_client)
+        try:
+            inv = sb.upsert_invite("IG15", label="Bio IG", trial_days=15, max_uses=5)
+            self.assertEqual(inv["code"], "IG15")
+
+            u = sb.create_trial_user(
+                email="sb_trial@gmail.com",
+                email_canonical="sbtrial@gmail.com",
+                password="StrongPassword!123",
+                full_name="Trader SB",
+                phone="5511998765432",
+                trial_days=15,
+                terms_version="2026.11",
+                ip="200.1.2.3",
+                user_agent="pytest",
+                acquisition_source="instagram",
+                acquisition_meta={"invite_code": "IG15"},
+            )
+            self.assertEqual(u["plan"], "trial")
+            self.assertEqual(u["phone"], "5511998765432")
+            sb.increment_invite_usage("IG15")
+            sb.log_audit(u["id"], "TRIAL_ACTIVATED", ip="200.1.2.3", device_fp="fp-sb")
+
+            self.assertEqual(sb.count_active_trials(), 1)
+            self.assertIsNotNone(sb.get_user_by_canonical_email("sbtrial@gmail.com"))
+            self.assertIsNotNone(sb.get_user_by_phone("5511998765432"))
+            rl = sb.count_recent_trial_registrations("200.1.2.3", "fp-sb")
+            self.assertEqual(rl["ip_24h"], 1)
+            self.assertEqual(rl["fp_30d"], 1)
+
+            sb.upsert_waitlist_lead("lead@mw.com", full_name="Lead SB", phone="5511988881111", source="waitlist")
+            ext = sb.extend_user_subscription(u["id"], 5)
+            self.assertIsNotNone(ext)
+
+            rep = sb.get_admin_trials_report()
+            self.assertEqual(rep["summary"]["active_trials"], 1)
+            self.assertEqual(rep["summary"]["waitlist_count"], 1)
+            self.assertEqual(rep["invites"][0]["used_count"], 1)
+        finally:
+            mock_client.close()
 
 
 if __name__ == "__main__":

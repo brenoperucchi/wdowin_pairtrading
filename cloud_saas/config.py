@@ -46,6 +46,13 @@ class Settings:
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     store_backend: str = "auto"
+    trial_mode: str = "open"
+    trial_days: int = 15
+    trial_max_active: int = 50
+    trial_max_per_ip_24h: int = 3
+    trial_max_per_fp_30d: int = 2
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -59,6 +66,13 @@ class Settings:
             if is_prod:
                 raise RuntimeError(f"Variavel de ambiente obrigatoria ausente em producao: {var_name}")
             return dev_fallback
+
+        raw_trial_mode = os.environ.get("MW_TRIAL_MODE", "open").strip().lower()
+        trial_mode = raw_trial_mode if raw_trial_mode in ("open", "invite_only", "paused") else "open"
+        trial_days = max(1, min(90, _env_int("MW_TRIAL_DAYS", 15)))
+        trial_max_active = max(0, _env_int("MW_TRIAL_MAX_ACTIVE", 50))
+        trial_max_per_ip_24h = max(0, _env_int("MW_TRIAL_MAX_PER_IP_24H", 3))
+        trial_max_per_fp_30d = max(0, _env_int("MW_TRIAL_MAX_PER_FP_30D", 2))
 
         # Nunca usa credenciais reais nem serviceAccountKey.json; em dev usa segredo efêmero por processo se omitido
         ephemeral = secrets.token_hex(16)
@@ -84,4 +98,11 @@ class Settings:
             supabase_url=os.environ.get("SUPABASE_URL", "").strip().rstrip("/"),
             supabase_service_role_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
             store_backend=(os.environ.get("MW_STORE_BACKEND", "auto").strip().lower() or "auto"),
+            trial_mode=trial_mode,
+            trial_days=trial_days,
+            trial_max_active=trial_max_active,
+            trial_max_per_ip_24h=trial_max_per_ip_24h,
+            trial_max_per_fp_30d=trial_max_per_fp_30d,
+            turnstile_site_key=os.environ.get("MW_TURNSTILE_SITE_KEY", "").strip(),
+            turnstile_secret_key=os.environ.get("MW_TURNSTILE_SECRET_KEY", "").strip(),
         )
