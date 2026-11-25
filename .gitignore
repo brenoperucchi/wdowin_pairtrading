@@ -1,6 +1,13 @@
 # Generated data
 data/
 !regime-dashboard/src/data/
+!/data/
+/data/*
+!/data/research/
+/data/research/*
+!/data/research/setup_flow_min_v1/
+/data/research/setup_flow_min_v1/*
+!/data/research/setup_flow_min_v1/flow_masks.pkl
 
 # Python
 __pycache__/
