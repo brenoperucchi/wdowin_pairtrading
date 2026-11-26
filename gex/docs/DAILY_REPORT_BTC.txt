@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - BITCOIN / BTC-USD
-  Vencimento de Referencia: 2026-11-25 (Multi-Exp: 15 vencs, Top: 2026-11-27) | Data Ref: 25/11/2026
+  Vencimento de Referencia: 2026-11-27 (Multi-Exp: 15 vencs, Top: 2026-11-27) | Data Ref: 26/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Bitcoin Spot Atual: $58877.50
-    Gamma Flip Point:   $64765.25
+    Bitcoin Spot Atual: $60748.50
+    Gamma Flip Point:   $66823.35
     Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $58428.23
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $64765.25
-    [+] MAX GAMMA (Teto Gravitacional)    : BTC $64765.25
+    [-] MIN GAMMA (Piso de Queda Livre)   : BTC $57698.88
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : BTC $66823.35
+    [+] MAX GAMMA (Teto Gravitacional)    : BTC $66823.35
 
 [+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE BTC   | EQUIVALENTE USD  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $66000.00    | BTC $66000.00     | $               3.57M | Width 1
-  WALL *     | $65000.00    | BTC $65000.00     | $               1.37M | Width 1
-  WALL *     | $64000.00    | BTC $64000.00     | $              -2.60M | Width 1
-  WALL *     | $63000.00    | BTC $63000.00     | $              -5.19M | Width 1
-  WALL *     | $62000.00    | BTC $62000.00     | $             -11.30M | Width 1
-  WALL *     | $61000.00    | BTC $61000.00     | $              -5.31M | Width 1
-  WALL **    | $60000.00    | BTC $60000.00     | $             -30.05M | Width 2
-  WALL **    | $59000.00    | BTC $59000.00     | $             -22.03M | Width 2
-  WALL ***   | $58000.00    | BTC $58000.00     | $             -30.77M | Width 3
-  WALL *     | $57000.00    | BTC $57000.00     | $              -8.18M | Width 1
-  WALL *     | $56000.00    | BTC $56000.00     | $              -7.41M | Width 1
-  WALL *     | $55000.00    | BTC $55000.00     | $              -9.65M | Width 1
-  WALL *     | $54000.00    | BTC $54000.00     | $              -5.23M | Width 1
-  WALL *     | $53000.00    | BTC $53000.00     | $              -6.62M | Width 1
-  WALL *     | $52000.00    | BTC $52000.00     | $              -3.59M | Width 1
-  WALL *     | $51000.00    | BTC $51000.00     | $              -0.66M | Width 1
+  WALL *     | $68000.00    | BTC $68000.00     | $               2.75M | Width 1
+  WALL *     | $67000.00    | BTC $67000.00     | $               3.65M | Width 1
+  WALL *     | $66000.00    | BTC $66000.00     | $               4.17M | Width 1
+  WALL *     | $65000.00    | BTC $65000.00     | $               0.85M | Width 1
+  WALL *     | $64000.00    | BTC $64000.00     | $              -0.99M | Width 1
+  WALL *     | $63000.00    | BTC $63000.00     | $             -12.02M | Width 1
+  WALL **    | $62000.00    | BTC $62000.00     | $             -16.63M | Width 2
+  WALL *     | $61000.00    | BTC $61000.00     | $             -10.53M | Width 1
+  WALL ***   | $60000.00    | BTC $60000.00     | $             -38.56M | Width 3
+  WALL *     | $59000.00    | BTC $59000.00     | $              -5.20M | Width 1
+  WALL **    | $58000.00    | BTC $58000.00     | $             -30.48M | Width 2
+  WALL *     | $57000.00    | BTC $57000.00     | $              -3.52M | Width 1
+  WALL *     | $56000.00    | BTC $56000.00     | $              -5.59M | Width 1
+  WALL *     | $55000.00    | BTC $55000.00     | $              -7.09M | Width 1
+  WALL *     | $54000.00    | BTC $54000.00     | $              -7.57M | Width 1
+  WALL *     | $53000.00    | BTC $53000.00     | $              -0.54M | Width 1
 -----------------------------------------------------------------
 Nota: As Magic Walls Walls acima mapeiam o Open Interest consolidado da Deribit + CBOE IBIT.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

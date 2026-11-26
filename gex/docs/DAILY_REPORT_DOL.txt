@@ -1,40 +1,40 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - DOLAR FUTURO (DOL / WDO)
-  Vencimento de Referencia: 2026-12-01 | Data Ref: 25/11/2026
+  Vencimento de Referencia: 2026-12-01 | Data Ref: 26/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    Dólar Futuro Atual: 5913.00 (WDOZ26)
-    Gamma Flip Point:   5795.33
+    Dólar Futuro Atual: 5822.50 (WDOZ26)
+    Gamma Flip Point:   5306.20
     Regime de Gamma:    POSITIVE GAMMA (Zona de Baixa Volatilidade / Hedge Comprado)
     Vies do Dia:        ALTA / LATERALIZACAO
     Dinamica de MM:     Os Market Makers estao comprados em Gamma. Eles amortecem os movimentos de preco comprando nas quedas e vendendo nas altas.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 6149.52
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL 5795.33
-    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5949.84
+    [-] MIN GAMMA (Piso de Aceleracao)    : DOL 4929.05
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : DOL 5306.20
+    [+] MAX GAMMA (Teto Gravitacional)    : DOL 5952.83
 
 [+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE REAL  | EQUIVALENTE DOL  | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $6.400       | DOL 6400.00      | $               0.00M | Width 1
-  WALL *     | $6.250       | DOL 6250.00      | $               0.00M | Width 1
-  WALL *     | $6.100       | DOL 6100.00      | $             134.78M | Width 1
-  WALL *     | $6.050       | DOL 6050.00      | $             350.63M | Width 1
-  WALL *     | $6.000       | DOL 6000.00      | $            4383.34M | Width 1
-  WALL ***   | $5.980       | DOL 5980.00      | $            7417.33M | Width 3
-  WALL **    | $5.950       | DOL 5950.00      | $            5749.66M | Width 2
-  WALL *     | $5.920       | DOL 5920.00      | $            3095.71M | Width 1
-  WALL **    | $5.900       | DOL 5900.00      | $            6849.27M | Width 2
-  WALL *     | $5.850       | DOL 5850.00      | $               3.02M | Width 1
-  WALL *     | $5.800       | DOL 5800.00      | $            3403.11M | Width 1
-  WALL *     | $5.750       | DOL 5750.00      | $              -4.87M | Width 1
-  WALL *     | $5.700       | DOL 5700.00      | $             270.55M | Width 1
-  WALL *     | $5.680       | DOL 5680.00      | $              -7.62M | Width 1
-  WALL *     | $5.650       | DOL 5650.00      | $               4.12M | Width 1
-  WALL *     | $5.600       | DOL 5600.00      | $               4.39M | Width 1
+  WALL *     | $6.050       | DOL 6050.00      | $               1.74M | Width 1
+  WALL *     | $6.000       | DOL 6000.00      | $              57.72M | Width 1
+  WALL *     | $5.980       | DOL 5980.00      | $             153.47M | Width 1
+  WALL **    | $5.950       | DOL 5950.00      | $             182.55M | Width 2
+  WALL *     | $5.920       | DOL 5920.00      | $             147.24M | Width 1
+  WALL **    | $5.900       | DOL 5900.00      | $             476.33M | Width 2
+  WALL *     | $5.850       | DOL 5850.00      | $               0.42M | Width 1
+  WALL ***   | $5.800       | DOL 5800.00      | $             820.32M | Width 3
+  WALL *     | $5.750       | DOL 5750.00      | $              -1.95M | Width 1
+  WALL *     | $5.700       | DOL 5700.00      | $             157.52M | Width 1
+  WALL *     | $5.680       | DOL 5680.00      | $              -5.13M | Width 1
+  WALL *     | $5.650       | DOL 5650.00      | $               3.12M | Width 1
+  WALL *     | $5.600       | DOL 5600.00      | $               3.87M | Width 1
+  WALL *     | $5.550       | DOL 5550.00      | $               0.02M | Width 1
+  WALL *     | $5.520       | DOL 5520.00      | $               0.00M | Width 1
+  WALL *     | $5.500       | DOL 5500.00      | $               0.03M | Width 1
 -----------------------------------------------------------------
 Nota: As Magic Walls Walls acima mapeiam o posicionamento do Open Interest das opcoes na B3.
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
