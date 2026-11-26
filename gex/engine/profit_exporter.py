@@ -129,16 +129,16 @@ def export_to_profit_unified(win_walls, dol_walls, output_path, current_win=None
         "MinGamma": "clMinGamma"
     }
     
-    # 1. Filtrar e ordenar WIN
+    # 1. Filtrar e ordenar WIN (±7% para acomodar 20 Walls sem cortar extremos)
     if current_win is not None:
         win_filtered = []
-        lower_bound = current_win * 0.95
-        upper_bound = current_win * 1.05
+        lower_bound = current_win * 0.93
+        upper_bound = current_win * 1.07
         for w in win_walls:
             if w['type'] in ('GammaFlip', 'MaxGamma', 'MinGamma') or (lower_bound <= w['price'] <= upper_bound):
                 win_filtered.append(w)
             else:
-                print(f"[Exporter] Ignorando nivel WIN {w['type']} em {w['price']:.1f} por estar fora do range de +-5% ({lower_bound:.1f} - {upper_bound:.1f})")
+                print(f"[Exporter] Ignorando nivel WIN {w['type']} em {w['price']:.1f} por estar fora do range de +-7% ({lower_bound:.1f} - {upper_bound:.1f})")
         win_sorted = sorted(win_filtered, key=lambda x: x['price'])
     else:
         win_sorted = sorted(win_walls, key=lambda x: x['price'])
@@ -381,7 +381,7 @@ def update_magic_wall_flow(win_walls, dol_walls, current_win=None, current_dol=N
       4. Pintura de Candles (PaintBar) e Sinais no Gráfico (PlotText: ▲ WALL, ▼ WALL, ▲ FLUXO, ▼ FLUXO).
     """
     if current_win is not None:
-        lower_w, upper_w = current_win * 0.95, current_win * 1.05
+        lower_w, upper_w = current_win * 0.93, current_win * 1.07
         win_sorted = sorted(
             [w for w in win_walls if w.get("type") in ("GammaFlip", "MaxGamma", "MinGamma") or (lower_w <= w["price"] <= upper_w)],
             key=lambda x: x["price"],
@@ -398,7 +398,15 @@ def update_magic_wall_flow(win_walls, dol_walls, current_win=None, current_dol=N
     else:
         dol_sorted = sorted(dol_walls, key=lambda x: x["price"])
 
-    win_sorted = win_sorted[:30]
+    if len(win_sorted) > 30 and current_win is not None:
+        # Prioriza GammaFlip e os níveis mais próximos do spot para evitar corte assimétrico no topo
+        win_prioritized = sorted(
+            win_sorted,
+            key=lambda x: (0 if x.get("type") == "GammaFlip" else 1, abs(x["price"] - current_win)),
+        )[:30]
+        win_sorted = sorted(win_prioritized, key=lambda x: x["price"])
+    else:
+        win_sorted = win_sorted[:30]
     dol_sorted = dol_sorted[:30]
     max_lines = max(len(win_sorted), len(dol_sorted), 1)
 

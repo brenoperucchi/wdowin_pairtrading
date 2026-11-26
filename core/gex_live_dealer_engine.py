@@ -24,6 +24,11 @@ import glob
 import json
 import numpy as np
 
+try:
+    from gex.engine.walls_calculator import annotate_wall_structure
+except Exception:
+    annotate_wall_structure = None
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GEX_DATA_DIR = os.path.join(PROJECT_ROOT, "gex", "data")
 
@@ -614,6 +619,36 @@ class GexLiveDealerEngine:
             enriched_by_key[(wtype, wp)] = w
             enriched_by_key[("*", wp)] = w
 
+        if annotate_wall_structure is not None:
+            annotate_wall_structure(
+                all_walls_list,
+                spot,
+                band_pct=(0.045 if asset == "WIN" else 0.035),
+            )
+
+        structural_barriers = {
+            "local_call_wall": None,
+            "local_put_wall": None,
+            "strike_flip_wall": None,
+        }
+        for w in all_walls_list:
+            if w.get("type") != "Wall":
+                continue
+            summary = {
+                "price": round(float(w.get("price", 0.0) or 0.0), 2),
+                "gex_formatted": w.get("gex_formatted", ""),
+                "width": int(w.get("width", 1) or 1),
+                "gex_side": w.get("gex_side", "NEUTRAL"),
+            }
+            if w.get("is_local_call_wall") and structural_barriers["local_call_wall"] is None:
+                structural_barriers["local_call_wall"] = summary
+            if w.get("is_local_put_wall") and structural_barriers["local_put_wall"] is None:
+                structural_barriers["local_put_wall"] = summary
+            if w.get("is_strike_flip") and structural_barriers["strike_flip_wall"] is None:
+                structural_barriers["strike_flip_wall"] = summary
+        if isinstance(walls_radar, dict):
+            walls_radar["structural_barriers"] = structural_barriers
+
         for w_list in (sup_walls, res_walls):
             for w in w_list:
                 wp = round(float(w["price"]), 1)
@@ -636,6 +671,9 @@ class GexLiveDealerEngine:
                     w["broken_dir"] = int(ref_w.get("broken_dir", 0))
                     w["wall_events"] = ref_w.get("wall_events", [])
                     w["live_verdict"] = ref_w.get("live_verdict", "")
+                    for s_k in ("gex_side", "is_local_call_wall", "is_local_put_wall", "is_strike_flip", "local_wall_tier"):
+                        if s_k in ref_w:
+                            w[s_k] = ref_w[s_k]
                     for p4_k in ("inst_aggr_delta", "inst_pass_delta", "ret_delta", "hft_delta", "rlp_delta", "hft_churn_pct", "rlp_share_pct", "player_verdict", "top_wall_brokers"):
                         if p4_k in ref_w and p4_k not in w:
                             w[p4_k] = ref_w[p4_k]
@@ -4292,27 +4330,48 @@ class GexLiveDealerEngine:
             except Exception:
                 raw_bars = []
 
-        # Fallback MT5 M1 para sessão ao vivo ou data ainda não consolidada no .min
-        if len(raw_bars) < 10:
+        # Fallback / extensão ao vivo via MT5 M1 para manter barras atualizadas após último flush do .min
+        if is_live_day or len(raw_bars) < 10:
             try:
                 import MetaTrader5 as mt5
                 from core.mt5_client import mt5_lock, connect_mt5
+                last_ts = max((int(b.get("ts", 0)) for b in raw_bars), default=0)
                 dt_base = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
                 dt_start = dt_base.replace(hour=9, minute=0, second=0, microsecond=0)
                 dt_end = dt_base.replace(hour=18, minute=35, second=0, microsecond=0)
                 cont_sym = "WIN$N" if is_win else "WDO$N"
+                cand_syms = [cont_sym]
+                try:
+                    from core.profit_mt5_flow_engine import flow_engine_singleton
+                    st_obj = flow_engine_singleton.win_state if is_win else flow_engine_singleton.wdo_state
+                    act_sym = str(getattr(st_obj, "active_contract", "") or "").strip()
+                    if act_sym and act_sym not in cand_syms:
+                        cand_syms.append(act_sym)
+                except Exception:
+                    pass
+                rates = None
                 with mt5_lock:
                     connect_mt5()
                     if mt5.terminal_info() is not None:
-                        mt5.symbol_select(cont_sym, True)
-                        rates = mt5.copy_rates_range(cont_sym, mt5.TIMEFRAME_M1, dt_start, dt_end)
-                    else:
-                        rates = None
+                        fallback_rates = None
+                        for c_sym in cand_syms:
+                            mt5.symbol_select(c_sym, True)
+                            c_rates = mt5.copy_rates_range(c_sym, mt5.TIMEFRAME_M1, dt_start, dt_end)
+                            if c_rates is not None and len(c_rates) > 0:
+                                if fallback_rates is None:
+                                    fallback_rates = c_rates
+                                if int(c_rates[-1]["time"]) > last_ts:
+                                    rates = c_rates
+                                    break
+                        if rates is None:
+                            rates = fallback_rates
                 if rates is not None and len(rates) > 0:
                     tick_sz = 5.0 if is_win else 0.5
                     def_lot = 3.1 if is_win else 4.0
                     for r in rates:
                         rt = int(r["time"])
+                        if rt <= last_ts:
+                            continue
                         ro, rh, rl, rc = float(r["open"]), float(r["high"]), float(r["low"]), float(r["close"])
                         rv = float(r["real_volume"]) if r["real_volume"] > 0 else float(r["tick_volume"]) * (15.0 if is_win else 6.0)
                         rng_r = max(rh - rl, tick_sz)

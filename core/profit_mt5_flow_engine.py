@@ -323,6 +323,153 @@ def load_daily_magic_walls(asset: str, target_date: str = None):
     return sorted(walls, key=lambda x: x["price"])
 
 
+def _finalize_volume_profile(vp_bins: dict, step: float, source: str = "TICK_EXACT") -> dict:
+    """
+    Constrói o payload compacto de Volume Profile (POC, VAH, VAL 70% e bins ordenados)
+    a partir de `vp_bins` = {price: [buy_vol, sell_vol, inst_buy_vol, inst_sell_vol]}.
+    """
+    if not vp_bins:
+        return {
+            "step": float(step),
+            "source": source,
+            "poc": 0.0,
+            "vah": 0.0,
+            "val": 0.0,
+            "max_vol": 0.0,
+            "total_vol": 0.0,
+            "inst_vol": 0.0,
+            "bins": [],
+        }
+
+    levels = []
+    total_v = 0.0
+    total_iv = 0.0
+    for p in sorted(vp_bins.keys()):
+        bv, sv, ib, isell = vp_bins[p]
+        v = float(bv + sv)
+        if v <= 0.0:
+            continue
+        iv = float(ib + isell)
+        total_v += v
+        total_iv += iv
+        levels.append({
+            "p": round(float(p), 2),
+            "v": round(v, 0),
+            "iv": round(iv, 0),
+            "d": round(float(bv - sv), 0),
+            "id": round(float(ib - isell), 0),
+        })
+
+    if not levels or total_v <= 0.0:
+        return {
+            "step": float(step),
+            "source": source,
+            "poc": 0.0,
+            "vah": 0.0,
+            "val": 0.0,
+            "max_vol": 0.0,
+            "total_vol": 0.0,
+            "inst_vol": 0.0,
+            "bins": [],
+        }
+
+    poc_idx = max(range(len(levels)), key=lambda i: levels[i]["v"])
+    poc_price = levels[poc_idx]["p"]
+    max_v = levels[poc_idx]["v"]
+
+    # Área de Valor 70%: expande a partir do POC para o lado com maior volume acumulado
+    target_v = total_v * 0.70
+    acc_v = levels[poc_idx]["v"]
+    lo_idx = poc_idx
+    hi_idx = poc_idx
+    n_lvls = len(levels)
+    while acc_v < target_v and (lo_idx > 0 or hi_idx < n_lvls - 1):
+        v_down = levels[lo_idx - 1]["v"] if lo_idx > 0 else -1.0
+        v_up = levels[hi_idx + 1]["v"] if hi_idx < n_lvls - 1 else -1.0
+        if v_up >= v_down and hi_idx < n_lvls - 1:
+            hi_idx += 1
+            acc_v += levels[hi_idx]["v"]
+        elif lo_idx > 0:
+            lo_idx -= 1
+            acc_v += levels[lo_idx]["v"]
+        else:
+            break
+
+    return {
+        "step": float(step),
+        "source": source,
+        "poc": poc_price,
+        "vah": levels[hi_idx]["p"],
+        "val": levels[lo_idx]["p"],
+        "max_vol": round(max_v, 0),
+        "total_vol": round(total_v, 0),
+        "inst_vol": round(total_iv, 0),
+        "bins": levels,
+    }
+
+
+def build_volume_profile_from_m5_bars(m5_series: list, asset: str) -> dict:
+    """
+    Fallback histórico/cache: reconstrói um Volume Profile aproximado a partir das
+    barras M5 (ignorando warm-up `is_prev_day`), distribuindo o volume em [low, high].
+    """
+    step = 25.0 if str(asset).upper() == "WIN" else 1.0
+    vp_bins = {}
+    for b in (m5_series or []):
+        if not isinstance(b, dict) or b.get("is_prev_day"):
+            continue
+        hi = float(b.get("high", 0.0) or 0.0)
+        lo = float(b.get("low", 0.0) or 0.0)
+        op = float(b.get("open", lo) or lo)
+        cl = float(b.get("close", hi) or hi)
+        if hi <= 0.0 or lo <= 0.0:
+            continue
+        if hi < lo:
+            lo, hi = hi, lo
+        bv = float(b.get("buy_vol", 0.0) or 0.0)
+        sv = float(b.get("sell_vol", 0.0) or 0.0)
+        tot_b = bv + sv
+        if tot_b <= 0.0:
+            tot_b = abs(float(b.get("delta_bar", 0.0) or 0.0))
+            if tot_b <= 0.0:
+                continue
+            db = float(b.get("delta_bar", 0.0) or 0.0)
+            bv = tot_b * (0.65 if db >= 0 else 0.35)
+            sv = tot_b - bv
+
+        id_bar = float(b.get("inst_delta_bar", b.get("inst_aggr_delta", 0.0)) or 0.0)
+        est_inst = min(tot_b, max(abs(id_bar), tot_b * 0.25))
+        if id_bar >= 0:
+            ib_b = min(bv, est_inst * 0.65)
+            is_b = min(sv, max(0.0, est_inst - ib_b))
+        else:
+            is_b = min(sv, est_inst * 0.65)
+            ib_b = min(bv, max(0.0, est_inst - is_b))
+
+        b_lo = round(round(lo / step) * step, 2)
+        b_hi = round(round(hi / step) * step, 2)
+        n_steps = max(1, int(round((b_hi - b_lo) / step)) + 1)
+        if n_steps > 250:
+            n_steps = 250
+        mid_c = (op + cl) * 0.5
+        span = max(step, (b_hi - b_lo) * 0.5 + step)
+        prices_k = [round(b_lo + idx_s * step, 2) for idx_s in range(n_steps)]
+        weights = [max(0.15, 1.0 - abs(pk - mid_c) / span) for pk in prices_k]
+        w_sum = sum(weights) or 1.0
+        for pk, wt in zip(prices_k, weights):
+            frac = wt / w_sum
+            rec = vp_bins.get(pk)
+            if rec is None:
+                vp_bins[pk] = [bv * frac, sv * frac, ib_b * frac, is_b * frac]
+            else:
+                rec[0] += bv * frac
+                rec[1] += sv * frac
+                rec[2] += ib_b * frac
+                rec[3] += is_b * frac
+
+    return _finalize_volume_profile(vp_bins, step, source="M5_FALLBACK")
+
+
 class SymbolMicrostructureState:
     """
     Mantém o estado completo de microestrutura intradiária de um ativo (WIN ou WDO).
@@ -335,6 +482,7 @@ class SymbolMicrostructureState:
         self.mid_lot_threshold = mid_lot_threshold    # WIN: 10, WDO: 5
         self.tick_size = tick_size                    # WIN: 5.0, WDO: 0.5
         self.wall_zone_radius = wall_zone_radius      # WIN: 60.0 pts, WDO: 2.5 pts
+        self.vp_step = 25.0 if self.asset == "WIN" else 1.0
         self.session_date = datetime.now().strftime("%Y-%m-%d")
         self.active_contract = ""
         self.source = "AGUARDANDO"
@@ -377,6 +525,9 @@ class SymbolMicrostructureState:
 
         # Barras M5 da sessão: m5_ts -> dict
         self.m5_bars = {}
+
+        # Volume Profile da sessão: bin_price -> [buy_vol, sell_vol, inst_buy_vol, inst_sell_vol]
+        self.vp_bins = {}
 
         # Corretoras (quando disponível via Profit CSV/RTD)
         self.brokers = {
@@ -524,6 +675,8 @@ class SymbolMicrostructureState:
         m5_sq = np.add.reduceat(sell_q, m5_start)
         m5_id = np.add.reduceat(inst_d, m5_start)
         m5_rd = np.add.reduceat(ret_d, m5_start)
+        m5_bd = np.add.reduceat(is_buy.astype(np.int64), m5_start)
+        m5_sd = np.add.reduceat(is_sell.astype(np.int64), m5_start)
         m5_high = np.maximum.reduceat(price_arr, m5_start)
         m5_low = np.minimum.reduceat(price_arr, m5_start)
         m5_open = price_arr[m5_start]
@@ -535,6 +688,8 @@ class SymbolMicrostructureState:
             sq_i = float(m5_sq[i])
             id_i = float(m5_id[i])
             rd_i = float(m5_rd[i])
+            bd_i = int(m5_bd[i])
+            sd_i = int(m5_sd[i])
             bar = self.m5_bars.get(mts)
             if bar is None:
                 self.m5_bars[mts] = {
@@ -545,6 +700,8 @@ class SymbolMicrostructureState:
                     "close": float(m5_close[i]),
                     "buy_vol": bq_i,
                     "sell_vol": sq_i,
+                    "buy_deals": bd_i,
+                    "sell_deals": sd_i,
                     "delta_bar": bq_i - sq_i,
                     "inst_delta_bar": id_i,
                     "ret_delta_bar": rd_i,
@@ -558,9 +715,34 @@ class SymbolMicrostructureState:
                 bar["close"] = float(m5_close[i])
                 bar["buy_vol"] += bq_i
                 bar["sell_vol"] += sq_i
+                bar["buy_deals"] = int(bar.get("buy_deals", 0)) + bd_i
+                bar["sell_deals"] = int(bar.get("sell_deals", 0)) + sd_i
                 bar["delta_bar"] += (bq_i - sq_i)
                 bar["inst_delta_bar"] += id_i
                 bar["ret_delta_bar"] += rd_i
+
+        # 2b. Acumular Volume Profile vetorizado por faixa de preço
+        vp_step = getattr(self, "vp_step", 25.0 if self.asset == "WIN" else 1.0)
+        if not hasattr(self, "vp_bins") or self.vp_bins is None:
+            self.vp_bins = {}
+        vp_bins_arr = np.round(price_arr / vp_step) * vp_step
+        vp_order = np.argsort(vp_bins_arr, kind="mergesort")
+        vp_sorted = vp_bins_arr[vp_order]
+        uniq_vp, vp_start = np.unique(vp_sorted, return_index=True)
+        vp_bv = np.add.reduceat(buy_q[vp_order], vp_start)
+        vp_sv = np.add.reduceat(sell_q[vp_order], vp_start)
+        vp_ib = np.add.reduceat(inst_buy[vp_order], vp_start)
+        vp_is = np.add.reduceat(inst_sell[vp_order], vp_start)
+        for i in range(len(uniq_vp)):
+            bp = round(float(uniq_vp[i]), 2)
+            rec = self.vp_bins.get(bp)
+            if rec is None:
+                self.vp_bins[bp] = [float(vp_bv[i]), float(vp_sv[i]), float(vp_ib[i]), float(vp_is[i])]
+            else:
+                rec[0] += float(vp_bv[i])
+                rec[1] += float(vp_sv[i])
+                rec[2] += float(vp_ib[i])
+                rec[3] += float(vp_is[i])
 
         # Recalcula CVD cumulativo nas barras M5 ordenadas
         c_tot, c_inst, c_ret = 0.0, 0.0, 0.0
@@ -676,6 +858,8 @@ class SymbolMicrostructureState:
             b[7] += ret_d
 
         m5_ts = (ts_sec // 300) * 300
+        bd_inc = 1 if side > 0 else 0
+        sd_inc = 1 if side < 0 else 0
         bar = self.m5_bars.get(m5_ts)
         if bar is None:
             self.m5_bars[m5_ts] = {
@@ -686,6 +870,8 @@ class SymbolMicrostructureState:
                 "close": price,
                 "buy_vol": buy_q,
                 "sell_vol": sell_q,
+                "buy_deals": bd_inc,
+                "sell_deals": sd_inc,
                 "delta_bar": buy_q - sell_q,
                 "inst_delta_bar": inst_d,
                 "ret_delta_bar": ret_d,
@@ -701,6 +887,8 @@ class SymbolMicrostructureState:
             bar["close"] = price
             bar["buy_vol"] += buy_q
             bar["sell_vol"] += sell_q
+            bar["buy_deals"] = int(bar.get("buy_deals", 0)) + bd_inc
+            bar["sell_deals"] = int(bar.get("sell_deals", 0)) + sd_inc
             bar["delta_bar"] += (buy_q - sell_q)
             bar["inst_delta_bar"] += inst_d
             bar["ret_delta_bar"] += ret_d
@@ -729,6 +917,21 @@ class SymbolMicrostructureState:
                         last_ev[4] += inst_d
                     else:
                         rev.append([ts_sec, price, buy_q, sell_q, inst_d])
+
+        vp_step = getattr(self, "vp_step", 25.0 if self.asset == "WIN" else 1.0)
+        if not hasattr(self, "vp_bins") or self.vp_bins is None:
+            self.vp_bins = {}
+        bp = round(round(price / vp_step) * vp_step, 2)
+        ib_q = inst_d if inst_d > 0 else 0.0
+        is_q = abs(inst_d) if inst_d < 0 else 0.0
+        rec = self.vp_bins.get(bp)
+        if rec is None:
+            self.vp_bins[bp] = [buy_q, sell_q, ib_q, is_q]
+        else:
+            rec[0] += buy_q
+            rec[1] += sell_q
+            rec[2] += ib_q
+            rec[3] += is_q
 
     def compute_window_metrics(self, window_sec: int) -> dict:
         if not self.sec_buckets:
@@ -939,6 +1142,16 @@ class SymbolMicrostructureState:
             },
         }
 
+    def compute_volume_profile_payload(self) -> dict:
+        vp_step = getattr(self, "vp_step", 25.0 if self.asset == "WIN" else 1.0)
+        vp_bins = getattr(self, "vp_bins", None)
+        if vp_bins:
+            return _finalize_volume_profile(vp_bins, vp_step, source="TICK_EXACT")
+        if self.m5_bars:
+            sorted_bars = [self.m5_bars[k] for k in sorted(self.m5_bars.keys())]
+            return build_volume_profile_from_m5_bars(sorted_bars, self.asset)
+        return _finalize_volume_profile({}, vp_step, source="TICK_EXACT")
+
     def get_summary_payload(self) -> dict:
         vwap = (self.vwap_num / self.vwap_den) if self.vwap_den > 0 else self.last_price
         gamma_flip = 0.0
@@ -997,31 +1210,37 @@ class SymbolMicrostructureState:
             two_side = (2.0 * min(bv_b, sv_b)) / tot_bs
             est_churn = round(float(np.clip(two_side * 58.0, 12.0, 88.0)), 1)
 
-            b.setdefault("inst_aggr_delta", round(id_b, 0))
-            b.setdefault("inst_pass_delta", est_ip)
-            b.setdefault("hft_delta_bar", est_hd)
-            b.setdefault("hft_vol_bar", round((bv_b + sv_b) * 0.38, 0))
-            b.setdefault("hft_churn_pct", est_churn)
-            b.setdefault("rlp_vol_bar", est_rlp)
-            b.setdefault("rlp_share_pct", 28.0 if self.asset == "WIN" else 16.0)
-            b.setdefault("rlp_pct", 28.0 if self.asset == "WIN" else 16.0)
-            b.setdefault("avg_buy_lot", round(3.4 if id_b >= 0 else 2.9, 2) if self.asset == "WIN" else round(4.8 if id_b >= 0 else 4.1, 2))
-            b.setdefault("avg_sell_lot", round(2.9 if id_b >= 0 else 3.4, 2) if self.asset == "WIN" else round(4.1 if id_b >= 0 else 4.8, 2))
-            b.setdefault("lot_imb", round(float(b["avg_buy_lot"]) / max(0.1, float(b["avg_sell_lot"])), 3))
+            bd_b = int(b.get("buy_deals", 0) or 0)
+            sd_b = int(b.get("sell_deals", 0) or 0)
+            def_lot = 3.1 if self.asset == "WIN" else 4.0
+            if bd_b > 0 or sd_b > 0:
+                avg_bl = round(bv_b / bd_b, 2) if bd_b > 0 else def_lot
+                avg_sl = round(sv_b / sd_b, 2) if sd_b > 0 else def_lot
+            else:
+                avg_bl = round(3.4 if id_b >= 0 else 2.9, 2) if self.asset == "WIN" else round(4.8 if id_b >= 0 else 4.1, 2)
+                avg_sl = round(2.9 if id_b >= 0 else 3.4, 2) if self.asset == "WIN" else round(4.1 if id_b >= 0 else 4.8, 2)
+
+            b["inst_aggr_delta"] = round(id_b, 0)
+            b["inst_pass_delta"] = est_ip
+            b["hft_delta_bar"] = est_hd
+            b["hft_vol_bar"] = round((bv_b + sv_b) * 0.38, 0)
+            b["hft_churn_pct"] = est_churn
+            b["rlp_vol_bar"] = est_rlp
+            b["rlp_share_pct"] = 28.0 if self.asset == "WIN" else 16.0
+            b["rlp_pct"] = 28.0 if self.asset == "WIN" else 16.0
+            b["avg_buy_lot"] = avg_bl
+            b["avg_sell_lot"] = avg_sl
+            b["lot_imb"] = round(avg_bl / max(0.1, avg_sl), 3)
 
             cum_iagg_s += float(b["inst_aggr_delta"])
             cum_ipas_s += float(b["inst_pass_delta"])
             cum_hft_s += float(b["hft_delta_bar"])
             cum_rlp_s += float(b["rlp_vol_bar"])
 
-            if not b.get("cvd_inst_aggr"):
-                b["cvd_inst_aggr"] = round(cum_iagg_s, 0)
-            if not b.get("cvd_inst_pass"):
-                b["cvd_inst_pass"] = round(cum_ipas_s, 0)
-            if not b.get("cvd_hft"):
-                b["cvd_hft"] = round(cum_hft_s, 0)
-            if not b.get("cvd_rlp"):
-                b["cvd_rlp"] = round(cum_rlp_s, 0)
+            b["cvd_inst_aggr"] = round(cum_iagg_s, 0)
+            b["cvd_inst_pass"] = round(cum_ipas_s, 0)
+            b["cvd_hft"] = round(cum_hft_s, 0)
+            b["cvd_rlp"] = round(cum_rlp_s, 0)
 
         enriched_all_walls = []
         for w in self.walls:
@@ -1121,6 +1340,7 @@ class SymbolMicrostructureState:
             "top_buyers": top_buyers,
             "top_sellers": top_sellers,
             "m5_cvd_series": sorted_m5,
+            "volume_profile": self.compute_volume_profile_payload(),
         }
 
 
@@ -1204,8 +1424,12 @@ class ProfitMt5FlowEngine:
             for fp, off in offsets.items():
                 if not os.path.exists(fp) or os.path.getsize(fp) < int(off):
                     return
-            self.win_state = data["win_state"]
-            self.wdo_state = data["wdo_state"]
+            w_st = data.get("win_state")
+            d_st = data.get("wdo_state")
+            if not getattr(w_st, "vp_bins", None) or not getattr(d_st, "vp_bins", None):
+                return
+            self.win_state = w_st
+            self.wdo_state = d_st
             self._file_offsets = dict(offsets)
             self._profit_active_today = dict(data.get("profit_active", {"WIN": False, "WDO": False}))
             self._last_tick_msc = dict(data.get("last_tick_msc", {"WIN": 0, "WDO": 0}))
@@ -1678,28 +1902,43 @@ class ProfitMt5FlowEngine:
         """
         if not hasattr(self, "_historical_cache"):
             self._historical_cache = {}
+        if not hasattr(self, "_empty_historical_ts"):
+            self._empty_historical_ts = {}
         if target_date in self._historical_cache:
-            cached_snap = self._historical_cache[target_date]
-            try:
-                from core.gex_live_dealer_engine import gex_dealer_engine_singleton
-                p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
-                m5_check = cached_snap.get("WIN", {}).get("caminho_a", {}).get("m5_dealer_vs_flow_series", [])
-                sigs_win_check = cached_snap.get("WIN", {}).get("caminho_a", {}).get("signals_log", [])
-                needs_dealer_refresh = (
-                    p4.get("version") != cached_snap.get("portfolio_4_sistematicas", {}).get("version")
-                    or (m5_check and ("cvd_inst_pass" not in m5_check[-1] or "smart_swing_wave" not in m5_check[-1]))
-                    or not sigs_win_check
-                )
-                if needs_dealer_refresh:
-                    win_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WIN"])
-                    wdo_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WDO"])
-                    cached_snap["WIN"]["caminho_a"] = win_d
-                    cached_snap["WDO"]["caminho_a"] = wdo_d
+            empty_ts = self._empty_historical_ts.get(target_date)
+            if empty_ts is not None:
+                if (time.time() - empty_ts) < 600.0:
+                    return self._historical_cache[target_date]
+                self._historical_cache.pop(target_date, None)
+                self._empty_historical_ts.pop(target_date, None)
+            else:
+                cached_snap = self._historical_cache[target_date]
+                for sym_k in ("WIN", "WDO"):
+                    a_p = cached_snap.get(sym_k)
+                    if isinstance(a_p, dict):
+                        vp_cur = a_p.get("volume_profile")
+                        if not isinstance(vp_cur, dict) or not vp_cur.get("bins"):
+                            a_p["volume_profile"] = build_volume_profile_from_m5_bars(a_p.get("m5_cvd_series", []), sym_k)
+                try:
+                    from core.gex_live_dealer_engine import gex_dealer_engine_singleton
                     p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
-                cached_snap["portfolio_4_sistematicas"] = p4
-            except Exception:
-                pass
-            return cached_snap
+                    m5_check = cached_snap.get("WIN", {}).get("caminho_a", {}).get("m5_dealer_vs_flow_series", [])
+                    sigs_win_check = cached_snap.get("WIN", {}).get("caminho_a", {}).get("signals_log", [])
+                    needs_dealer_refresh = (
+                        p4.get("version") != cached_snap.get("portfolio_4_sistematicas", {}).get("version")
+                        or (m5_check and ("cvd_inst_pass" not in m5_check[-1] or "smart_swing_wave" not in m5_check[-1]))
+                        or not sigs_win_check
+                    )
+                    if needs_dealer_refresh:
+                        win_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WIN"])
+                        wdo_d = gex_dealer_engine_singleton.analyze_asset(cached_snap["WDO"])
+                        cached_snap["WIN"]["caminho_a"] = win_d
+                        cached_snap["WDO"]["caminho_a"] = wdo_d
+                        p4 = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(cached_snap)
+                    cached_snap["portfolio_4_sistematicas"] = p4
+                except Exception:
+                    pass
+                return cached_snap
 
         import json as _json
         cache_dir = os.path.join(PROJECT_ROOT, "data", "processed", "gex_historical_sessions_v1")
@@ -1908,6 +2147,12 @@ class ProfitMt5FlowEngine:
                 except Exception:
                     pass
 
+        for sym_k, p_obj in (("WIN", win_payload), ("WDO", wdo_payload)):
+            if isinstance(p_obj, dict):
+                vp_cur = p_obj.get("volume_profile")
+                if not isinstance(vp_cur, dict) or not vp_cur.get("bins"):
+                    p_obj["volume_profile"] = build_volume_profile_from_m5_bars(p_obj.get("m5_cvd_series", []), sym_k)
+
         try:
             from core.gex_live_dealer_engine import gex_dealer_engine_singleton
             win_dealer = gex_dealer_engine_singleton.analyze_asset(win_payload)
@@ -1935,9 +2180,28 @@ class ProfitMt5FlowEngine:
             snap["portfolio_4_sistematicas"] = gex_dealer_engine_singleton.build_portfolio_4_sistematicas_payload(snap)
         except Exception:
             pass
-        if len(win_payload.get("m5_cvd_series", [])) > 0 or len(wdo_payload.get("m5_cvd_series", [])) > 0:
+        has_any_bars = bool(win_payload.get("m5_cvd_series") or wdo_payload.get("m5_cvd_series"))
+        if has_any_bars:
+            self._historical_cache[target_date] = snap
+            self._empty_historical_ts.pop(target_date, None)
+        elif target_date < datetime.now().strftime("%Y-%m-%d"):
+            self._empty_historical_ts[target_date] = time.time()
             self._historical_cache[target_date] = snap
         return snap
+
+    def _get_latest_non_empty_prev_session(self, prev_dates: list, max_lookback: int = 5):
+        """Retorna o último pregão anterior com barras M5 válidas, pulando feriados/dias vazios."""
+        first_snap = None
+        for cand_date in prev_dates[:max_lookback]:
+            cand_snap = self.get_historical_session(cand_date)
+            if first_snap is None:
+                first_snap = cand_snap
+            if (
+                cand_snap.get("WIN", {}).get("m5_cvd_series")
+                or cand_snap.get("WDO", {}).get("m5_cvd_series")
+            ):
+                return cand_snap
+        return first_snap
 
     def update(self, force: bool = False, date_str: str = None) -> dict:
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -1974,32 +2238,34 @@ class ProfitMt5FlowEngine:
         prev_dates = [d for d in avail if d < today_str]
         if not win_payload.get("m5_cvd_series") and not wdo_payload.get("m5_cvd_series"):
             if prev_dates:
-                fallback_snap = self.get_historical_session(prev_dates[0])
-                self._cached_payload = fallback_snap
-                self._last_update_ts = time.time()
-                return fallback_snap
+                fallback_snap = self._get_latest_non_empty_prev_session(prev_dates)
+                if fallback_snap:
+                    self._cached_payload = fallback_snap
+                    self._last_update_ts = time.time()
+                    return fallback_snap
 
         # No início da manhã (< 28 barras M5), anexa as últimas 18 barras da tarde anterior como warm-up visual/EMA
         # (com cvd_inst alinhado em zero no fechamento de ontem para transição contínua às 09h00)
         if prev_dates and (len(win_payload.get("m5_cvd_series", [])) < 28 or len(wdo_payload.get("m5_cvd_series", [])) < 28):
             try:
-                prev_snap = self.get_historical_session(prev_dates[0])
-                for sym_k, cur_p in [("WIN", win_payload), ("WDO", wdo_payload)]:
-                    cur_s = cur_p.get("m5_cvd_series", [])
-                    if 0 < len(cur_s) < 28:
-                        prev_s = prev_snap.get(sym_k, {}).get("m5_cvd_series", [])
-                        if prev_s:
-                            tail = prev_s[-18:]
-                            last_prev_inst = float(tail[-1].get("cvd_inst", 0.0))
-                            last_prev_cvd = float(tail[-1].get("cvd", 0.0))
-                            warmup_bars = []
-                            for b in tail:
-                                bc = dict(b)
-                                bc["is_prev_day"] = True
-                                bc["cvd_inst"] = round(float(b.get("cvd_inst", 0.0)) - last_prev_inst, 0)
-                                bc["cvd"] = round(float(b.get("cvd", 0.0)) - last_prev_cvd, 0)
-                                warmup_bars.append(bc)
-                            cur_p["m5_cvd_series"] = warmup_bars + cur_s
+                prev_snap = self._get_latest_non_empty_prev_session(prev_dates)
+                if prev_snap:
+                    for sym_k, cur_p in [("WIN", win_payload), ("WDO", wdo_payload)]:
+                        cur_s = cur_p.get("m5_cvd_series", [])
+                        if 0 < len(cur_s) < 28:
+                            prev_s = prev_snap.get(sym_k, {}).get("m5_cvd_series", [])
+                            if prev_s:
+                                tail = prev_s[-18:]
+                                last_prev_inst = float(tail[-1].get("cvd_inst", 0.0))
+                                last_prev_cvd = float(tail[-1].get("cvd", 0.0))
+                                warmup_bars = []
+                                for b in tail:
+                                    bc = dict(b)
+                                    bc["is_prev_day"] = True
+                                    bc["cvd_inst"] = round(float(b.get("cvd_inst", 0.0)) - last_prev_inst, 0)
+                                    bc["cvd"] = round(float(b.get("cvd", 0.0)) - last_prev_cvd, 0)
+                                    warmup_bars.append(bc)
+                                cur_p["m5_cvd_series"] = warmup_bars + cur_s
             except Exception:
                 pass
 

@@ -7,7 +7,84 @@ from .b3_parser import get_b3_options_data
 from .walls_calculator import calculate_gex_profile
 from .firebase_publisher import push_walls_to_firebase
 from .mt5_prices import get_mt5_prices, get_option_price
-from .black76 import implied_volatility_newton_raphson
+from .black76 import black76_call_price, black76_put_price, implied_volatility_newton_raphson
+
+
+def _estimate_robust_atm_iv(df_front, current_win, current_ibov, factor, T, r, trading_date):
+    """
+    Estima a IV ATM de forma robusta usando mediana ponderada por OI de múltiplos
+    strikes líquidos (Calls + Puts) negociados na própria `trading_date`.
+    """
+    atm_band = max(2500.0, current_ibov * 0.025)
+    atm_pool = df_front[
+        (df_front['oi'] > 0) & ((df_front['strike'] - current_ibov).abs() <= atm_band)
+    ].copy()
+
+    if atm_pool.empty:
+        return None, []
+
+    atm_pool['dist'] = (atm_pool['strike'] - current_ibov).abs()
+    atm_pool = atm_pool.sort_values(by=['dist', 'oi'], ascending=[True, False]).head(12)
+
+    samples = []
+    for _, row in atm_pool.iterrows():
+        ticker = str(row['ticker'])
+        opt_type = str(row['type']).upper()
+        strike = float(row['strike'])
+        oi = float(row['oi'])
+        is_call = (opt_type == 'CALL')
+
+        c_market = get_option_price(ticker, ref_date=trading_date, allow_stale=False)
+        if not c_market or c_market <= 0:
+            continue
+
+        k_win = strike * factor
+        iv_i = float(implied_volatility_newton_raphson(
+            C_market=c_market,
+            F=current_win,
+            K=k_win,
+            T=T,
+            r=r,
+            is_call=is_call,
+        ))
+        if not (0.08 <= iv_i <= 0.60):
+            continue
+
+        calc_px = float(
+            black76_call_price(current_win, k_win, T, iv_i, r)
+            if is_call
+            else black76_put_price(current_win, k_win, T, iv_i, r)
+        )
+        if abs(calc_px - c_market) > max(50.0, c_market * 0.05):
+            continue
+
+        samples.append({
+            'ticker': ticker,
+            'type': opt_type,
+            'strike': strike,
+            'oi': oi,
+            'price': float(c_market),
+            'iv': iv_i,
+        })
+
+    if not samples:
+        return None, []
+
+    samples_sorted = sorted(samples, key=lambda s: s['iv'])
+    total_oi = sum(s['oi'] for s in samples_sorted)
+    if total_oi <= 0:
+        median_iv = float(np.median([s['iv'] for s in samples_sorted]))
+    else:
+        cum_oi = 0.0
+        median_iv = samples_sorted[-1]['iv']
+        for s in samples_sorted:
+            cum_oi += s['oi']
+            if cum_oi >= 0.5 * total_oi:
+                median_iv = s['iv']
+                break
+
+    clamped_iv = float(np.clip(median_iv, 0.10, 0.50))
+    return clamped_iv, samples
 
 def get_yfinance_ibov_close(target_date):
     """
@@ -280,38 +357,53 @@ def run_gex_pipeline(current_win, current_ibov, mt5_date=None):
     T = max(1/252, expiry_days / 252)
     print(f"      Data Ref CSV: {trading_date_str} | Vencimento: {expiry_date_str} | Dias Uteis: {expiry_days} | T: {T:.4f}")
     
-    # Encontrar ATM strike no front-month
-    all_strikes = df_front['strike'].unique()
-    atm_strike = min(all_strikes, key=lambda s: abs(s - current_ibov))
-    
-    # Buscar CALL ATM no front-month
-    atm_calls = df_front[(df_front['strike'] == atm_strike) & (df_front['type'] == 'CALL')]
-    if not atm_calls.empty:
-        # Pega a de maior liquidez (normalmente o vencimento mais curto/ativo)
-        atm_calls = atm_calls.sort_values(by='oi', ascending=False)
-        atm_ticker = atm_calls.iloc[0]['ticker']
-        print(f"      Opcao ATM identificada (front-month): {atm_ticker} (Strike {atm_strike})")
-        
-        c_market = get_option_price(atm_ticker)
-        if c_market and c_market > 0:
-            # Fator teorico pro K_WIN
-            mt5_factor = (current_win / current_ibov) if (current_win and current_ibov and current_ibov > 0) else None
-            factor = mt5_factor if (mt5_factor and 0.995 <= mt5_factor <= 1.045) else ((1 + r) ** T)
-            k_win = atm_strike * factor
-            
-            dynamic_iv = implied_volatility_newton_raphson(
-                C_market=c_market,
-                F=current_win,
-                K=k_win,
-                T=T,
-                r=r,
-                is_call=True
-            )
-            print(f"      Preco MT5: R$ {c_market:.2f} -> IV Calculada: {dynamic_iv*100:.2f}%")
-        else:
-            print(f"      Falha ao obter preco de {atm_ticker} no MT5. Usando IV fixo de 20%.")
+    # Calcular fator para Newton-Raphson multi-strike ATM
+    mt5_factor = (current_win / current_ibov) if (current_win and current_ibov and current_ibov > 0) else None
+    factor_iv = mt5_factor if (mt5_factor and 0.995 <= mt5_factor <= 1.045) else ((1 + r) ** T)
+
+    est_iv, iv_samples = _estimate_robust_atm_iv(
+        df_front=df_front,
+        current_win=current_win,
+        current_ibov=current_ibov,
+        factor=factor_iv,
+        T=T,
+        r=r,
+        trading_date=trading_date,
+    )
+    if est_iv is not None:
+        dynamic_iv = est_iv
+        sample_desc = ", ".join(
+            f"{s['ticker']}({s['iv']*100:.1f}%)" for s in iv_samples[:6]
+        )
+        print(f"      IV Multi-Strike ATM ({len(iv_samples)} amostras em {trading_date_str}): {sample_desc}")
+        print(f"      IV Consolidada (Mediana Ponderada por OI): {dynamic_iv*100:.2f}%")
     else:
-        print("      Nao encontrou CALL ATM na base. Usando IV fixo de 20%.")
+        # Fallback legado: CALL ATM única (permitindo vela mais recente)
+        all_strikes = df_front['strike'].unique()
+        atm_strike = min(all_strikes, key=lambda s: abs(s - current_ibov))
+        atm_calls = df_front[(df_front['strike'] == atm_strike) & (df_front['type'] == 'CALL')]
+        if not atm_calls.empty:
+            atm_calls = atm_calls.sort_values(by='oi', ascending=False)
+            atm_ticker = atm_calls.iloc[0]['ticker']
+            print(f"      Opcao ATM fallback (front-month): {atm_ticker} (Strike {atm_strike})")
+
+            c_market = get_option_price(atm_ticker, ref_date=trading_date, allow_stale=True)
+            if c_market and c_market > 0:
+                k_win = atm_strike * factor_iv
+                raw_iv = implied_volatility_newton_raphson(
+                    C_market=c_market,
+                    F=current_win,
+                    K=k_win,
+                    T=T,
+                    r=r,
+                    is_call=True
+                )
+                dynamic_iv = float(np.clip(raw_iv, 0.10, 0.50))
+                print(f"      Preco MT5: R$ {c_market:.2f} -> IV Fallback: {dynamic_iv*100:.2f}%")
+            else:
+                print(f"      Falha ao obter preco de {atm_ticker} no MT5. Usando IV fixo de 20%.")
+        else:
+            print("      Nao encontrou CALL ATM na base. Usando IV fixo de 20%.")
     
     print()
     

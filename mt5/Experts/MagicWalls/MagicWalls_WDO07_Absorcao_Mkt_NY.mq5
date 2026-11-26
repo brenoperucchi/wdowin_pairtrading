@@ -16,6 +16,8 @@ input bool                     InpDrawGexLevels    = true;                      
 input bool                     InpShowHud          = true;                         // Mostrar Painel HUD
 input bool                     InpUseFlowFilter    = false;                        // Filtro de Fluxo Institucional Nativo (CopyTicks)
 input string                   InpMaxEntryTime     = "15:00";                      // Horario Limite Novas Entradas (HH:MM, vazio=off)
+input bool                     InpBlockPutWall     = true;                         // Bloquear Entradas em Put Wall (-GEX) [NO_PUT_WALL]
+input double                   InpFlipAvoidPts     = 10.0;                         // Zona de Bloqueio ao Redor do GammaFlip (pts, 0=off) [NO_FLIP_10]
 
 CMagicWallsWdoGexNweEngine ExtEngine;
 
@@ -26,6 +28,7 @@ int OnInit()
                   false, false, false, false, false, false, true, false, false, false, false, false, false, false, false, false);
    ExtEngine.SetUseFlowFilter(InpUseFlowFilter);
    ExtEngine.SetMaxEntryTime(InpMaxEntryTime);
+   ExtEngine.SetGexEntryFilters(InpBlockPutWall, InpFlipAvoidPts);
    return(INIT_SUCCEEDED);
   }
 

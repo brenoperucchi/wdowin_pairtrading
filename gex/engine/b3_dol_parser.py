@@ -4,6 +4,29 @@ import os
 import re
 import pandas as pd
 
+
+def parse_b3_oi(raw_val) -> int:
+    """
+    Converte Open Interest da B3 nos dois formatos oficiais:
+    - Milhar brasileiro ('1.100', '12.345', '1.100,00') -> 1100, 12345
+    - Decimal da API REST ('8883.0', '12000.0') ou inteiro ('370') -> 8883, 12000, 370
+    Evita a multiplicação indevida por 10x de str(12000.0).replace('.', '').
+    """
+    if raw_val is None or pd.isna(raw_val):
+        return 0
+    s = str(raw_val).strip()
+    if not s or s == "-":
+        return 0
+    if re.match(r"^\d{1,3}(\.\d{3})+(,\d+)?$", s):
+        s = s.replace(".", "").replace(",", ".")
+        return int(round(float(s)))
+    if "," in s and "." not in s:
+        s = s.replace(",", ".")
+    try:
+        return int(round(float(s)))
+    except ValueError:
+        return 0
+
 def _extract_file_date_key(filepath):
     """
     Extrai a data (YYYY, MM, DD) do nome do arquivo 'Posições em aberto-DD-MM-YYYY.csv'
@@ -72,7 +95,7 @@ def get_b3_dol_options_data(file_path=None):
                 header_idx = i
                 break
                 
-    pos = pd.read_csv(file_path, sep=';', encoding='latin1', skiprows=header_idx, low_memory=False)
+    pos = pd.read_csv(file_path, sep=';', encoding='latin1', skiprows=header_idx, dtype=str, low_memory=False)
     
     options = []
     
@@ -126,13 +149,9 @@ def get_b3_dol_options_data(file_path=None):
         oi = 0
         for col_idx in (11, 5):
             if len(row) > col_idx:
-                oi_str = str(row.iloc[col_idx]).replace('.', '').replace('-', '0').strip()
-                try:
-                    val = int(oi_str)
-                    if val > oi:
-                        oi = val
-                except Exception:
-                    pass
+                val = parse_b3_oi(row.iloc[col_idx])
+                if val > oi:
+                    oi = val
             
         if oi > 0:
             options.append({

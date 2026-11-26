@@ -356,7 +356,9 @@ InpExecMode=0
 InpDrawGexLevels=true
 InpShowHud=true
 InpUseFlowFilter={flow_str}
-InpMaxEntryTime={wdo_max_entry}"""
+InpMaxEntryTime={wdo_max_entry}
+InpBlockPutWall=true
+InpFlipAvoidPts=10.0"""
 
         chr_text = make_chart_chr(
             chart_id=chart_id,

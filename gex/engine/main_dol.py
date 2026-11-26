@@ -13,6 +13,7 @@ from gex.engine.black76 import black76_gamma, implied_volatility_newton_raphson
 from gex.engine.b3_dol_parser import get_b3_dol_options_data
 from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_tradingview
 from gex.engine.mt5_prices import init_mt5_robust, get_b3_expected_wdo_contract
+from gex.engine.walls_calculator import annotate_wall_structure
 
 MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
 
@@ -354,8 +355,8 @@ def run_dol_gex_pipeline():
             
         # 6. Agrupar strikes na escala do contrato ativo (de 10 em 10 pts originais ajustados pelo carry) e calcular GEX
         print(f"\n[3/5] Calculando GEX por Strike DOL (Escala {active_contract})...")
-        # Arredonda o strike base em 10 pts e projeta para o contrato ativo em passos de 0.5 pt (tick mínimo do WDO)
-        df_front['strike_base_10'] = (df_front['strike'] / 10).round() * 10
+        # Mantém agrupamento de 10 em 10 pts validado no backtest OOS (evita micro-walls 25/75)
+        df_front['strike_base_10'] = (df_front['strike'] / 10.0).round() * 10.0
         df_front['strike_round'] = ((df_front['strike_base_10'] * df_front['carry_ratio']) * 2).round() / 2
         
         gex_per_strike = {}
@@ -363,7 +364,7 @@ def run_dol_gex_pipeline():
         
         for strike_round, group in df_front.groupby('strike_round'):
             gex_net = 0.0
-            base_strike_rep = int(group['strike_base_10'].iloc[0])
+            base_strike_rep = int(round(float(group['strike_base_10'].iloc[0])))
             
             for _, row in group.iterrows():
                 gamma = black76_gamma(F=current_wdo, K=float(row['strike_wdo']), T=float(row['T_opt']), sigma=iv)
@@ -435,7 +436,35 @@ def run_dol_gex_pipeline():
         df_local = df_front[df_front['strike_round'].isin(selected_strikes)].copy()
         if df_local.empty:
             df_local = df_front
-            
+
+        def _compute_gamma_curve(df_src, prices_arr):
+            curve_vals = np.empty(len(prices_arr), dtype=float)
+            strikes_arr = df_src['strike_wdo'].to_numpy(dtype=float)
+            t_arr = df_src['T_opt'].to_numpy(dtype=float)
+            oi_arr = df_src['oi'].to_numpy(dtype=float)
+            signs_arr = np.where(df_src['type'].to_numpy() == 'PUT', -1.0, 1.0)
+            for idx_p, s_hyp in enumerate(prices_arr):
+                gex_total = 0.0
+                for k_val, t_val, oi_val, sgn in zip(strikes_arr, t_arr, oi_arr, signs_arr):
+                    gamma = black76_gamma(F=float(s_hyp), K=float(k_val), T=float(t_val), sigma=iv)
+                    gex_total += sgn * oi_val * gamma * (float(s_hyp) ** 2) * 0.01 * multiplier
+                curve_vals[idx_p] = gex_total
+            return curve_vals
+
+        def _find_nearest_zero_cross(p_arr, g_arr):
+            cross_price = None
+            best_dist = float('inf')
+            for i in range(len(g_arr) - 1):
+                if g_arr[i] * g_arr[i + 1] < 0:
+                    x0, x1 = p_arr[i], p_arr[i + 1]
+                    y0, y1 = g_arr[i], g_arr[i + 1]
+                    cross = x0 - y0 * (x1 - x0) / (y1 - y0)
+                    dist = abs(cross - current_wdo)
+                    if dist < best_dist:
+                        best_dist = dist
+                        cross_price = float(cross)
+            return cross_price
+
         min_wall_wdo = float(min(selected_strikes))
         max_wall_wdo = float(max(selected_strikes))
         f_low = max(current_wdo * 0.96, min_wall_wdo)
@@ -443,59 +472,60 @@ def run_dol_gex_pipeline():
         if f_low >= f_high:
             f_low = current_wdo * 0.97
             f_high = current_wdo * 1.03
-            
-        sweep_prices = np.linspace(f_low, f_high, 200)
-        gamma_curve = []
-        
-        for s_hyp in sweep_prices:
-            gex_total = 0.0
-            for _, row in df_local.iterrows():
-                gamma = black76_gamma(F=s_hyp, K=float(row['strike_wdo']), T=float(row['T_opt']), sigma=iv)
-                contrib = row['oi'] * gamma * (s_hyp ** 2) * 0.01 * multiplier
-                if row['type'] == 'PUT':
-                    contrib = -contrib
-                gex_total += contrib
-            gamma_curve.append((s_hyp, gex_total))
-            
-        gamma_curve_arr = np.array(gamma_curve)
-        prices = gamma_curve_arr[:, 0]
-        gex_values = gamma_curve_arr[:, 1]
-        
+
+        prices = np.linspace(f_low, f_high, 200)
+        gex_values = _compute_gamma_curve(df_local, prices)
+
         max_gamma_idx = int(np.argmax(gex_values))
         max_gamma_dol = float(prices[max_gamma_idx])
-        
-        min_gamma_idx = int(np.argmin(gex_values))
-        min_gamma_dol = float(prices[min_gamma_idx])
-        
-        flip_dol = None
-        best_flip_dist = float('inf')
-        
-        for i in range(len(gex_values) - 1):
-            if gex_values[i] * gex_values[i+1] < 0:
-                x0, x1 = prices[i], prices[i+1]
-                y0, y1 = gex_values[i], gex_values[i+1]
-                cross = x0 - y0 * (x1 - x0) / (y1 - y0)
-                dist = abs(cross - current_wdo)
-                if dist < best_flip_dist:
-                    best_flip_dist = dist
-                    flip_dol = float(cross)
-                    
+        max_gamma_val = float(gex_values[max_gamma_idx])
+
+        flip_dol = _find_nearest_zero_cross(prices, gex_values)
+        need_wide = (
+            flip_dol is None
+            or float(np.min(gex_values)) >= 0.0
+            or float(np.max(gex_values)) <= 0.0
+        )
+
+        prices_wide = None
+        gex_wide = None
+        if need_wide:
+            wide_low = float(df_front['strike_wdo'].min())
+            wide_high = float(df_front['strike_wdo'].max())
+            if wide_low < wide_high:
+                prices_wide = np.linspace(wide_low, wide_high, 600)
+                gex_wide = _compute_gamma_curve(df_front, prices_wide)
+
+        if flip_dol is None and gex_wide is not None:
+            flip_dol = _find_nearest_zero_cross(prices_wide, gex_wide)
+
         if flip_dol is None:
-            near_mask = (prices >= current_wdo * 0.98) & (prices <= current_wdo * 1.02)
-            if np.any(near_mask):
-                near_prices = prices[near_mask]
-                near_abs_gex = np.abs(gex_values[near_mask])
-                flip_dol = float(near_prices[int(np.argmin(near_abs_gex))])
-            else:
-                flip_dol = float(current_wdo)
-            
+            gex_spot = float(_compute_gamma_curve(df_front, [current_wdo])[0])
+            flip_dol = min_wall_wdo if gex_spot >= 0.0 else max_wall_wdo
+
+        if float(np.min(gex_values)) < 0.0:
+            min_gamma_idx = int(np.argmin(gex_values))
+            min_gamma_dol = float(prices[min_gamma_idx])
+            min_gamma_val = float(gex_values[min_gamma_idx])
+        elif gex_wide is not None and float(np.min(gex_wide)) < 0.0:
+            min_wide_idx = int(np.argmin(gex_wide))
+            min_gamma_dol = float(prices_wide[min_wide_idx])
+            min_gamma_val = float(gex_wide[min_wide_idx])
+        else:
+            below_mask = prices <= max_gamma_dol
+            sub_prices = prices[below_mask] if np.any(below_mask) else prices
+            sub_gex = gex_values[below_mask] if np.any(below_mask) else gex_values
+            sub_idx = int(np.argmin(sub_gex))
+            min_gamma_dol = float(sub_prices[sub_idx])
+            min_gamma_val = float(sub_gex[sub_idx])
+
         # Adicionar níveis especiais
         walls.append({
             "price": round(max_gamma_dol, 2),
             "type": "MaxGamma",
             "width": 3,
             "style": 0,
-            "gex": float(gex_values[max_gamma_idx])
+            "gex": max_gamma_val
         })
         
         walls.append({
@@ -503,7 +533,7 @@ def run_dol_gex_pipeline():
             "type": "MinGamma",
             "width": 3,
             "style": 0,
-            "gex": float(gex_values[min_gamma_idx])
+            "gex": min_gamma_val
         })
         
         walls.append({
@@ -513,6 +543,8 @@ def run_dol_gex_pipeline():
             "style": 0,
             "gex": 0.0
         })
+
+        annotate_wall_structure(walls, current_wdo, band_pct=0.035)
     
     # 8. Exportar Relatório e Caches
     print(f"\n[4/5] Exportando indicadores e relatórios...")

@@ -655,21 +655,38 @@ def init_mt5_robust(path=None, max_attempts=2):
     return False
 
 
-def get_option_price(ticker, target_hour=16, target_minute=55, max_attempts=3):
+def get_option_price(ticker, target_hour=16, target_minute=55, max_attempts=3, ref_date=None, allow_stale=True):
     """
     Busca o preco de fechamento de uma opcao no MT5.
     Tenta pegar a vela M5 exata do horario target (ex: 16:55).
-    Se nao houver liquidez no momento exato, pega a ultima M5, D1 ou o tick.last.
-    
+    Quando ref_date é informado, restringe a busca às barras daquele pregão;
+    com allow_stale=False, retorna None se não houver negócio na data de referência.
+
     :param ticker: Codigo da opcao (ex: IBOVK120)
+    :param ref_date: Data de referência (date, datetime ou 'YYYY-MM-DD') opcional
+    :param allow_stale: Se False, ignora barras/ticks de pregões anteriores a ref_date
     :return: float (preco de fechamento) ou None se falhar
     """
-    if not init_mt5_robust(MT5_PATH):
-        return None
-        
+    term_info = mt5.terminal_info()
+    if term_info is None or not getattr(term_info, "connected", False):
+        if not init_mt5_robust(MT5_PATH):
+            return None
+
+    target_ref_date = None
+    if ref_date is not None:
+        if isinstance(ref_date, datetime):
+            target_ref_date = ref_date.date()
+        elif isinstance(ref_date, str):
+            try:
+                target_ref_date = datetime.strptime(ref_date[:10], "%Y-%m-%d").date()
+            except ValueError:
+                target_ref_date = None
+        else:
+            target_ref_date = ref_date
+
     mt5.symbol_select(ticker, True)
     tick = mt5.symbol_info_tick(ticker)
-    
+
     # 1. Puxar ultimas velas M5 com retry resiliente
     rates = None
     for attempt in range(1, max_attempts + 1):
@@ -677,39 +694,72 @@ def get_option_price(ticker, target_hour=16, target_minute=55, max_attempts=3):
         if rates is not None and len(rates) > 0:
             break
         time.sleep(0.5)
-        
+
     if rates is not None and len(rates) > 0:
+        if target_ref_date is not None:
+            day_bars = [
+                b for b in rates
+                if datetime.fromtimestamp(b[0], timezone.utc).date() == target_ref_date
+            ]
+            if day_bars:
+                target_bar = day_bars[-1]
+                found_exact = False
+                for b in reversed(day_bars):
+                    dt = datetime.fromtimestamp(b[0], timezone.utc)
+                    if dt.hour == target_hour and dt.minute == target_minute:
+                        target_bar = b
+                        found_exact = True
+                        break
+                price = float(target_bar[4])
+                if not found_exact:
+                    print(f"MT5: {ticker} sem trade M5 as {target_hour}:{target_minute} em {target_ref_date}. Usando ultima M5 (R$ {price:.2f}).")
+                else:
+                    print(f"MT5: {ticker} preco capturado M5 as {target_hour}:{target_minute} em {target_ref_date} -> R$ {price:.2f}")
+                return price
+            if not allow_stale:
+                rates_d1 = mt5.copy_rates_from_pos(ticker, mt5.TIMEFRAME_D1, 0, 5)
+                if rates_d1 is not None and len(rates_d1) > 0:
+                    d1_date = datetime.fromtimestamp(rates_d1[-1][0], timezone.utc).date()
+                    if d1_date == target_ref_date and float(rates_d1[-1][4]) > 0:
+                        price = float(rates_d1[-1][4])
+                        print(f"MT5: {ticker} sem M5 em {target_ref_date}. Usando D1 da data -> R$ {price:.2f}")
+                        return price
+                print(f"MT5: {ticker} sem negocios em {target_ref_date} (ignorado para evitar IV defasada).")
+                return None
+
         target_bar = rates[-1]
         found_exact = False
         latest_date = datetime.fromtimestamp(rates[-1][0], timezone.utc).date()
-        
+
         for b in reversed(rates):
             dt = datetime.fromtimestamp(b[0], timezone.utc)
             if dt.date() == latest_date and dt.hour == target_hour and dt.minute == target_minute:
                 target_bar = b
                 found_exact = True
                 break
-                
+
         price = float(target_bar[4])
         if not found_exact:
             print(f"MT5: {ticker} sem trade M5 as {target_hour}:{target_minute} em {latest_date}. Usando ultima M5 (R$ {price:.2f}).")
         else:
             print(f"MT5: {ticker} preco capturado M5 as {target_hour}:{target_minute} em {latest_date} -> R$ {price:.2f}")
         return price
-        
+
     # 2. Fallback para vela D1 (diaria)
     rates_d1 = mt5.copy_rates_from_pos(ticker, mt5.TIMEFRAME_D1, 0, 5)
     if rates_d1 is not None and len(rates_d1) > 0:
-        price = float(rates_d1[-1][4])
-        print(f"MT5: {ticker} sem velas M5. Usando fechamento D1 -> R$ {price:.2f}")
-        return price
+        d1_date = datetime.fromtimestamp(rates_d1[-1][0], timezone.utc).date()
+        if target_ref_date is None or allow_stale or d1_date == target_ref_date:
+            price = float(rates_d1[-1][4])
+            print(f"MT5: {ticker} sem velas M5. Usando fechamento D1 -> R$ {price:.2f}")
+            return price
 
-    # 3. Fallback para tick.last
-    if tick is not None and tick.last > 0:
+    # 3. Fallback para tick.last (somente quando permite dado fora da data de referência)
+    if (target_ref_date is None or allow_stale) and tick is not None and tick.last > 0:
         price = float(tick.last)
         print(f"MT5: {ticker} sem historico de velas. Usando ultimo tick -> R$ {price:.2f}")
         return price
-        
+
     return None
 
 

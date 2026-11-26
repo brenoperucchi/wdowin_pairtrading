@@ -266,6 +266,7 @@ function FluxoRealAsgChart({
     asgHud = {},
     wallsRadar = {},
     allWalls = [],
+    volumeProfile = null,
     vwap,
     selectedSigId,
     onSelectSignal,
@@ -296,6 +297,24 @@ function FluxoRealAsgChart({
     const [yZoomFactor, setYZoomFactor] = useState(1.0); // >1 abre mais o eixo Y para ver mais Walls do Pine
     const isWallsHost = isWallsFlowLocalhost();
     const [showMidleWalls, setShowMidleWalls] = useState(true);
+    const [showVolumeProfile, setShowVolumeProfile] = useState(() => {
+        try { return window.localStorage.getItem("vol_profile_5176") !== "0"; } catch (e) { return true; }
+    });
+    const toggleVolumeProfile = () => {
+        setShowVolumeProfile(v => {
+            try { window.localStorage.setItem("vol_profile_5176", v ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
+            return !v;
+        });
+    };
+    const [showAvwap, setShowAvwap] = useState(() => {
+        try { return window.localStorage.getItem("avwap_5176") !== "0"; } catch (e) { return true; }
+    });
+    const toggleAvwap = () => {
+        setShowAvwap(v => {
+            try { window.localStorage.setItem("avwap_5176", v ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
+            return !v;
+        });
+    };
     const [showNweLine, setShowNweLine] = useState(() => {
         // 5176: Canal Gauss (NWE100) ligado por padrão nos dois ativos (lembra a escolha do usuário)
         if (!isWallsFlowLocalhost()) return false;
@@ -504,7 +523,7 @@ function FluxoRealAsgChart({
         : "";
     useEffect(() => {
         if (!engineReqKey) return undefined;
-        if (precomputedV32 && precomputedV32.length > 0) {
+        if (precomputedV32 !== null) {
             setEngineDivs({
                 key: engineReqKey,
                 scopeKey: engineScopeKey,
@@ -1380,6 +1399,186 @@ function FluxoRealAsgChart({
         totalDayDivCount = swingDivergences.length;
     }
 
+    // ── AVWAP Automática nas Divergências de Extremo do Dia (BULL_DIV na mínima / BEAR_DIV na máxima) ──
+    const avwapCurves = (() => {
+        if (!showAvwap) return [];
+        const todayBars = indexedSeries.filter((pt) => pt && !pt.is_prev_day && pt.time);
+        if (todayBars.length < 2) return [];
+
+        const parseMinAvwap = (t) => {
+            const [hh, mm] = String(t || "").slice(0, 5).split(":");
+            const h = parseInt(hh, 10);
+            const m = parseInt(mm, 10);
+            return (Number.isNaN(h) || Number.isNaN(m)) ? -1 : (h * 60 + m);
+        };
+        const getBarVol = (b) => {
+            const v = Number(b?.buy_vol || 0) + Number(b?.sell_vol || 0);
+            if (v > 0) return v;
+            const fb = Number(b?.total_vol ?? b?.volume ?? b?.real_volume ?? 0);
+            return fb > 0 ? fb : 1;
+        };
+
+        const runMinLow = new Array(todayBars.length);
+        const runMaxHigh = new Array(todayBars.length);
+        const todayIdxByTime = {};
+        let curMinL = Infinity;
+        let curMaxH = -Infinity;
+        for (let i = 0; i < todayBars.length; i += 1) {
+            const bi = todayBars[i];
+            const lo = Number(bi.low ?? bi.close);
+            const hi = Number(bi.high ?? bi.close);
+            if (lo < curMinL) curMinL = lo;
+            if (hi > curMaxH) curMaxH = hi;
+            runMinLow[i] = curMinL;
+            runMaxHigh[i] = curMaxH;
+            todayIdxByTime[String(bi.time).slice(0, 5)] = i;
+        }
+        const lastTodayMin = parseMinAvwap(todayBars[todayBars.length - 1]?.time);
+
+        const findTodayIdx = (tStr, dir) => {
+            const k = String(tStr || "").slice(0, 5);
+            if (!useM1Active) return todayIdxByTime[k];
+            const m0 = parseMinAvwap(k);
+            if (m0 < 0) return todayIdxByTime[k];
+            let bestIdx = todayIdxByTime[k];
+            let bestExt = dir === 1 ? Infinity : -Infinity;
+            for (let i = 0; i < todayBars.length; i += 1) {
+                const m = parseMinAvwap(todayBars[i].time);
+                if (m >= m0 && m <= m0 + 4) {
+                    const px = dir === 1
+                        ? Number(todayBars[i].low ?? todayBars[i].close)
+                        : Number(todayBars[i].high ?? todayBars[i].close);
+                    if ((dir === 1 && px <= bestExt) || (dir !== 1 && px >= bestExt)) {
+                        bestExt = px;
+                        bestIdx = i;
+                    }
+                }
+            }
+            return bestIdx;
+        };
+
+        const engineList =
+            (engineDivs.scopeKey === engineScopeKey && Array.isArray(engineDivs.list) && engineDivs.list.length > 0)
+                ? engineDivs.list
+                : (precomputedV32 && precomputedV32.length > 0)
+                    ? precomputedV32
+                    : (isPrecomputedSameDate && Array.isArray(precomputedDivs) && precomputedDivs.length > 0)
+                        ? precomputedDivs
+                        : null;
+
+        let candidates = [];
+        if (engineList && engineList.length > 0) {
+            candidates = [...engineList]
+                .map((d, rawIdx) => ({
+                    ...d,
+                    _rawIdx: rawIdx,
+                    _confMin: parseMinAvwap(d.conf_time || d.f2_time),
+                    _f2Min: parseMinAvwap(d.f2_time),
+                }))
+                .sort((a, b) => (a._confMin - b._confMin) || (a._f2Min - b._f2Min) || (a._rawIdx - b._rawIdx))
+                .map((d, idx) => ({
+                    num: idx + 1,
+                    dir: Number(d.dir) >= 0 ? 1 : -1,
+                    f2Time: String(d.f2_time || "").slice(0, 5),
+                    confTime: String(d.conf_time || d.f2_time || "").slice(0, 5),
+                    anchor: d.anchor || "",
+                    dayExtreme: Boolean(d.day_extreme),
+                }));
+        } else {
+            candidates = swingDivergences.map((dv, idx) => ({
+                num: dv.num || idx + 1,
+                dir: dv.type === "BULL_DIV" ? 1 : -1,
+                f2Time: String(dv.currTime || "").slice(0, 5),
+                confTime: String(dv.confTime || dv.currTime || "").slice(0, 5),
+                anchor: dv.anchor || (dv.anchorCode === "X" || dv.anchorCode === "XW" ? "EXTREMO" : ""),
+                dayExtreme: dv.anchorCode === "X" || dv.anchorCode === "XW",
+            }));
+        }
+
+        const extTol = isWinSym ? 5 : 0.5;
+        const eps = 1e-6;
+        const built = [];
+        const seenKeys = new Set();
+
+        candidates.forEach((cand) => {
+            const confMin = parseMinAvwap(cand.confTime);
+            if (confMin >= 0 && lastTodayMin >= 0 && confMin > lastTodayMin) return;
+
+            const i0 = findTodayIdx(cand.f2Time, cand.dir);
+            if (i0 === undefined || i0 < 0 || i0 >= todayBars.length) return;
+
+            const isBull = cand.dir === 1;
+            const b0 = todayBars[i0];
+            const anchorPx = isBull ? Number(b0.low ?? b0.close) : Number(b0.high ?? b0.close);
+            if (!(anchorPx > 0)) return;
+
+            const anchorUpper = String(cand.anchor || "").toUpperCase();
+            const hasExtTag = anchorUpper.includes("EXTREMO") || cand.dayExtreme;
+            const atRunExtreme = isBull
+                ? (anchorPx <= runMinLow[i0] + extTol)
+                : (anchorPx >= runMaxHigh[i0] - extTol);
+            if (!hasExtTag && !(i0 >= 1 && atRunExtreme)) return;
+
+            const dedupKey = `${cand.dir}_${i0}`;
+            if (seenKeys.has(dedupKey)) return;
+            seenKeys.add(dedupKey);
+
+            const v0 = getBarVol(b0);
+            let cumPV = anchorPx * v0;
+            let cumV = v0;
+            const pts = [{ origIdx: b0._origIdx, time: String(b0.time).slice(0, 5), price: anchorPx }];
+            let invalidated = false;
+            let breakTime = null;
+
+            for (let t = i0 + 1; t < todayBars.length; t += 1) {
+                const bt = todayBars[t];
+                const hi = Number(bt.high ?? bt.close);
+                const lo = Number(bt.low ?? bt.close);
+                const cl = Number(bt.close);
+                if ((isBull && lo < anchorPx - eps) || (!isBull && hi > anchorPx + eps)) {
+                    invalidated = true;
+                    breakTime = String(bt.time).slice(0, 5);
+                    break;
+                }
+                const tp = (hi + lo + cl) / 3;
+                const vt = getBarVol(bt);
+                cumPV += tp * vt;
+                cumV += vt;
+                pts.push({
+                    origIdx: bt._origIdx,
+                    time: String(bt.time).slice(0, 5),
+                    price: cumPV / Math.max(1e-9, cumV),
+                });
+            }
+
+            if (invalidated && pts.length < 2) return;
+
+            built.push({
+                id: `avwap-${isBull ? "bull" : "bear"}-${cand.num}-${i0}`,
+                num: cand.num,
+                dir: cand.dir,
+                isBull,
+                i0,
+                anchorTime: String(b0.time).slice(0, 5),
+                anchorPx,
+                lastPrice: pts[pts.length - 1].price,
+                lastOrigIdx: pts[pts.length - 1].origIdx,
+                invalidated,
+                breakTime,
+                pts,
+            });
+        });
+
+        const keepForDir = (dir) => {
+            const list = built.filter((c) => c.dir === dir);
+            const ended = list.filter((c) => c.invalidated).slice(-2);
+            const active = list.filter((c) => !c.invalidated).slice(-1);
+            return [...ended, ...active];
+        };
+
+        return [...keepForDir(1), ...keepForDir(-1)].sort((a, b) => (Number(a.invalidated) === Number(b.invalidated) ? a.i0 - b.i0 : (a.invalidated ? -1 : 1)));
+    })();
+
     maxCaboVal = Math.max(100, maxCaboVal * 1.10);
     maxSwingWaveAbs = Math.max(isWinSym ? 2500 : 300, maxSwingWaveAbs * 1.15);
     const toYCabo = (val) => yZero3 - (Number(val || 0) / maxCaboVal) * halfH3;
@@ -2013,6 +2212,26 @@ function FluxoRealAsgChart({
                             {showMidleWalls && <span className="mw-dot-accent" />}
                             <span>MidWalls</span>
                         </button>
+                        <button
+                            type="button"
+                            className="mw-btn"
+                            data-active={showVolumeProfile ? "true" : "false"}
+                            onClick={toggleVolumeProfile}
+                            title="Exibir ou ocultar Volume Profile da sessão na borda direita interna (Total + Núcleo Institucional)"
+                        >
+                            {showVolumeProfile && <span className="mw-dot-accent" />}
+                            <span>Vol. Profile</span>
+                        </button>
+                        <button
+                            type="button"
+                            className="mw-btn"
+                            data-active={showAvwap ? "true" : "false"}
+                            onClick={toggleAvwap}
+                            title="Exibir ou ocultar VWAP Ancorada automática nas divergências de extremo do dia (Compra na mínima / Venda na máxima)"
+                        >
+                            {showAvwap && <span className="mw-dot-accent" />}
+                            <span>AVWAP</span>
+                        </button>
                         {isWallsHost ? (
                             <button
                                 type="button"
@@ -2452,6 +2671,9 @@ function FluxoRealAsgChart({
                     <clipPath id={`clip-p1-band-${symKey}`}>
                         <rect x="0" y={p1Top} width={width} height={p1H} />
                     </clipPath>
+                    <clipPath id={`clip-p1-plot-${symKey}`}>
+                        <rect x={padL} y={p1Top} width={plotW} height={p1H} />
+                    </clipPath>
                     <clipPath id={`clip-p3-band-${symKey}`}>
                         <rect x="0" y={p3Top + 15} width={width} height={Math.max(10, p3H - 15)} />
                     </clipPath>
@@ -2520,19 +2742,24 @@ function FluxoRealAsgChart({
                 </text>
                 {isWallsHost && !isNarrow && (() => {
                     const legX = padL + (useM1Active ? 276 : 156);
-                    if (legX + 260 > padL + plotW) return null;
+                    if (legX + 245 > padL + plotW) return null;
+                    const showAvwapLegend = showAvwap && (legX + 295 <= padL + plotW);
                     return (
                         <g fontSize="10.5" fontFamily="var(--sans)" fill="#848da2">
-                            <rect x={legX} y="8.5" width="7" height="7" rx="1.5" fill="#d8dee9" />
-                            <text x={legX + 11} y="15.5">Alta</text>
-                            <rect x={legX + 42} y="8.5" width="7" height="7" rx="1.5" fill="#475569" />
-                            <text x={legX + 53} y="15.5">Baixa</text>
-                            <line x1={legX + 94} y1="12" x2={legX + 108} y2="12" stroke="rgba(238, 240, 245, 0.46)" strokeWidth="1.5" />
-                            <text x={legX + 112} y="15.5">Wall</text>
-                            <line x1={legX + 146} y1="12" x2={legX + 160} y2="12" stroke="rgba(238, 240, 245, 0.26)" strokeWidth="1" strokeDasharray="3 2" />
-                            <text x={legX + 164} y="15.5">MidWall</text>
-                            <line x1={legX + 216} y1="12" x2={legX + 230} y2="12" stroke="#d4a259" strokeWidth="1.5" />
-                            <text x={legX + 234} y="15.5" fill="#d4a259">FlipWall</text>
+                            <line x1={legX} y1="12" x2={legX + 14} y2="12" stroke="rgba(238, 240, 245, 0.88)" strokeWidth="2.6" />
+                            <text x={legX + 18} y="15.5" fill="#d8dee9">Call/Put Wall</text>
+                            <line x1={legX + 86} y1="12" x2={legX + 100} y2="12" stroke="rgba(238, 240, 245, 0.34)" strokeWidth="1.0" />
+                            <text x={legX + 104} y="15.5">Wall</text>
+                            <line x1={legX + 134} y1="12" x2={legX + 148} y2="12" stroke="rgba(238, 240, 245, 0.24)" strokeWidth="1.0" strokeDasharray="3 2" />
+                            <text x={legX + 152} y="15.5">Mid</text>
+                            <line x1={legX + 178} y1="12" x2={legX + 192} y2="12" stroke="#d4a259" strokeWidth="2.0" />
+                            <text x={legX + 196} y="15.5" fill="#d4a259">Flip</text>
+                            {showAvwapLegend && (
+                                <>
+                                    <line x1={legX + 224} y1="12" x2={legX + 238} y2="12" stroke="#7dd3fc" strokeWidth="1.7" />
+                                    <text x={legX + 242} y="15.5" fill="#7dd3fc">AVWAP</text>
+                                </>
+                            )}
                         </g>
                     );
                 })()}
@@ -2600,6 +2827,216 @@ function FluxoRealAsgChart({
 
                 <g clipPath={`url(#clip-p1-band-${symKey})`}>
 
+                {/* Volume Profile Monocromático da Sessão na Borda Direita Interna (Total + Núcleo Institucional) */}
+                {showVolumeProfile && (() => {
+                    const defaultStep = symKey === "WIN" ? 25 : 1;
+                    let vp = (volumeProfile && Array.isArray(volumeProfile.bins) && volumeProfile.bins.length > 0)
+                        ? volumeProfile
+                        : null;
+
+                    if (!vp && Array.isArray(m5RawSeries) && m5RawSeries.length > 0) {
+                        const binMap = new Map();
+                        m5RawSeries.forEach((b) => {
+                            if (!b || b.is_prev_day) return;
+                            const hi = Number(b.high || 0);
+                            const lo = Number(b.low || 0);
+                            const op = Number(b.open || lo);
+                            const cl = Number(b.close || hi);
+                            if (hi <= 0 || lo <= 0) return;
+                            const loP = Math.min(lo, hi);
+                            const hiP = Math.max(lo, hi);
+                            const bv = Number(b.buy_vol || 0);
+                            const sv = Number(b.sell_vol || 0);
+                            const totB = bv + sv > 0 ? bv + sv : Math.abs(Number(b.delta_bar || 0));
+                            if (totB <= 0) return;
+                            const idB = Number(b.inst_delta_bar ?? b.inst_aggr_delta ?? 0);
+                            const instEst = Math.min(totB, Math.max(Math.abs(idB), totB * 0.25));
+                            const bLo = Math.round(loP / defaultStep) * defaultStep;
+                            const bHi = Math.round(hiP / defaultStep) * defaultStep;
+                            const stepsN = Math.min(200, Math.max(1, Math.round((bHi - bLo) / defaultStep) + 1));
+                            const midC = (op + cl) * 0.5;
+                            const span = Math.max(defaultStep, (bHi - bLo) * 0.5 + defaultStep);
+                            const pks = [];
+                            let wSum = 0;
+                            for (let s = 0; s < stepsN; s += 1) {
+                                const pk = Number((bLo + s * defaultStep).toFixed(2));
+                                const wt = Math.max(0.15, 1.0 - Math.abs(pk - midC) / span);
+                                pks.push([pk, wt]);
+                                wSum += wt;
+                            }
+                            pks.forEach(([pk, wt]) => {
+                                const frac = wt / (wSum || 1);
+                                const cur = binMap.get(pk) || { p: pk, v: 0, iv: 0, d: 0 };
+                                cur.v += totB * frac;
+                                cur.iv += instEst * frac;
+                                cur.d += (bv - sv) * frac;
+                                binMap.set(pk, cur);
+                            });
+                        });
+                        const fbBins = Array.from(binMap.values()).sort((a, b) => a.p - b.p);
+                        if (fbBins.length > 0) {
+                            let pocIdx = 0;
+                            let totV = 0;
+                            fbBins.forEach((bn, idx) => {
+                                totV += bn.v;
+                                if (bn.v > fbBins[pocIdx].v) pocIdx = idx;
+                            });
+                            let loIdx = pocIdx;
+                            let hiIdx = pocIdx;
+                            let accV = fbBins[pocIdx].v;
+                            while (accV < totV * 0.70 && (loIdx > 0 || hiIdx < fbBins.length - 1)) {
+                                const vDn = loIdx > 0 ? fbBins[loIdx - 1].v : -1;
+                                const vUp = hiIdx < fbBins.length - 1 ? fbBins[hiIdx + 1].v : -1;
+                                if (vUp >= vDn && hiIdx < fbBins.length - 1) {
+                                    hiIdx += 1;
+                                    accV += fbBins[hiIdx].v;
+                                } else if (loIdx > 0) {
+                                    loIdx -= 1;
+                                    accV += fbBins[loIdx].v;
+                                } else {
+                                    break;
+                                }
+                            }
+                            vp = {
+                                step: defaultStep,
+                                source: "M5_FALLBACK",
+                                poc: fbBins[pocIdx].p,
+                                vah: fbBins[hiIdx].p,
+                                val: fbBins[loIdx].p,
+                                bins: fbBins,
+                            };
+                        }
+                    }
+
+                    if (!vp || !Array.isArray(vp.bins) || vp.bins.length === 0) return null;
+
+                    const rawStep = Math.max(0.25, Number(vp.step || defaultStep));
+                    const rawBinPx = Math.abs(toY1(minP) - toY1(minP + rawStep));
+                    let mergeK = 1;
+                    if (rawBinPx < 3.0) {
+                        const mults = [2, 4, 5, 10, 20];
+                        for (let mIdx = 0; mIdx < mults.length; mIdx += 1) {
+                            if (rawBinPx * mults[mIdx] >= 3.2) {
+                                mergeK = mults[mIdx];
+                                break;
+                            }
+                            mergeK = mults[mIdx];
+                        }
+                    }
+                    const mergedStep = rawStep * mergeK;
+
+                    let displayBins = vp.bins;
+                    if (mergeK > 1) {
+                        const mMap = new Map();
+                        vp.bins.forEach((bn) => {
+                            const mp = Number((Math.round(Number(bn.p) / mergedStep) * mergedStep).toFixed(2));
+                            const cur = mMap.get(mp) || { p: mp, v: 0, iv: 0, d: 0, id: 0 };
+                            cur.v += Number(bn.v || 0);
+                            cur.iv += Number(bn.iv || 0);
+                            cur.d += Number(bn.d || 0);
+                            cur.id += Number(bn.id || 0);
+                            mMap.set(mp, cur);
+                        });
+                        displayBins = Array.from(mMap.values()).sort((a, b) => a.p - b.p);
+                    }
+
+                    const visibleBins = displayBins.filter((bn) => bn.p >= minP - mergedStep && bn.p <= maxP + mergedStep);
+                    if (visibleBins.length === 0) return null;
+
+                    const maxBinV = Math.max(1, ...displayBins.map((bn) => Number(bn.v || 0)));
+                    const pocRaw = Number(vp.poc || 0);
+                    const pocMerged = mergeK > 1 ? Number((Math.round(pocRaw / mergedStep) * mergedStep).toFixed(2)) : pocRaw;
+                    const valNum = Number(vp.val || 0);
+                    const vahNum = Number(vp.vah || 0);
+
+                    const rightEdge = padL + plotW;
+                    const vpMaxW = Math.max(28, Math.min(130, plotW * 0.18));
+                    const binPx = Math.abs(toY1(minP) - toY1(minP + mergedStep));
+                    const barH = Math.max(2.0, binPx - 1.0);
+                    const pocY = pocRaw > 0 ? toY1(pocRaw) : null;
+
+                    return (
+                        <g>
+                            {visibleBins.map((bn, idx) => {
+                                const pVal = Number(bn.p);
+                                const vTot = Number(bn.v || 0);
+                                if (vTot <= 0) return null;
+                                const vInst = Math.min(vTot, Math.max(0, Number(bn.iv || 0)));
+                                const dNet = Number(bn.d || 0);
+                                const yCenter = toY1(pVal);
+                                const yTopBar = yCenter - barH / 2;
+                                const barW = Math.max(1.5, (vTot / maxBinV) * vpMaxW);
+                                const instW = vInst > 0 ? Math.max(1.0, Math.min(barW, (vInst / maxBinV) * vpMaxW)) : 0;
+
+                                const isPoc = pocMerged > 0 && Math.abs(pVal - pocMerged) <= mergedStep * 0.45;
+                                const inVa = valNum > 0 && vahNum >= valNum && pVal >= valNum - mergedStep * 0.5 && pVal <= vahNum + mergedStep * 0.5;
+
+                                const totalFill = isPoc
+                                    ? "rgba(238, 240, 245, 0.34)"
+                                    : inVa
+                                        ? "rgba(226, 232, 240, 0.21)"
+                                        : "rgba(148, 163, 184, 0.10)";
+                                const instFill = isPoc
+                                    ? "rgba(248, 250, 252, 0.52)"
+                                    : inVa
+                                        ? "rgba(241, 245, 249, 0.34)"
+                                        : "rgba(203, 213, 225, 0.18)";
+                                const instPct = Math.round((vInst / vTot) * 100);
+                                const tagTxt = isPoc ? " [POC]" : (inVa ? " [Área de Valor]" : "");
+
+                                return (
+                                    <g key={`vp-bin-${idx}`}>
+                                        <title>{`Volume Profile @ ${fmtNum(pVal, dec)}${tagTxt} | Total: ${fmtNum(vTot, 0)} | Inst: ${fmtNum(vInst, 0)} (${instPct}%) | Delta: ${fmtNum(dNet, 0, true)}`}</title>
+                                        <rect
+                                            x={rightEdge - barW}
+                                            y={yTopBar}
+                                            width={barW}
+                                            height={barH}
+                                            fill={totalFill}
+                                            rx="0.8"
+                                        />
+                                        {instW > 0 && (
+                                            <rect
+                                                x={rightEdge - instW}
+                                                y={yTopBar}
+                                                width={instW}
+                                                height={barH}
+                                                fill={instFill}
+                                                rx="0.8"
+                                            />
+                                        )}
+                                    </g>
+                                );
+                            })}
+                            {pocY !== null && pocY >= p1Top + 4 && pocY <= p1Bot - 4 && (
+                                <g pointerEvents="none">
+                                    <line
+                                        x1={rightEdge - vpMaxW}
+                                        y1={pocY}
+                                        x2={rightEdge}
+                                        y2={pocY}
+                                        stroke="rgba(248, 250, 252, 0.62)"
+                                        strokeWidth="1"
+                                    />
+                                    {pocY >= p1Top + 12 && pocY <= p1Bot - 12 && (
+                                        <text
+                                            x={rightEdge - 3}
+                                            y={pocY - 3}
+                                            textAnchor="end"
+                                            fill="rgba(238, 240, 245, 0.72)"
+                                            fontSize="8"
+                                            fontWeight="600"
+                                            fontFamily="var(--mono)"
+                                        >
+                                            POC
+                                        </text>
+                                    )}
+                                </g>
+                            )}
+                        </g>
+                    );
+                })()}
+
                 {/* Regiões Sombreadas de Compra e Venda (MagicWall + MidWall) Diferenciadas por Defesa Institucional + Hedge Makers */}
                 {(() => {
                     const zonesToRender = [];
@@ -2608,11 +3045,37 @@ function FluxoRealAsgChart({
                     const nearestResP = Number(sellZone?.ref_price || 0);
                     const nearestSupP = Number(buyZone?.ref_price || 0);
 
+                    const hasZoneStruct = nearbyWalls.some((w) => w && (w.is_local_call_wall || w.is_local_put_wall));
+                    const zoneCallPrices = new Set();
+                    const zonePutPrices = new Set();
+                    if (hasZoneStruct) {
+                        nearbyWalls.forEach((w) => {
+                            if (!w || String(w.type || "") !== "Wall") return;
+                            if (w.is_local_call_wall) zoneCallPrices.add(Number(w.price));
+                            if (w.is_local_put_wall) zonePutPrices.add(Number(w.price));
+                        });
+                    } else {
+                        let bestCall = null;
+                        let bestPut = null;
+                        const getG = (w) => Number(w.gex_raw ?? w.gex ?? 0);
+                        nearbyWalls.forEach((w) => {
+                            if (!w || String(w.type || "") !== "Wall") return;
+                            const g = getG(w);
+                            if (g > 0 && (!bestCall || g > getG(bestCall))) bestCall = w;
+                            if (g < 0 && (!bestPut || g < getG(bestPut))) bestPut = w;
+                        });
+                        if (bestCall) zoneCallPrices.add(Number(bestCall.price));
+                        if (bestPut) zonePutPrices.add(Number(bestPut.price));
+                    }
+
                     nearbyWalls.forEach((w, idx) => {
                         const wType = String(w.type || "Wall");
                         const isMid = wType.toLowerCase().includes("mid") || String(w.label || "").toUpperCase() === "MIDLEWALL";
                         const isMainWall = wType === "Wall";
                         if (!isMainWall && !isMid) return;
+
+                        const isDomCallOrPut = isMainWall && (zoneCallPrices.has(Number(w.price)) || zonePutPrices.has(Number(w.price)));
+                        if (isWallsHost && !isDomCallOrPut) return;
 
                         const isNeutral = w.smart_bias === "NEUTRAL";
                         const isSell = w.smart_bias === "SELL";
@@ -2630,11 +3093,12 @@ function FluxoRealAsgChart({
                                     : "FRACA"
                         );
 
-                        if (tier === "FRACA" && !isNearestActive && isNeutral) return;
+                        if (!isWallsHost && tier === "FRACA" && !isNearestActive && isNeutral) return;
 
-                        const isStrong = w.smart_stage === "FORTE"
+                        const isStrong = isDomCallOrPut
+                            || w.smart_stage === "FORTE"
                             || (tier === "FORTE" && (!isMid || defLots > 0 || isNearestActive));
-                        const scaleFactor = isStrong ? (isMid ? 0.44 : 0.58) : (isMid ? 0.26 : 0.35);
+                        const scaleFactor = isWallsHost ? 0.62 : (isStrong ? (isMid ? 0.44 : 0.58) : (isMid ? 0.26 : 0.35));
                         const halfW = baseBandPts * scaleFactor;
 
                         zonesToRender.push({
@@ -2659,9 +3123,7 @@ function FluxoRealAsgChart({
                             ? (z.isMid ? "#8b9bb0" : "#eef0f5")
                             : (isWhiteWallMode ? "#eef0f5" : (z.isSell ? "#e5484d" : "#4cc38a"));
                         const fillRgba = isWallsHost
-                            ? (z.isMid
-                                ? (z.isStrong ? "rgba(148, 163, 184, 0.04)" : "rgba(148, 163, 184, 0.02)")
-                                : (z.isStrong ? "rgba(241, 245, 249, 0.055)" : "rgba(241, 245, 249, 0.032)"))
+                            ? "rgba(241, 245, 249, 0.075)"
                             : (isWhiteWallMode
                                 ? (z.isStrong ? "rgba(255, 255, 255, 0.06)" : (z.isMid ? "rgba(255, 255, 255, 0.025)" : "rgba(255, 255, 255, 0.04)"))
                                 : (z.isSell
@@ -2689,7 +3151,43 @@ function FluxoRealAsgChart({
                 })()}
 
                 {/* ── LINHAS E LABELS OFICIAIS DO `magicwalls_tradingview.pine` + TRADUÇÃO DINÂMICA (Vai Defender / Violinada / Romperam / Virou) ── */}
-                {[...nearbyWalls]
+                {(() => {
+                    const hasBackendStruct = nearbyWalls.some((w) => w && (w.is_local_call_wall || w.is_local_put_wall));
+                    const fallbackCallPrices = new Set();
+                    const fallbackPutPrices = new Set();
+                    const fallbackFlipPrices = new Set();
+                    if (!hasBackendStruct) {
+                        const wallOnly = nearbyWalls
+                            .filter((w) => w && String(w.type || "") === "Wall")
+                            .sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
+                        const getG = (w) => Number(w.gex_raw ?? w.gex ?? 0);
+                        let bestCall = null;
+                        let bestPut = null;
+                        wallOnly.forEach((w) => {
+                            const g = getG(w);
+                            if (g > 0 && (!bestCall || g > getG(bestCall))) bestCall = w;
+                            if (g < 0 && (!bestPut || g < getG(bestPut))) bestPut = w;
+                        });
+                        if (bestCall) fallbackCallPrices.add(Number(bestCall.price));
+                        if (bestPut) fallbackPutPrices.add(Number(bestPut.price));
+                        let bestPair = null;
+                        let bestDist = Infinity;
+                        const spotRef = Number(lastPrice || 0);
+                        for (let j = 0; j < wallOnly.length - 1; j += 1) {
+                            const gp = getG(wallOnly[j]);
+                            const gc = getG(wallOnly[j + 1]);
+                            if (gp * gc < 0) {
+                                const midP = (Number(wallOnly[j].price) + Number(wallOnly[j + 1].price)) / 2;
+                                const dist = spotRef > 0 ? Math.abs(midP - spotRef) : j;
+                                if (dist < bestDist) {
+                                    bestDist = dist;
+                                    bestPair = gc > 0 ? wallOnly[j + 1] : wallOnly[j];
+                                }
+                            }
+                        }
+                        if (bestPair) fallbackFlipPrices.add(Number(bestPair.price));
+                    }
+                    return [...nearbyWalls]
                     .sort((a, b) => {
                         const aFlip = String(a.type || "") === "GammaFlip" || /flip/i.test(String(a.label || ""));
                         const bFlip = String(b.type || "") === "GammaFlip" || /flip/i.test(String(b.label || ""));
@@ -2703,6 +3201,16 @@ function FluxoRealAsgChart({
                     const isNeutral = w.smart_bias === "NEUTRAL" || Boolean(w.is_exhausted);
                     const isSell = w.smart_bias === "SELL";
 
+                    const gexRaw = Number(w.gex_raw ?? w.gex ?? 0);
+                    const gexSide = String(w.gex_side || (gexRaw > 0 ? "CALL" : (gexRaw < 0 ? "PUT" : "NEUTRAL")));
+                    const isLocalCall = Boolean(w.is_local_call_wall) || (!hasBackendStruct && fallbackCallPrices.has(Number(w.price)));
+                    const isLocalPut = Boolean(w.is_local_put_wall) || (!hasBackendStruct && fallbackPutPrices.has(Number(w.price)));
+                    const isStrikeFlip = Boolean(w.is_strike_flip) || (!hasBackendStruct && fallbackFlipPrices.has(Number(w.price)));
+                    const wWidth = Math.max(1, Math.min(3, Number(w.width || 1)));
+                    const localTier = String(w.local_wall_tier || "");
+                    const isPrimaryWall = !isMid && !isGammaFlip && (wWidth >= 3 || isLocalCall || isLocalPut || localTier === "PRIMARY");
+                    const isSecondaryWall = !isMid && !isGammaFlip && !isPrimaryWall && (wWidth === 2 || isStrikeFlip || localTier === "SECONDARY");
+
                     const pineCol = isGammaFlip ? "#d4a259"
                         : wType === "MaxGamma" ? "#38bdf8"
                             : wType === "MinGamma" ? "#e5484d"
@@ -2714,22 +3222,48 @@ function FluxoRealAsgChart({
                             : isNeutral
                                 ? pineCol
                                 : (isSell ? "#e5484d" : "#4cc38a");
+                    const wallsHostLineCol = isGammaFlip
+                        ? "#d4a259"
+                        : isMid
+                            ? "rgba(238, 240, 245, 0.18)"
+                            : isPrimaryWall
+                                ? "rgba(238, 240, 245, 0.88)"
+                                : isSecondaryWall
+                                    ? "rgba(238, 240, 245, 0.50)"
+                                    : "rgba(238, 240, 245, 0.24)";
+                    const wallsHostTagCol = isGammaFlip
+                        ? "#d4a259"
+                        : isMid
+                            ? "#9aa5b6"
+                            : isPrimaryWall
+                                ? "#ffffff"
+                                : isSecondaryWall
+                                    ? "#dce3ef"
+                                    : "#9aa5b6";
+                    const wallsHostTagBg = isGammaFlip ? "#211d17" : "#131720";
+                    const wallsHostTagBorder = isGammaFlip
+                        ? "rgba(212, 162, 89, 0.60)"
+                        : isPrimaryWall
+                            ? "rgba(238, 240, 245, 0.58)"
+                            : isSecondaryWall
+                                ? "rgba(238, 240, 245, 0.34)"
+                                : "rgba(238, 240, 245, 0.16)";
                     const col = isWallsHost
-                        ? (isGammaFlip ? "#d4a259" : isMid ? "#848da2" : "#d8dee9")
+                        ? wallsHostTagCol
                         : (wallColorMode === "PINE" ? pineCol : polCol);
                     const lineStrokeCol = isWallsHost
-                        ? (isGammaFlip ? "#d4a259" : isMid ? "rgba(238, 240, 245, 0.24)" : "rgba(238, 240, 245, 0.44)")
+                        ? wallsHostLineCol
                         : col;
                     const textCol = (!isWallsHost && wallColorMode !== "PINE" && w.is_trap) ? "#fbbf24" : col;
 
                     const isStrong = w.smart_stage === "FORTE" && !w.is_exhausted;
                     const strokeW = isGammaFlip
-                        ? 1.6
+                        ? 2.0
                         : isMid
-                            ? 1.0
+                            ? 0.85
                             : isWallsHost
-                                ? 1.35
-                                : Math.max(1.2, Math.min(3.0, Number(w.width || 1) * (isStrong ? 0.95 : 0.85)));
+                                ? (isPrimaryWall ? 2.4 : (isSecondaryWall ? 1.55 : 0.85))
+                                : Math.max(1.2, Math.min(3.0, wWidth * (isStrong ? 0.95 : 0.85)));
                     const isDashed = !isGammaFlip && (w.style === "dashed" || isMid || Boolean(w.is_exhausted));
                     const hideRightAxisTag = Math.abs(yW - lastY) < 15 || yW > p1Bot - 20;
 
@@ -2786,9 +3320,38 @@ function FluxoRealAsgChart({
                         ? ` | Top Players na Wall: ${w.top_wall_brokers.map(tb => `${tb.broker} (${tb.net >= 0 ? "+" : ""}${Math.round(tb.net)})`).join(", ")}`
                         : "";
 
+                    const gexTitleStr = w.gex_formatted ? ` (${w.gex_formatted})` : "";
+                    const structTitle = isLocalCall
+                        ? `CallWall Dominante${gexTitleStr}`
+                        : isLocalPut
+                            ? `PutWall Dominante${gexTitleStr}`
+                            : isStrikeFlip
+                                ? `Virada Put→Call${gexTitleStr}`
+                                : `${w.label || wType}${gexTitleStr}`;
+                    const wallsHostOpacity = isGammaFlip
+                        ? "0.96"
+                        : isMid
+                            ? "0.55"
+                            : isPrimaryWall
+                                ? "0.95"
+                                : isSecondaryWall
+                                    ? "0.85"
+                                    : "0.72";
+
                     return (
                         <g key={`pine-wall-${i}`}>
-                            <title>{`${w.label || wType} @ ${fmtNum(w.price, dec)}`}</title>
+                            <title>{`${structTitle} @ ${fmtNum(w.price, dec)}`}</title>
+                            {isWallsHost && (isLocalCall || isLocalPut) && (
+                                <line
+                                    x1={padL}
+                                    y1={yW}
+                                    x2={padL + plotW}
+                                    y2={yW}
+                                    stroke="rgba(241, 245, 249, 0.5)"
+                                    strokeWidth="6"
+                                    opacity="0.12"
+                                />
+                            )}
                             <line
                                 x1={padL}
                                 y1={yW}
@@ -2797,7 +3360,7 @@ function FluxoRealAsgChart({
                                 stroke={lineStrokeCol}
                                 strokeWidth={strokeW}
                                 strokeDasharray={isDashed ? "4,4" : "none"}
-                                opacity={isWallsHost ? (isGammaFlip ? "0.92" : "1") : (isGammaFlip ? "0.94" : isNeutral ? (isMid ? "0.45" : "0.68") : (isMid ? "0.80" : "0.95"))}
+                                opacity={isWallsHost ? "1" : (isGammaFlip ? "0.94" : isNeutral ? (isMid ? "0.45" : "0.68") : (isMid ? "0.80" : "0.95"))}
                             />
                             {/* Camadas de escrita acima/abaixo da Wall desativadas na 5176 (apenas linhas limpas + preço na escala direita) */}
                             {!isWallsHost && (
@@ -2840,9 +3403,9 @@ function FluxoRealAsgChart({
                                             width={padR - 8}
                                             height={16}
                                             rx="4"
-                                            fill={isGammaFlip ? "#211d17" : "#131720"}
-                                            stroke={isGammaFlip ? "rgba(212, 162, 89, 0.55)" : "rgba(238, 240, 245, 0.24)"}
-                                            strokeWidth="1"
+                                            fill={isWallsHost ? wallsHostTagBg : (isGammaFlip ? "#211d17" : "#131720")}
+                                            stroke={isWallsHost ? wallsHostTagBorder : (isGammaFlip ? "rgba(212, 162, 89, 0.55)" : "rgba(238, 240, 245, 0.24)")}
+                                            strokeWidth={(isWallsHost && isPrimaryWall) ? "1.3" : "1"}
                                         />
                                     ) : (
                                         <line
@@ -2858,9 +3421,9 @@ function FluxoRealAsgChart({
                                         x={padL + plotW + 4 + (padR - 8) / 2}
                                         y={yW + 3.5}
                                         textAnchor="middle"
-                                        fill={isGammaFlip ? "#d4a259" : isMid ? "#9aa5b6" : "#eef0f5"}
+                                        fill={isWallsHost ? wallsHostTagCol : (isGammaFlip ? "#d4a259" : isMid ? "#9aa5b6" : "#eef0f5")}
                                         fontSize={isNarrow ? "9.5" : "10"}
-                                        fontWeight={isGammaFlip ? "600" : "500"}
+                                        fontWeight={(isGammaFlip || (isWallsHost && (isPrimaryWall || isLocalCall || isLocalPut || isStrikeFlip))) ? "700" : (isWallsHost && isSecondaryWall ? "600" : "500")}
                                         fontFamily="var(--mono)"
                                     >
                                         {fmtNum(w.price, dec)}
@@ -2869,7 +3432,8 @@ function FluxoRealAsgChart({
                             )}
                         </g>
                     );
-                })}
+                });
+                })()}
 
                 {/* Divisória Vertical indicando o início do Pregão de Hoje */}
                 {firstTodayLocalIdx > 0 && (
@@ -3367,6 +3931,170 @@ function FluxoRealAsgChart({
                                     </text>
                                 </g>
                             )}
+                        </g>
+                    );
+                })()}
+
+                {/* ── AVWAP AUTOMÁTICA NAS DIVERGÊNCIAS DE EXTREMO DO DIA (AZUL-GELO DISCRETO) ── */}
+                {showAvwap && avwapCurves.length > 0 && (() => {
+                    const visIdxByOrigIdx = new Map();
+                    series.forEach((pt, vi) => visIdxByOrigIdx.set(pt._origIdx, vi));
+
+                    const occupiedAxisYs = [lastY];
+                    if (showNweLine) {
+                        const lastNweV = getNweLine(lastPt);
+                        if (lastNweV > 0) {
+                            const rawNwe = Math.max(p1Top + 10, Math.min(p1Bot - 10, toY1(lastNweV)));
+                            const adjNwe = Math.abs(rawNwe - lastY) < 19
+                                ? (rawNwe < lastY ? Math.max(p1Top + 10, lastY - 20) : Math.min(p1Bot - 10, lastY + 20))
+                                : rawNwe;
+                            occupiedAxisYs.push(adjNwe);
+                        }
+                    }
+
+                    return (
+                        <g>
+                            {avwapCurves.map((c) => {
+                                const visPts = [];
+                                c.pts.forEach((p) => {
+                                    const vi = visIdxByOrigIdx.get(p.origIdx);
+                                    if (vi !== undefined) {
+                                        visPts.push({ x: toX(vi), y: toY1(p.price), price: p.price });
+                                    }
+                                });
+                                if (visPts.length === 0) return null;
+
+                                const hasAnchorVis = visIdxByOrigIdx.has(c.pts[0].origIdx);
+                                const hasEndVis = visIdxByOrigIdx.has(c.lastOrigIdx);
+                                const polyStr = visPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+                                const extName = c.isBull ? "mínima" : "máxima";
+                                const dirName = c.isBull ? "Compra" : "Venda";
+                                const tip = c.invalidated
+                                    ? `AVWAP ${dirName} (#${c.num} · ${extName} ${c.anchorTime} @ ${fmtNum(c.anchorPx, dec)}) · Encerrada às ${c.breakTime} (extremo rompido)`
+                                    : `AVWAP ${dirName} (#${c.num} · ${extName} ${c.anchorTime} @ ${fmtNum(c.anchorPx, dec)}) · Atual: ${fmtNum(c.lastPrice, dec)}`;
+
+                                const lastVis = visPts[visPts.length - 1];
+                                const rawTagY = toY1(c.lastPrice);
+                                const canShowAxisPill = !c.invalidated && visPts.length >= 2 && hasEndVis
+                                    && rawTagY >= p1Top + 10 && rawTagY <= p1Bot - 22
+                                    && !occupiedAxisYs.some((oy) => Math.abs(oy - rawTagY) < 18);
+                                if (canShowAxisPill) occupiedAxisYs.push(rawTagY);
+
+                                const showInlineFallback = !c.invalidated && visPts.length >= 2 && hasEndVis && !canShowAxisPill
+                                    && lastVis.y >= p1Top + 14 && lastVis.y <= p1Bot - 14;
+                                const inlineY = Math.max(p1Top + 10, Math.min(p1Bot - 6, c.isBull ? lastVis.y - 5 : lastVis.y + 10));
+
+                                return (
+                                    <g key={c.id}>
+                                        <g clipPath={`url(#clip-p1-plot-${symKey})`}>
+                                            {visPts.length >= 2 && !c.invalidated && (
+                                                <>
+                                                    <polyline
+                                                        points={polyStr}
+                                                        fill="none"
+                                                        stroke="#38bdf8"
+                                                        strokeWidth="4.2"
+                                                        strokeOpacity="0.14"
+                                                        strokeLinejoin="round"
+                                                        strokeLinecap="round"
+                                                        pointerEvents="none"
+                                                    />
+                                                    <polyline
+                                                        points={polyStr}
+                                                        fill="none"
+                                                        stroke="#7dd3fc"
+                                                        strokeWidth="1.6"
+                                                        strokeOpacity="0.86"
+                                                        strokeLinejoin="round"
+                                                        strokeLinecap="round"
+                                                        pointerEvents="none"
+                                                    />
+                                                    <polyline points={polyStr} fill="none" stroke="transparent" strokeWidth="10">
+                                                        <title>{tip}</title>
+                                                    </polyline>
+                                                </>
+                                            )}
+                                            {visPts.length >= 2 && c.invalidated && (
+                                                <>
+                                                    <polyline
+                                                        points={polyStr}
+                                                        fill="none"
+                                                        stroke="rgba(125, 211, 252, 0.40)"
+                                                        strokeWidth="1.15"
+                                                        strokeDasharray="3,2.5"
+                                                        strokeLinejoin="round"
+                                                        strokeLinecap="round"
+                                                        pointerEvents="none"
+                                                    />
+                                                    {hasEndVis && (
+                                                        <circle
+                                                            cx={lastVis.x}
+                                                            cy={lastVis.y}
+                                                            r="2.0"
+                                                            fill="rgba(125, 211, 252, 0.55)"
+                                                            pointerEvents="none"
+                                                        />
+                                                    )}
+                                                    <polyline points={polyStr} fill="none" stroke="transparent" strokeWidth="10">
+                                                        <title>{tip}</title>
+                                                    </polyline>
+                                                </>
+                                            )}
+                                            {hasAnchorVis && (
+                                                <circle
+                                                    cx={visPts[0].x}
+                                                    cy={visPts[0].y}
+                                                    r={c.invalidated ? "2.0" : "2.6"}
+                                                    fill="#0e1118"
+                                                    stroke={c.invalidated ? "rgba(125, 211, 252, 0.50)" : "#7dd3fc"}
+                                                    strokeWidth="1.35"
+                                                    pointerEvents="none"
+                                                />
+                                            )}
+                                            {showInlineFallback && (
+                                                <text
+                                                    x={Math.min(padL + plotW - 6, lastVis.x - 2)}
+                                                    y={inlineY}
+                                                    textAnchor="end"
+                                                    fill="#7dd3fc"
+                                                    fontSize="8.5"
+                                                    fontWeight="600"
+                                                    fontFamily="var(--mono)"
+                                                    opacity="0.88"
+                                                    pointerEvents="none"
+                                                >
+                                                    AV {fmtNum(c.lastPrice, dec)}
+                                                </text>
+                                            )}
+                                        </g>
+                                        {canShowAxisPill && (
+                                            <g pointerEvents="none">
+                                                <rect
+                                                    x={padL + plotW + 4}
+                                                    y={rawTagY - 8.5}
+                                                    width={padR - 8}
+                                                    height={17}
+                                                    rx="4"
+                                                    fill="#101824"
+                                                    stroke="rgba(125, 211, 252, 0.45)"
+                                                    strokeWidth="1"
+                                                />
+                                                <text
+                                                    x={padL + plotW + 4 + (padR - 8) / 2}
+                                                    y={rawTagY + 3.5}
+                                                    textAnchor="middle"
+                                                    fill="#7dd3fc"
+                                                    fontSize={isNarrow ? "9.5" : "10"}
+                                                    fontWeight="500"
+                                                    fontFamily="var(--mono)"
+                                                >
+                                                    AV {fmtNum(c.lastPrice, dec)}
+                                                </text>
+                                            </g>
+                                        )}
+                                    </g>
+                                );
+                            })}
                         </g>
                     );
                 })()}
@@ -4656,7 +5384,7 @@ function FluxoRealAsgChart({
                 <MorningWallsVideoModal
                     isOpen={showMorningVideoModal}
                     onClose={() => setShowMorningVideoModal(false)}
-                    selectedDate={sessionDate}
+                    selectedDate=""
                     compassData={compassData}
                 />
             )}
@@ -7033,6 +7761,9 @@ function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDa
     const sup0 = radar.support_walls?.[0] || null;
     const res0 = radar.resistance_walls?.[0] || null;
     const flipWall = allWalls.find((w) => w && (String(w.type || "") === "GammaFlip" || /flip/i.test(String(w.label || "")))) || null;
+    const barriers = radar.structural_barriers || {};
+    const localCallWall = barriers.local_call_wall || allWalls.find((w) => w && w.is_local_call_wall) || null;
+    const localPutWall = barriers.local_put_wall || allWalls.find((w) => w && w.is_local_put_wall) || null;
     const lastPriceNum = Number(payload.last_price ?? lastBar.close ?? 0);
     const vwapNum = Number(payload.vwap ?? 0);
     const vwapDiffPct = (lastPriceNum > 0 && vwapNum > 0) ? ((lastPriceNum - vwapNum) / vwapNum) * 100 : null;
@@ -7151,6 +7882,16 @@ function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDa
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--mw-text-3)" }}>
                             <span style={{ width: 7, height: 2, backgroundColor: "var(--mw-flip)", display: "inline-block" }} />
                             FlipWall <strong style={{ fontWeight: 500, color: "var(--mw-flip)" }}>{fmtNum(flipWall.price, dec)}</strong>
+                        </span>
+                    )}
+                    {localCallWall && (!flipWall || Math.abs(Number(localCallWall.price) - Number(flipWall.price)) > (symKey === "WDO" ? 0.5 : 5)) && (
+                        <span style={{ color: "var(--mw-text-3)" }}>
+                            CallWall <strong style={{ fontWeight: 500, color: "var(--mw-text-1)" }}>{fmtNum(localCallWall.price, dec)}</strong>
+                        </span>
+                    )}
+                    {localPutWall && (!flipWall || Math.abs(Number(localPutWall.price) - Number(flipWall.price)) > (symKey === "WDO" ? 0.5 : 5)) && (
+                        <span style={{ color: "var(--mw-text-3)" }}>
+                            PutWall <strong style={{ fontWeight: 500, color: "var(--mw-text-1)" }}>{fmtNum(localPutWall.price, dec)}</strong>
                         </span>
                     )}
                 </div>
@@ -7277,6 +8018,16 @@ function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDa
                                 FlipWall <strong style={{ fontWeight: 500, color: "var(--mw-flip)" }}>{fmtNum(flipWall.price, dec)}</strong>
                             </span>
                         )}
+                        {localCallWall && (!flipWall || Math.abs(Number(localCallWall.price) - Number(flipWall.price)) > (symKey === "WDO" ? 0.5 : 5)) && (
+                            <span style={{ color: "var(--mw-text-3)" }}>
+                                CallWall <strong style={{ fontWeight: 500, color: "var(--mw-text-1)" }}>{fmtNum(localCallWall.price, dec)}</strong>
+                            </span>
+                        )}
+                        {localPutWall && (!flipWall || Math.abs(Number(localPutWall.price) - Number(flipWall.price)) > (symKey === "WDO" ? 0.5 : 5)) && (
+                            <span style={{ color: "var(--mw-text-3)" }}>
+                                PutWall <strong style={{ fontWeight: 500, color: "var(--mw-text-1)" }}>{fmtNum(localPutWall.price, dec)}</strong>
+                            </span>
+                        )}
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, color: "var(--mw-text-3)" }}>
                         <span>
@@ -7319,6 +8070,7 @@ function SingleAssetCockpitView({ symKey, payload, manualMode = false, sessionDa
                     asgHud={asgHud}
                     wallsRadar={radar}
                     allWalls={allWalls}
+                    volumeProfile={payload.volume_profile || null}
                     vwap={payload.vwap}
                     selectedSigId={manualMode ? null : selectedSigId}
                     showSignalsMarkers={!manualMode}

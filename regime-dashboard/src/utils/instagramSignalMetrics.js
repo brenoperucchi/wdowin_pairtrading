@@ -86,98 +86,42 @@ function findBarIndexByTime(bars, timeStr) {
 }
 
 /**
- * Extracts sorted Wall & MidWall price levels for stop protection lookup.
+ * Computes the protective stop level behind the signal pivot extreme (+15 pts WIN / +1.0 pt WDO padding),
+ * enforcing a minimum stop distance from entry (100 pts WIN / 3.0 pts WDO).
  */
-function extractWallLevels(walls = []) {
-    const levels = [];
-    (walls || []).forEach((w) => {
-        if (!w) return;
-        const px = Number(w.price);
-        if (!Number.isFinite(px) || px <= 0) return;
-        const wt = String(w.type || "Wall");
-        const isMid = wt.toLowerCase().includes("mid") || String(w.label || "").toUpperCase() === "MIDLEWALL";
-        const isMain = wt === "Wall";
-        if (!isMain && !isMid) return;
-        levels.push({ price: px, isMid, label: isMid ? "MidWall" : "Wall" });
-    });
-    levels.sort((a, b) => a.price - b.price);
-    // Deduplicate levels within tiny tolerance
-    const dedup = [];
-    levels.forEach((lv) => {
-        if (!dedup.length || Math.abs(lv.price - dedup[dedup.length - 1].price) > 0.2) {
-            dedup.push(lv);
-        }
-    });
-    return dedup;
-}
-
-/**
- * Finds the protective stop level at the next Wall/MidWall behind entry,
- * skipping the signal's own wall if closer than minDist (100 pts WIN / 3 pts WDO).
- */
-function findOppositeWallStop(entryPrice, isBull, wallLevels, isWdo) {
+function findPivotStop(entryPrice, pivotPrice, isBull, isWdo) {
     const minDist = isWdo ? 3.0 : 100;
-    const fallbackDist = isWdo ? 15.0 : 500;
-
-    // Estimate typical spacing between adjacent walls in case price broke outside all walls
-    let avgStep = fallbackDist;
-    if (wallLevels.length >= 2) {
-        const diffs = [];
-        for (let i = 1; i < wallLevels.length; i += 1) {
-            const d = wallLevels[i].price - wallLevels[i - 1].price;
-            if (d > minDist * 0.5 && d < fallbackDist * 4) diffs.push(d);
-        }
-        if (diffs.length) {
-            diffs.sort((a, b) => a - b);
-            avgStep = diffs[Math.floor(diffs.length / 2)];
-        }
-    }
+    const pad = isWdo ? 1.0 : 15;
+    const safePivot = Number.isFinite(Number(pivotPrice)) && Number(pivotPrice) > 0
+        ? Number(pivotPrice)
+        : entryPrice;
 
     if (isBull) {
-        // Nearest Wall/MidWall strictly below entry by at least minDist
-        for (let i = wallLevels.length - 1; i >= 0; i -= 1) {
-            if (entryPrice - wallLevels[i].price >= minDist) {
-                return {
-                    stopPrice: wallLevels[i].price,
-                    stopLabel: wallLevels[i].label,
-                    stopDist: entryPrice - wallLevels[i].price,
-                };
-            }
-        }
+        const stopPrice = Math.min(entryPrice - minDist, safePivot - pad);
         return {
-            stopPrice: entryPrice - avgStep,
-            stopLabel: "Wall est.",
-            stopDist: avgStep,
+            stopPrice,
+            stopLabel: "Stop",
+            stopDist: entryPrice - stopPrice,
         };
     }
 
-    // Bear: nearest Wall/MidWall strictly above entry by at least minDist
-    for (let i = 0; i < wallLevels.length; i += 1) {
-        if (wallLevels[i].price - entryPrice >= minDist) {
-            return {
-                stopPrice: wallLevels[i].price,
-                stopLabel: wallLevels[i].label,
-                stopDist: wallLevels[i].price - entryPrice,
-            };
-        }
-    }
+    const stopPrice = Math.max(entryPrice + minDist, safePivot + pad);
     return {
-        stopPrice: entryPrice + avgStep,
-        stopLabel: "Wall est.",
-        stopDist: avgStep,
+        stopPrice,
+        stopLabel: "Stop",
+        stopDist: stopPrice - entryPrice,
     };
 }
 
 /**
- * Computes each signal's confirmation entry, transparent Wall stop, and Option A MFE:
- * - Stop is protected at the next Wall/MidWall behind entry (skipping own wall if < 100 pts WIN / 3 pts WDO).
- * - Protection rule: once price walks >= 150 pts (WIN) / >= 4 pts (WDO) in favor BEFORE hitting the stop wall,
- *   the signal is protected and reports the maximum favorable excursion (MFE) until the next opposite signal
- *   (or end of session).
- * - If price hits the stop wall BEFORE reaching 150 pts (WIN) / 4 pts (WDO) in favor, it is transparently
+ * Computes each signal's confirmation entry, technical pivot stop, and Option A MFE:
+ * - Stop is placed behind the signal pivot extreme (+15 pts WIN / +1.0 pt WDO, minimum 100 / 3.0 pts from entry).
+ * - Protection rule: once price walks >= 150 pts (WIN) / >= 4 pts (WDO) in favor BEFORE hitting the stop,
+ *   the signal is protected and tracks MFE until the next opposite signal, stop breach, or end of session.
+ * - If price hits the stop BEFORE reaching 150 pts (WIN) / 4 pts (WDO) in favor, it is transparently
  *   recorded as a STOP (-stopPts) and subtracted from the daily net points KPI.
  */
-export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN", excludedIds = null, walls = []) {
+export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN", excludedIds = null) {
     const isWdo = String(symKey || "").toUpperCase() === "WDO";
     const protectThresholdPts = isWdo ? 4.0 : 150;
     const roundPts = (v) => (isWdo ? Math.round(Number(v || 0) * 10) / 10 : Math.round(Number(v || 0)));
@@ -204,8 +148,6 @@ export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN
             },
         };
     }
-
-    const wallLevels = extractWallLevels(walls);
 
     // 1. Resolve each divergence onto the official M5 session bars
     const resolved = [];
@@ -272,8 +214,11 @@ export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN
             const windowEndIdx = nextOpp ? nextOpp.entryIdx : bars.length - 1;
             const windowEndTime = String(bars[windowEndIdx]?.time || sig.entryTime).slice(0, 5);
             const endedBy = nextOpp ? "SINAL_OPOSTO" : "FECHAMENTO";
+            let effectiveWindowEndIdx = windowEndIdx;
+            let effectiveWindowEndTime = windowEndTime;
+            let effectiveEndedBy = endedBy;
 
-            const { stopPrice, stopLabel, stopDist } = findOppositeWallStop(sig.entryPrice, sig.isBull, wallLevels, isWdo);
+            const { stopPrice, stopLabel, stopDist } = findPivotStop(sig.entryPrice, sig.pivotPrice, sig.isBull, isWdo);
             const stopPts = roundPts(stopDist);
 
             let bestPx = sig.entryPrice;
@@ -293,7 +238,7 @@ export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN
                 const hitStopInBar = sig.isBull ? (lo <= stopPrice) : (hi >= stopPrice);
 
                 if (!isProtected) {
-                    // Conservative transparency: if stop wall is touched before protection was already reached
+                    // Conservative transparency: if stop level is touched before protection was already reached
                     if (hitStopInBar) {
                         isStopped = true;
                         stopIdx = k;
@@ -303,6 +248,12 @@ export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN
                     if (favInBar >= protectThresholdPts) {
                         isProtected = true;
                     }
+                } else if (hitStopInBar) {
+                    // Close MFE measurement window once price breaches the technical stop even after protection
+                    effectiveWindowEndIdx = k;
+                    effectiveWindowEndTime = String(b.time || sig.entryTime).slice(0, 5);
+                    effectiveEndedBy = "STOP_POS_PROTECAO";
+                    break;
                 }
 
                 if (sig.isBull) {
@@ -341,9 +292,9 @@ export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN
                 stopPts,
                 stopIdx,
                 stopTime,
-                windowEndIdx,
-                windowEndTime,
-                endedBy,
+                windowEndIdx: effectiveWindowEndIdx,
+                windowEndTime: effectiveWindowEndTime,
+                endedBy: effectiveEndedBy,
                 bestPx,
                 bestIdx,
                 peakTime,
@@ -516,7 +467,7 @@ export function buildInstagramCaption({ symKey, dateInfo, activeSignals, summary
     const lines = activeSignals.map((s) => {
         const dirWord = s.isBull ? "Compra" : "Venda";
         if (s.isStopped) {
-            return `• #${s.num} · ${s.entryTime} · ${s.anchorCode} ${dirWord} (${formatBrNumber(s.entryPrice, dec)}) → Stop ${formatPtsLabel(s.resultPts, isWdo)} (${s.stopLabel} ${formatBrNumber(s.stopPrice, dec)} às ${s.stopTime})`;
+            return `• #${s.num} · ${s.entryTime} · ${s.anchorCode} ${dirWord} (${formatBrNumber(s.entryPrice, dec)}) → Stop ${formatPtsLabel(s.resultPts, isWdo)} (${formatBrNumber(s.stopPrice, dec)} às ${s.stopTime})`;
         }
         const bestTag = s.isBest ? " [Melhor pernada]" : "";
         return `• #${s.num} · ${s.entryTime} · ${s.anchorCode} ${dirWord} (${formatBrNumber(s.entryPrice, dec)}) → ${formatPtsLabel(s.mfePts, isWdo)}${bestTag}`;

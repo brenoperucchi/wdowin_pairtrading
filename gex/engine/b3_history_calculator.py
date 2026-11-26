@@ -30,7 +30,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from gex.engine.b3_parser import _get_ibov_expiration
-from gex.engine.b3_dol_parser import _get_dol_expiration
+from gex.engine.b3_dol_parser import _get_dol_expiration, parse_b3_oi
 from gex.engine.walls_calculator import calculate_gex_profile
 from gex.engine.black76 import black76_gamma
 from gex.engine.mt5_prices import (
@@ -161,7 +161,7 @@ def load_existing_validated_history():
                     "type": _norm_wall_type(parts[1]),
                     "price": float(parts[2]),
                     "width": int(parts[3]),
-                    "gex": 0.0,
+                    "gex": float(parts[4]) if len(parts) >= 5 else 0.0,
                 })
     except Exception as e:
         print(f"[Aviso] Não foi possível ler HEAD:mt5/Files/magicwalls_gex_wdo_history.csv: {e}")
@@ -180,7 +180,7 @@ def parse_b3_file_fast(file_path: str, ref_date: datetime.date):
                 header_idx = i
                 break
 
-    pos = pd.read_csv(file_path, sep=";", encoding="latin1", skiprows=header_idx, low_memory=False)
+    pos = pd.read_csv(file_path, sep=";", encoding="latin1", skiprows=header_idx, dtype=str, low_memory=False)
     tickers = pos.iloc[:, 0].astype(str).str.strip()
     segments = pos.iloc[:, 4].astype(str).str.strip()
 
@@ -217,11 +217,7 @@ def parse_b3_file_fast(file_path: str, ref_date: datetime.date):
         m_num, o_type = month_codes[m_code]
         yr = ref_year + (1 if m_num < ref_month else 0)
         exp_dt = _get_ibov_expiration(yr, m_num).isoformat()
-        oi_str = str(row.iloc[11]).replace(".", "").replace("-", "0").strip()
-        try:
-            oi = int(oi_str)
-        except Exception:
-            oi = 0
+        oi = parse_b3_oi(row.iloc[11]) if len(row) > 11 else 0
         if oi > 0:
             ibov_opts.append({
                 "ticker": t,
@@ -261,12 +257,9 @@ def parse_b3_file_fast(file_path: str, ref_date: datetime.date):
         oi = 0
         for c_idx in (11, 5):
             if len(row) > c_idx:
-                try:
-                    val = int(str(row.iloc[c_idx]).replace(".", "").replace("-", "0").strip())
-                    if val > oi:
-                        oi = val
-                except Exception:
-                    pass
+                val = parse_b3_oi(row.iloc[c_idx])
+                if val > oi:
+                    oi = val
         if oi > 0:
             dol_opts.append({
                 "ticker": t,
@@ -288,8 +281,7 @@ def calculate_dol_walls_official(df_dol: pd.DataFrame, current_wdo: float, ref_d
       e aplica `carry_ratio` na rolagem de último dia útil do mês
     - Agrupa strikes de 10 em 10 pontos (`strike_base_10 = (strike / 10).round() * 10`)
     - Seleciona 16 strikes ao redor do ATM
-    - Calcula a Market Gamma Curve com `black76_gamma` oficial e seleciona o `GammaFlip` mais próximo
-      de `current_wdo` (`dist < best_flip_dist`).
+    - Calcula a Market Gamma Curve e busca `GammaFlip` e `MinGamma` sem artefatos de borda.
     """
     if df_dol.empty or current_wdo <= 0:
         return []
@@ -333,13 +325,13 @@ def calculate_dol_walls_official(df_dol: pd.DataFrame, current_wdo: float, ref_d
     df_front["carry_ratio"] = df_front["expiry"].map(lambda e: expiry_meta[e]["carry_ratio"])
     df_front["T_opt"] = df_front["expiry"].map(lambda e: expiry_meta[e]["T"])
     df_front["strike_wdo"] = df_front["strike"] * df_front["carry_ratio"]
-    df_front["strike_base_10"] = (df_front["strike"] / 10).round() * 10
+    df_front["strike_base_10"] = (df_front["strike"] / 10.0).round() * 10.0
     df_front["strike_round"] = ((df_front["strike_base_10"] * df_front["carry_ratio"]) * 2).round() / 2
 
     gex_per_strike = {}
     for strike_round, group in df_front.groupby("strike_round"):
         gex_net = 0.0
-        base_strike_rep = int(group["strike_base_10"].iloc[0])
+        base_strike_rep = int(round(float(group["strike_base_10"].iloc[0])))
         for _, row in group.iterrows():
             gamma = black76_gamma(F=current_wdo, K=float(row["strike_wdo"]), T=float(row["T_opt"]), sigma=iv)
             gex_contrib = row["oi"] * gamma * (current_wdo ** 2) * 0.01 * multiplier
@@ -402,6 +394,34 @@ def calculate_dol_walls_official(df_dol: pd.DataFrame, current_wdo: float, ref_d
     if df_local.empty:
         df_local = df_front
 
+    def _compute_gamma_curve_vec(df_src: pd.DataFrame, prices_arr: np.ndarray) -> np.ndarray:
+        F_sweep = prices_arr[:, None]
+        k_arr = df_src["strike_wdo"].to_numpy(dtype=float)[None, :]
+        t_arr = df_src["T_opt"].to_numpy(dtype=float)[None, :]
+        oi_arr = df_src["oi"].to_numpy(dtype=float)
+        type_sign = np.where(df_src["type"].to_numpy() == "PUT", -1.0, 1.0)
+        signed_oi = (oi_arr * type_sign)[None, :]
+
+        d1 = (np.log(F_sweep / k_arr) + 0.5 * (iv ** 2) * t_arr) / (iv * np.sqrt(t_arr))
+        n_prime_d1 = (1.0 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * (d1 ** 2))
+        gamma_mat = np.exp(-0.1425 * t_arr) * n_prime_d1 / (F_sweep * iv * np.sqrt(t_arr))
+        contrib_mat = signed_oi * gamma_mat * (F_sweep ** 2) * 0.01 * multiplier
+        return np.sum(contrib_mat, axis=1)
+
+    def _find_nearest_zero_cross(p_arr: np.ndarray, g_arr: np.ndarray):
+        cross_price = None
+        best_dist = float("inf")
+        for i in range(len(g_arr) - 1):
+            if g_arr[i] * g_arr[i + 1] < 0:
+                x0, x1 = p_arr[i], p_arr[i + 1]
+                y0, y1 = g_arr[i], g_arr[i + 1]
+                cross = x0 - y0 * (x1 - x0) / (y1 - y0)
+                dist = abs(cross - current_wdo)
+                if dist < best_dist:
+                    best_dist = dist
+                    cross_price = round(float(cross), 2)
+        return cross_price
+
     min_wall_wdo = float(min(selected_strikes))
     max_wall_wdo = float(max(selected_strikes))
     f_low = max(current_wdo * 0.96, min_wall_wdo)
@@ -411,49 +431,53 @@ def calculate_dol_walls_official(df_dol: pd.DataFrame, current_wdo: float, ref_d
         f_high = current_wdo * 1.03
 
     sweep_prices = np.linspace(f_low, f_high, 200)
-    F_sweep = sweep_prices[:, None]
-
-    k_arr = df_local["strike_wdo"].to_numpy(dtype=float)[None, :]
-    t_arr = df_local["T_opt"].to_numpy(dtype=float)[None, :]
-    oi_arr = df_local["oi"].to_numpy(dtype=float)
-    type_sign = np.where(df_local["type"].to_numpy() == "PUT", -1.0, 1.0)
-    signed_oi = (oi_arr * type_sign)[None, :]
-
-    # Mesma fórmula exata de black76_gamma (gex/engine/black76.py)
-    d1 = (np.log(F_sweep / k_arr) + 0.5 * (iv ** 2) * t_arr) / (iv * np.sqrt(t_arr))
-    n_prime_d1 = (1.0 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * (d1 ** 2))
-    gamma_mat = np.exp(-0.1425 * t_arr) * n_prime_d1 / (F_sweep * iv * np.sqrt(t_arr))
-    contrib_mat = signed_oi * gamma_mat * (F_sweep ** 2) * 0.01 * multiplier
-    gex_values = np.sum(contrib_mat, axis=1)
+    gex_values = _compute_gamma_curve_vec(df_local, sweep_prices)
 
     max_gamma_idx = int(np.argmax(gex_values))
-    min_gamma_idx = int(np.argmin(gex_values))
     max_gamma_dol = round(float(sweep_prices[max_gamma_idx]), 2)
-    min_gamma_dol = round(float(sweep_prices[min_gamma_idx]), 2)
+    max_gamma_val = float(gex_values[max_gamma_idx])
 
-    flip_dol = None
-    best_flip_dist = float("inf")
-    for i in range(len(gex_values) - 1):
-        if gex_values[i] * gex_values[i + 1] < 0:
-            x0, x1 = sweep_prices[i], sweep_prices[i + 1]
-            y0, y1 = gex_values[i], gex_values[i + 1]
-            cross = x0 - y0 * (x1 - x0) / (y1 - y0)
-            dist = abs(cross - current_wdo)
-            if dist < best_flip_dist:
-                best_flip_dist = dist
-                flip_dol = round(float(cross), 2)
+    flip_dol = _find_nearest_zero_cross(sweep_prices, gex_values)
+    need_wide = (
+        flip_dol is None
+        or float(np.min(gex_values)) >= 0.0
+        or float(np.max(gex_values)) <= 0.0
+    )
+
+    prices_wide = None
+    gex_wide = None
+    if need_wide:
+        wide_low = float(df_front["strike_wdo"].min())
+        wide_high = float(df_front["strike_wdo"].max())
+        if wide_low < wide_high:
+            prices_wide = np.linspace(wide_low, wide_high, 600)
+            gex_wide = _compute_gamma_curve_vec(df_front, prices_wide)
+
+    if flip_dol is None and gex_wide is not None:
+        flip_dol = _find_nearest_zero_cross(prices_wide, gex_wide)
 
     if flip_dol is None:
-        near_mask = (sweep_prices >= current_wdo * 0.98) & (sweep_prices <= current_wdo * 1.02)
-        if np.any(near_mask):
-            near_prices = sweep_prices[near_mask]
-            near_abs_gex = np.abs(gex_values[near_mask])
-            flip_dol = round(float(near_prices[int(np.argmin(near_abs_gex))]), 2)
-        else:
-            flip_dol = round(float(current_wdo), 2)
+        gex_spot = float(_compute_gamma_curve_vec(df_front, np.array([current_wdo], dtype=float))[0])
+        flip_dol = round(min_wall_wdo if gex_spot >= 0.0 else max_wall_wdo, 2)
 
-    walls.append({"price": max_gamma_dol, "type": "MaxGamma", "width": 3, "gex": float(gex_values[max_gamma_idx])})
-    walls.append({"price": min_gamma_dol, "type": "MinGamma", "width": 3, "gex": float(gex_values[min_gamma_idx])})
+    if float(np.min(gex_values)) < 0.0:
+        min_gamma_idx = int(np.argmin(gex_values))
+        min_gamma_dol = round(float(sweep_prices[min_gamma_idx]), 2)
+        min_gamma_val = float(gex_values[min_gamma_idx])
+    elif gex_wide is not None and float(np.min(gex_wide)) < 0.0:
+        min_wide_idx = int(np.argmin(gex_wide))
+        min_gamma_dol = round(float(prices_wide[min_wide_idx]), 2)
+        min_gamma_val = float(gex_wide[min_wide_idx])
+    else:
+        below_mask = sweep_prices <= max_gamma_dol
+        sub_prices = sweep_prices[below_mask] if np.any(below_mask) else sweep_prices
+        sub_gex = gex_values[below_mask] if np.any(below_mask) else gex_values
+        sub_idx = int(np.argmin(sub_gex))
+        min_gamma_dol = round(float(sub_prices[sub_idx]), 2)
+        min_gamma_val = float(sub_gex[sub_idx])
+
+    walls.append({"price": max_gamma_dol, "type": "MaxGamma", "width": 3, "gex": max_gamma_val})
+    walls.append({"price": min_gamma_dol, "type": "MinGamma", "width": 3, "gex": min_gamma_val})
     walls.append({"price": flip_dol, "type": "GammaFlip", "width": 2, "gex": 0.0})
 
     return walls
@@ -631,13 +655,14 @@ def backfill_b3_gex_history():
             f.write(win_content)
 
     # 4. Exportar magicwalls_gex_wdo_history.csv
-    wdo_lines = ["session_date;type;price;width"]
+    wdo_lines = ["session_date;type;price;width;gex"]
     for d in sorted(wdo_history.keys()):
         for w in wdo_history[d]:
             w_type = _norm_wall_type(w.get("type", "Wall"))
             w_price = float(w.get("price", 0.0))
             w_width = int(w.get("width", 1))
-            wdo_lines.append(f"{d};{w_type};{w_price:.2f};{w_width}")
+            w_gex = float(w.get("gex", 0.0) or 0.0)
+            wdo_lines.append(f"{d};{w_type};{w_price:.2f};{w_width};{w_gex:.2f}")
 
     wdo_content = "\n".join(wdo_lines) + "\n"
     for target_dir in (MT5_FILES_DIR, common_dir):

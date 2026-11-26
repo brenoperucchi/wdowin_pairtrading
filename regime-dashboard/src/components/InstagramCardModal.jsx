@@ -1336,7 +1336,7 @@ function SignalListSection({
                                     >
                                         {sig.isStopped
                                             ? `${sig.stopLabel} ${formatBrNumber(sig.stopPrice, dec)} · antes da proteção`
-                                            : `Máx. ${formatBrNumber(sig.bestPx, dec)} · ${sig.endedBy === "SINAL_OPOSTO" ? `até ${sig.windowEndTime}` : "até fech."}`}
+                                            : `Máx. ${formatBrNumber(sig.bestPx, dec)} · ${sig.endedBy === "FECHAMENTO" ? "até fech." : `até ${sig.windowEndTime}`}`}
                                     </text>
                                 )}
 

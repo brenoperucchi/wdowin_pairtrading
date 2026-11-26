@@ -127,6 +127,31 @@ export function toBrDate(rawDate) {
     return s;
 }
 
+export function todayBrtDateBr() {
+    try {
+        const formatted = new Intl.DateTimeFormat("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+        }).format(new Date());
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(formatted)) return formatted;
+    } catch {
+        // fallback para aritmética fixa UTC-3 abaixo
+    }
+    const brtNow = new Date(Date.now() - 3 * 3600 * 1000);
+    const dd = String(brtNow.getUTCDate()).padStart(2, "0");
+    const mm = String(brtNow.getUTCMonth() + 1).padStart(2, "0");
+    const yyyy = brtNow.getUTCFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+}
+
+function brDateToComparable(br) {
+    const m = String(br || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return "";
+    return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
 function findNearestByPrice(list, targetPrice, maxRelDiff = 0.015) {
     if (!Number.isFinite(targetPrice) || !list.length) return null;
     let best = null;
@@ -367,7 +392,7 @@ export function normalizeAssetLadder(assetRaw, isWdo) {
     };
 }
 
-export function normalizeMorningBrief(raw) {
+export function normalizeMorningBrief(raw, options = {}) {
     const src = raw && raw.win && raw.wdo ? raw : DEFAULT_FALLBACK_BRIEF;
     const win = normalizeAssetLadder(src.win, false);
     const wdo = normalizeAssetLadder(src.wdo, true);
@@ -381,17 +406,29 @@ export function normalizeMorningBrief(raw) {
         detail: e.detail || "",
     }));
 
-    const dateBr = toBrDate(src.ref_date || win.refDate || wdo.refDate || DEFAULT_FALLBACK_BRIEF.ref_date);
+    const todayBr = todayBrtDateBr();
+    const rawDateBr = toBrDate(src.ref_date || win.refDate || wdo.refDate || "");
+    let autoDateBr = todayBr;
+    if (!src.is_fallback && rawDateBr) {
+        const rawComp = brDateToComparable(rawDateBr);
+        const todayComp = brDateToComparable(todayBr);
+        autoDateBr = rawComp && todayComp && rawComp < todayComp ? todayBr : rawDateBr;
+    }
+
+    const overrideRaw = String(options?.publishDateBr || "").trim();
+    const dateBr = overrideRaw ? toBrDate(overrideRaw) : autoDateBr;
     const globalAssets = Array.isArray(src.global_assets) ? src.global_assets.slice(0, 4) : [];
 
     return {
         isFallback: Boolean(src.is_fallback),
         generatedAt: src.generated_at || "",
         dateBr,
+        autoDateBr,
+        dataDateBr: rawDateBr || autoDateBr,
         win,
         wdo,
         calendar: {
-            date: toBrDate(src.calendar?.date) || dateBr,
+            date: dateBr,
             events,
         },
         globalAssets,
@@ -478,16 +515,24 @@ function _buildAssetRawFromCompass(assetObj, isWdo, targetIso, targetBr) {
 }
 
 export function buildMorningBriefFromCompass(compassData, targetDateIso = "", liveBrief = null) {
+    const explicitIso = String(targetDateIso || "").trim().slice(0, 10);
     const compassIso = String(compassData?.selected_date || compassData?.WIN?.session_date || "").trim().slice(0, 10);
-    const reqIso = String(targetDateIso || compassIso || "").trim().slice(0, 10);
-    const reqBr = toBrDate(reqIso);
+    const explicitBr = toBrDate(explicitIso);
     const liveBr = toBrDate(liveBrief?.ref_date || liveBrief?.win?.report?.report_date || "");
 
-    const hasValidLive = Boolean(liveBrief && liveBrief.ok && liveBrief.win && liveBrief.wdo);
-    if (hasValidLive && (!reqBr || liveBr === reqBr)) {
+    const liveWinPrice = Number(liveBrief?.win?.current_price ?? liveBrief?.win?.report?.current_price ?? 0);
+    const liveWdoPrice = Number(liveBrief?.wdo?.current_price ?? liveBrief?.wdo?.report?.current_price ?? 0);
+    const hasValidLive = Boolean(
+        liveBrief && liveBrief.ok && liveBrief.win && liveBrief.wdo
+        && Number.isFinite(liveWinPrice) && liveWinPrice > 0
+        && Number.isFinite(liveWdoPrice) && liveWdoPrice > 0
+    );
+
+    if (hasValidLive && (!explicitBr || liveBr === explicitBr)) {
         return { brief: liveBrief, source: "LIVE" };
     }
 
+    const reqIso = explicitIso || compassIso || "";
     const winWallsCount = Array.isArray(compassData?.WIN?.all_walls) ? compassData.WIN.all_walls.length : 0;
     const wdoWallsCount = Array.isArray(compassData?.WDO?.all_walls) ? compassData.WDO.all_walls.length : 0;
     const hasCompassWalls = winWallsCount > 0 || wdoWallsCount > 0;
@@ -495,33 +540,40 @@ export function buildMorningBriefFromCompass(compassData, targetDateIso = "", li
 
     if (compassData?.WIN && compassData?.WDO && hasCompassWalls && compassMatchesTarget) {
         const effIso = reqIso || compassIso || "";
-        const effBr = toBrDate(effIso) || DEFAULT_FALLBACK_BRIEF.ref_date;
-        const calendar =
-            liveBrief?.calendar && toBrDate(liveBrief.calendar.date) === effBr
-                ? liveBrief.calendar
-                : { date: effBr, events: [] };
-        const globalAssets = liveBr && liveBr === effBr && Array.isArray(liveBrief?.global_assets)
-            ? liveBrief.global_assets
-            : [];
-        return {
-            brief: {
-                ok: true,
-                is_fallback: false,
-                ref_date: effBr,
-                generated_at: effIso ? `${effIso} 08:30:00` : "",
-                win: _buildAssetRawFromCompass(compassData.WIN, false, effIso, effBr),
-                wdo: _buildAssetRawFromCompass(compassData.WDO, true, effIso, effBr),
-                calendar,
-                global_assets: globalAssets,
-            },
-            source: "COMPASS_DAY",
-        };
+        const effBr = toBrDate(effIso) || todayBrtDateBr();
+        const winRaw = _buildAssetRawFromCompass(compassData.WIN, false, effIso, effBr);
+        const wdoRaw = _buildAssetRawFromCompass(compassData.WDO, true, effIso, effBr);
+        const hasValidCompassPrices =
+            Number(winRaw.current_price) > 0
+            && Number(wdoRaw.current_price) > 0
+            && winRaw.walls.length > 0
+            && wdoRaw.walls.length > 0;
+
+        if (hasValidCompassPrices) {
+            const calendar =
+                liveBrief?.calendar && toBrDate(liveBrief.calendar.date) === effBr
+                    ? liveBrief.calendar
+                    : { date: effBr, events: [] };
+            const globalAssets = liveBr && liveBr === effBr && Array.isArray(liveBrief?.global_assets)
+                ? liveBrief.global_assets
+                : [];
+            return {
+                brief: {
+                    ok: true,
+                    is_fallback: false,
+                    ref_date: effBr,
+                    generated_at: effIso ? `${effIso} 08:30:00` : "",
+                    win: winRaw,
+                    wdo: wdoRaw,
+                    calendar,
+                    global_assets: globalAssets,
+                },
+                source: "COMPASS_DAY",
+            };
+        }
     }
 
-    if (hasValidLive && (!reqBr || liveBr === reqBr)) {
-        return { brief: liveBrief, source: "LIVE" };
-    }
-    if (hasValidLive && !reqBr) {
+    if (hasValidLive) {
         return { brief: liveBrief, source: "LIVE" };
     }
 

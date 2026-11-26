@@ -216,15 +216,27 @@ def run_full_gex_pipeline():
     # 2. Sincronização IRAI
     print("\n[SYNC] Sincronizando níveis GEX no dashboard IRAI...")
     irai_sync_script = os.path.join(PROJECT_ROOT, "..", "rastro_irado", "scripts", "sync_gex_to_irai.py")
+    sync_ok = False
+    sync_returncode = 1
     if os.path.exists(irai_sync_script):
-        subprocess.run([sys.executable, irai_sync_script], cwd=PROJECT_ROOT)
+        res = subprocess.run([sys.executable, irai_sync_script], cwd=PROJECT_ROOT)
+        sync_returncode = res.returncode
+        if res.returncode == 0:
+            sync_ok = True
+        else:
+            print(f"[ERRO] Sincronização IRAI falhou com código {res.returncode}.")
     else:
         print(f"[Aviso] Script do IRAI não encontrado em: {irai_sync_script}")
-        
+
     elapsed = time.time() - t0
     print("\n" + "=" * 60)
-    print(f"  GEX Daily Update FINALIZADO com sucesso em {elapsed:.1f} segundos!")
-    print("=" * 60 + "\n")
+    if sync_ok:
+        print(f"  GEX Daily Update FINALIZADO com sucesso em {elapsed:.1f} segundos!")
+        print("=" * 60 + "\n")
+    else:
+        print(f"  GEX Daily Update FINALIZADO COM ERROS (sync IRAI falhou) em {elapsed:.1f} segundos!")
+        print("=" * 60 + "\n")
+        sys.exit(sync_returncode)
 
 
 def main():

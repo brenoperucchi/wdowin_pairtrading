@@ -211,6 +211,7 @@ export default function MorningWallsVideoModal({
     const [handle, setHandle] = useState(initialPrefs.handle || "@magicwallsb3");
     const [ctaUrl, setCtaUrl] = useState(initialPrefs.ctaUrl || "app.magicwalls.com.br");
     const [stampLabel, setStampLabel] = useState(initialPrefs.stampLabel || "Pré-pregão · 08:30 BRT");
+    const [publishDate, setPublishDate] = useState("");
 
     const [liveBriefState, setLiveBriefState] = useState(null);
     const [loadingBrief, setLoadingBrief] = useState(false);
@@ -235,7 +236,10 @@ export default function MorningWallsVideoModal({
         () => buildMorningBriefFromCompass(compassData, selectedDate, liveBriefState),
         [compassData, selectedDate, liveBriefState]
     );
-    const brief = useMemo(() => normalizeMorningBrief(resolvedRawBrief || DEFAULT_FALLBACK_BRIEF), [resolvedRawBrief]);
+    const brief = useMemo(
+        () => normalizeMorningBrief(resolvedRawBrief || DEFAULT_FALLBACK_BRIEF, { publishDateBr: publishDate }),
+        [resolvedRawBrief, publishDate]
+    );
     const spec = useMemo(() => getVideoSpec(format, focusMode), [format, focusMode]);
 
     const renderOptions = useMemo(
@@ -718,7 +722,7 @@ export default function MorningWallsVideoModal({
                                     resolvedSource === "LIVE"
                                         ? INK.pos
                                         : resolvedSource === "COMPASS_DAY"
-                                            ? INK.accentBorder
+                                            ? INK.accent
                                             : INK.flip
                                 }`,
                                 color:
@@ -933,6 +937,49 @@ export default function MorningWallsVideoModal({
                                     value={stampLabel}
                                     onChange={(e) => setStampLabel(e.target.value)}
                                     maxLength={28}
+                                    style={inputStyle}
+                                />
+                            </div>
+                            <div style={{ gridColumn: "1 / -1" }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, gap: 8 }}>
+                                    <label
+                                        htmlFor="mw-video-publish-date"
+                                        style={{ fontSize: 11.5, fontWeight: 500, color: INK.text3 }}
+                                    >
+                                        Data de publicação
+                                    </label>
+                                    {publishDate.trim() ? (
+                                        <button
+                                            type="button"
+                                            data-testid="reset-publish-date-btn"
+                                            onClick={() => setPublishDate("")}
+                                            style={{
+                                                background: "transparent",
+                                                border: "none",
+                                                padding: 0,
+                                                cursor: "pointer",
+                                                fontSize: 11,
+                                                fontWeight: 500,
+                                                fontFamily: FONT_MONO,
+                                                color: INK.accentInk,
+                                            }}
+                                        >
+                                            Usar hoje
+                                        </button>
+                                    ) : (
+                                        <span style={{ fontSize: 11, fontFamily: FONT_MONO, color: INK.text3 }}>
+                                            Auto · {brief.autoDateBr}
+                                        </span>
+                                    )}
+                                </div>
+                                <input
+                                    id="mw-video-publish-date"
+                                    type="text"
+                                    data-testid="publish-date-input"
+                                    value={publishDate}
+                                    onChange={(e) => setPublishDate(e.target.value)}
+                                    placeholder={brief.autoDateBr}
+                                    maxLength={10}
                                     style={inputStyle}
                                 />
                             </div>

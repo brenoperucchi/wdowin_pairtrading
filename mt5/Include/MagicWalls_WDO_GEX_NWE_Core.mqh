@@ -23,6 +23,7 @@ struct SGexWdoLevel
    string            type;
    double            price;
    int               width;
+   double            gex;
   };
 
 struct SWdoVirtualSlot
@@ -140,6 +141,9 @@ private:
    double            m_flow_cache_inst_15m;
    double            m_flow_cache_delta_5m;
    int               m_entry_cutoff_min;    // Corte anti-furia (minutos do dia, ex: 900 = 15:00; 0=desativado)
+   bool              m_block_put_wall;      // Filtro NO_PUT_WALL: bloqueia entradas em Put Wall (-GEX)
+   double            m_flip_avoid_pts;      // Filtro NO_FLIP_10: bloqueia entradas a |close - GammaFlip| < X pts
+   bool              m_has_gex_polarity;    // True quando o CSV/JSON do dia carregou gex != 0 nas Walls
 
 public:
                      CMagicWallsWdoGexNweEngine()
@@ -171,6 +175,9 @@ public:
       m_flow_cache_inst_15m = 0.0;
       m_flow_cache_delta_5m = 0.0;
       m_entry_cutoff_min = 900; // Padrao B3 validado: WDO sem novas entradas a partir das 15:00
+      m_block_put_wall = false;
+      m_flip_avoid_pts = 0.0;
+      m_has_gex_polarity = false;
      }
 
    int               ParseEntryCutoffMinutes(string hhmm)
@@ -201,6 +208,14 @@ public:
    void              SetUseFlowFilter(bool use_flow)
      {
       m_use_flow_filter = use_flow;
+      if(!MQLInfoInteger(MQL_TESTER))
+         RenderHudComment();
+     }
+
+   void              SetGexEntryFilters(bool block_put_wall, double flip_avoid_pts)
+     {
+      m_block_put_wall = block_put_wall;
+      m_flip_avoid_pts = MathMax(0.0, flip_avoid_pts);
       if(!MQLInfoInteger(MQL_TESTER))
          RenderHudComment();
      }
@@ -292,6 +307,58 @@ public:
          PrintFormat("[MAGIC WALLS %s] Sinal Dir=%d BLOQUEADO pelo Filtro de Fluxo Institucional Nativo (Inst5m=%.0f | Inst15m=%.0f)",
                      m_slots[k].name, sig_dir, m_flow_cache_inst_5m, m_flow_cache_inst_15m);
       return ok;
+     }
+
+   bool              PassGexStructuralFilter(int k, const MqlRates &b1)
+     {
+      if(m_flip_avoid_pts > 0.0 && m_gamma_flip > 0.0)
+        {
+         double dist_flip = MathAbs(b1.close - m_gamma_flip);
+         if(dist_flip < m_flip_avoid_pts)
+           {
+            if(!MQLInfoInteger(MQL_OPTIMIZATION))
+               PrintFormat("[MAGIC WALLS %s] Sinal BLOQUEADO por NO_FLIP_%.0f (close=%.1f | GammaFlip=%.1f | dist=%.1f)",
+                           m_slots[k].name, m_flip_avoid_pts, b1.close, m_gamma_flip, dist_flip);
+            return false;
+           }
+        }
+
+      if(m_block_put_wall && m_has_gex_polarity)
+        {
+         int best_idx = -1;
+         double best_dbar = 1e12;
+         double best_dclose = 1e12;
+         int n_raw = ArraySize(m_gex_raw);
+         for(int i=0; i<n_raw; i++)
+           {
+            string t = m_gex_raw[i].type;
+            if(t != "Wall" && t != "wall" && t != "MidWall" && t != "mid_wall")
+               continue;
+            double p = m_gex_raw[i].price;
+            if(p <= 0.0)
+               continue;
+            double d_bar = (b1.low <= p && p <= b1.high) ? 0.0 : MathMin(MathAbs(b1.low - p), MathAbs(b1.high - p));
+            double d_close = MathAbs(b1.close - p);
+            if(d_bar < best_dbar - 1e-9 || (MathAbs(d_bar - best_dbar) <= 1e-9 && d_close < best_dclose))
+              {
+               best_dbar = d_bar;
+               best_dclose = d_close;
+               best_idx = i;
+              }
+           }
+         if(best_idx >= 0)
+           {
+            string bt = m_gex_raw[best_idx].type;
+            if((bt == "Wall" || bt == "wall") && m_gex_raw[best_idx].gex < 0.0)
+              {
+               if(!MQLInfoInteger(MQL_OPTIMIZATION))
+                  PrintFormat("[MAGIC WALLS %s] Sinal BLOQUEADO por NO_PUT_WALL (Wall=%.1f | GEX=%.2f)",
+                              m_slots[k].name, m_gex_raw[best_idx].price, m_gex_raw[best_idx].gex);
+               return false;
+              }
+           }
+        }
+      return true;
      }
 
    void              Init(long base_magic, double lot_mult, double max_daily_loss_brl,
@@ -835,6 +902,7 @@ public:
       m_gamma_flip = 0.0;
       m_max_gamma = 0.0;
       m_min_gamma = 0.0;
+      m_has_gex_polarity = false;
 
       string actual_loaded_date = "";
       // 1. Tenta ler magicwalls_gex_wdo_daily.csv se não estiver no Strategy Tester
@@ -862,6 +930,7 @@ public:
                      m_gex_raw[n].type = parts[1];
                      m_gex_raw[n].price = StringToDouble(parts[2]);
                      m_gex_raw[n].width = (int)StringToInteger(parts[3]);
+                     m_gex_raw[n].gex = (cnt >= 5) ? StringToDouble(parts[4]) : 0.0;
                     }
                  }
               }
@@ -908,6 +977,7 @@ public:
                         m_gex_raw[n].type = parts[1];
                         m_gex_raw[n].price = StringToDouble(parts[2]);
                         m_gex_raw[n].width = (int)StringToInteger(parts[3]);
+                        m_gex_raw[n].gex = (cnt >= 5) ? StringToDouble(parts[4]) : 0.0;
                        }
                     }
                  }
@@ -955,6 +1025,8 @@ public:
             int nw = ArraySize(m_levels_walls);
             ArrayResize(m_levels_walls, nw + 1);
             m_levels_walls[nw] = p;
+            if(MathAbs(m_gex_raw[i].gex) > 1e-6)
+               m_has_gex_polarity = true;
            }
          else if(t == "GammaFlip" || t == "gamma_flip")
             m_gamma_flip = p;
@@ -1027,11 +1099,16 @@ public:
 
          if(price_val > 2000.0 && price_val < 10000.0)
            {
+            double gex_val = 0.0;
+            int g_colon = StringFind(chunk, "\"gex\":");
+            if(g_colon >= 0)
+               gex_val = StringToDouble(StringSubstr(chunk, g_colon + 6));
             int n = ArraySize(m_gex_raw);
             ArrayResize(m_gex_raw, n + 1);
             m_gex_raw[n].type = type_val;
             m_gex_raw[n].price = price_val;
             m_gex_raw[n].width = 2;
+            m_gex_raw[n].gex = gex_val;
            }
          pos = idx_end + 1;
         }
@@ -1052,7 +1129,10 @@ public:
          ObjectCreate(0, obj_name, OBJ_HLINE, 0, 0, p);
          ObjectSetInteger(0, obj_name, OBJPROP_BACK, true);
          ObjectSetInteger(0, obj_name, OBJPROP_SELECTABLE, false);
-         ObjectSetString(0, obj_name, OBJPROP_TOOLTIP, StringFormat("%s @ %.1f (W=%d)", t, p, m_gex_raw[i].width));
+         string pol_tag = "";
+         if((t == "Wall" || t == "wall") && MathAbs(m_gex_raw[i].gex) > 1e-6)
+            pol_tag = (m_gex_raw[i].gex > 0.0) ? " [+GEX Call]" : " [-GEX Put]";
+         ObjectSetString(0, obj_name, OBJPROP_TOOLTIP, StringFormat("%s @ %.1f (W=%d)%s", t, p, m_gex_raw[i].width, pol_tag));
          if(t == "Wall" || t == "wall")
            {
             ObjectSetInteger(0, obj_name, OBJPROP_COLOR, clrDarkOrange);
@@ -1091,6 +1171,10 @@ public:
                           ArraySize(m_levels_all), ArraySize(m_levels_walls), m_gamma_flip, m_n50_s_1, m_rsi7_1);
       hud += StringFormat(" PnL Dia Acumulado: R$ %.2f | Mult. Lote: %.0fx | Filtro Fluxo: %s\n",
                           GetTotalDailyPnLBRL(), m_lot_mult, (m_use_flow_filter ? "ATIVO (CopyTicks)" : "OFF (Puro OHLC)"));
+      hud += StringFormat(" Filtro GEX: PutWall=%s (%s) | GammaFlip Zone=+/-%.0f pts\n",
+                          (m_block_put_wall ? "BLOQUEADA" : "LIVRE"),
+                          (m_has_gex_polarity ? "Pol OK" : "Sem Pol"),
+                          m_flip_avoid_pts);
       if(m_guard.IsDailyStopActive())
          hud += " [TRAVADO HOJE: " + m_guard.DailyStopReason() + "]\n";
       hud += "----------------------------------------------------------\n";
@@ -1391,6 +1475,8 @@ public:
      {
       if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
          return;
+      if(m_flow_gate_active && !PassGexStructuralFilter(k, m_flow_gate_b1))
+         return;
       double p05 = Round05(entry_p);
       m_slots[k].dir = dir;
       m_slots[k].lots = 1;
@@ -1442,6 +1528,8 @@ public:
                                      double tp_avg, double max_sl, double be_trig, double be_lock=1.5, int max_hold=26)
      {
       if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
+      if(m_flow_gate_active && !PassGexStructuralFilter(k, m_flow_gate_b1))
          return;
       double p05 = Round05(entry_p);
       m_slots[k].dir = dir;
@@ -2743,6 +2831,8 @@ public:
                                      double def_wall=0.0, int be_mode=0, double wall_buf=0.0, int valid_bars=1)
      {
       if(m_use_flow_filter && m_flow_gate_active && !PassNativeFlowFilter(k, dir, m_flow_gate_b1))
+         return;
+      if(m_flow_gate_active && !PassGexStructuralFilter(k, m_flow_gate_b1))
          return;
       double p05 = Round05(price);
 

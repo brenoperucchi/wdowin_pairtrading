@@ -1,8 +1,140 @@
+import csv
 import datetime
 import glob
+import io
+import json
 import os
 import re
 import pandas as pd
+
+from .b3_dol_parser import parse_b3_oi
+
+_GEX_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_INSTRUMENTS_CACHE_PATH = os.path.join(_GEX_DIR, "data", "b3_ibov_instruments_cache.json")
+
+
+def _load_ibov_catalog_cache() -> dict:
+    if not os.path.exists(_INSTRUMENTS_CACHE_PATH):
+        return {}
+    try:
+        with open(_INSTRUMENTS_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_ibov_catalog_cache(catalog: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_INSTRUMENTS_CACHE_PATH), exist_ok=True)
+        with open(_INSTRUMENTS_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(catalog, f, indent=1, sort_keys=True)
+    except Exception:
+        pass
+
+
+def _fetch_b3_instruments_for_date(date_iso: str) -> dict:
+    """Baixa InstrumentsConsolidatedFile da B3 para `date_iso` e indexa opções IBOV por ISIN."""
+    if not date_iso:
+        return {}
+    try:
+        import requests
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://arquivos.b3.com.br/bdi/tabelas?lang=pt-BR",
+        }
+        r1 = requests.get(
+            f"https://arquivos.b3.com.br/api/download/requestname?fileName=InstrumentsConsolidatedFile&date={date_iso}",
+            headers=headers,
+            timeout=15,
+        )
+        if r1.status_code != 200:
+            return {}
+        tok = (r1.json() or {}).get("token")
+        if not tok:
+            return {}
+        r2 = requests.get(
+            f"https://arquivos.b3.com.br/api/download/?token={tok}",
+            headers=headers,
+            timeout=45,
+        )
+        if r2.status_code != 200 or len(r2.content) < 10000:
+            return {}
+
+        lines = r2.content.decode("latin1", errors="ignore").splitlines()
+        hdr_idx = None
+        for i, ln in enumerate(lines[:10]):
+            if "TckrSymb" in ln and "ISIN" in ln and "ExrcPric" in ln:
+                hdr_idx = i
+                break
+        if hdr_idx is None:
+            return {}
+
+        out = {}
+        reader = csv.DictReader(io.StringIO("\n".join(lines[hdr_idx:])), delimiter=";")
+        for rec in reader:
+            tk = (rec.get("TckrSymb") or "").strip()
+            cat = (rec.get("SctyCtgyNm") or "").strip()
+            if not tk.startswith("IBOV") or cat != "OPTION ON INDEX":
+                continue
+            isin = (rec.get("ISIN") or "").strip()
+            if not isin:
+                continue
+            opt_tp = (rec.get("OptnTp") or "").strip().upper()
+            if opt_tp not in ("CALL", "PUT"):
+                sg = (rec.get("SgmtNm") or "").upper()
+                opt_tp = "PUT" if "PUT" in sg else ("CALL" if "CALL" in sg else "")
+            if not opt_tp:
+                continue
+            exrc_raw = (rec.get("ExrcPric") or "").strip().replace(",", ".")
+            exp_dt = (rec.get("XprtnDt") or "").strip()[:10]
+            if not exrc_raw or not exp_dt:
+                continue
+            try:
+                strike = float(exrc_raw)
+            except ValueError:
+                continue
+            out[isin] = {
+                "ticker": tk,
+                "type": opt_tp,
+                "strike": strike,
+                "expiry": exp_dt,
+            }
+        return out
+    except Exception:
+        return {}
+
+
+def _fetch_mt5_ibov_metadata() -> dict:
+    """Fallback secundário via MT5: mapeia ticker IBOV -> {strike, expiry}."""
+    out = {}
+    try:
+        import MetaTrader5 as mt5
+        from .mt5_prices import init_mt5_robust
+
+        opened_here = False
+        if mt5.terminal_info() is None:
+            if not init_mt5_robust():
+                return out
+            opened_here = True
+        try:
+            syms = mt5.symbols_get("IBOV*") or []
+            for s in syms:
+                if s.option_strike > 0 and s.expiration_time:
+                    exp_dt = datetime.datetime.fromtimestamp(
+                        s.expiration_time, datetime.timezone.utc
+                    ).strftime("%Y-%m-%d")
+                    out[s.name] = {
+                        "strike": float(s.option_strike),
+                        "expiry": exp_dt,
+                    }
+        finally:
+            if opened_here:
+                mt5.shutdown()
+    except Exception:
+        pass
+    return out
 
 
 def _extract_file_date_key(filepath):
@@ -78,12 +210,11 @@ def _parse_single_csv(file_path):
                 break
                 
     try:
-        pos = pd.read_csv(file_path, sep=';', encoding='latin1', skiprows=header_idx, low_memory=False)
+        pos = pd.read_csv(file_path, sep=';', encoding='latin1', skiprows=header_idx, dtype=str, low_memory=False)
     except Exception as e:
         print(f"B3 Parser: Erro ao ler CSV {file_path}: {e}")
         return pd.DataFrame()
     
-    options = []
     month_codes = {
         'A': (1, 'CALL'), 'B': (2, 'CALL'), 'C': (3, 'CALL'), 'D': (4, 'CALL'),
         'E': (5, 'CALL'), 'F': (6, 'CALL'), 'G': (7, 'CALL'), 'H': (8, 'CALL'),
@@ -93,15 +224,18 @@ def _parse_single_csv(file_path):
         'U': (9, 'PUT'), 'V': (10, 'PUT'), 'W': (11, 'PUT'), 'X': (12, 'PUT')
     }
     
-    # Extrai o ano e mes de referencia do proprio arquivo se disponivel no nome
+    # Extrai a data de referencia do proprio arquivo se disponivel no nome
     ref_year = datetime.datetime.now().year
     ref_month = datetime.datetime.now().month
+    csv_date_iso = None
     match_file_date = re.search(r"(\d{2})-(\d{2})-(\d{4})", os.path.basename(file_path))
     if match_file_date:
-        _, m_str, y_str = match_file_date.groups()
+        d_str, m_str, y_str = match_file_date.groups()
         ref_year = int(y_str)
         ref_month = int(m_str)
+        csv_date_iso = f"{y_str}-{m_str}-{d_str}"
 
+    candidates = []
     for _, row in pos.iterrows():
         ticker = str(row.iloc[0]).strip()
         segment = str(row.iloc[4]).strip()
@@ -115,35 +249,61 @@ def _parse_single_csv(file_path):
         if not match:
             continue
             
-        month_code = match.group(1)
-        strike_code = match.group(2)
-        
-        strike = int(strike_code) * 1000
-        if len(strike_code) == 2 and strike < 30000:
-            strike = int(strike_code) * 10000
-            
+        oi = parse_b3_oi(row.iloc[11]) if len(row) > 11 else 0
+        if oi <= 0:
+            continue
+
+        isin = str(row.iloc[1]).strip() if len(row) > 1 else ""
+        month_code, strike_code = match.groups()
+        candidates.append((ticker, isin, month_code, strike_code, oi))
+
+    catalog = _load_ibov_catalog_cache()
+    if candidates and csv_date_iso and any(isin not in catalog for _, isin, _, _, _ in candidates):
+        fetched = _fetch_b3_instruments_for_date(csv_date_iso)
+        if fetched:
+            catalog.update(fetched)
+            _save_ibov_catalog_cache(catalog)
+
+    mt5_meta = {}
+    if candidates and any(isin not in catalog for _, isin, _, _, _ in candidates):
+        mt5_meta = _fetch_mt5_ibov_metadata()
+
+    options = []
+    n_isin = n_mt5 = n_leg = 0
+    for ticker, isin, month_code, strike_code, oi in candidates:
         month_num, opt_type = month_codes[month_code]
-        year = ref_year
-        if month_num < ref_month:
-            year += 1
-            
-        expiry_date = _get_ibov_expiration(year, month_num)
-        
-        oi_str = str(row.iloc[11]).replace('.', '').replace('-', '0').strip()
-        try:
-            oi = int(oi_str)
-        except:
-            oi = 0
-            
-        if oi > 0:
-            options.append({
-                "ticker": ticker,
-                "type": opt_type,
-                "strike": float(strike),
-                "expiry": expiry_date.isoformat(),
-                "oi": oi
-            })
-            
+        cat_hit = catalog.get(isin)
+        if cat_hit is not None:
+            strike = float(cat_hit["strike"])
+            expiry_iso = cat_hit["expiry"][:10] + "T00:00:00"
+            opt_type = cat_hit["type"]
+            n_isin += 1
+        elif ticker in mt5_meta:
+            strike = float(mt5_meta[ticker]["strike"])
+            expiry_iso = mt5_meta[ticker]["expiry"] + "T00:00:00"
+            n_mt5 += 1
+        else:
+            strike_val = int(strike_code) * 1000
+            if len(strike_code) == 2 and strike_val < 30000:
+                strike_val = int(strike_code) * 10000
+            if strike_val < 100000:
+                continue
+            strike = float(strike_val)
+            yr = ref_year + (1 if month_num < ref_month else 0)
+            expiry_iso = _get_ibov_expiration(yr, month_num).isoformat()
+            n_leg += 1
+
+        options.append({
+            "ticker": ticker,
+            "type": opt_type,
+            "strike": strike,
+            "expiry": expiry_iso,
+            "oi": oi
+        })
+
+    if options:
+        print(f"B3 Parser: Resolucao IBOV -> {n_isin} via B3/ISIN, {n_mt5} via MT5, {n_leg} fallback legado.")
+
     df = pd.DataFrame(options)
     return df
 

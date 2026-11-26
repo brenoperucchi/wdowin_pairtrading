@@ -88,15 +88,15 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
             'abs_gex': abs(gex_net)
         }
     
-    # --- 3. Selecionar os 16 strikes mais proximos do ATM ---
+    # --- 3. Selecionar os 20 strikes mais proximos do ATM ---
     all_strikes = sorted(gex_per_strike.keys())
     
     # Encontrar o strike ATM (mais proximo do IBOV spot)
     atm_strike = min(all_strikes, key=lambda s: abs(s - current_ibov))
     atm_idx = all_strikes.index(atm_strike)
     
-    # Pegar 8 abaixo e 8 acima (16 total) para cobertura ampla
-    num_walls = 16
+    # Pegar 10 abaixo e 10 acima (20 total) para cobertura ampla
+    num_walls = 20
     start_idx = max(0, atm_idx - num_walls // 2)
     end_idx = min(len(all_strikes), start_idx + num_walls)
     start_idx = max(0, end_idx - num_walls)
@@ -147,10 +147,39 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
     
     # --- 7. Market Gamma Curve (Janela Operacional Local ±4.5%): MaxGamma, MinGamma, GammaFlip ---
     # Restringe a curva Gamma aos strikes dentro da janela operacional ativa (selected_strikes)
-    # para que Calls/Puts muito fora do dinheiro (ex: 200k-250k) não distorçam o GammaFlip!
+    # e expande a varredura sob demanda para evitar artefatos de borda quando não há mudança de sinal local.
     options_local = options_df[options_df['strike_round'].isin(selected_strikes)].copy()
     if options_local.empty:
         options_local = options_df
+
+    def _eval_curve(df_src, p_arr):
+        F_sw = p_arr[:, None]
+        k_arr = (df_src['strike'].to_numpy(dtype=float) * factor)[None, :]
+        oi_arr = df_src['oi'].to_numpy(dtype=float)
+        type_arr = df_src['type'].str.upper().to_numpy()
+        is_put = (type_arr == 'PUT')
+
+        d1 = (np.log(F_sw / k_arr) + 0.5 * (iv ** 2) * T) / (iv * np.sqrt(T))
+        gamma_mat = np.exp(-0.5 * d1 ** 2) / (np.sqrt(2 * np.pi) * F_sw * iv * np.sqrt(T))
+        contrib_mat = oi_arr[None, :] * gamma_mat * (F_sw ** 2) * 0.01
+
+        call_gex = np.sum(contrib_mat * (~is_put[None, :]), axis=1)
+        put_gex = np.sum(contrib_mat * is_put[None, :], axis=1)
+        return call_gex - put_gex
+
+    def _nearest_zero_cross(p_arr, g_arr, spot):
+        cross_price = None
+        best_dist = float('inf')
+        for i in range(len(g_arr) - 1):
+            if g_arr[i] * g_arr[i + 1] < 0:
+                x0, x1 = p_arr[i], p_arr[i + 1]
+                y0, y1 = g_arr[i], g_arr[i + 1]
+                cross = x0 - y0 * (x1 - x0) / (y1 - y0)
+                dist = abs(cross - spot)
+                if dist < best_dist:
+                    best_dist = dist
+                    cross_price = float(cross)
+        return cross_price
 
     min_wall_win = min(gex_per_strike[s]['strike_win'] for s in selected_strikes)
     max_wall_win = max(gex_per_strike[s]['strike_win'] for s in selected_strikes)
@@ -160,61 +189,66 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
         f_low = current_win * 0.96
         f_high = current_win * 1.04
 
-    sweep_prices = np.linspace(f_low, f_high, 200)
-    F_sw = sweep_prices[:, None]
-    k_arr = (options_local['strike'].to_numpy(dtype=float) * factor)[None, :]
-    oi_arr = options_local['oi'].to_numpy(dtype=float)
-    type_arr = options_local['type'].str.upper().to_numpy()
-    is_put = (type_arr == 'PUT')
-
-    d1 = (np.log(F_sw / k_arr) + 0.5 * (iv ** 2) * T) / (iv * np.sqrt(T))
-    gamma_mat = np.exp(-0.5 * d1 ** 2) / (np.sqrt(2 * np.pi) * F_sw * iv * np.sqrt(T))
-    contrib_mat = oi_arr[None, :] * gamma_mat * (F_sw ** 2) * 0.01
-
-    call_mask = ~is_put[None, :]
-    put_mask = is_put[None, :]
-
-    call_gex = np.sum(contrib_mat * call_mask, axis=1)
-    put_gex = np.sum(contrib_mat * put_mask, axis=1)
-    gex_values = call_gex - put_gex
-    call_put_balance_curve = (call_gex - put_gex).tolist()
-
-    prices = sweep_prices
-
-    # MaxGamma: ponto onde GEX positivo (ou menos negativo) é máximo na janela operacional
-    max_gamma_idx = int(np.argmax(gex_values))
-    max_gamma_price = float(prices[max_gamma_idx])
-
-    # MinGamma: ponto onde GEX negativo é mais intenso na janela operacional
-    min_gamma_idx = int(np.argmin(gex_values))
-    min_gamma_price = float(prices[min_gamma_idx])
-
-    # GammaFlip: onde GEX cruza zero dentro da janela operacional (mais próximo do preço atual)
-    flip_price = None
+    prices = np.linspace(f_low, f_high, 200)
+    gex_values = _eval_curve(options_local, prices)
     atm_win = current_win
-    best_flip_dist = float('inf')
 
-    for i in range(len(gex_values) - 1):
-        if gex_values[i] * gex_values[i+1] < 0:  # Mudanca de sinal real na janela operacional
-            x0, x1 = prices[i], prices[i+1]
-            y0, y1 = gex_values[i], gex_values[i+1]
-            cross = x0 - y0 * (x1 - x0) / (y1 - y0)
+    flip_price = _nearest_zero_cross(prices, gex_values, atm_win)
+    need_wide = (
+        flip_price is None
+        or float(np.min(gex_values)) >= 0.0
+        or float(np.max(gex_values)) <= 0.0
+    )
 
-            dist = abs(cross - atm_win)
-            if dist < best_flip_dist:
-                best_flip_dist = dist
-                flip_price = float(cross)
+    prices_wide = None
+    gex_wide = None
+    if need_wide:
+        w_low = min(float(options_df['strike'].min() * factor), current_win * 0.85)
+        w_high = max(float(options_df['strike'].max() * factor), current_win * 1.15)
+        if w_low < w_high:
+            prices_wide = np.linspace(w_low, w_high, 600)
+            gex_wide = _eval_curve(options_df, prices_wide)
+
+    if flip_price is None and gex_wide is not None:
+        flip_price = _nearest_zero_cross(prices_wide, gex_wide, atm_win)
 
     if flip_price is None:
-        # Quando todos os strikes locais têm o mesmo sinal líquido (ex: domínio de Puts),
-        # usa o ponto de inflexão / menor |GEX| entre MinGamma e MaxGamma próximo ao ATM (±2.5%)
-        near_mask = (prices >= current_win * 0.975) & (prices <= current_win * 1.025)
-        if np.any(near_mask):
-            near_prices = prices[near_mask]
-            near_abs_gex = np.abs(gex_values[near_mask])
-            flip_price = float(near_prices[int(np.argmin(near_abs_gex))])
-        else:
-            flip_price = float(atm_win)
+        g_spot = float(_eval_curve(options_df, np.array([atm_win], dtype=float))[0])
+        flip_price = float(min_wall_win if g_spot >= 0.0 else max_wall_win)
+
+    # MaxGamma: pico positivo real (local -> expandido -> acima do flip)
+    if float(np.max(gex_values)) > 0.0:
+        max_gamma_idx = int(np.argmax(gex_values))
+        max_gamma_price = float(prices[max_gamma_idx])
+        max_gamma_val = float(gex_values[max_gamma_idx])
+    elif gex_wide is not None and float(np.max(gex_wide)) > 0.0:
+        max_wide_idx = int(np.argmax(gex_wide))
+        max_gamma_price = float(prices_wide[max_wide_idx])
+        max_gamma_val = float(gex_wide[max_wide_idx])
+    else:
+        above_mask = prices >= flip_price
+        sub_p = prices[above_mask] if np.any(above_mask) else prices
+        sub_g = gex_values[above_mask] if np.any(above_mask) else gex_values
+        sub_idx = int(np.argmax(sub_g))
+        max_gamma_price = float(sub_p[sub_idx])
+        max_gamma_val = float(sub_g[sub_idx])
+
+    # MinGamma: vale negativo real (local -> expandido -> abaixo do MaxGamma)
+    if float(np.min(gex_values)) < 0.0:
+        min_gamma_idx = int(np.argmin(gex_values))
+        min_gamma_price = float(prices[min_gamma_idx])
+        min_gamma_val = float(gex_values[min_gamma_idx])
+    elif gex_wide is not None and float(np.min(gex_wide)) < 0.0:
+        min_wide_idx = int(np.argmin(gex_wide))
+        min_gamma_price = float(prices_wide[min_wide_idx])
+        min_gamma_val = float(gex_wide[min_wide_idx])
+    else:
+        below_mask = prices <= max_gamma_price
+        sub_p = prices[below_mask] if np.any(below_mask) else prices
+        sub_g = gex_values[below_mask] if np.any(below_mask) else gex_values
+        sub_idx = int(np.argmin(sub_g))
+        min_gamma_price = float(sub_p[sub_idx])
+        min_gamma_val = float(sub_g[sub_idx])
     
     # Adicionar niveis especiais
     walls.append({
@@ -223,7 +257,7 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
         "color": "#00ff00",  # clGreen
         "width": 3,
         "style": 0,
-        "gex": float(gex_values[max_gamma_idx])
+        "gex": max_gamma_val
     })
     
     walls.append({
@@ -232,7 +266,7 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
         "color": "#ff0000",  # clRed
         "width": 3,
         "style": 0,
-        "gex": float(gex_values[min_gamma_idx])
+        "gex": min_gamma_val
     })
     
     walls.append({
@@ -244,9 +278,93 @@ def calculate_gex_profile(options_df, current_win, current_ibov, iv=0.20, expiry
         "gex": 0,
         "factor": factor
     })
-    
+
+    annotate_wall_structure(walls, current_win, band_pct=0.045)
+
     print(f"  MaxGamma:  {max_gamma_price:.1f}")
     print(f"  MinGamma:  {min_gamma_price:.1f}")
     print(f"  GammaFlip: {flip_price:.1f}")
     
+    return walls
+
+
+def annotate_wall_structure(walls, spot_price, band_pct=0.045):
+    """
+    Anota metadados estruturais nas Walls sem alterar `type`, `price` ou `width` oficial:
+    - `gex_side`: 'CALL' (gex > 0), 'PUT' (gex < 0) ou 'NEUTRAL'
+    - `is_local_call_wall`: maior barreira de Call dentro da banda operacional
+    - `is_local_put_wall`: maior barreira de Put dentro da banda operacional
+    - `is_strike_flip`: transição estrutural Put->Call mais próxima do preço
+    - `local_wall_tier`: 'PRIMARY', 'SECONDARY' ou 'STANDARD'
+    """
+    if not walls:
+        return walls
+
+    wall_items = sorted(
+        [w for w in walls if isinstance(w, dict) and w.get("type") == "Wall" and float(w.get("price", 0.0) or 0.0) > 0],
+        key=lambda w: float(w.get("price", 0.0)),
+    )
+    if not wall_items:
+        return walls
+
+    def _get_gex(w):
+        if w.get("gex_raw") is not None:
+            return float(w.get("gex_raw") or 0.0)
+        return float(w.get("gex") or 0.0)
+
+    for w in wall_items:
+        g_val = _get_gex(w)
+        w["gex_side"] = "CALL" if g_val > 0 else ("PUT" if g_val < 0 else "NEUTRAL")
+        w["is_local_call_wall"] = False
+        w["is_local_put_wall"] = False
+        w["is_strike_flip"] = False
+        w["local_wall_tier"] = "STANDARD"
+
+    spot = float(spot_price or 0.0)
+    if spot > 0:
+        low_b = spot * (1.0 - band_pct)
+        high_b = spot * (1.0 + band_pct)
+        local_walls = [w for w in wall_items if low_b <= float(w["price"]) <= high_b]
+    else:
+        local_walls = list(wall_items)
+    if not local_walls:
+        local_walls = list(wall_items)
+
+    call_candidates = [w for w in local_walls if _get_gex(w) > 0] or [w for w in wall_items if _get_gex(w) > 0]
+    if call_candidates:
+        dom_call = max(call_candidates, key=lambda w: _get_gex(w))
+        dom_call["is_local_call_wall"] = True
+
+    put_candidates = [w for w in local_walls if _get_gex(w) < 0] or [w for w in wall_items if _get_gex(w) < 0]
+    if put_candidates:
+        dom_put = min(put_candidates, key=lambda w: _get_gex(w))
+        dom_put["is_local_put_wall"] = True
+
+    max_abs_gex = max((abs(_get_gex(w)) for w in wall_items), default=0.0)
+    max_local_abs_gex = max((abs(_get_gex(w)) for w in local_walls), default=max_abs_gex)
+
+    best_flip_wall = None
+    best_flip_dist = float("inf")
+    for i in range(len(wall_items) - 1):
+        w_prev, w_curr = wall_items[i], wall_items[i + 1]
+        g_prev, g_curr = _get_gex(w_prev), _get_gex(w_curr)
+        if g_prev * g_curr < 0 and max_abs_gex > 0 and max(abs(g_prev), abs(g_curr)) >= 0.05 * max_abs_gex:
+            mid_p = (float(w_prev["price"]) + float(w_curr["price"])) / 2.0
+            dist = abs(mid_p - spot) if spot > 0 else i
+            if dist < best_flip_dist:
+                best_flip_dist = dist
+                best_flip_wall = w_curr if g_curr > 0 else w_prev
+    if best_flip_wall is not None:
+        best_flip_wall["is_strike_flip"] = True
+
+    for w in wall_items:
+        w_width = int(w.get("width", 1) or 1)
+        abs_g = abs(_get_gex(w))
+        if w_width >= 3 or w["is_local_call_wall"] or w["is_local_put_wall"]:
+            w["local_wall_tier"] = "PRIMARY"
+        elif w_width == 2 or w["is_strike_flip"] or (max_local_abs_gex > 0 and abs_g >= 0.35 * max_local_abs_gex):
+            w["local_wall_tier"] = "SECONDARY"
+        else:
+            w["local_wall_tier"] = "STANDARD"
+
     return walls

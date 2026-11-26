@@ -1346,7 +1346,7 @@ export default function App() {
                 <MorningWallsVideoModal
                     isOpen={showMorningVideoModal}
                     onClose={() => setShowMorningVideoModal(false)}
-                    selectedDate={activeCompassDate}
+                    selectedDate=""
                     compassData={compassData}
                 />
             )}

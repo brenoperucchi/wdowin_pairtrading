@@ -1,7 +1,7 @@
 {
     "ticker": "USD_BRL",
     "ref_date": "2026-11-26",
-    "updated_at": "2026-11-26 07:31:25",
+    "updated_at": "2026-11-26 10:01:16",
     "current_price": 5822.5,
     "walls": [
         {
@@ -10,7 +10,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5500,
-            "gex": 25497.62413226228
+            "gex": 25497.62413226228,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5510.0,
@@ -25,7 +30,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5520,
-            "gex": 1416.8205969640742
+            "gex": 1416.8205969640742,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5535.0,
@@ -40,7 +50,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5550,
-            "gex": 21300.484351372404
+            "gex": 21300.484351372404,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5575.0,
@@ -55,7 +70,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5600,
-            "gex": 3874266.1944714445
+            "gex": 3874266.1944714445,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5625.0,
@@ -70,7 +90,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5650,
-            "gex": 3123996.5109111676
+            "gex": 3123996.5109111676,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5665.0,
@@ -85,7 +110,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5680,
-            "gex": -5133885.902152476
+            "gex": -5133885.902152476,
+            "gex_side": "PUT",
+            "is_local_call_wall": false,
+            "is_local_put_wall": true,
+            "is_strike_flip": false,
+            "local_wall_tier": "PRIMARY"
         },
         {
             "price": 5690.0,
@@ -100,7 +130,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5700,
-            "gex": 157515597.72207853
+            "gex": 157515597.72207853,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5725.0,
@@ -115,7 +150,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5750,
-            "gex": -1951723.2950798124
+            "gex": -1951723.2950798124,
+            "gex_side": "PUT",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5775.0,
@@ -130,7 +170,12 @@
             "width": 3,
             "style": 0,
             "strike_spy": 5800,
-            "gex": 820322148.6397245
+            "gex": 820322148.6397245,
+            "gex_side": "CALL",
+            "is_local_call_wall": true,
+            "is_local_put_wall": false,
+            "is_strike_flip": true,
+            "local_wall_tier": "PRIMARY"
         },
         {
             "price": 5825.0,
@@ -145,7 +190,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5850,
-            "gex": 416685.4007335684
+            "gex": 416685.4007335684,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5875.0,
@@ -160,7 +210,12 @@
             "width": 2,
             "style": 0,
             "strike_spy": 5900,
-            "gex": 476325435.22442466
+            "gex": 476325435.22442466,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "SECONDARY"
         },
         {
             "price": 5910.0,
@@ -175,7 +230,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5920,
-            "gex": 147242945.46644098
+            "gex": 147242945.46644098,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5935.0,
@@ -190,7 +250,12 @@
             "width": 2,
             "style": 0,
             "strike_spy": 5950,
-            "gex": 182546910.0377994
+            "gex": 182546910.0377994,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "SECONDARY"
         },
         {
             "price": 5965.0,
@@ -205,7 +270,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 5980,
-            "gex": 153467111.40448883
+            "gex": 153467111.40448883,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5990.0,
@@ -220,7 +290,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 6000,
-            "gex": 57719236.17532404
+            "gex": 57719236.17532404,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 6025.0,
@@ -235,7 +310,12 @@
             "width": 1,
             "style": 0,
             "strike_spy": 6050,
-            "gex": 1743894.972454353
+            "gex": 1743894.972454353,
+            "gex_side": "CALL",
+            "is_local_call_wall": false,
+            "is_local_put_wall": false,
+            "is_strike_flip": false,
+            "local_wall_tier": "STANDARD"
         },
         {
             "price": 5952.83,

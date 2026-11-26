@@ -164,12 +164,13 @@ def export_wdo_to_mt5_common(walls, ref_date=None, session_date=None, current_wd
     else:
         session_date_str = str(session_date)[:10]
 
-    daily_lines = ["session_date;type;price;width"]
+    daily_lines = ["session_date;type;price;width;gex"]
     for w in walls:
         w_type = _norm_wall_type(w.get("type", "Wall"))
         w_price = float(w.get("price", 0.0))
         w_width = int(w.get("width", 1))
-        daily_lines.append(f"{session_date_str};{w_type};{w_price:.2f};{w_width}")
+        w_gex = float(w.get("gex", 0.0) or 0.0)
+        daily_lines.append(f"{session_date_str};{w_type};{w_price:.2f};{w_width};{w_gex:.2f}")
 
     daily_content = "\n".join(daily_lines) + "\n"
     for target_dir in (common_dir, local_mt5_dir):
@@ -189,18 +190,21 @@ def export_wdo_to_mt5_common(walls, ref_date=None, session_date=None, current_wd
                 parts = line.strip().split(";")
                 if len(parts) >= 4:
                     d = parts[0]
-                    hist_map.setdefault(d, []).append((parts[1], float(parts[2]), int(parts[3])))
+                    g_val = float(parts[4]) if len(parts) >= 5 else 0.0
+                    hist_map.setdefault(d, []).append((parts[1], float(parts[2]), int(parts[3]), g_val))
 
     if walls:
         hist_map[session_date_str] = [
-            (_norm_wall_type(w.get("type", "Wall")), float(w.get("price", 0.0)), int(w.get("width", 1)))
+            (_norm_wall_type(w.get("type", "Wall")), float(w.get("price", 0.0)), int(w.get("width", 1)), float(w.get("gex", 0.0) or 0.0))
             for w in walls
         ]
 
-    hist_lines = ["session_date;type;price;width"]
+    hist_lines = ["session_date;type;price;width;gex"]
     for d in sorted(hist_map.keys()):
-        for ltype, pr, wd in hist_map[d]:
-            hist_lines.append(f"{d};{ltype};{pr:.2f};{wd}")
+        for item in hist_map[d]:
+            ltype, pr, wd = item[0], item[1], item[2]
+            gv = float(item[3]) if len(item) >= 4 else 0.0
+            hist_lines.append(f"{d};{ltype};{pr:.2f};{wd};{gv:.2f}")
 
     hist_content = "\n".join(hist_lines) + "\n"
     for target_dir in (common_dir, local_mt5_dir):
