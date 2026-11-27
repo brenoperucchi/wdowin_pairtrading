@@ -15,7 +15,9 @@ import MetaTrader5 as mt5
 # NOTE: "MetaTrader 5 Terminal" path causes IPC timeout due to Windows Service
 # conflict (RegimeSupervisor holds PID in Session 0). Use "MetaTrader 5" (XP Demo)
 # which has all B3 symbols (WIN$N, WDO$N, DI1$N) and runs in user Session 1.
-MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
+import os as _os
+# MW_MT5_PATH permite apontar outro terminal (ex.: servidor Linux com Wine: C:/MT5-a/terminal64.exe).
+MT5_PATH = _os.environ.get("MW_MT5_PATH", "C:/Program Files/MetaTrader 5/terminal64.exe")
 
 # ─── Symbols ────────────────────────────────────────────────────────────────
 SYMBOL_A = "WIN$N"

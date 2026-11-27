@@ -1,0 +1,10 @@
+[Unit]
+Description=Magic Walls: registro dos sinais ao vivo, a cada minuto
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=2s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

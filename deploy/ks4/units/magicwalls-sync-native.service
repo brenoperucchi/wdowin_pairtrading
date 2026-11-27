@@ -1,0 +1,6 @@
+[Unit]
+Description=Magic Walls: copia .min/.trd do Profit para o prefixo do mt5-a
+
+[Service]
+Type=oneshot
+ExecStart=/home/app/magicwalls-ops/sync-native.sh

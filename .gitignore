@@ -59,3 +59,14 @@ regime-dashboard/dist-saas/
 research/**/*.pkl
 research/**/variations_log.csv
 
+
+# Artefatos locais do Herdr. Snapshots de revisao e estado de
+# migracao nascem por rodada e nao devem versionar.
+/.herdr/review/
+/.herdr/ask/
+/.herdr/handoff/
+/.herdr/migration.lock
+/.herdr/migration-state.json
+
+# Clipboards do Profit com negocios reais (codigo de corretora): so locais
+deploy/ks4/profit-rtd/*.tsv

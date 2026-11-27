@@ -214,6 +214,18 @@ class CloudPublisher:
         self.max_backfill_days = max(1, int(max_backfill_days))
         self._local = httpx.Client(timeout=15.0)
         self._cloud = httpx.Client(timeout=15.0)
+        _connect_ip = os.environ.get("MW_CLOUD_CONNECT_IP", "").strip()
+        if _connect_ip:
+            from urllib.parse import urlparse
+            _cloud_host = urlparse(self.cloud_url).hostname
+
+            def _route_to_ip(request, _ip=_connect_ip, _host=_cloud_host):
+                if request.url.host == _host:
+                    request.headers["Host"] = _host
+                    request.extensions["sni_hostname"] = _host
+                    request.url = request.url.copy_with(host=_ip)
+
+            self._cloud = httpx.Client(timeout=15.0, event_hooks={"request": [_route_to_ip]})
         self._last_fetch_ts: dict[str, float] = {}
         self._cached_raw: dict[str, bytes] = {}
         self._day_cache_pushed_ts: dict[str, float] = {}

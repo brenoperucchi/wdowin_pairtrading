@@ -1,0 +1,6 @@
+[Unit]
+Description=Magic Walls: registra os sinais ao vivo (append-only, somente leitura)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/app/magicwalls-ops/signals-recorder.py

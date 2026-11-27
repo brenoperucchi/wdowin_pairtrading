@@ -15,7 +15,7 @@ from gex.engine.tradingview_exporter import save_walls_to_cache, export_unified_
 from gex.engine.mt5_prices import init_mt5_robust, get_b3_expected_wdo_contract
 from gex.engine.walls_calculator import annotate_wall_structure
 
-MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
+MT5_PATH = os.environ.get("MW_MT5_PATH", "C:/Program Files/MetaTrader 5/terminal64.exe")
 
 WDO_MONTH_CODES = {
     1: 'F', 2: 'G', 3: 'H', 4: 'J', 5: 'K', 6: 'M',

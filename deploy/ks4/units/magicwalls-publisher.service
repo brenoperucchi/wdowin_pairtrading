@@ -1,0 +1,15 @@
+[Unit]
+Description=Magic Walls: publisher (local -> cloud)
+After=magicwalls-server.service
+PartOf=magicwalls-server.service
+
+[Service]
+EnvironmentFile=/home/app/magicwalls-cloud/.env
+ExecStartPre=-/usr/bin/podman exec mt5-a pkill -f "cloud_publisher.py"
+ExecStart=/usr/bin/podman exec -e MW_PUSH_HMAC_SECRET mt5-a bash /home/mt5/.mt5/drive_c/magicwalls/ops/run_publisher.sh
+ExecStopPost=-/usr/bin/podman exec mt5-a pkill -f "cloud_publisher.py"
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target

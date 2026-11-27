@@ -1,0 +1,14 @@
+[Unit]
+Description=Magic Walls: server.py local (dentro do mt5-a)
+After=mt5-a.service magicwalls-sync-native.service
+PartOf=mt5-a.service
+
+[Service]
+ExecStartPre=-/usr/bin/podman exec mt5-a pkill -f "python.exe server.py"
+ExecStart=/usr/bin/podman exec mt5-a bash /home/mt5/.mt5/drive_c/magicwalls/ops/run_server.sh
+ExecStopPost=-/usr/bin/podman exec mt5-a pkill -f "python.exe server.py"
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target

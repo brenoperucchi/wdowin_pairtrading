@@ -1,0 +1,20 @@
+[Unit]
+Description=Magic Walls: GEX diario, tentativas de 07:30 a 11:30 (horario de Brasilia)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 07:30:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 08:00:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 08:30:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 09:00:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 09:30:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 10:00:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 10:15:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 10:30:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 10:45:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 11:00:00 America/Sao_Paulo
+OnCalendar=Mon..Fri *-*-* 11:30:00 America/Sao_Paulo
+Persistent=false
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

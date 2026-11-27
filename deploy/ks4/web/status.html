@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magic Walls Status</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f27; --muted: #5d6675; --line: #e2e5ea;
+    --ok: #1c7a46; --degraded: #a86500; --down: #b3261e; --closed: #5d6675; --unknown: #5d6675;
+    --ok-bg: #e4f4ea; --degraded-bg: #fcefd6; --down-bg: #fbe3e1; --closed-bg: #eceef2; --unknown-bg: #eceef2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --card: #1a1f27; --text: #e6e9ee; --muted: #9aa3b2; --line: #2a303b;
+      --ok: #5fd08d; --degraded: #f0b44c; --down: #ff8a80; --closed: #9aa3b2; --unknown: #9aa3b2;
+      --ok-bg: #16301f; --degraded-bg: #35290f; --down-bg: #3a1a18; --closed-bg: #232833; --unknown-bg: #232833;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151b; --card: #1a1f27; --text: #e6e9ee; --muted: #9aa3b2; --line: #2a303b;
+    --ok: #5fd08d; --degraded: #f0b44c; --down: #ff8a80; --closed: #9aa3b2; --unknown: #9aa3b2;
+    --ok-bg: #16301f; --degraded-bg: #35290f; --down-bg: #3a1a18; --closed-bg: #232833; --unknown-bg: #232833;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: .9rem; margin-bottom: 20px; }
+  .overall { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; display: flex; gap: 14px; align-items: center; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; background: var(--unknown); }
+  .overall .title { font-weight: 600; }
+  .overall .summary { color: var(--muted); font-size: .95rem; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; }
+  .name { font-weight: 600; }
+  .badge { font-size: .8rem; padding: 2px 10px; border-radius: 999px; align-self: start; font-weight: 600; }
+  .msg { color: var(--muted); font-size: .92rem; grid-column: 1 / -1; }
+  .hint { color: var(--degraded); font-size: .9rem; grid-column: 1 / -1; }
+  [data-status="ok"] .dot, .dot[data-status="ok"] { background: var(--ok); }
+  [data-status="degraded"] .dot, .dot[data-status="degraded"] { background: var(--degraded); }
+  [data-status="down"] .dot, .dot[data-status="down"] { background: var(--down); }
+  .badge[data-status="ok"] { color: var(--ok); background: var(--ok-bg); }
+  .badge[data-status="degraded"] { color: var(--degraded); background: var(--degraded-bg); }
+  .badge[data-status="down"] { color: var(--down); background: var(--down-bg); }
+  .badge[data-status="closed"], .badge[data-status="unknown"] { color: var(--muted); background: var(--closed-bg); }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 data-i18n="page_title"></h1>
+  <div class="sub" id="updated"></div>
+  <section class="overall" id="overall" data-status="unknown" aria-live="polite">
+    <span class="dot" data-status="unknown" id="overall-dot"></span>
+    <div><div class="title" id="overall-title"></div><div class="summary" id="overall-summary"></div></div>
+  </section>
+  <ul id="components"></ul>
+  <footer data-i18n="footer"></footer>
+</main>
+<script>
+(function () {
+  "use strict";
+  var TEXT = {
+    page_title: "Status do Magic Walls",
+    footer: "Atualiza sozinho a cada 15 segundos.",
+    loading: "Carregando...",
+    updated_at: "Atualizado em",
+    market_open: "pregão aberto",
+    market_closed: "pregão fechado",
+    load_error: "Não foi possível consultar o status agora.",
+    status: { ok: "Normal", degraded: "Atenção", down: "Fora do ar", closed: "Fechado", unknown: "Desconhecido" },
+    overall: { ok: "Tudo funcionando", degraded: "Funcionando com atenção", down: "Há componente fora do ar", unknown: "Status desconhecido" },
+    component: {
+      containers: "Contêineres", profit_app: "Profit (Scalper)", profit_rtd: "Profit RTD", profit_csv_minuto: "CSV por minuto",
+      profit_tt: "Times & Trades", corretoras: "Painel de corretoras", setups: "Setups ao vivo", mt5: "MetaTrader 5", publisher: "Publicador", api: "API", gex: "GEX / Walls", servidor: "Servidor"
+    }
+  };
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  function label(group, key) { return (TEXT[group] && TEXT[group][key]) || key; }
+  document.querySelectorAll("[data-i18n]").forEach(function (n) { n.textContent = TEXT[n.getAttribute("data-i18n")]; });
+  document.getElementById("overall-title").textContent = TEXT.loading;
+
+  function setOverall(status, summary) {
+    var box = document.getElementById("overall");
+    box.setAttribute("data-status", status);
+    document.getElementById("overall-dot").setAttribute("data-status", status);
+    document.getElementById("overall-title").textContent = label("overall", status);
+    document.getElementById("overall-summary").textContent = summary || "";
+  }
+
+  function render(data) {
+    var status = data.status || "unknown";
+    setOverall(status, data.summary);
+    var upd = document.getElementById("updated");
+    if (data.generated_at_brt) {
+      upd.textContent = TEXT.updated_at + " " + data.generated_at_brt + " (BRT)" +
+        (data.market_open === true ? " · " + TEXT.market_open : data.market_open === false ? " · " + TEXT.market_closed : "");
+    } else { upd.textContent = ""; }
+    var list = document.getElementById("components");
+    list.textContent = "";
+    Object.keys(data.components || {}).forEach(function (key) {
+      var c = data.components[key] || {};
+      var li = el("li");
+      li.appendChild(el("span", "name", label("component", key)));
+      var badge = el("span", "badge", label("status", c.status || "unknown"));
+      badge.setAttribute("data-status", c.status || "unknown");
+      li.appendChild(badge);
+      if (c.summary) li.appendChild(el("span", "msg", c.summary));
+      if (c.hint) li.appendChild(el("span", "hint", c.hint));
+      list.appendChild(li);
+    });
+  }
+
+  function load() {
+    fetch("/api/health", { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(render)
+      .catch(function () { setOverall("unknown", TEXT.load_error); });
+  }
+  load();
+  setInterval(load, 15000);
+})();
+</script>
+</body>
+</html>

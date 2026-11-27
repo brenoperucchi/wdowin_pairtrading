@@ -56,7 +56,7 @@ def _cached_ratio(symbol_mt5, etf_spot_price):
     except Exception:
         return None, None
 
-MT5_PATH = "C:/Program Files/MetaTrader 5/terminal64.exe"
+MT5_PATH = os.environ.get("MW_MT5_PATH", "C:/Program Files/MetaTrader 5/terminal64.exe")
 TICKMILL_MT5_PATH = "C:/Program Files/Tickmill MT5 Terminal/terminal64.exe"
 SYMBOL_IBOV = "IBOV"
 
@@ -685,6 +685,13 @@ def get_option_price(ticker, target_hour=16, target_minute=55, max_attempts=3, r
             target_ref_date = ref_date
 
     mt5.symbol_select(ticker, True)
+    # Terminal recem-iniciado (ou simbolo fora do Market Watch): o MT5 so entrega tick/barras
+    # alguns instantes depois do symbol_select. Sem essa espera o 1o acesso volta vazio e o IV cai no fallback.
+    for _ in range(10):
+        _probe = mt5.copy_rates_from_pos(ticker, mt5.TIMEFRAME_M5, 0, 1)
+        if _probe is not None and len(_probe) > 0:
+            break
+        time.sleep(0.5)
     tick = mt5.symbol_info_tick(ticker)
 
     # 1. Puxar ultimas velas M5 com retry resiliente

@@ -1,0 +1,9 @@
+[Unit]
+Description=Rascunhos de Instagram, dias uteis 18:45 BRT (21:45 UTC)
+
+[Timer]
+OnCalendar=Mon..Fri 21:45 UTC
+Persistent=false
+
+[Install]
+WantedBy=timers.target

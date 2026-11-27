@@ -1,0 +1,10 @@
+[Unit]
+Description=Magic Walls: rascunhos de Instagram do fim do dia (so cria rascunho, nunca publica)
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/magicwalls-marketing.env
+# MW_BOT_EMAIL, MW_BOT_PASSWORD (arquivo modo 600), opcional MW_CHROMIUM. A data e a de Sao Paulo, nao a do servidor (UTC).
+ExecStart=/bin/bash -c 'exec %h/venv-marketing/bin/python %h/magicwalls-ops/marketing_drafts.py run --date "$(TZ=America/Sao_Paulo date +%%F)" --api-url http://127.0.0.1:6201'
+TimeoutStartSec=600

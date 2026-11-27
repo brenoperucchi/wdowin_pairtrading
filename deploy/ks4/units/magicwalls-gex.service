@@ -1,0 +1,8 @@
+[Unit]
+Description=Magic Walls: GEX diario (WIN e WDO) dentro do mt5-a
+After=mt5-a.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=2400
+ExecStart=/usr/bin/podman exec mt5-a bash /home/mt5/.mt5/drive_c/magicwalls/ops/run_gex.sh

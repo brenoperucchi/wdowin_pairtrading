@@ -14,7 +14,7 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 RATES_DIR = os.path.join(ROOT_DIR, "data", "mt5_rates")
 os.makedirs(RATES_DIR, exist_ok=True)
 
-TERM_PATH = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+TERM_PATH = os.environ.get("MW_MT5_PATH", r"C:\Program Files\MetaTrader 5\terminal64.exe")
 HIST_WIN = os.path.join(ROOT_DIR, "mt5", "Files", "jumba_gex_win_history.csv")
 HIST_WDO = os.path.join(ROOT_DIR, "mt5", "Files", "jumba_gex_wdo_history.csv")
 
