@@ -1,60 +1,60 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - DOW JONES / US30 (CBOE)
-  Vencimento de Referencia: 2026-11-27 (Multi-Exp: 6 vencs, Top OI: 2026-12-18) | Data Ref: 26/11/2026
+  Vencimento de Referencia: 2026-11-27 (Multi-Exp: 6 vencs, Top OI: 2026-12-18) | Data Ref: 27/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US30 Spot Atual:    50344.30  (DIA: $494.01)
-    Gamma Flip Point:   50751.18
+    US30 Spot Atual:    50905.95  (DIA: $494.01)
+    Gamma Flip Point:   51540.84
     Regime de Gamma:    NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:        QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:     Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US30 49067.19
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 50751.18
-    [+] MAX GAMMA (Teto Gravitacional)    : US30 53194.42
+    [-] MIN GAMMA (Piso de Queda Livre)   : US30 49090.51
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US30 51540.84
+    [+] MAX GAMMA (Teto Gravitacional)    : US30 54160.66
 
 [+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE DIA   | EQUIVALENTE US30   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  Wall       | $517.0        | 52514.84           | $             -0.32M | Width 1
-  Wall       | $516.0        | 52413.27           | $              0.30M | Width 1
-  Wall       | $515.0        | 52311.69           | $             -2.48M | Width 1
-  Wall       | $514.0        | 52210.12           | $             -2.40M | Width 1
-  Wall       | $513.0        | 52108.54           | $             -0.19M | Width 1
-  Wall       | $512.0        | 52006.96           | $              3.10M | Width 1
-  Wall       | $511.0        | 51905.39           | $             -0.10M | Width 1
-  Wall       | $510.0        | 51803.81           | $            -13.25M | Width 1
-  Wall       | $509.0        | 51702.24           | $              0.92M | Width 1
-  Wall       | $508.0        | 51600.66           | $             16.52M | Width 2
-  Wall       | $507.0        | 51499.08           | $              0.07M | Width 1
-  Wall       | $506.0        | 51397.51           | $             -1.03M | Width 1
-  Wall       | $505.0        | 51295.93           | $              2.50M | Width 1
-  Wall       | $504.0        | 51194.36           | $             -3.54M | Width 1
-  Wall       | $503.0        | 51092.78           | $              1.90M | Width 1
-  Wall       | $502.0        | 50991.20           | $             -0.33M | Width 1
-  Wall       | $501.0        | 50889.63           | $             -1.59M | Width 1
-  Wall       | $500.0        | 50788.05           | $              0.47M | Width 1
-  Wall       | $499.0        | 50686.47           | $             -2.39M | Width 1
-  Wall       | $498.0        | 50584.90           | $             -1.79M | Width 1
-  Wall       | $497.0        | 50483.32           | $            -11.87M | Width 1
-  Wall       | $496.0        | 50381.75           | $             -8.89M | Width 1
-  Wall       | $495.0        | 50280.17           | $            -19.63M | Width 3
-  Wall       | $494.0        | 50178.59           | $              0.73M | Width 1
-  Wall       | $493.0        | 50077.02           | $             -2.99M | Width 1
-  Wall       | $492.0        | 49975.44           | $             16.08M | Width 2
-  Wall       | $491.0        | 49873.87           | $             -0.79M | Width 1
-  Wall       | $490.0        | 49772.29           | $             -6.29M | Width 1
-  Wall       | $489.0        | 49670.71           | $             -0.65M | Width 1
-  Wall       | $488.0        | 49569.14           | $              0.11M | Width 1
-  Wall       | $487.0        | 49467.56           | $             -0.16M | Width 1
-  Wall       | $486.0        | 49365.99           | $             -0.18M | Width 1
-  Wall       | $485.0        | 49264.41           | $            -13.05M | Width 1
-  Wall       | $484.0        | 49162.83           | $             -0.53M | Width 1
-  Wall       | $483.0        | 49061.26           | $             -0.93M | Width 1
-  Wall       | $482.0        | 48959.68           | $             -0.03M | Width 1
+  Wall       | $511.0        | 52656.71           | $             -0.80M | Width 1
+  Wall       | $510.0        | 52553.66           | $            -13.66M | Width 1
+  Wall       | $509.0        | 52450.62           | $              1.10M | Width 1
+  Wall       | $508.0        | 52347.57           | $              7.67M | Width 1
+  Wall       | $507.0        | 52244.52           | $              0.03M | Width 1
+  Wall       | $506.0        | 52141.48           | $             -1.00M | Width 1
+  Wall       | $505.0        | 52038.43           | $              2.13M | Width 1
+  Wall       | $504.0        | 51935.38           | $             -3.31M | Width 1
+  Wall       | $503.0        | 51832.34           | $              1.89M | Width 1
+  Wall       | $502.0        | 51729.29           | $             -0.37M | Width 1
+  Wall       | $501.0        | 51626.24           | $             -1.60M | Width 1
+  Wall       | $500.0        | 51523.20           | $              0.72M | Width 1
+  Wall       | $499.0        | 51420.15           | $             -2.44M | Width 1
+  Wall       | $498.0        | 51317.11           | $             -1.84M | Width 1
+  Wall       | $497.0        | 51214.06           | $            -11.79M | Width 1
+  Wall       | $496.0        | 51111.01           | $            -10.18M | Width 1
+  Wall       | $495.0        | 51007.97           | $            -20.67M | Width 3
+  Wall       | $494.0        | 50904.92           | $              0.81M | Width 1
+  Wall       | $493.0        | 50801.87           | $             -3.21M | Width 1
+  Wall       | $492.0        | 50698.83           | $             16.77M | Width 2
+  Wall       | $491.0        | 50595.78           | $             -0.77M | Width 1
+  Wall       | $490.0        | 50492.73           | $             -6.71M | Width 1
+  Wall       | $489.0        | 50389.69           | $             -2.21M | Width 1
+  Wall       | $488.0        | 50286.64           | $             -1.40M | Width 1
+  Wall       | $487.0        | 50183.59           | $             18.06M | Width 2
+  Wall       | $486.0        | 50080.55           | $             -0.64M | Width 1
+  Wall       | $485.0        | 49977.50           | $            -13.06M | Width 1
+  Wall       | $484.0        | 49874.46           | $             -0.73M | Width 1
+  Wall       | $483.0        | 49771.41           | $             -1.06M | Width 1
+  Wall       | $482.0        | 49668.36           | $             -0.20M | Width 1
+  Wall       | $481.0        | 49565.32           | $             -1.20M | Width 1
+  Wall       | $480.0        | 49462.27           | $             -8.86M | Width 1
+  Wall       | $479.0        | 49359.22           | $             -1.46M | Width 1
+  Wall       | $478.0        | 49256.18           | $             -1.10M | Width 1
+  Wall       | $477.0        | 49153.13           | $             -1.33M | Width 1
+  Wall       | $476.0        | 49050.08           | $             -1.11M | Width 1
 -----------------------------------------------------------------
 Nota: As Magic Walls Walls acima mapeiam o Open Interest consolidado da CBOE (DIA + _DJX).
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.

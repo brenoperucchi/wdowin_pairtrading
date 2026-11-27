@@ -1,72 +1,72 @@
 =================================================================
   RELATORIO DIARIO DE TENDENCIA E MAGIC WALLS WALLS - S&P 500 / US500 (CBOE)
-  Vencimento de Referencia: 2026-11-27 (Multi-Exp: 25 vencs, Top OI: 2026-12-18) | Data Ref: 26/11/2026
+  Vencimento de Referencia: 2026-11-27 (Multi-Exp: 26 vencs, Top OI: 2026-12-18) | Data Ref: 27/11/2026
 =================================================================
 
 [+] STATUS DO MERCADO (REGIME GEX):
-    US500 Atual:       7219.03  (SPX: 7182.78 | SPY: $720.20)
-    Gamma Flip Point:  7466.75
+    US500 Atual:       7318.25  (SPX: 7182.78 | SPY: $720.20)
+    Gamma Flip Point:  7513.12
     Regime de Gamma:   NEGATIVE GAMMA (Zona de Alta Volatilidade / Hedge Vendido)
     Vies do Dia:       QUEDA / ALTA VOLATILIDADE (Choppy/Rapido)
     Dinamica de MM:    Os Market Makers estao vendidos em Gamma. Eles aceleram a tendencia vendendo nas quedas e comprando nas altas para zerar o delta.
 
 [+] NIVEIS CRITICOS DA CURVA GAMMA:
-    [-] MIN GAMMA (Piso de Queda Livre)   : US500 6993.26
-    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US500 7466.75
-    [+] MAX GAMMA (Teto Gravitacional)    : US500 7667.52
+    [-] MIN GAMMA (Piso de Queda Livre)   : US500 7089.89
+    [o] GAMMA FLIP (Divisor/Pivot do Dia)  : US500 7513.12
+    [+] MAX GAMMA (Teto Gravitacional)    : US500 7764.69
 
 [+] MAGIC WALLS WALLS DETECTADAS (Strikes Proximos):
 -----------------------------------------------------------------
   TIPO       | STRIKE SPY   | EQUIVALENTE ES   | GEX NET ($ Milhoes)    | LARGURA
 -----------------------------------------------------------------
-  WALL *     | $747.00      | ES 7448.15      | $             -48.59M | Width 1
-  WALL *     | $746.00      | ES 7438.16      | $              64.16M | Width 1
-  WALL *     | $745.00      | ES 7428.16      | $            -125.38M | Width 1
-  WALL *     | $744.00      | ES 7418.16      | $            -103.37M | Width 1
-  WALL *     | $743.00      | ES 7408.16      | $              93.17M | Width 1
-  WALL *     | $742.00      | ES 7398.17      | $            -287.78M | Width 1
-  WALL *     | $741.00      | ES 7388.17      | $              10.63M | Width 1
-  WALL *     | $740.00      | ES 7378.17      | $             -64.30M | Width 1
-  WALL *     | $739.00      | ES 7368.17      | $              88.78M | Width 1
-  WALL *     | $738.00      | ES 7358.18      | $            -128.63M | Width 1
-  WALL *     | $737.00      | ES 7348.18      | $            -419.62M | Width 1
-  WALL *     | $736.00      | ES 7338.18      | $            -173.49M | Width 1
-  WALL *     | $735.00      | ES 7328.18      | $            -161.73M | Width 1
-  WALL *     | $734.00      | ES 7318.19      | $            -429.81M | Width 1
-  WALL *     | $733.00      | ES 7308.19      | $             116.53M | Width 1
-  WALL **    | $732.00      | ES 7298.19      | $           -2402.88M | Width 2
-  WALL *     | $731.00      | ES 7288.19      | $            -258.07M | Width 1
-  WALL *     | $730.00      | ES 7278.20      | $            -835.72M | Width 1
-  WALL *     | $729.00      | ES 7268.20      | $            -180.05M | Width 1
-  WALL *     | $728.00      | ES 7258.20      | $            -128.81M | Width 1
-  WALL **    | $727.00      | ES 7248.20      | $           -2816.11M | Width 2
-  WALL *     | $726.00      | ES 7238.21      | $            -697.07M | Width 1
-  WALL *     | $725.00      | ES 7228.21      | $            -421.30M | Width 1
-  WALL *     | $724.00      | ES 7218.21      | $            -669.19M | Width 1
-  WALL *     | $723.00      | ES 7208.21      | $            -511.89M | Width 1
-  WALL *     | $722.00      | ES 7198.22      | $            -868.61M | Width 1
-  WALL *     | $721.00      | ES 7188.22      | $             -65.05M | Width 1
-  WALL *     | $720.00      | ES 7178.22      | $           -1841.19M | Width 1
-  WALL *     | $719.00      | ES 7168.22      | $            -173.40M | Width 1
-  WALL *     | $718.00      | ES 7158.23      | $            -596.03M | Width 1
-  WALL *     | $717.00      | ES 7148.23      | $           -2116.49M | Width 1
-  WALL *     | $716.00      | ES 7138.23      | $            -569.16M | Width 1
-  WALL *     | $715.00      | ES 7128.23      | $            -393.57M | Width 1
-  WALL *     | $714.00      | ES 7118.24      | $            -998.39M | Width 1
-  WALL *     | $713.00      | ES 7108.24      | $            -139.68M | Width 1
-  WALL *     | $712.00      | ES 7098.24      | $           -2127.71M | Width 1
-  WALL *     | $711.00      | ES 7088.24      | $            -332.59M | Width 1
-  WALL *     | $710.00      | ES 7078.25      | $           -1312.34M | Width 1
-  WALL *     | $709.00      | ES 7068.25      | $            -239.81M | Width 1
-  WALL *     | $708.00      | ES 7058.25      | $            -593.05M | Width 1
-  WALL *     | $707.00      | ES 7048.25      | $           -1222.22M | Width 1
-  WALL *     | $706.00      | ES 7038.26      | $            -509.34M | Width 1
-  WALL *     | $705.00      | ES 7028.26      | $            -324.62M | Width 1
-  WALL *     | $704.00      | ES 7018.26      | $           -1021.39M | Width 1
-  WALL *     | $703.00      | ES 7008.26      | $            -237.33M | Width 1
-  WALL ***   | $702.00      | ES 6998.27      | $           -3222.28M | Width 3
-  WALL *     | $701.00      | ES 6988.27      | $            -283.73M | Width 1
-  WALL *     | $700.00      | ES 6978.27      | $           -1975.38M | Width 1
+  WALL *     | $743.00      | ES 7549.76      | $             139.69M | Width 1
+  WALL *     | $742.00      | ES 7539.57      | $             103.79M | Width 1
+  WALL *     | $741.00      | ES 7529.38      | $              40.48M | Width 1
+  WALL *     | $740.00      | ES 7519.19      | $             449.57M | Width 1
+  WALL *     | $739.00      | ES 7509.00      | $             130.45M | Width 1
+  WALL *     | $738.00      | ES 7498.81      | $             320.19M | Width 1
+  WALL *     | $737.00      | ES 7488.62      | $            -109.14M | Width 1
+  WALL *     | $736.00      | ES 7478.44      | $             316.56M | Width 1
+  WALL *     | $735.00      | ES 7468.25      | $             -35.80M | Width 1
+  WALL *     | $734.00      | ES 7458.06      | $              63.72M | Width 1
+  WALL *     | $733.00      | ES 7447.87      | $             410.23M | Width 1
+  WALL *     | $732.00      | ES 7437.68      | $           -1506.59M | Width 1
+  WALL *     | $731.00      | ES 7427.49      | $             -49.63M | Width 1
+  WALL *     | $730.00      | ES 7417.30      | $            -308.98M | Width 1
+  WALL *     | $729.00      | ES 7407.12      | $            -134.28M | Width 1
+  WALL *     | $728.00      | ES 7396.93      | $             145.46M | Width 1
+  WALL **    | $727.00      | ES 7386.74      | $           -2719.09M | Width 2
+  WALL *     | $726.00      | ES 7376.55      | $            -374.25M | Width 1
+  WALL *     | $725.00      | ES 7366.36      | $            -350.51M | Width 1
+  WALL *     | $724.00      | ES 7356.17      | $            -297.00M | Width 1
+  WALL *     | $723.00      | ES 7345.98      | $            -416.40M | Width 1
+  WALL *     | $722.00      | ES 7335.79      | $            -417.64M | Width 1
+  WALL *     | $721.00      | ES 7325.61      | $              85.85M | Width 1
+  WALL *     | $720.00      | ES 7315.42      | $            -968.80M | Width 1
+  WALL *     | $719.00      | ES 7305.23      | $             -82.83M | Width 1
+  WALL *     | $718.00      | ES 7295.04      | $            -293.96M | Width 1
+  WALL *     | $717.00      | ES 7284.85      | $           -1798.50M | Width 1
+  WALL *     | $716.00      | ES 7274.66      | $            -520.66M | Width 1
+  WALL *     | $715.00      | ES 7264.47      | $            -580.49M | Width 1
+  WALL *     | $714.00      | ES 7254.29      | $            -402.43M | Width 1
+  WALL *     | $713.00      | ES 7244.10      | $            -126.65M | Width 1
+  WALL **    | $712.00      | ES 7233.91      | $           -2506.46M | Width 2
+  WALL *     | $711.00      | ES 7223.72      | $            -349.06M | Width 1
+  WALL *     | $710.00      | ES 7213.53      | $           -1862.93M | Width 1
+  WALL *     | $709.00      | ES 7203.34      | $            -241.42M | Width 1
+  WALL *     | $708.00      | ES 7193.15      | $            -625.29M | Width 1
+  WALL *     | $707.00      | ES 7182.97      | $           -1265.55M | Width 1
+  WALL *     | $706.00      | ES 7172.78      | $            -892.63M | Width 1
+  WALL *     | $705.00      | ES 7162.59      | $            -360.99M | Width 1
+  WALL *     | $704.00      | ES 7152.40      | $           -1213.58M | Width 1
+  WALL *     | $703.00      | ES 7142.21      | $            -233.30M | Width 1
+  WALL ***   | $702.00      | ES 7132.02      | $           -3637.32M | Width 3
+  WALL *     | $701.00      | ES 7121.83      | $            -366.09M | Width 1
+  WALL *     | $700.00      | ES 7111.65      | $           -2194.65M | Width 1
+  WALL *     | $699.00      | ES 7101.46      | $            -349.79M | Width 1
+  WALL *     | $698.00      | ES 7091.27      | $            -354.40M | Width 1
+  WALL *     | $697.00      | ES 7081.08      | $           -1213.24M | Width 1
+  WALL *     | $696.00      | ES 7070.89      | $            -477.40M | Width 1
 -----------------------------------------------------------------
 Nota: As Magic Walls Walls acima mapeiam o Open Interest consolidado da CBOE (_SPX + SPY).
 Zonas com largura 3 (***) sao os maiores imas gravitacionais e fortes suportes/resistencias.
