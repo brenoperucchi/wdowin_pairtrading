@@ -18,8 +18,10 @@ import gzip
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, Query, Request, Response
@@ -30,6 +32,7 @@ from pydantic import BaseModel
 
 from cloud_saas.config import Settings
 from cloud_saas.database import compute_days_left, create_database, utc_today_str
+from cloud_saas.marketing import register_marketing
 from cloud_saas.security import (
     canonicalize_email,
     create_access_token,
@@ -194,6 +197,45 @@ def _check_subscription_access(user: dict[str, Any]) -> None:
             raise ApiRuleError(403, "TRIAL_EXPIRED", "Seu período de teste de 15 dias foi encerrado.")
         raise ApiRuleError(403, "SUBSCRIPTION_INACTIVE", "Assinatura expirada.")
 
+
+
+HEALTH_STALE_SEC = 120
+
+
+def _read_health_file(name: str, *, public: bool) -> dict:
+    """Lê o arquivo de saúde gravado pelo coletor (escrita atômica) em MW_HEALTH_DIR (padrão /data).
+
+    Se o arquivo faltar, estiver ilegível ou tiver `generated_at` com mais de 120 s, devolve status `unknown`
+    (isso também denuncia o coletor parado). No retorno público remove qualquer `detail` dos componentes.
+    """
+    unknown = {
+        "schema": 1,
+        "generated_at": None,
+        "market_open": None,
+        "status": "unknown",
+        "summary": "coletor de saúde sem atualizar",
+        "components": {},
+    }
+    path = Path(os.environ.get("MW_HEALTH_DIR", "/data")) / name
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        generated = datetime.strptime(str(data["generated_at"]), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (OSError, ValueError, KeyError, TypeError):
+        return unknown
+    if not isinstance(data.get("components"), dict):
+        return unknown
+    age = (datetime.now(timezone.utc) - generated).total_seconds()
+    if age > HEALTH_STALE_SEC:
+        stale = dict(unknown)
+        stale["generated_at"] = data.get("generated_at")
+        return stale
+    if public:
+        data = dict(data)
+        data["components"] = {
+            k: {kk: vv for kk, vv in v.items() if kk != "detail"} if isinstance(v, dict) else v
+            for k, v in data["components"].items()
+        }
+    return data
 
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
     cfg = settings or Settings.from_env()
@@ -374,6 +416,18 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "store_backend": store.backend_name,
             "feed_age_sec": age,
         }
+
+    @app.get("/api/health")
+    def public_health(response: Response):
+        """Saúde completa (sem detalhes internos) do coletor; /health continua sendo só liveness."""
+        response.headers["Cache-Control"] = "no-store"
+        return _read_health_file("health.json", public=True)
+
+    @app.get("/api/v1/admin/health", dependencies=[Depends(_require_admin)])
+    def admin_health(response: Response):
+        """Mesma saúde com `detail` por componente (nginx restringe a rota à Tailscale/loopback; exige X-Admin-Key)."""
+        response.headers["Cache-Control"] = "no-store"
+        return _read_health_file("health-admin.json", public=False)
 
     @app.get("/api/v1/feed/status")
     def feed_status():
@@ -1351,6 +1405,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             details={"extra_days": extra_days, "expires_at": updated.get("expires_at")},
         )
         return {"ok": True, "user": _sanitize_user_public(updated, cfg.terms_version)}
+
+    register_marketing(app, cfg, auth_admin)
 
     return app
 

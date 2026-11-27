@@ -1336,5 +1336,70 @@ class CloudSaasArchitectureTests(unittest.TestCase):
             mock_client.close()
 
 
+class HealthEndpointsTests(unittest.TestCase):
+    """/api/health e /api/v1/admin/health leem os arquivos do coletor de saúde (MW_HEALTH_DIR)."""
+
+    def _write(self, directory: str, name: str, generated_at: datetime, with_detail: bool):
+        comp = {"status": "ok", "summary": "ok", "since": "2026-11-25T14:00:00Z"}
+        if with_detail:
+            comp["detail"] = {"caminho": "/interno"}
+        payload = {
+            "schema": 1,
+            "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "market_open": True,
+            "status": "ok",
+            "summary": "tudo funcionando",
+            "components": {"mt5": comp},
+        }
+        with open(os.path.join(directory, name), "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+
+    def _client(self, directory: str):
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self.addCleanup(lambda: os.path.exists(db_path) and os.remove(db_path))
+        patcher = patch.dict(os.environ, {"MW_HEALTH_DIR": directory})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return TestClient(create_app(_make_settings(db_path)))
+
+    def test_public_health_returns_file_without_detail(self):
+        with tempfile.TemporaryDirectory() as d:
+            now = datetime.now(timezone.utc)
+            self._write(d, "health.json", now, with_detail=True)
+            r = self._client(d).get("/api/health")
+            self.assertEqual(r.status_code, 200)
+            body = r.json()
+            self.assertEqual(body["status"], "ok")
+            self.assertNotIn("detail", body["components"]["mt5"])
+            self.assertEqual(r.headers.get("cache-control"), "no-store")
+
+    def test_health_unknown_when_file_missing_or_stale(self):
+        with tempfile.TemporaryDirectory() as d:
+            client = self._client(d)
+            r = client.get("/api/health")
+            self.assertEqual(r.json()["status"], "unknown")
+            self.assertEqual(r.json()["summary"], "coletor de saúde sem atualizar")
+            self._write(d, "health.json", datetime.now(timezone.utc) - timedelta(seconds=300), with_detail=False)
+            r = client.get("/api/health")
+            self.assertEqual(r.json()["status"], "unknown")
+            self.assertEqual(r.json()["components"], {})
+
+    def test_admin_health_requires_key_and_keeps_detail(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "health-admin.json", datetime.now(timezone.utc), with_detail=True)
+            client = self._client(d)
+            self.assertEqual(client.get("/api/v1/admin/health").status_code, 401)
+            r = client.get("/api/v1/admin/health", headers={"X-Admin-Key": "test-admin-api-key"})
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("detail", r.json()["components"]["mt5"])
+
+    def test_liveness_health_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = self._client(d).get("/health")
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.json()["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
