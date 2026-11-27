@@ -18,6 +18,7 @@ import math
 import os
 import sqlite3
 import struct
+import threading
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -656,6 +657,166 @@ def _aggregate_trd_by_5m(trd_path: str) -> Dict[str, Dict[str, dict]]:
     return snapshots_by_time
 
 
+
+# ─── Fluxo de corretoras ao vivo pelo RTD Times & Trades (rtdmw) ─────────────
+# O Profit só grava o .trd do dia depois do fechamento. Durante o pregão o cliente RTD `rtdmw` grava cada negócio com a
+# corretora compradora/vendedora em tt_<ATIVO>_DD_MM_YYYY.csv (HH:MM:SS;qtd;preço;compradora;vendedora;agressor).
+# Cobertura ~99% (WIN) / ~94% (WDO) medida contra o campo NEG. Depois do fechamento o .trd passa a ter prioridade.
+RTD_TT_DIRS = [d for d in [
+    os.environ.get("MW_RTD_TT_DIR", ""),
+    os.path.join(APPDATA_ROAMING, "Nelogica", "rtd-csv"),
+] if d]
+
+TT_BROKER_NAME_MAP: Dict[str, str] = {
+    "XP": "XP", "UBS": "UBS", "BTG": "BTG", "Ideal": "IDEAL", "Genial": "GENIAL",
+    "JP Morgan": "JPMORGAN", "Tullett": "TULLETT", "Merrill": "MERRILL", "Goldman": "GOLDMAN",
+    "Morgan": "MORGAN", "Citigroup": "CITI", "Itau": "ITAU", "Bradesco": "BRADESCO",
+}
+_TT_MAX_BIN = 18 * 60 + 25
+_TT_ACCUMULATORS: Dict[Tuple[str, str], "_TTCsvAccumulator"] = {}
+_TT_LOCK = threading.Lock()
+
+
+def _find_tt_csv_for_date(asset_prefix: str, date_str: str) -> Optional[str]:
+    """tt_<WIN*|WDO*>_DD_MM_YYYY.csv do rtdmw para a data YYYY-MM-DD, ou None."""
+    y, m, d = date_str.split("-")
+    suffix = f"_{d}_{m}_{y}.csv"
+    best: Optional[Tuple[int, str]] = None
+    for base in RTD_TT_DIRS:
+        if not os.path.isdir(base):
+            continue
+        for fname in os.listdir(base):
+            if fname.startswith("tt_" + asset_prefix) and fname.endswith(suffix):
+                fp = os.path.join(base, fname)
+                sz = os.path.getsize(fp)
+                if sz > 0 and (best is None or sz > best[0]):
+                    best = (sz, fp)
+    return best[1] if best else None
+
+
+class _TTCsvAccumulator:
+    """Lê o CSV do rtdmw de forma incremental (offset em bytes) e acumula por minuto/corretora,
+    com as mesmas regras de _aggregate_trd_by_5m (flag 13/RLP fora; agressão compra/venda = Comprador/Vendedor)."""
+
+    def __init__(self, path: str):
+        self.path = path
+        self.offset = 0
+        self.lines = 0
+        self.gaps = 0
+        self.lock = threading.Lock()
+        n = _TT_MAX_BIN + 1
+        self.buy_all = {b: np.zeros(n, dtype=np.int64) for b in BROKERS_LIST}
+        self.sell_all = {b: np.zeros(n, dtype=np.int64) for b in BROKERS_LIST}
+        self.buy_agg = {b: np.zeros(n, dtype=np.int64) for b in BROKERS_LIST}
+        self.sell_agg = {b: np.zeros(n, dtype=np.int64) for b in BROKERS_LIST}
+        self.px_qty = {b: np.zeros(n, dtype=np.float64) for b in BROKERS_LIST}
+        self.last_update = 0.0
+
+    def update(self) -> None:
+        try:
+            size = os.path.getsize(self.path)
+        except OSError:
+            return
+        if size < self.offset:  # arquivo recomeçou
+            self.__init__(self.path)
+        if size == self.offset:
+            return
+        with open(self.path, "rb") as fh:
+            fh.seek(self.offset)
+            chunk = fh.read(size - self.offset)
+        cut = chunk.rfind(b"\n")
+        if cut < 0:
+            return
+        text = chunk[: cut + 1].decode("utf-8", errors="ignore")
+        with self.lock:
+            for line in text.split("\n"):
+                if not line:
+                    continue
+                f = line.split(";")
+                if len(f) < 6:
+                    continue
+                if f[0] == "GAP":
+                    self.gaps += 1
+                    continue
+                agg = f[5]
+                if agg == "RLP":
+                    continue
+                try:
+                    hh, mm = int(f[0][0:2]), int(f[0][3:5])
+                    qty = int(float(f[1].replace(",", ".")))
+                    px = float(f[2].replace(",", "."))
+                except (ValueError, IndexError):
+                    continue
+                if qty <= 0 or px <= 0:
+                    continue
+                m = max(9 * 60, min(18 * 60 + 20, (hh * 60 + mm) // 5 * 5))
+                bb = TT_BROKER_NAME_MAP.get(f[3])
+                sb = TT_BROKER_NAME_MAP.get(f[4])
+                if bb:
+                    self.buy_all[bb][m] += qty
+                    self.px_qty[bb][m] += px * qty
+                    if agg == "Comprador":
+                        self.buy_agg[bb][m] += qty
+                if sb:
+                    self.sell_all[sb][m] += qty
+                    self.px_qty[sb][m] += px * qty
+                    if agg == "Vendedor":
+                        self.sell_agg[sb][m] += qty
+                self.lines += 1
+            self.offset += cut + 1
+            self.last_update = time.time()
+
+    def snapshots(self) -> Dict[str, Dict[str, dict]]:
+        out: Dict[str, Dict[str, dict]] = {}
+        cba = {b: 0 for b in BROKERS_LIST}
+        csa = {b: 0 for b in BROKERS_LIST}
+        cb = {b: 0 for b in BROKERS_LIST}
+        cs = {b: 0 for b in BROKERS_LIST}
+        cpq = {b: 0.0 for b in BROKERS_LIST}
+        with self.lock:
+            for m in range(9 * 60, 18 * 60 + 25, 5):
+                snap: Dict[str, dict] = {}
+                for b in BROKERS_LIST:
+                    cb[b] += int(self.buy_all[b][m]); cs[b] += int(self.sell_all[b][m])
+                    cba[b] += int(self.buy_agg[b][m]); csa[b] += int(self.sell_agg[b][m])
+                    cpq[b] += float(self.px_qty[b][m])
+                    tot = cb[b] + cs[b]
+                    snap[b] = {"net": int(cb[b] - cs[b]), "buy": int(cba[b]), "sell": int(csa[b]),
+                               "vol": int(tot), "avg": round(cpq[b] / tot, 1) if tot > 0 else 0.0}
+                out[f"{m // 60:02d}:{m % 60:02d}"] = snap
+        return out
+
+
+
+def _tt_newer_than_trd(asset_prefix: str, date_str: str, trd_path: Optional[str]) -> bool:
+    """True se há CSV do rtdmw para a data e ele é mais novo que o .trd (ou não existe .trd)."""
+    tt = _find_tt_csv_for_date(asset_prefix, date_str)
+    if not tt:
+        return False
+    if not trd_path:
+        return True
+    try:
+        return os.path.getmtime(tt) > os.path.getmtime(trd_path) + 60
+    except OSError:
+        return False
+
+def _tt_snapshots(asset_prefix: str, date_str: str) -> Dict[str, Dict[str, dict]]:
+    """Snapshots 5m das corretoras a partir do CSV do rtdmw ({} se não houver dado). Atualização incremental."""
+    path = _find_tt_csv_for_date(asset_prefix, date_str)
+    if not path:
+        return {}
+    key = (asset_prefix, path)
+    with _TT_LOCK:
+        acc = _TT_ACCUMULATORS.get(key)
+        if acc is None:
+            acc = _TTCsvAccumulator(path)
+            _TT_ACCUMULATORS[key] = acc
+    acc.update()
+    if acc.lines == 0:
+        return {}
+    return acc.snapshots()
+
+
 def _synthesize_broker_snapshots_from_profit_min(
     asset_prefix: str,
     date_str: str,
@@ -778,8 +939,12 @@ def get_profit_day_flow_bundle(date_str: Optional[str] = None) -> dict:
     win_trd = _find_trd_file_for_date("WIN", target_date)
     wdo_trd = _find_trd_file_for_date("WDO", target_date)
 
-    win_snaps = _aggregate_trd_by_5m(win_trd) if win_trd else _synthesize_broker_snapshots_from_profit_min("WIN", target_date)
-    wdo_snaps = _aggregate_trd_by_5m(wdo_trd) if wdo_trd else _synthesize_broker_snapshots_from_profit_min("WDO", target_date)
+    # O .trd do dia pode existir só parcial durante o pregão (o Profit grava sob demanda); o T&T ao vivo do rtdmw vence
+    # quando seu CSV é mais novo que o .trd. Depois do fechamento o .trd completo fica mais novo e volta a valer.
+    win_tt = _tt_snapshots("WIN", target_date) if _tt_newer_than_trd("WIN", target_date, win_trd) else {}
+    wdo_tt = _tt_snapshots("WDO", target_date) if _tt_newer_than_trd("WDO", target_date, wdo_trd) else {}
+    win_snaps = win_tt or (_aggregate_trd_by_5m(win_trd) if win_trd else _synthesize_broker_snapshots_from_profit_min("WIN", target_date))
+    wdo_snaps = wdo_tt or (_aggregate_trd_by_5m(wdo_trd) if wdo_trd else _synthesize_broker_snapshots_from_profit_min("WDO", target_date))
 
     # Unificar horários 09:00 .. 18:20
     all_times = sorted(set(list(win_snaps.keys()) + list(wdo_snaps.keys())))
@@ -897,7 +1062,7 @@ def get_profit_day_flow_bundle(date_str: Optional[str] = None) -> dict:
 
     bundle = {
         "date": target_date,
-        "source": "PROFIT_TRD_NATIVE" if win_trd else "PROFIT_MIN_NATIVE",
+        "source": "PROFIT_RTD_TT" if win_tt else ("PROFIT_TRD_NATIVE" if win_trd else "PROFIT_MIN_NATIVE"),
         "current": {"WIN": last_snap.get("WIN", last_win), "WDO": last_snap.get("WDO", last_wdo)},
         "history": history_snaps,
         "efficiency": {"WIN": efficiency_win},
