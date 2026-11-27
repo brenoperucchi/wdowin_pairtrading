@@ -1,3 +1,4 @@
+import AdminNav from "./admin/AdminNav";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ref, onValue, get } from "firebase/database";
 import { db } from "./firebase";
@@ -1077,16 +1078,7 @@ export default function App() {
                             </button>
                         )}
 
-                        {isSaasAuthEnabled() && canUseMediaStudio && (
-                            <a
-                                className="mw-btn mw-btn-secondary"
-                                data-testid="topbar-marketing-link"
-                                href="?mode=marketing"
-                                title="Administrar marketing: rascunhos, aprovação e publicação"
-                            >
-                                <span>Marketing</span>
-                            </a>
-                        )}
+                        <AdminNav current="charts" />
 
                         {/* Status verdadeiro do feed (estático, zero pulsar falso) */}
                         <div style={{

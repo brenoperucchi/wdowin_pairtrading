@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { call, STATUS_LABEL } from "../marketing/marketingApi";
 import CardStudio from "../marketing/studio/CardStudio";
 import { StatusPill } from "../marketing/studio/PostStages";
+import AdminNav from "../admin/AdminNav";
 
 // Página administrativa de Marketing (somente plano admin). Abre em ?mode=marketing.
 // Uma aba por ativo (WIN, WDO); em cada uma o post anda por Criar, Aprovar e Enviar dentro do próprio card.
@@ -10,7 +11,6 @@ import { StatusPill } from "../marketing/studio/PostStages";
 const TEXT = {
     title: "Marketing",
     subtitle: "Criar, aprovar e enviar. Nada sai sem aprovação e confirmação.",
-    back: "Voltar ao painel",
     loading: "Carregando…",
     loadError: "Não foi possível carregar. Tente de novo.",
     modeDryRun: "Simulação",
@@ -214,9 +214,7 @@ export default function MarketingAdmin() {
                     <button type="button" className="mw-btn mw-btn-secondary" data-testid="theme-toggle" aria-label={TEXT.themeLabel} onClick={toggleTheme}>
                         {theme === "dark" ? `☀ ${TEXT.themeLight}` : `☾ ${TEXT.themeDark}`}
                     </button>
-                    <a className="mw-btn mw-btn-secondary" href={window.location.pathname} data-testid="marketing-back">
-                        {TEXT.back}
-                    </a>
+                    <AdminNav current="marketing" />
                 </header>
 
                 {loadError && <div style={{ ...card, color: "var(--mw-neg)" }}>{loadError}</div>}

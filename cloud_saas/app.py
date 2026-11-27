@@ -402,6 +402,23 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     auth_pro = _make_auth_dep(min_plan="pro", require_terms=True)
     auth_admin = _make_auth_dep(min_plan="admin", require_terms=True)
 
+    def _admin_key_or_session(
+        request: Request,
+        x_admin_key: str = Header(default="", alias="X-Admin-Key"),
+        authorization: str = Header(default=""),
+    ) -> str:
+        """Operações administrativas: chave (scripts) OU login com plano admin (painel). Devolve quem agiu."""
+        if x_admin_key:
+            if not hmac.compare_digest(x_admin_key, cfg.admin_api_key):
+                raise ApiRuleError(401, "ADMIN_UNAUTHORIZED", "Chave administrativa inválida.")
+            request.state.admin_actor = "admin_api"
+            return "admin_api"
+        user = auth_admin(request=request, authorization=authorization)
+        actor = str(user.get("email") or user.get("id") or "admin")
+        request.state.admin_actor = actor
+        return actor
+
+
     # ── Health & Feed Status ──────────────────────────────────────────────────
 
     @app.get("/health")
@@ -1310,7 +1327,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     # ── Backoffice Admin ──────────────────────────────────────────────────────
 
-    @app.get("/api/v1/admin/overview", dependencies=[Depends(_require_admin)])
+    @app.get("/api/v1/admin/overview", dependencies=[Depends(_admin_key_or_session)])
     def admin_overview():
         ov = db.get_admin_overview()
         ov["ok"] = True
@@ -1342,15 +1359,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "mt5_license_token": user.get("mt5_license_token") or "",
         }
 
-    @app.post("/api/v1/admin/users/{user_id}/kick", dependencies=[Depends(_require_admin)])
-    def admin_kick_user(user_id: int):
+    @app.post("/api/v1/admin/users/{user_id}/kick", dependencies=[Depends(_admin_key_or_session)])
+    def admin_kick_user(user_id: int, request: Request):
         store.delete(f"sess:{int(user_id)}")
         _invalidate_user_cache(int(user_id))
         db.clear_active_session(int(user_id), reason="ADMIN_KICK")
-        db.log_audit(user_id=int(user_id), event_type="ADMIN_KICK", details={"kicked_by": "admin_api"})
+        db.log_audit(user_id=int(user_id), event_type="ADMIN_KICK", details={"kicked_by": getattr(request.state, "admin_actor", "admin_api")})
         return {"ok": True, "kicked_user_id": int(user_id)}
 
-    @app.post("/api/v1/admin/users/{user_id}/unblock", dependencies=[Depends(_require_admin)])
+    @app.post("/api/v1/admin/users/{user_id}/unblock", dependencies=[Depends(_admin_key_or_session)])
     def admin_unblock_user(user_id: int):
         updated = db.unblock_user(user_id)
         if not updated:
@@ -1359,18 +1376,18 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         _invalidate_trial_config_cache()
         return {"ok": True, "user": _sanitize_user_public(updated, cfg.terms_version)}
 
-    @app.get("/api/v1/admin/trials", dependencies=[Depends(_require_admin)])
+    @app.get("/api/v1/admin/trials", dependencies=[Depends(_admin_key_or_session)])
     def admin_trials_report():
         report = db.get_admin_trials_report()
         report["ok"] = True
         return report
 
-    @app.get("/api/v1/admin/invites", dependencies=[Depends(_require_admin)])
+    @app.get("/api/v1/admin/invites", dependencies=[Depends(_admin_key_or_session)])
     def admin_list_invites():
         return {"ok": True, "invites": db.list_invites()}
 
-    @app.post("/api/v1/admin/invites", dependencies=[Depends(_require_admin)])
-    def admin_upsert_invite(req: AdminInviteRequest):
+    @app.post("/api/v1/admin/invites", dependencies=[Depends(_admin_key_or_session)])
+    def admin_upsert_invite(req: AdminInviteRequest, request: Request):
         clean_code = req.code.strip().upper()
         if not clean_code or len(clean_code) < 2:
             raise ApiRuleError(400, "INVALID_INVITE_CODE", "Código de convite inválido.")
@@ -1387,12 +1404,12 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         db.log_audit(
             user_id=None,
             event_type="ADMIN_INVITE_UPSERT",
-            details={"code": clean_code, "trial_days": days, "max_uses": req.max_uses, "is_active": req.is_active},
+            details={"code": clean_code, "trial_days": days, "max_uses": req.max_uses, "is_active": req.is_active, "by": getattr(request.state, "admin_actor", "admin_api")},
         )
         return {"ok": True, "invite": inv}
 
-    @app.post("/api/v1/admin/users/{user_id}/extend", dependencies=[Depends(_require_admin)])
-    def admin_extend_user(user_id: int, req: AdminExtendTrialRequest):
+    @app.post("/api/v1/admin/users/{user_id}/extend", dependencies=[Depends(_admin_key_or_session)])
+    def admin_extend_user(user_id: int, req: AdminExtendTrialRequest, request: Request):
         extra_days = max(1, min(365, int(req.days)))
         updated = db.extend_user_subscription(user_id, extra_days)
         if not updated:
@@ -1402,7 +1419,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         db.log_audit(
             user_id=int(user_id),
             event_type="ADMIN_EXTEND_TRIAL",
-            details={"extra_days": extra_days, "expires_at": updated.get("expires_at")},
+            details={"extra_days": extra_days, "expires_at": updated.get("expires_at"), "by": getattr(request.state, "admin_actor", "admin_api")},
         )
         return {"ok": True, "user": _sanitize_user_public(updated, cfg.terms_version)}
 

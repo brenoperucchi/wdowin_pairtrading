@@ -4,6 +4,7 @@ import App from './App.jsx'
 import MorningWallsVideoModal from './components/MorningWallsVideoModal.jsx'
 import SaasAuthGate from './components/SaasAuthGate.jsx'
 import MarketingAdmin from './components/MarketingAdmin.jsx'
+import AdminLogins from './admin/AdminLogins.jsx'
 import { canAccessMediaStudio, isSaasAuthEnabled } from './utils/saasAuth.js'
 import './index.css'
 
@@ -14,6 +15,10 @@ const isMorningVideoStandalone =
 const isMarketingStandalone =
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search || '').get('mode') === 'marketing';
+
+const isAdminStandalone =
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search || '').get('mode') === 'admin';
 
 const saasEnabled = isSaasAuthEnabled();
 
@@ -43,7 +48,21 @@ function SaasMarketingEntry() {
   return allowed ? <MarketingAdmin /> : <App />;
 }
 
+/* eslint-disable-next-line react-refresh/only-export-components */
+function SaasAdminEntry() {
+  const [allowed, setAllowed] = useState(() => canAccessMediaStudio());
+
+  useEffect(() => {
+    const sync = (ev) => setAllowed(canAccessMediaStudio(ev?.detail?.user));
+    window.addEventListener('mw-saas-auth-updated', sync);
+    return () => window.removeEventListener('mw-saas-auth-updated', sync);
+  }, []);
+
+  return allowed ? <AdminLogins /> : <App />;
+}
+
 function pickScreen() {
+  if (isAdminStandalone) return <SaasAdminEntry />;
   if (isMarketingStandalone) return <SaasMarketingEntry />;
   if (isMorningVideoStandalone) return <SaasMorningVideoEntry />;
   return <App />;
