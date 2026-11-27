@@ -1077,6 +1077,17 @@ export default function App() {
                             </button>
                         )}
 
+                        {isSaasAuthEnabled() && canUseMediaStudio && (
+                            <a
+                                className="mw-btn mw-btn-secondary"
+                                data-testid="topbar-marketing-link"
+                                href="?mode=marketing"
+                                title="Administrar marketing: rascunhos, aprovação e publicação"
+                            >
+                                <span>Marketing</span>
+                            </a>
+                        )}
+
                         {/* Status verdadeiro do feed (estático, zero pulsar falso) */}
                         <div style={{
                             display: "inline-flex", alignItems: "center", gap: 8,

@@ -4,6 +4,7 @@ import { authFetch, canAccessMediaStudio } from "../utils/saasAuth";
 import InstagramCardModal from "./InstagramCardModal";
 import MorningWallsVideoModal from "./MorningWallsVideoModal";
 
+import { MT5_TOP6_SET, WALLS_FLOW_6_IDS, filterSignalsForHost } from "../utils/signalFilters";
 const IconCamera = () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
@@ -179,19 +180,6 @@ function fmtDateFull(dStr) {
     return `${d}/${m}/${y}`;
 }
 
-const WALLS_FLOW_6_IDS = [
-    "WIN_DIV_WALL",
-    "WDO_DIV_WALL",
-    "ESP_DIV_V22_WIN",
-    "C1a_BRK_WIN",
-    "V1a_DIV_WDO",
-    "SYM_DIV_WIN",
-    "SYM_DIV_WDO",
-];
-const WALLS_FLOW_6_SET = new Set(WALLS_FLOW_6_IDS);
-const MT5_TOP6_IDS = ["EST_04", "EST_07", "EST_13", "EST_14", "EST_15", "WDO_01", "WDO_05", "WDO_07"];
-const MT5_TOP6_SET = new Set(MT5_TOP6_IDS);
-
 function isWallsFlowLocalhost() {
     if (FORCE_WALLS_FLOW || isManualChartMode()) return true;
     if (typeof window === "undefined") return false;
@@ -200,14 +188,6 @@ function isWallsFlowLocalhost() {
     if (params.get("mode") === "walls_flow" || params.get("mode") === "manual") return true;
     if (params.get("mode") === "mt5") return false;
     return port === "5176" || port === "5178";
-}
-
-function filterSignalsForHost(signalsLog = [], isWallsFlow = false) {
-    if (!Array.isArray(signalsLog)) return [];
-    if (isWallsFlow) {
-        return signalsLog.filter((s) => s && WALLS_FLOW_6_SET.has(String(s.strategy_id || "")));
-    }
-    return signalsLog.filter((s) => s && MT5_TOP6_SET.has(String(s.strategy_id || "")));
 }
 
 const _M1_CHART_CACHE = {};

@@ -500,3 +500,32 @@ html, body, #root, .mw-app-shell {
     align-items: flex-start !important;
   }
 }
+
+/* Modo claro (hoje só na página de Marketing): troca os mesmos tokens do tema escuro. O card do Instagram é uma
+   imagem com cores próprias e continua escuro de propósito. */
+[data-mw-theme="light"] {
+  color-scheme: light;
+  --mw-chrome: #e9edf3;
+  --mw-bg: #f4f6fa;
+  --mw-card: #ffffff;
+  --mw-raised: #eef1f6;
+  --mw-hairline: rgba(15, 23, 42, 0.08);
+  --mw-hairline-strong: rgba(15, 23, 42, 0.16);
+  --mw-text-1: #0f172a;
+  --mw-text-2: #475069;
+  --mw-text-3: #5f6a84;
+  --mw-accent: #0b7fb8;
+  --mw-accent-soft: rgba(11, 127, 184, 0.1);
+  --mw-accent-border: rgba(11, 127, 184, 0.38);
+  --mw-accent-ink: #0a6a99;
+  --mw-accent-on: #ffffff;
+  --mw-pos: #12805a;
+  --mw-pos-bg: #e3f5ec;
+  --mw-neg: #c8323a;
+  --mw-neg-bg: #fbe9ea;
+  --mw-flip: #94650f;
+}
+
+[data-mw-theme="light"] .mw-btn:hover:not(:disabled) {
+  background-color: rgba(15, 23, 42, 0.05);
+}

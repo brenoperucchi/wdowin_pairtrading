@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import MagicWallsMark from "./MagicWallsMark";
+import { SIGNAL_RULES } from "../utils/instagramSignalMetrics";
+
+const PROTECT_LABEL = `≥${SIGNAL_RULES.WIN.protectPts} / ≥${SIGNAL_RULES.WDO.protectPts} pts`;
 
 const FONT_SANS = "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const FONT_MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Consolas, monospace";
@@ -738,7 +741,7 @@ export default function SaasWelcomePortal({
         },
         {
             key: "paid",
-            label: "Pagaram (≥150 / ≥4 pts)",
+            label: `Pagaram (${PROTECT_LABEL})`,
             win: `${fmtPtInt(STATS_30D.win.paidCount * easedP)} (${fmtPtDec1(STATS_30D.win.paidPct * easedP)}%)`,
             winColor: "#4cc38a",
             winWeight: 600,
@@ -2666,7 +2669,7 @@ export default function SaasWelcomePortal({
                                 </span>
                             </div>
                             <p style={{ margin: 0, fontSize: 14, color: "#a3a9b8" }}>
-                                Consolidação histórica sinal a sinal em WIN e WDO com proteção na outra Wall (critério alvo ≥150 / ≥4 pts)
+                                Consolidação histórica sinal a sinal em WIN e WDO com proteção na outra Wall (critério alvo {PROTECT_LABEL})
                             </p>
                         </div>
 

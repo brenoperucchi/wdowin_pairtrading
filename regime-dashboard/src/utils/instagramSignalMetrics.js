@@ -86,12 +86,39 @@ function findBarIndexByTime(bars, timeStr) {
 }
 
 /**
+ * FONTE ÚNICA da regra de sinais (stop e proteção). Tudo que mostra ou usa essa regra (cálculo, legenda, card,
+ * estúdio de Marketing, rascunhos automáticos) lê daqui. Mudou a regra? Mude só estes números (e a lógica de
+ * findPivotStop/buildInstagramSignals); o texto do critério e os rótulos acompanham sozinhos.
+ *   protectPts: pontos a favor para o sinal ficar "protegido" · minStopPts: distância mínima do stop à entrada ·
+ *   stopPadPts: folga atrás do extremo do pivô.
+ */
+export const SIGNAL_RULES = {
+    WIN: { protectPts: 150, minStopPts: 100, stopPadPts: 15 },
+    WDO: { protectPts: 4.0, minStopPts: 3.0, stopPadPts: 1.0 },
+};
+
+export function signalRulesFor(symKey) {
+    return String(symKey || "").toUpperCase() === "WDO" ? SIGNAL_RULES.WDO : SIGNAL_RULES.WIN;
+}
+
+const fmtRulePts = (n) => `${Number.isInteger(n) ? n : n.toFixed(1).replace(".", ",")} pt${n === 1 ? "" : "s"}`;
+
+/** Textos da regra gerados a partir de SIGNAL_RULES (nunca digitados à mão em outro arquivo). */
+export function describeSignalRule(symKey) {
+    const r = signalRulesFor(symKey);
+    const protTxt = fmtRulePts(r.protectPts);
+    return {
+        protTxt,
+        ruleTxt: `Critério: stop atrás do extremo do pivô (+${fmtRulePts(r.stopPadPts)}, mínimo ${fmtRulePts(r.minStopPts)} da entrada) · proteção após +${protTxt} a favor.`,
+    };
+}
+
+/**
  * Computes the protective stop level behind the signal pivot extreme (+15 pts WIN / +1.0 pt WDO padding),
  * enforcing a minimum stop distance from entry (100 pts WIN / 3.0 pts WDO).
  */
 function findPivotStop(entryPrice, pivotPrice, isBull, isWdo) {
-    const minDist = isWdo ? 3.0 : 100;
-    const pad = isWdo ? 1.0 : 15;
+    const { minStopPts: minDist, stopPadPts: pad } = isWdo ? SIGNAL_RULES.WDO : SIGNAL_RULES.WIN;
     const safePivot = Number.isFinite(Number(pivotPrice)) && Number(pivotPrice) > 0
         ? Number(pivotPrice)
         : entryPrice;
@@ -123,7 +150,7 @@ function findPivotStop(entryPrice, pivotPrice, isBull, isWdo) {
  */
 export function buildInstagramSignals(bars = [], divergences = [], symKey = "WIN", excludedIds = null) {
     const isWdo = String(symKey || "").toUpperCase() === "WDO";
-    const protectThresholdPts = isWdo ? 4.0 : 150;
+    const protectThresholdPts = signalRulesFor(symKey).protectPts;
     const roundPts = (v) => (isWdo ? Math.round(Number(v || 0) * 10) / 10 : Math.round(Number(v || 0)));
 
     if (!Array.isArray(bars) || bars.length === 0 || !Array.isArray(divergences) || divergences.length === 0) {
@@ -458,7 +485,7 @@ export function computeCollisionFreeMarkers(signals, { toX, toY, bars, plotTop, 
 export function buildInstagramCaption({ symKey, dateInfo, activeSignals, summary, handle }) {
     const isWdo = String(symKey || "").toUpperCase() === "WDO";
     const dec = isWdo ? 1 : 0;
-    const protTxt = isWdo ? "4 pts" : "150 pts";
+    const { protTxt, ruleTxt } = describeSignalRule(symKey);
     const assetName = isWdo ? "Mini-Dólar (WDO)" : "Mini-Índice (WIN)";
     const header = `Magic Walls — Resumo do pregão · ${assetName} (${dateInfo.weekday ? `${dateInfo.weekday}, ` : ""}${dateInfo.short})`;
     if (!activeSignals.length) {
@@ -479,7 +506,6 @@ export function buildInstagramCaption({ symKey, dateInfo, activeSignals, summary
         ? ` · ${summary.stopCount} stop${summary.stopCount > 1 ? "s" : ""} (-${formatPtsLabel(summary.totalStopPts, isWdo, false)})`
         : " · 0 stops";
     const sumTxt = `Total: ${summary.totalSignals} sinais (${summary.winCount} protegidos ≥${protTxt}${stopsDetail}) · Saldo máx. a favor: ${formatPtsLabel(summary.netPts, isWdo)}`;
-    const ruleTxt = `Critério: stop estrutural na Wall oposta · proteção após +${protTxt} a favor.`;
     const cleanHandle = handle ? handle.trim() : "@magicwallsb3";
     const footer = [
         `Terminal GEX + Fluxo Smart Money: app.magicwalls.com.br`,
