@@ -270,6 +270,7 @@ def _parse_single_csv(file_path):
 
     options = []
     n_isin = n_mt5 = n_leg = 0
+    learned = {}
     for ticker, isin, month_code, strike_code, oi in candidates:
         month_num, opt_type = month_codes[month_code]
         cat_hit = catalog.get(isin)
@@ -282,6 +283,15 @@ def _parse_single_csv(file_path):
             strike = float(mt5_meta[ticker]["strike"])
             expiry_iso = mt5_meta[ticker]["expiry"] + "T00:00:00"
             n_mt5 += 1
+            if isin:
+                # Contingência para a B3 sem publicar o InstrumentsConsolidatedFile (parou em 12/11/2026):
+                # guarda o que o MT5 resolveu, por ISIN, para os próximos dias e replays não dependerem dele.
+                learned[isin] = {
+                    "ticker": ticker,
+                    "type": opt_type,
+                    "strike": strike,
+                    "expiry": mt5_meta[ticker]["expiry"],
+                }
         else:
             strike_val = int(strike_code) * 1000
             if len(strike_code) == 2 and strike_val < 30000:
@@ -301,8 +311,18 @@ def _parse_single_csv(file_path):
             "oi": oi
         })
 
+    if learned:
+        catalog.update(learned)
+        _save_ibov_catalog_cache(catalog)
+
     if options:
         print(f"B3 Parser: Resolucao IBOV -> {n_isin} via B3/ISIN, {n_mt5} via MT5, {n_leg} fallback legado.")
+        if n_leg:
+            print(
+                f"B3 Parser: ATENCAO: {n_leg} de {len(options)} opcoes IBOV foram resolvidas pelo fallback legado "
+                "(strike/vencimento deduzidos do ticker, semanais descartadas). As Walls podem divergir. "
+                "Causa provavel: catalogo da B3 indisponivel e MT5 sem os simbolos."
+            )
 
     df = pd.DataFrame(options)
     return df
