@@ -505,10 +505,11 @@ export function buildInstagramCaption({ symKey, dateInfo, activeSignals, summary
     const stopsDetail = summary.stopCount > 0
         ? ` · ${summary.stopCount} stop${summary.stopCount > 1 ? "s" : ""} (-${formatPtsLabel(summary.totalStopPts, isWdo, false)})`
         : " · 0 stops";
-    const sumTxt = `Total: ${summary.totalSignals} sinais (${summary.winCount} protegidos ≥${protTxt}${stopsDetail}) · Saldo máx. a favor: ${formatPtsLabel(summary.netPts, isWdo)}`;
+    const neutralDetail = summary.neutralCount > 0 ? ` · ${summary.neutralCount} sem desfecho` : "";
+    const sumTxt = `Total: ${summary.totalSignals} sinais (${summary.winCount} protegido${summary.winCount === 1 ? "" : "s"} ≥${protTxt}${stopsDetail}${neutralDetail}) · Saldo máx. a favor: ${formatPtsLabel(summary.netPts, isWdo)}`;
     const cleanHandle = handle ? handle.trim() : "@magicwallsb3";
     const footer = [
-        `Terminal GEX + Fluxo Smart Money: app.magicwalls.com.br`,
+        `Terminal GEX + Fluxo Smart Money: www.magicwalls.com.br`,
         cleanHandle,
         "",
         "Estudo quantitativo de caráter estritamente educacional. Não constitui recomendação de investimento.",

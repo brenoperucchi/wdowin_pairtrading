@@ -406,6 +406,35 @@ export function CleanChartSection({
                     );
                 })}
 
+                {/* Fim de cada operação: trajeto da entrada até o melhor ponto (losango) ou até o stop (X) */}
+                {activeSignals.map((sig) => {
+                    const dirCol = sig.isBull ? INK.pos : INK.neg;
+                    const xEntry = toX(sig.entryIdx);
+                    const yEntry = toYPrice(sig.entryPrice);
+                    if (sig.isStopped && sig.stopIdx >= 0) {
+                        const xs = toX(sig.stopIdx);
+                        const ys = toYPrice(sig.stopPrice);
+                        const k = 6;
+                        return (
+                            <g key={`end-${sig.id}`} data-end="stop">
+                                <line x1={xs - k} y1={ys - k} x2={xs + k} y2={ys + k} stroke={INK.neg} strokeWidth="2.6" strokeLinecap="round" />
+                                <line x1={xs - k} y1={ys + k} x2={xs + k} y2={ys - k} stroke={INK.neg} strokeWidth="2.6" strokeLinecap="round" />
+                            </g>
+                        );
+                    }
+                    if (!(sig.mfePts > 0)) return null;
+                    const xp = toX(sig.bestIdx);
+                    const yp = toYPrice(sig.bestPx);
+                    const d = 7;
+                    const col = sig.isBest ? INK.flip : dirCol;
+                    return (
+                        <g key={`end-${sig.id}`} data-end="best">
+                            <line x1={xEntry} y1={yEntry} x2={xp} y2={yp} stroke={dirCol} strokeWidth="1.8" strokeOpacity="0.85" />
+                            <polygon points={`${xp},${yp - d} ${xp + d},${yp} ${xp},${yp + d} ${xp - d},${yp}`} fill={INK.bg} stroke={col} strokeWidth="2.2" />
+                        </g>
+                    );
+                })}
+
                 {/* Marcadores circulares numerados 1..N */}
                 {markers.map((mk) => {
                     const { sig, candleX, candleY, badgeX, badgeY } = mk;
@@ -741,7 +770,12 @@ export function CardHeaderAndKpis({
             : `Proteção ${protTxt} · 0 stops`;
 
     const dateLabel = dateInfo.weekday ? `${dateInfo.weekday}, ${dateInfo.short}` : dateInfo.short;
-    const paidTotal = summary.winCount + summary.neutralCount;
+    // protegido = andou o mínimo a favor antes do stop; sinal sem desfecho (ex.: entrou na última barra) é outra coisa
+    const outcomeTxt = [
+        `${summary.winCount} protegido${summary.winCount === 1 ? "" : "s"}`,
+        `${summary.stopCount} stop${summary.stopCount === 1 ? "" : "s"}`,
+        summary.neutralCount > 0 ? `${summary.neutralCount} sem desfecho` : null,
+    ].filter(Boolean).join(" · ");
     const brandDisplay = String(brandTitle || "Magic Walls").trim() || "Magic Walls";
 
     const markSize = compact ? 38 : 44;
@@ -827,8 +861,8 @@ export function CardHeaderAndKpis({
                 <text x="18" y={compact ? "60" : "70"} fill={INK.text1} fontSize={compact ? "29" : "35"} fontWeight="600" fontFamily={FONT_MONO}>
                     {summary.totalSignals}
                 </text>
-                <text x="18" y={compact ? "80" : "94"} fill={INK.text3} fontSize="13.5" fontWeight="400" fontFamily={FONT_MONO}>
-                    {paidTotal} protegidos · {summary.stopCount} stop{summary.stopCount === 1 ? "" : "s"}
+                <text x="18" y={compact ? "80" : "94"} fill={INK.text3} fontSize={summary.neutralCount > 0 ? "12" : "13.5"} fontWeight="400" fontFamily={FONT_MONO}>
+                    {outcomeTxt}
                 </text>
             </g>
 
@@ -916,8 +950,30 @@ export function SignalListSection({
                 fontFamily={FONT_MONO}
                 textAnchor="end"
             >
-                Ordenado cronologicamente · {count} {count === 1 ? "sinal" : "sinais"}
+                {count} {count === 1 ? "sinal" : "sinais"}
             </text>
+            {/* Legenda do fim de cada operação (formas desenhadas, sem depender de fonte) */}
+            {(() => {
+                const cw = 8.4;
+                const countTxt = `${count} ${count === 1 ? "sinal" : "sinais"}`;
+                const right = x + w - 2 - countTxt.length * cw - 22;
+                const stopW = "stop".length * cw;
+                const bestW = "melhor ponto".length * cw;
+                const yy = y + 19;
+                const stopTextX = right;
+                const crossX = stopTextX - stopW - 14;
+                const bestTextX = crossX - 20 - 8;
+                const diaX = bestTextX - bestW - 14;
+                return (
+                    <g>
+                        <text x={stopTextX} y={y + 24} fill={INK.text3} fontSize="14" fontFamily={FONT_MONO} textAnchor="end">stop</text>
+                        <line x1={crossX - 5} y1={yy - 5} x2={crossX + 5} y2={yy + 5} stroke={INK.neg} strokeWidth="2.2" strokeLinecap="round" />
+                        <line x1={crossX - 5} y1={yy + 5} x2={crossX + 5} y2={yy - 5} stroke={INK.neg} strokeWidth="2.2" strokeLinecap="round" />
+                        <text x={bestTextX} y={y + 24} fill={INK.text3} fontSize="14" fontFamily={FONT_MONO} textAnchor="end">melhor ponto</text>
+                        <polygon points={`${diaX},${yy - 6} ${diaX + 6},${yy} ${diaX},${yy + 6} ${diaX - 6},${yy}`} fill={INK.bg} stroke={INK.flip} strokeWidth="2" />
+                    </g>
+                );
+            })()}
 
             {count === 0 ? (
                 <g>
@@ -1001,7 +1057,7 @@ export function SignalListSection({
                                 <text x="50" y={cardH / 2 + 16} fill={sig.isStopped ? INK.neg : INK.text3} fontSize="12.5" fontWeight="400" fontFamily={FONT_MONO}>
                                     {sig.isStopped
                                         ? `Stop ${sig.stopTime} · ${formatBrNumber(sig.stopPrice, dec)}`
-                                        : `Ent. ${formatBrNumber(sig.entryPrice, dec)} · Pico ${sig.peakTime}`}
+                                        : `Ent. ${formatBrNumber(sig.entryPrice, dec)} · Melhor ${sig.peakTime}`}
                                 </text>
 
                                 <text x={cardW - 14} y={cardH / 2 + 2} fill={outcomeCol} fontSize="18" fontWeight="600" fontFamily={FONT_MONO} textAnchor="end">
@@ -1133,9 +1189,11 @@ export function SignalListSection({
                                 >
                                     {sig.isStopped
                                         ? `Stop ${sig.stopTime} (${formatDuration(sig.durationMin)})`
-                                        : isCompactRow
-                                            ? `Ent. ${formatBrNumber(sig.entryPrice, dec)} · Pico ${sig.peakTime}`
-                                            : `Pico ${sig.peakTime} (${formatDuration(sig.durationMin)})`}
+                                        : !(sig.mfePts > 0)
+                                            ? (isCompactRow ? `Ent. ${formatBrNumber(sig.entryPrice, dec)} · sem desfecho` : "Sem desfecho")
+                                            : isCompactRow
+                                                ? `Ent. ${formatBrNumber(sig.entryPrice, dec)} · Melhor ${sig.peakTime}`
+                                                : `Melhor ponto ${sig.peakTime} (${formatDuration(sig.durationMin)})`}
                                 </text>
                                 {!isCompactRow && (
                                     <text
@@ -1148,7 +1206,9 @@ export function SignalListSection({
                                     >
                                         {sig.isStopped
                                             ? `${sig.stopLabel} ${formatBrNumber(sig.stopPrice, dec)} · antes da proteção`
-                                            : `Máx. ${formatBrNumber(sig.bestPx, dec)} · ${sig.endedBy === "FECHAMENTO" ? "até fech." : `até ${sig.windowEndTime}`}`}
+                                            : !(sig.mfePts > 0)
+                                                ? (sig.windowEndIdx <= sig.entryIdx ? "Entrada na última barra do pregão" : "Não andou a favor até o fim da janela")
+                                                : `Preço ${formatBrNumber(sig.bestPx, dec)} · janela ${sig.endedBy === "FECHAMENTO" ? "até o fechamento" : `até ${sig.windowEndTime} (sinal oposto)`}`}
                                     </text>
                                 )}
 
@@ -1215,7 +1275,7 @@ export function CardFooter({ padX, contentW, y, handle, rightNote = "Estudo quan
                 fontWeight="500"
                 fontFamily={FONT_MONO}
             >
-                {cleanHandle} · app.magicwalls.com.br
+                {cleanHandle} · www.magicwalls.com.br
             </text>
             <text
                 x={padX + contentW}

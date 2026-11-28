@@ -105,3 +105,25 @@ test("legenda e rótulos acompanham SIGNAL_RULES (mudar a regra muda o texto soz
         SIGNAL_RULES.WIN.protectPts = antes;
     }
 });
+
+import { buildInstagramSignals as _build, buildInstagramCaption as _caption } from "../src/utils/instagramSignalMetrics.js";
+test("legenda: protegido no singular e sinal sem desfecho contado à parte (não vira 'protegido')", () => {
+    // 3 barras; compra com stop tocado, venda protegida, venda na última barra (sem desfecho)
+    const bars = [
+        { time: "10:00", open: 1000, high: 1010, low: 990, close: 1000 },
+        { time: "10:05", open: 1000, high: 1005, low: 700, close: 750 },
+        { time: "10:10", open: 750, high: 760, low: 740, close: 750 },
+        { time: "10:15", open: 750, high: 755, low: 745, close: 750 },
+    ];
+    const divs = [
+        { type: "BEAR_DIV", confTime: "10:00", currTime: "10:00", prevTime: "10:00", currPrice: 1010, prevPrice: 1000, anchor: "EXTREMO DO DIA" },
+        { type: "BEAR_DIV", confTime: "10:15", currTime: "10:15", prevTime: "10:10", currPrice: 755, prevPrice: 750, anchor: "EXTREMO DO DIA" },
+    ];
+    const r = _build(bars, divs, "WIN");
+    assert.equal(r.summary.winCount, 1);
+    assert.equal(r.summary.neutralCount, 1);
+    const cap = _caption({ symKey: "WIN", dateInfo: { short: "26/11/2026", weekday: "Qui" }, activeSignals: r.activeSignals, summary: r.summary, handle: "@x" });
+    assert.match(cap, /1 protegido ≥/);
+    assert.doesNotMatch(cap, /1 protegidos/);
+    assert.match(cap, /1 sem desfecho/);
+});

@@ -1,10 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo, memo } from "react";
-import { API_BASE, FORCE_WALLS_FLOW, isManualChartMode } from "../apiBase";
+import { API_BASE, COMPASS_BASE, FORCE_WALLS_FLOW, isManualChartMode } from "../apiBase";
 import { authFetch, canAccessMediaStudio } from "../utils/saasAuth";
 import InstagramCardModal from "./InstagramCardModal";
 import MorningWallsVideoModal from "./MorningWallsVideoModal";
 
+import { buildInstagramSignals, formatPtsLabel } from "../utils/instagramSignalMetrics";
 import { MT5_TOP6_SET, WALLS_FLOW_6_IDS, filterSignalsForHost } from "../utils/signalFilters";
+
+// Cor única das LINHAS de divergência (compra e venda, preço e fluxo). O NÚMERO da operação mantém a cor da direção
+// (verde compra, vermelho venda). Violeta não é usado em candles, paredes, fluxo nem AVWAP.
+const DIV_COLOR = "#a78bfa";
 const IconCamera = () => (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
@@ -207,8 +212,8 @@ function fetchM1ChartByDate(dateKey, force = false) {
         return _M1_CHART_INFLIGHT[cacheKey];
     }
     const url = dk
-        ? `${API_BASE}/api/compass/m1_series?date_str=${encodeURIComponent(dk)}`
-        : `${API_BASE}/api/compass/m1_series`;
+        ? `${COMPASS_BASE}/api/compass/m1_series?date_str=${encodeURIComponent(dk)}`
+        : `${COMPASS_BASE}/api/compass/m1_series`;
     const p = authFetch(url)
         .then((r) => r.json())
         .then((data) => {
@@ -265,6 +270,9 @@ function FluxoRealAsgChart({
     const [chartTf, setChartTf] = useState("M5"); // "M5" | "M1"
     const [m1AssetData, setM1AssetData] = useState(null);
     const [m1Loading, setM1Loading] = useState(false);
+    // "loading" | "ok" | "missing": o servidor só guarda M1 do pregão ao vivo; em outros dias (ou sem produtor) fica "missing"
+    const [m1State, setM1State] = useState("loading");
+    const [m1Notice, setM1Notice] = useState(false);
     const [hoverPos, setHoverPos] = useState(null); // { idx, relX, relY }
     const [hoveredSigId, setHoveredSigId] = useState(null);
     const [hoveredDivId, setHoveredDivId] = useState(null);
@@ -390,10 +398,15 @@ function FluxoRealAsgChart({
         const dKey = String(sessionDate || "").trim();
         const cached = _M1_CHART_CACHE[dKey || "__LATEST__"];
         const cachedHasBars = Array.isArray(cached?.[symKey]?.m1_series) && cached[symKey].m1_series.length > 0;
+        setM1Notice(false);
         if (cachedHasBars) {
             setM1AssetData(cached[symKey]);
-        } else if (chartTf === "M1") {
-            setM1Loading(true);
+            setM1State("ok");
+        } else {
+            // nunca deixar o M1 de outro dia ou ativo no gráfico enquanto este não chega
+            setM1AssetData(null);
+            setM1State("loading");
+            if (chartTf === "M1") setM1Loading(true);
         }
         const loadM1 = (forceRefresh = false) => {
             fetchM1ChartByDate(dKey, forceRefresh)
@@ -401,11 +414,17 @@ function FluxoRealAsgChart({
                     if (cancelled) return;
                     if (data && data[symKey] && Array.isArray(data[symKey].m1_series) && data[symKey].m1_series.length > 0) {
                         setM1AssetData(data[symKey]);
+                        setM1State("ok");
+                    } else {
+                        setM1State("missing");
                     }
                     setM1Loading(false);
                 })
                 .catch(() => {
-                    if (!cancelled) setM1Loading(false);
+                    if (!cancelled) {
+                        setM1Loading(false);
+                        setM1State((cur) => (cur === "ok" ? cur : "missing"));
+                    }
                 });
         };
         loadM1(!cachedHasBars);
@@ -420,6 +439,16 @@ function FluxoRealAsgChart({
             if (pollTimer) clearInterval(pollTimer);
         };
     }, [sessionDate, symKey, chartTf]);
+
+    // Estava em M1 e o dia trocado não tem 1 minuto: volta ao M5 e avisa (nunca fica uma janela M1 vazia)
+    useEffect(() => {
+        if (m1State === "missing" && chartTf === "M1") {
+            setChartTf("M5");
+            setViewMode("HOJE");
+            setPanOffsetRight(0);
+            setM1Notice(true);
+        }
+    }, [m1State, chartTf]);
 
     const useM1Active = chartTf === "M1" && Array.isArray(m1AssetData?.m1_series) && m1AssetData.m1_series.length > 0;
     // Sincroniza o fluxo do M1 com a série oficial M5 do Profit para que o Fluxo Smart Money / CVD / Janela
@@ -1980,6 +2009,12 @@ function FluxoRealAsgChart({
     };
 
     const handleSwitchTimeframe = (nextTf) => {
+        if (nextTf === "M1" && m1State === "missing") {
+            // sem dados de 1 minuto neste dia: fica no M5 e explica, em vez de parecer que o botão não funciona
+            setM1Notice(true);
+            return;
+        }
+        setM1Notice(false);
         setChartTf(nextTf);
         setHoverPos(null);
         setHoveredDivId(null);
@@ -2082,7 +2117,9 @@ function FluxoRealAsgChart({
                                     className="mw-btn mw-mono"
                                     data-active={active ? "true" : "false"}
                                     onClick={() => handleSwitchTimeframe(tfOpt.id)}
-                                    title={tfOpt.desc}
+                                    title={tfOpt.id === "M1" && m1State === "missing" ? "M1 indisponível neste dia: o servidor só tem 1 minuto do pregão ao vivo" : tfOpt.desc}
+                                    style={tfOpt.id === "M1" && m1State === "missing" ? { opacity: 0.55 } : undefined}
+                                    data-testid={`tf-${tfOpt.id}`}
                                 >
                                     {active && <span className="mw-dot-accent" />}
                                     <span>{tfOpt.label}</span>
@@ -2090,6 +2127,11 @@ function FluxoRealAsgChart({
                             );
                         })}
                     </div>
+                    {m1Notice && m1State === "missing" && (
+                        <span data-testid="m1-unavailable" role="status" style={{ fontSize: 11, color: "var(--mw-flip)", whiteSpace: "nowrap" }}>
+                            M1 indisponível neste dia, mostrando M5
+                        </span>
+                    )}
 
                     {/* Navegação limpa exibida apenas no M1 */}
                     {useM1Active && (
@@ -2743,6 +2785,20 @@ function FluxoRealAsgChart({
                         </g>
                     );
                 })()}
+                {isWallsFlowLocalhost() && showSwingDivLines && swingDivergences.length > 0 && !isNarrow && (() => {
+                    const legEnd = isWallsHost ? padL + (useM1Active ? 276 : 156) + 300 : padL + 170;
+                    const lx = padL + plotW - 165;
+                    if (lx < legEnd + 10) return null;
+                    return (
+                        <g fontSize="10.5" fontFamily="var(--sans)" fill="#848da2" pointerEvents="none">
+                            <polygon points={`${lx},6.5 ${lx + 5.5},12 ${lx},17.5 ${lx - 5.5},12`} fill="#0e1118" stroke="#d4a259" strokeWidth="1.6" />
+                            <text x={lx + 10} y="15.5">melhor ponto</text>
+                            <line x1={lx + 92 - 4} y1="8" x2={lx + 92 + 4} y2="16" stroke="#e5484d" strokeWidth="1.9" strokeLinecap="round" />
+                            <line x1={lx + 92 - 4} y1="16" x2={lx + 92 + 4} y2="8" stroke="#e5484d" strokeWidth="1.9" strokeLinecap="round" />
+                            <text x={lx + 102} y="15.5">stop</text>
+                        </g>
+                    );
+                })()}
                 <text x={padL + 4} y={p3Top + 12} fill="#a3a9b8" fontSize="11" fontWeight="500" fontFamily="var(--sans)">
                     {flowSubMode === "SWING_DIVERGENCIA"
                         ? "Fluxo Smart Money"
@@ -3152,7 +3208,7 @@ function FluxoRealAsgChart({
                         if (bestPut) fallbackPutPrices.add(Number(bestPut.price));
                         let bestPair = null;
                         let bestDist = Infinity;
-                        const spotRef = Number(lastPrice || 0);
+                        const spotRef = Number(m5RawSeries?.[m5RawSeries.length - 1]?.close || 0);
                         for (let j = 0; j < wallOnly.length - 1; j += 1) {
                             const gp = getG(wallOnly[j]);
                             const gc = getG(wallOnly[j + 1]);
@@ -4098,17 +4154,70 @@ function FluxoRealAsgChart({
                         radius: markerRadius,
                     });
 
+                    // Fim de cada operação (mesmo cálculo do Card IG): trajeto da entrada até o melhor ponto, ou até o stop
+                    const tradeBars = engineBars.length ? engineBars : series.filter((pt) => pt && !pt.is_prev_day);
+                    const tradeEnds = swingDivergences.length > 0
+                        ? buildInstagramSignals(tradeBars, swingDivergences, symKey).activeSignals
+                        : [];
+                    const idxAtTime = (t) => {
+                        const k = String(t || "").slice(0, 5);
+                        return k ? series.findIndex((pt) => pt && !pt.is_prev_day && String(pt.time || "").slice(0, 5) === k) : -1;
+                    };
+                    const clampY = (price) => Math.max(p1Top + 4, Math.min(p1Bot - 4, toY1(price)));
+                    const isWdoSym = String(symKey || "").toUpperCase() === "WDO";
+
                     return (
                         <g>
+                            {/* Fim de cada operação: entrada → losango (melhor ponto) ou ✕ (stop). Fica sob os números. */}
+                            {tradeEnds.map((sg) => {
+                                const iEntry = idxAtTime(sg.entryTime);
+                                if (iEntry < 0) return null;
+                                const dirCol = sg.isBull ? "#4cc38a" : "#e5484d";
+                                const xE = toX(iEntry);
+                                const yE = clampY(sg.entryPrice);
+                                if (sg.isStopped) {
+                                    const iS = idxAtTime(sg.stopTime);
+                                    if (iS < 0) return null;
+                                    const xS = toX(iS);
+                                    const yS = clampY(sg.stopPrice);
+                                    const k = 4.5;
+                                    return (
+                                        <g key={`p1-end-${sg.id}`}>
+                                            <line x1={xE} y1={yE} x2={xS} y2={yS} stroke="#e5484d" strokeWidth="1.2" strokeDasharray="3,3" strokeOpacity="0.7" pointerEvents="none" />
+                                            <g>
+                                                <title>{`#${sg.num} stop às ${sg.stopTime} · ${fmtNum(sg.stopPrice, dec)} (${formatPtsLabel(-sg.stopPts, isWdoSym)})`}</title>
+                                                <line x1={xS - k} y1={yS - k} x2={xS + k} y2={yS + k} stroke="#e5484d" strokeWidth="2.2" strokeLinecap="round" />
+                                                <line x1={xS - k} y1={yS + k} x2={xS + k} y2={yS - k} stroke="#e5484d" strokeWidth="2.2" strokeLinecap="round" />
+                                            </g>
+                                        </g>
+                                    );
+                                }
+                                if (!(sg.mfePts > 0)) return null;
+                                const iP = idxAtTime(sg.peakTime);
+                                if (iP < 0) return null;
+                                const xP = toX(iP);
+                                const yP = clampY(sg.bestPx);
+                                const col = sg.isBest ? "#d4a259" : dirCol;
+                                const d = 5.5;
+                                return (
+                                    <g key={`p1-end-${sg.id}`}>
+                                        <line x1={xE} y1={yE} x2={xP} y2={yP} stroke={dirCol} strokeWidth="1.5" strokeOpacity="0.85" pointerEvents="none" />
+                                        <g>
+                                            <title>{`#${sg.num} melhor ponto às ${sg.peakTime} · ${fmtNum(sg.bestPx, dec)} (${formatPtsLabel(sg.mfePts, isWdoSym)}) · janela até ${sg.endedBy === "FECHAMENTO" ? "o fechamento" : `${sg.windowEndTime} (sinal oposto)`}`}</title>
+                                            <polygon points={`${xP},${yP - d} ${xP + d},${yP} ${xP},${yP + d} ${xP - d},${yP}`} fill="#0e1118" stroke={col} strokeWidth="1.8" />
+                                        </g>
+                                    </g>
+                                );
+                            })}
+
                             {/* Linhas diagonais F1->F2 / T1->T2: somente quando "Linhas div." está ativo ou no sinal focado */}
                             {linesToShow.map((dv, dIdx) => {
                                 if (dv.currIdx <= dv.prevIdx) return null;
-                                const isBull = dv.type === "BULL_DIV";
                                 const x1 = toX(dv.prevIdx);
                                 const x2 = toX(dv.currIdx);
                                 const y1 = Math.max(p1Top + 10, Math.min(p1Bot - 10, toY1(dv.prevPrice)));
                                 const y2 = Math.max(p1Top + 10, Math.min(p1Bot - 10, toY1(dv.currPrice)));
-                                const col = dv.isPendingTrigger ? "#38bdf8" : (isBull ? "#4cc38a" : "#e5484d");
+                                const col = DIV_COLOR;
                                 return (
                                     <g key={`p1-div-line-${dv.divId || dIdx}`} pointerEvents="none">
                                         <line
@@ -4130,7 +4239,7 @@ function FluxoRealAsgChart({
 
                             {/* Círculos numerados cronológicos anticolisão (1, 2, 3...) */}
                             {divMarkers.map(({ dv, isBull, candleX, candleY, badgeX, badgeY }) => {
-                                const col = dv.isPendingTrigger ? "#38bdf8" : (isBull ? "#4cc38a" : "#e5484d");
+                                const col = isBull ? "#4cc38a" : "#e5484d"; // número da operação: cor da direção
                                 const bgFill = isBull ? "#10231b" : "#261316";
                                 const isFocused = activeFocusDivId === dv.divId;
                                 const isDimmed = Boolean(activeFocusDivId && !isFocused);
@@ -4679,7 +4788,7 @@ function FluxoRealAsgChart({
                                         const x2 = toX(dv.currIdx);
                                         const y1 = toYSwingWave(dv.prevWave);
                                         const y2 = toYSwingWave(dv.currWave);
-                                        const col = dv.isPendingTrigger ? "#38bdf8" : (isBull ? "#4cc38a" : "#e5484d");
+                                        const col = DIV_COLOR;
                                         const deltaW = Number(dv.currWave || 0) - Number(dv.prevWave || 0);
                                         const lbl = isNarrow
                                             ? `#${dv.num} ${isBull ? "F1→F2" : "T1→T2"}`
@@ -4721,7 +4830,7 @@ function FluxoRealAsgChart({
                                         const isBull = dv.type === "BULL_DIV";
                                         const cx = toX(dv.currIdx);
                                         const fy = toYSwingWave(dv.currWave);
-                                        const col = dv.isPendingTrigger ? "#38bdf8" : (isBull ? "#4cc38a" : "#e5484d");
+                                        const col = isBull ? "#4cc38a" : "#e5484d"; // número da operação: cor da direção
                                         const bgFill = isBull ? "#10231b" : "#261316";
                                         const isFocused = activeFocusDivId === dv.divId;
                                         const isDimmed = Boolean(activeFocusDivId && !isFocused);
@@ -4918,7 +5027,7 @@ function FluxoRealAsgChart({
                                     {(isBullDiv || isBearDiv) && (
                                         <polygon
                                             points={`${x},${markerY - 3.2} ${x + 3.0},${markerY} ${x},${markerY + 3.2} ${x - 3.0},${markerY}`}
-                                            fill={sb.divColor}
+                                            fill={DIV_COLOR}
                                             stroke="#05080d"
                                             strokeWidth="0.7"
                                         />
