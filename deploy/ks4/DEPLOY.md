@@ -18,7 +18,7 @@ Atualizado em 28/11/2026.
 - Hoje quem faz o deploy é o Breno. Se o Miqueias quiser fazer o dele, siga este guia do começo.
 
 ```
-deploy/ks4/deploy.sh server|front|all [--dry-run] [--yes] [--force] [--skip-tests]
+deploy/ks4/deploy.sh server|front|engine|all [--dry-run] [--yes] [--force] [--skip-tests]
 deploy/ks4/deploy.sh rollback server|front
 ```
 
@@ -160,11 +160,21 @@ Mudou `regime-dashboard/` → `front`. Na dúvida, `all`.
 | `HEAD` já enviado a um remoto | outra pessoa precisa conseguir reproduzir o que está no ar |
 | `HEAD` dentro de `upstream/main` (`MAIN_REF`) | evita deploy de checkout antigo que desfaz o que está em produção. `--force` só para hotfix de branch, e avise o outro |
 | Testes passam (pytest do servidor, `node --test` do front) | `--skip-tests` existe, mas só use com motivo |
+| **O motor de GEX do ks4 tem de ser igual ao `HEAD`** (`engine_drift.py`) | em 28/11/2026 as Walls do app saíam diferentes das do Miqueias porque 12 arquivos do motor no ks4 estavam uma versão atrás e nada avisava. Qualquer deploy compara o sha256 de `gex/engine/*.py` e `core/*.py` com o commit e para se houver diferença. A saída é `deploy.sh engine` (ou `--force`) |
 | **Servidor não reinicia em dia útil das 09:00 às 18:40 (BRT)** | o store é em memória: reiniciar apaga os dias guardados e deixa o painel vazio até o produtor reenviar. `--force` só em emergência. O front não reinicia a API e pode ser enviado a qualquer hora |
 | Trava no ks4 (`~/.mw-deploy.lock`) | impede dois deploys ao mesmo tempo |
 | Registro em `~/deploy.log` no ks4 | quem, qual commit e quando |
 
 ## O que o script faz
+
+**Motor de GEX (`engine`)**: lista os arquivos de `gex/engine/*.py` e `core/*.py` que diferem do `HEAD`
+(`deploy/ks4/engine_drift.py check`), copia os antigos para `~/engine-backup-AAAAMMDD-HHMM`, envia os novos
+do `HEAD` (`git archive`), reinicia `magicwalls-server` e `magicwalls-publisher` (o container `mt5-a`
+não reinicia), espera os dois ficarem `active` e confere de novo se o motor ficou igual ao commit. Mesma regra
+do horário de pregão do servidor. Não há rollback automático: copie de volta os arquivos do backup e
+reinicie os dois serviços. Para só conferir, sem enviar: `python3 deploy/ks4/engine_drift.py check`
+(sai com 1 se houver diferença; nunca altera o servidor). Os pregões já guardados (cache em
+`data/processed/gex_historical_sessions_v1` e o histórico de walls) não são recalculados.
 
 **Servidor**
 1. `git archive HEAD` de `cloud_saas`, `core/div_engines_view.py` e
@@ -306,6 +316,7 @@ Apague o diretório temporário do ks4 (`$D`, caminho literal impresso pelo `mkt
 | `ERRO: já existe um deploy em andamento` | trava ativa ou órfã. Veja quem: `ssh ks4 'cat ~/.mw-deploy.lock/info'`. Se ninguém está rodando: `ssh ks4 'rm -f ~/.mw-deploy.lock/info && rmdir ~/.mw-deploy.lock'` |
 | `o commit ... não está em upstream/main` | faça o merge no `main`, ou `--force` para hotfix (e avise o outro) |
 | `sem acesso SSH a app@ks4` | falta chave autorizada, IP errado no bloco `Host ks4` ou o bloco não existe. Veja "Acesso SSH" |
+| `o motor de GEX do ks4 está atrás do commit` | o ks4 roda uma versão antiga do motor; rode `deploy/ks4/deploy.sh engine` e depois o deploy de novo |
 | `pregão aberto ... reiniciar a API apaga os dias guardados` | espere depois das 18:40 BRT ou, em emergência, `--force` |
 | Teste de fumaça falhou | nada foi trocado; veja `podman logs mw-smoke` no ks4 e corrija o código |
 | `a API não ficou saudável; voltou para a imagem anterior` | a imagem nova subiu mas `/health` não respondeu em 30 s; o serviço já voltou. Veja `journalctl --user -u magicwalls-cloud -n 80` |

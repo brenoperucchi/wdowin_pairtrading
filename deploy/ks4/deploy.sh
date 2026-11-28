@@ -2,7 +2,7 @@
 # Deploy do Magic Walls no ks4 (API em container podman + front estático).
 #
 # Uso:
-#   deploy/ks4/deploy.sh server|front|all [--dry-run] [--yes] [--force] [--skip-tests]
+#   deploy/ks4/deploy.sh server|front|engine|all [--dry-run] [--yes] [--force] [--skip-tests]
 #   deploy/ks4/deploy.sh rollback server|front
 #
 # O que ele faz:
@@ -12,6 +12,9 @@
 #   front   testa, constrói regime-dashboard a partir do HEAD (npm ci + build-saas),
 #           faz backup de /var/www/magicwalls-app e envia (assets antes, index.html
 #           por último).
+#   engine  sincroniza o motor de GEX (gex/engine/*.py e core/*.py) do HEAD para o mt5-a:
+#           faz backup dos arquivos que vão mudar em ~/engine-backup-AAAAMMDD-HHMM, envia e
+#           reinicia magicwalls-server e magicwalls-publisher (o container mt5-a não reinicia).
 #   rollback  server: troca `latest` e `previous` e reinicia.
 #             front: restaura o backup mais recente.
 #
@@ -25,6 +28,10 @@
 #     upstream/main). Isso evita que alguém rode o script de um checkout antigo e
 #     desfaça o que está no ar. Para exceção (hotfix de branch): --force.
 #   - Uma trava no ks4 impede dois deploys ao mesmo tempo; cada deploy vai para ~/deploy.log.
+#   - Antes de qualquer deploy ele compara o motor de GEX do ks4 com o HEAD
+#     (deploy/ks4/engine_drift.py). Se o servidor estiver atrás, recusa e manda rodar
+#     `deploy.sh engine` (ou --force). Foi o que deixou as Walls do app diferentes das do
+#     Miqueias em 28/11/2026: o motor do ks4 ficou uma versão atrás sem ninguém ver.
 #   - nginx e o container mt5-a não são tocados aqui (são do vps-12).
 #
 # Requisitos na máquina de quem roda: git, ssh com acesso a app@ks4, curl, tar e
@@ -50,8 +57,10 @@ SERVICE="magicwalls-cloud"
 SMOKE_PORT=18090
 API_PORT=6201
 SERVER_PATHS=(cloud_saas core/div_engines_view.py research/div_master/especialistas/modulo.py)
+ENGINE_ROOT="/home/app/mt5-wine-lab/prefix-a/drive_c/magicwalls"
+ENGINE_SERVICES="magicwalls-server magicwalls-publisher"
 FRONT_PATH="regime-dashboard"
-SERVER_TESTS=(tests/test_cloud_saas.py tests/test_admin_multi_session.py tests/test_admin_session.py tests/test_marketing.py tests/test_marketing_drafts.py)
+SERVER_TESTS=(tests/test_engine_drift.py tests/test_cloud_saas.py tests/test_admin_multi_session.py tests/test_admin_session.py tests/test_marketing.py tests/test_marketing_drafts.py)
 
 DRY_RUN=0
 ASSUME_YES=0
@@ -65,12 +74,12 @@ die() { printf 'ERRO: %s\n' "$*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 ssh_run() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$DEPLOY_HOST" "$@"; }
 
-usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,48p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # ---------- argumentos ----------
 while [ $# -gt 0 ]; do
   case "$1" in
-    server|front|all)
+    server|front|engine|all)
       if [ "$ACTION" = "rollback" ]; then TARGET="$1"; else ACTION="deploy"; TARGET="$1"; fi ;;
     rollback) ACTION="rollback" ;;
     --dry-run) DRY_RUN=1 ;;
@@ -83,6 +92,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$ACTION" ] || usage 1
+[ "$ACTION" = "rollback" ] && [ "$TARGET" = "engine" ] && die "não há rollback automático do motor: copie de volta os arquivos de ~/engine-backup-* e reinicie $ENGINE_SERVICES"
 [ "$ACTION" = "rollback" ] && [ -z "$TARGET" ] && die "rollback precisa de server ou front"
 [ "$ACTION" = "rollback" ] && [ "$TARGET" = "all" ] && die "rollback é por parte: server ou front"
 
@@ -92,6 +102,7 @@ STAMP="$(date +%Y%m%d-%H%M)"
 TAG="${STAMP}-${SHA}"
 
 wants_server() { [ "$TARGET" = server ] || [ "$TARGET" = all ]; }
+wants_engine() { [ "$TARGET" = engine ]; }
 wants_front() { [ "$TARGET" = front ] || [ "$TARGET" = all ]; }
 
 # ---------- limpeza ----------
@@ -156,6 +167,21 @@ check_market_hours() {
     if [ "$FORCE" = 1 ]; then say "aviso: pregão aberto (${hhmm:0:2}:${hhmm:2:2} BRT); seguindo por causa do --force"
     else die "pregão aberto (${hhmm:0:2}:${hhmm:2:2} BRT): reiniciar a API apaga os dias guardados. Use --force se precisar."; fi
   fi
+}
+
+# O motor de GEX do mt5-a tem de estar igual ao HEAD (senão as Walls saem diferentes das do repo).
+check_engine_drift() {
+  step "Conferindo o motor de GEX no ks4"
+  local out rc=0
+  out="$("$PYTHON" deploy/ks4/engine_drift.py check --host "$DEPLOY_HOST" 2>&1)" || rc=$?
+  say "$out"
+  [ "$rc" = 0 ] && return 0
+  if [ "$rc" = 2 ]; then
+    if [ "$FORCE" = 1 ]; then say "aviso: não consegui conferir o motor; seguindo por causa do --force"; return 0; fi
+    die "não consegui conferir o motor do ks4 (veja acima). Use --force só se souber o que está fazendo."
+  fi
+  if [ "$FORCE" = 1 ]; then say "aviso: motor do ks4 atrás do commit $SHA; seguindo por causa do --force"
+  else die "o motor de GEX do ks4 está atrás do commit $SHA e as Walls sairiam diferentes das do repositório. Rode deploy/ks4/deploy.sh engine (ou use --force)."; fi
 }
 
 run_tests() {
@@ -239,6 +265,27 @@ SWAP
   curl -fsS -o /dev/null "$PUBLIC_URL/api/health" && say "saúde pública ok ($PUBLIC_URL/api/health)" || die "a API respondeu no ks4 mas não pela URL pública"
 }
 
+deploy_engine() {
+  step "Sincronizando o motor de GEX no ks4"
+  local files flist bk
+  files="$("$PYTHON" deploy/ks4/engine_drift.py check --host "$DEPLOY_HOST" --list)" || true
+  if [ -z "$files" ]; then say "o motor já está igual ao commit $SHA; nada a fazer"; return 0; fi
+  say "arquivos a enviar:"; say "$files" | sed 's/^/  /'
+  flist="$(printf '%s' "$files" | tr '\n' ' ')"
+  bk="/home/app/engine-backup-$STAMP"
+  ssh_run "set -e; cd '$ENGINE_ROOT'; mkdir -p '$bk'; for f in $flist; do [ -f \"\$f\" ] && cp -a --parents \"\$f\" '$bk'/ || true; done"
+  say "backup em $bk"
+  git archive HEAD $flist | ssh_run "tar -x -C '$ENGINE_ROOT'"
+  ssh_run "systemctl --user restart $ENGINE_SERVICES"
+  sleep 20
+  local s
+  for s in $ENGINE_SERVICES; do
+    [ "$(ssh_run "systemctl --user is-active $s")" = active ] || die "$s não voltou depois do envio (backup em $bk; copie de volta e reinicie)"
+  done
+  "$PYTHON" deploy/ks4/engine_drift.py check --host "$DEPLOY_HOST" || die "o motor continua diferente do commit depois do envio"
+  log_remote "engine ok $SHA backup $bk"
+}
+
 rollback_server() {
   step "Servidor: voltando para a imagem anterior"
   ssh_run "bash -s" <<ROLLBACK || die "rollback falhou; confira o ks4 à mão (podman images)"
@@ -319,15 +366,19 @@ say "Deploy de $TARGET: commit $SHA para $DEPLOY_HOST$mode"
 check_git
 check_host
 wants_server && check_market_hours
+wants_engine && check_market_hours
+wants_engine || check_engine_drift
 if [ "$DRY_RUN" = 1 ]; then
   step "Plano (nada será executado)"
   wants_server && say "  servidor: testes, build da imagem $IMAGE:$TAG, fumaça na porta $SMOKE_PORT, troca do latest, restart de $SERVICE, volta automática se /health falhar"
+  wants_engine && say "  motor: backup dos arquivos que mudam em ~/engine-backup-$STAMP, envio do HEAD, restart de $ENGINE_SERVICES, conferência final"
   wants_front && say "  front: testes, npm ci + build-saas.mjs do commit $SHA, backup de $WEB_ROOT, envio (assets antes do index.html), conferência das rotas em $PUBLIC_URL"
   exit 0
 fi
-run_tests
+wants_engine || run_tests
 confirm
 take_lock
+wants_engine && deploy_engine
 wants_server && deploy_server
 wants_front && deploy_front
 say; say "Deploy concluído: $TARGET @ $SHA"
