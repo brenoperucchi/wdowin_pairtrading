@@ -1,7 +1,7 @@
 ---
 name: mw-ig-morning-video-prod
 description: Opera o Estúdio Vídeo 08h30 da MagicWalls (30s em 9:16 e 16:9) para exportar o vídeo animado pré-pregão, Capa PNG e legenda oficial com dados reais do dia. Usar toda manhã entre 07:55 e 08:20 BRT antes da abertura da B3.
-example-prompt: Gere o pacote visual de pré-pregão 08h30 de hoje usando o Estúdio http://localhost:5176/?mode=morning_video no formato Reels 9:16 (30s) com capa PNG e legenda pronta.
+example-prompt: Gere o pacote visual de pré-pregão 08h30 de hoje usando o Estúdio http://localhost:5176/morning-video no formato Reels 9:16 (30s) com capa PNG e legenda pronta.
 ---
 
 # Produção do Vídeo Matinal 08h30 (`mw-ig-morning-video-prod`)
@@ -11,10 +11,10 @@ Produzir com pontualidade (até `08:15 BRT`) o vídeo animado de **30 segundos**
 
 ## Pré-requisitos
 - Backend `http://127.0.0.1:8080/api/morning-brief` ativo e com a data do pregão vigente.
-- Frontend acessível em `http://localhost:5176/?mode=morning_video`.
+- Frontend acessível em `http://localhost:5176/morning-video`.
 
 ## Procedimento Passo a Passo
-1. **Validar Fonte de Dados:** Abrir `http://localhost:5176/?mode=morning_video` e verificar no topo o badge verde **`DADOS REAIS · DD/MM/AAAA`**. Se aparecer `SNAPSHOT LOCAL` ou data vencida, **parar e escalar ao `01-ceo-magicwalls`**.
+1. **Validar Fonte de Dados:** Abrir `http://localhost:5176/morning-video` e verificar no topo o badge verde **`DADOS REAIS · DD/MM/AAAA`**. Se aparecer `SNAPSHOT LOCAL` ou data vencida, **parar e escalar ao `01-ceo-magicwalls`**.
 2. **Configurar Estúdio:**
    - Formato: `9:16 Reels/Stories (1080×1920)` (e opcionalmente `16:9 YouTube/Live` se pedido na ordem do dia).
    - Roteiro e Ativos: `WIN + WDO (30s)`.

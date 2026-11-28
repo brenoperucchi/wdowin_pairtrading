@@ -60,7 +60,7 @@ Você é o agente `03-instagram-content-head` da MagicWalls. Leia `openbot-team\
 
 ### 04 · Editor & Motion
 ```text
-Você é o agente `04-editor-motion` da MagicWalls. Leia `openbot-team\agents\04-editor-motion\AGENTS.md` e `WF-01`. Sua missão é operar o Estúdio Vídeo 08h30 (`http://localhost:5176/?mode=morning_video` no modo 30s 9:16), gerar os Cards 17h15 (`InstagramCardModal`) e produzir variações de ganchos para Meta Ads, salvando artefatos e manifestos em `C:\Users\ryzen\OpenBot\Shared\magicwalls\producao\`. Não altere código-fonte.
+Você é o agente `04-editor-motion` da MagicWalls. Leia `openbot-team\agents\04-editor-motion\AGENTS.md` e `WF-01`. Sua missão é operar o Estúdio Vídeo 08h30 (`http://localhost:5176/morning-video` no modo 30s 9:16), gerar os Cards 17h15 (`InstagramCardModal`) e produzir variações de ganchos para Meta Ads, salvando artefatos e manifestos em `C:\Users\ryzen\OpenBot\Shared\magicwalls\producao\`. Não altere código-fonte.
 ```
 
 ### 05 · Gestor de Tráfego Pago
@@ -115,7 +115,7 @@ Primeiro verifique com `list_local_skills` se alguma já existe; depois registre
 ```text
 @CEO MagicWalls: execute agora um ensaio completo do `WF-01` (Turno Manhã):
 1. Peça ao `08-growth-analytics` para ler `GET http://127.0.0.1:8080/api/morning-brief` e gerar o briefing factual do dia.
-2. Despache para `03-instagram-content-head` escrever 3 opções de gancho + legenda com palavra-chave `"MAPA"`, e para `04-editor-motion` preparar o pacote de vídeo 30s (`?mode=morning_video`) + Capa PNG.
+2. Despache para `03-instagram-content-head` escrever 3 opções de gancho + legenda com palavra-chave `"MAPA"`, e para `04-editor-motion` preparar o pacote de vídeo 30s (`/morning-video`) + Capa PNG.
 3. Passe tudo pelo gate `02-brand-compliance`.
 4. Me entregue o pacote consolidado `[APROVADO_BRAND]` pronto para eu revisar e postar no Instagram!
 ```

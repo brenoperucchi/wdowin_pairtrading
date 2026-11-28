@@ -29,7 +29,7 @@ flowchart LR
 1. **`07:50` (`08-growth-analytics`):** Consulta `GET http://127.0.0.1:8080/api/morning-brief` e `gex/docs/DAILY_REPORT*.txt`. Valida `ref_date`. Grava `Shared/magicwalls/briefs/YYYY-MM-DD_morning-data_08-analytics.md`.
 2. **`08:00` (`03-instagram-content-head` & `04-editor-motion` em paralelo):**
    - `03-content` escreve gancho de 3s + legenda CVM-safe com palavra-chave `"MAPA"` em `producao/YYYY-MM-DD_morning-copy_03-content.md`.
-   - `04-editor` abre `http://localhost:5176/?mode=morning_video`, confirma badge **`DADOS REAIS`**, exporta Vídeo `9:16` (`30s`) + Capa PNG (`t=8.5s`) em `producao/` com manifesto `YYYY-MM-DD_morning-pack_04-editor.md`.
+   - `04-editor` abre `http://localhost:5176/morning-video`, confirma badge **`DADOS REAIS`**, exporta Vídeo `9:16` (`30s`) + Capa PNG (`t=8.5s`) em `producao/` com manifesto `YYYY-MM-DD_morning-pack_04-editor.md`.
 3. **`08:15` (`02-brand-compliance`):** Roda `mw-brand-cvm-guard` e `mw-video-creative-qc` em até `5 min` e grava `aprovacao/YYYY-MM-DD_morning_02-brand-parecer.md` com `[APROVADO_BRAND]`.
 4. **`08:20` (`01-ceo-magicwalls`):** Consolida vídeo, capa e legenda no pacote final (`executive/YYYY-MM-DD_pacote-aprovacao-fundador_01-ceo.md`) para o Fundador postar pontualmente às `08:30` no Reels + Story de compartilhamento.
 

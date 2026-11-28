@@ -41,7 +41,7 @@
   - `gex/docs/DAILY_ECONOMIC_CALENDAR.txt`
   - `docs/PAINEL_5176_SNIPER_DIVERGENCIA_SMART_MONEY.md` (números e regras reais do Sniper `5176`)
 - **Ferramentas de produção visual do produto:**
-  - Estúdio 30s (`08h30`): `http://localhost:5176/?mode=morning_video`
+  - Estúdio 30s (`08h30`): `http://localhost:5176/morning-video`
   - Card IG (`17h15`): botão `📸 Card IG` em `http://localhost:5176/`
 - **Documento constitucional:** `openbot-team/BRAND_BIBLE_CVM.md`
 

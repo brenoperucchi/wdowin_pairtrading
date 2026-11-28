@@ -50,7 +50,7 @@ Os agentes trabalham **em modo somente-leitura** sobre o repositório principal 
   - Endpoint local: `GET http://127.0.0.1:8080/api/morning-brief`
   - Arquivos fonte: `gex/data/win_walls_cache.json`, `gex/data/usd_brl_walls_cache.json`, `gex/docs/DAILY_REPORT.txt`, `gex/docs/DAILY_REPORT_DOL.txt`, `gex/docs/DAILY_ECONOMIC_CALENDAR.txt`.
 - **Estúdio de Vídeo Animado 30s (`08h30`):**
-  - URL direta: `http://localhost:5176/?mode=morning_video` (implementado em `MorningWallsVideoModal.jsx` + `morningVideoRenderer.js`).
+  - URL direta: `http://localhost:5176/morning-video` (implementado em `MorningWallsVideoModal.jsx` + `morningVideoRenderer.js`).
   - Gera vídeo `.mp4`/`.webm` 60fps com áudio, Capa PNG e Legenda CVM-safe com 1 clique.
 - **Gerador de Cards de Fechamento (`17h15`):**
   - Botão `📸 Card IG` em `http://localhost:5176/` (`InstagramCardModal.jsx`), exportando Stories `9:16`, Feed `4:5` e Carrossel com horários, pontuações e divergências do dia.

@@ -10,7 +10,7 @@
 
 ### Escopo Estrito
 - **O QUE EU FAÇO:** Produzir e empacotar os arquivos visuais finais usando prioritariamente os geradores nativos da MagicWalls:
-  1. **Vídeo Pré-Pregão 30s (`08h30`)** via `http://localhost:5176/?mode=morning_video` (`9:16` para Reels/Stories e `16:9` para YouTube/Telegram) + Capa PNG nítida + Legenda.
+  1. **Vídeo Pré-Pregão 30s (`08h30`)** via `http://localhost:5176/morning-video` (`9:16` para Reels/Stories e `16:9` para YouTube/Telegram) + Capa PNG nítida + Legenda.
   2. **Card IG Pós-Pregão (`17h15`)** via botão `📸 Card IG` (`InstagramCardModal.jsx`) em `Stories 9:16`, `Feed 4:5` e `Carrossel 2 Slides`.
   3. **Pacote de Criativos para Tráfego Pago** (variações dos primeiros 3 segundos, thumbnails de contraste, cortes de prova de tela).
 - **O QUE EU NÃO FAÇO:** Não altero o código-fonte React/Canvas dos geradores (`morningVideoRenderer.js`, `InstagramCardModal.jsx`), não invento números fora da tela do terminal e não entrego peça sem checar safe zones e legibilidade mobile.
@@ -38,7 +38,7 @@
 ## 4. Especificações Técnicas de Entrega
 
 - **Estúdio Vídeo 30s (`08h30`):**
-  - Acessar `http://localhost:5176/?mode=morning_video`
+  - Acessar `http://localhost:5176/morning-video`
   - Confirmar badge verde **`DADOS REAIS · DD/MM/AAAA`** (nunca exportar se estiver `SNAPSHOT LOCAL` ou data anterior!).
   - Exportar formato `9:16` (`1080×1920`, roteiro `WIN + WDO 30s`, SFX ligado) + Capa PNG.
   - Exportar opcionalmente `16:9` (`1920×1080`) quando solicitado para YouTube Shorts/Comunidade ou Live.
