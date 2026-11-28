@@ -1,4 +1,3 @@
-import AdminNav from "./admin/AdminNav";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ref, onValue, get } from "firebase/database";
 import { db } from "./firebase";
@@ -13,8 +12,9 @@ import StatArbBacktest2026Panel from "./components/StatArbBacktest2026Panel";
 import StatArbLiveTradePanel from "./components/StatArbLiveTradePanel";
 import MorningWallsVideoModal from "./components/MorningWallsVideoModal";
 import MagicWallsMark from "./components/MagicWallsMark";
-import { API_BASE, isManualChartMode, isWallsFlowMode } from "./apiBase";
+import { API_BASE, COMPASS_BASE, isManualChartMode, isWallsFlowMode } from "./apiBase";
 import { authFetch, canAccessMediaStudio, isSaasAuthEnabled } from "./utils/saasAuth";
+import { decideDay } from "./utils/storedDays";
 import { simulateDayStatArbTradesJs, normalizeStatArbTrade } from "./utils/statArbDayTrades";
 
 const STRAT_LABELS = {
@@ -27,7 +27,8 @@ const API_URL = `${API_BASE}/api/v2/regime`;
 const API_PERF_URL = `${API_BASE}/api/performance`;
 const API_DI_URL = `${API_BASE}/api/di-regime`;
 const API_HISTORY_URL = `${API_BASE}/api/history`;
-const API_COMPASS_URL = `${API_BASE}/api/compass/etapa1`;
+const API_COMPASS_URL = `${COMPASS_BASE}/api/compass/etapa1`;
+const API_COMPASS_DATES_URL = `${COMPASS_BASE}/api/compass/dates`;
 const POLL_MS = 2500;
 // Quando compilado com VITE_API_BASE definido (ex: "" para túnel cloudflared + proxy somente-leitura),
 // usa a API relativa (/api/...) em vez do Firebase Hosting estático.
@@ -139,6 +140,9 @@ export default function App() {
     const [realtimeIafData, setRealtimeIafData] = useState([]);
     const [iafSmoothing, setIafSmoothing] = useState(3); // Default 3 periods
     const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
+    const [storedDates, setStoredDates] = useState([]);     // pregões guardados no servidor (mais novo primeiro)
+    const [feedLive, setFeedLive] = useState(null);         // null = ainda não sabemos
+    const autoDayRef = useRef("");                           // dia que o painel abriu sozinho
     const [showMorningVideoModal, setShowMorningVideoModal] = useState(false);
     const [canUseMediaStudio, setCanUseMediaStudio] = useState(() => canAccessMediaStudio());
     useEffect(() => {
@@ -390,6 +394,32 @@ export default function App() {
         }
         return () => { active = false; };
     }, [selectedDate, isManual]);
+
+    // Pregões guardados: sem produtor ao vivo o painel abre o último deles em vez de uma tela de espera
+    useEffect(() => {
+        if (USE_FIREBASE) return undefined;
+        let active = true;
+        async function pollDates() {
+            try {
+                const res = await authFetch(API_COMPASS_DATES_URL);
+                if (!res.ok) return;
+                const json = await res.json();
+                if (!active || !json?.ok) return;
+                setStoredDates(Array.isArray(json.dates) ? json.dates : []);
+                setFeedLive(Boolean(json.live));
+            } catch { /* rede fora: mantém o que já sabe */ }
+        }
+        pollDates();
+        const t = setInterval(pollDates, 20000);
+        return () => { active = false; clearInterval(t); };
+    }, []);
+
+    useEffect(() => {
+        if (USE_FIREBASE || feedLive === null) return;
+        const next = decideDay({ live: feedLive, dates: storedDates, selectedDate, autoDay: autoDayRef.current });
+        autoDayRef.current = next.autoDay;
+        if (next.selectedDate !== selectedDate) setSelectedDate(next.selectedDate);
+    }, [feedLive, storedDates, selectedDate]);
 
     // Simulação quando offline
     useEffect(() => {
@@ -785,8 +815,10 @@ export default function App() {
     const johDiGate = diData?.johansen_gate || null;
 
     const liveStatus = isManual ? (compassData?.ok ? "live" : status) : status;
-    const availableDates = compassData?.available_dates || [];
-    const todayDateStr = availableDates[0] || "";
+    const compassDates = compassData?.available_dates || [];
+    const availableDates = compassDates.length > 0 ? compassDates : storedDates;
+    // sem produtor ao vivo nenhuma data é "hoje": todas abrem como pregão guardado
+    const todayDateStr = feedLive === false ? "" : (availableDates[0] || "");
     const activeCompassDate = selectedDate || compassData?.selected_date || todayDateStr || "";
     const winBarsCount = compassData?.WIN?.caminho_a?.m5_dealer_vs_flow_series?.length || 0;
     const wdoBarsCount = compassData?.WDO?.caminho_a?.m5_dealer_vs_flow_series?.length || 0;
@@ -826,50 +858,13 @@ export default function App() {
 
     return (
         <>
-            {/* Loading / Aguardando Publicação Overlay */}
-            {waitingInitialData && (
+            {/* Carregando (sem cartão de espera: sem feed ao vivo o painel abre o último pregão guardado) */}
+            {waitingInitialData && !feedUnavailableNow && (
                 <div
                     className="skeleton-loader"
                     style={isSaasAuthEnabled() ? { top: 33, padding: 24 } : { padding: 24 }}
                 >
-                    {feedUnavailableNow ? (
-                        <div
-                            data-testid="saas-feed-waiting"
-                            style={{
-                                width: "100%",
-                                maxWidth: 480,
-                                background: "var(--mw-surface, #131720)",
-                                border: "1px solid var(--mw-hairline, rgba(238,240,245,0.1))",
-                                borderRadius: 12,
-                                padding: 24,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 12,
-                            }}
-                        >
-                            <div style={{ fontSize: 16, fontWeight: 500, color: "var(--mw-text-1, #eef0f5)", lineHeight: 1.3 }}>
-                                Aguardando publicação dos dados do pregão
-                            </div>
-                            <div style={{ fontSize: 13, color: "var(--mw-text-2, #a3a9b8)", lineHeight: 1.55 }}>
-                                O servidor cloud está ativo, mas ainda não há snapshot recente publicado. Assim que o produtor local enviar os dados, o terminal abrirá automaticamente.
-                            </div>
-                            <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--mw-text-3, #848da2)" }}>
-                                {compassError || error || "Aguardando publicação do produtor ao vivo."}
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
-                                <button
-                                    type="button"
-                                    className="mw-btn mw-btn-secondary"
-                                    style={{ height: 32, padding: "0 12px" }}
-                                    onClick={() => window.location.reload()}
-                                >
-                                    Tentar novamente
-                                </button>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="skeleton-pulse">Carregando painel Magic Walls...</div>
-                    )}
+                    <div className="skeleton-pulse">Carregando painel Magic Walls...</div>
                 </div>
             )}
             <div className="mw-app-shell" style={{ background: "var(--mw-bg)", minHeight: "100svh", color: "var(--mw-text-1)", fontFamily: "var(--sans)", display: "flex", flexDirection: "column", overflowX: "hidden", maxWidth: "100%" }}>
@@ -907,7 +902,7 @@ export default function App() {
                         )}
                     </div>
 
-                    {isManual && compassData && (
+                    {isManual && (compassData || storedDates.length > 0) && (
                         <div className="topbar-center">
                             <div className="mw-track" role="group" aria-label="Ativos visíveis">
                                 {viewOptions.map((opt) => (
@@ -948,9 +943,9 @@ export default function App() {
 
                             {quickDates.length > 0 && (
                                 <div className="mw-track" role="group" aria-label="Atalhos de pregão">
-                                    {quickDates.map((d, idx) => {
+                                    {quickDates.map((d) => {
                                         const isActive = activeCompassDate === d;
-                                        const label = idx === 0
+                                        const label = d === todayDateStr
                                             ? `Hoje (${fmtDateShortBr(d)})`
                                             : fmtDateShortBr(d);
                                         return (
@@ -977,7 +972,7 @@ export default function App() {
                                 >
                                     {availableDates.map((d, idx) => (
                                         <option key={d} value={d}>
-                                            {idx === 0 ? `Hoje (${fmtDateShortBr(d)})` : idx === 1 ? `Ontem (${fmtDateShortBr(d)})` : fmtDateFullBr(d)}
+                                            {d === todayDateStr ? `Hoje (${fmtDateShortBr(d)})` : idx === 1 && todayDateStr ? `Ontem (${fmtDateShortBr(d)})` : fmtDateFullBr(d)}
                                         </option>
                                     ))}
                                 </select>
@@ -1010,9 +1005,9 @@ export default function App() {
 
                             {quickDates.length > 0 && (
                                 <div className="mw-track" role="group" aria-label="Atalhos de pregão">
-                                    {quickDates.map((d, idx) => {
+                                    {quickDates.map((d) => {
                                         const isActive = activeCompassDate === d;
-                                        const label = idx === 0
+                                        const label = d === todayDateStr
                                             ? `Hoje (${fmtDateShortBr(d)})`
                                             : fmtDateShortBr(d);
                                         return (
@@ -1039,7 +1034,7 @@ export default function App() {
                                 >
                                     {availableDates.map((d, idx) => (
                                         <option key={d} value={d}>
-                                            {idx === 0 ? `Hoje (${fmtDateShortBr(d)})` : idx === 1 ? `Ontem (${fmtDateShortBr(d)})` : fmtDateFullBr(d)}
+                                            {d === todayDateStr ? `Hoje (${fmtDateShortBr(d)})` : idx === 1 && todayDateStr ? `Ontem (${fmtDateShortBr(d)})` : fmtDateFullBr(d)}
                                         </option>
                                     ))}
                                 </select>
@@ -1077,8 +1072,6 @@ export default function App() {
                                 <span>Vídeo 08h30</span>
                             </button>
                         )}
-
-                        <AdminNav current="charts" />
 
                         {/* Status verdadeiro do feed (estático, zero pulsar falso) */}
                         <div style={{
@@ -1124,6 +1117,14 @@ export default function App() {
                 </header>
 
                 {/* ── Banners ─────────────────────────────────────────────────────────── */}
+                {feedUnavailableNow && !isViewingHistory && (
+                    <div data-testid="saas-feed-waiting" style={{ background: "var(--mw-chrome)", borderBottom: "1px solid var(--mw-hairline)", padding: "8px 24px", fontSize: 12, color: "var(--mw-text-2)", display: "flex", alignItems: "center", gap: 12 }}>
+                        <span>Sem dados ao vivo e nenhum pregão anterior guardado ainda. Os gráficos abrem sozinhos quando o produtor publicar.</span>
+                        <button type="button" className="mw-btn mw-btn-secondary" style={{ height: 26, padding: "0 10px", marginLeft: "auto" }} onClick={() => window.location.reload()}>
+                            Tentar novamente
+                        </button>
+                    </div>
+                )}
                 {!isManual && error && (
                     <div style={{ background: "var(--mw-chrome)", borderBottom: "1px solid var(--mw-hairline)", padding: "8px 24px", fontSize: 12, color: "var(--mw-accent-ink)" }}>
                         {error}

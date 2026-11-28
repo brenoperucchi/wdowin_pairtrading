@@ -24,6 +24,10 @@ function resolveApiBase() {
 
 export const API_BASE = resolveApiBase();
 
+// Dados do painel (etapa1, datas e motor). Em produção é a mesma API; em teste local, VITE_COMPASS_BASE
+// aponta para o servidor de dados congelados (porta 8096) quando a API local não tem pregões.
+export const COMPASS_BASE = import.meta.env.VITE_COMPASS_BASE ?? API_BASE;
+
 // Versão pública do painel 5176: força o modo Walls & Fluxo (no local ele é detectado pela porta 5176).
 export const FORCE_WALLS_FLOW = import.meta.env.VITE_FORCE_WALLS_FLOW === "1";
 

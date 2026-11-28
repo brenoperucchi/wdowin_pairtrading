@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE } from "../../apiBase";
+import { COMPASS_BASE } from "../../apiBase";
 import { authFetch } from "../../utils/saasAuth";
 import {
     buildInstagramCaption,
@@ -24,8 +24,6 @@ import PostStages, { StatusPill } from "./PostStages";
 // regra do painel, mostra o card e entrega o PNG direto para a fila (sem baixar arquivo). Só formato Feed 1080×1350:
 // é o que a API do Instagram aceita como imagem única.
 
-// Dados do painel (etapa1 e motor). Em produção é a mesma API; em teste local pode apontar para outro endereço.
-const COMPASS_BASE = import.meta.env.VITE_COMPASS_BASE ?? API_BASE;
 
 // Ponte local de legendas com IA (scripts/caption_bridge.py). A chave do gateway fica na ponte, nunca no navegador.
 const BRIDGE_BASE = import.meta.env.VITE_CAPTION_BRIDGE ?? "http://127.0.0.1:8095";
