@@ -184,7 +184,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("action", choices=("run", "coletar", "enviar"))
     ap.add_argument("--date", required=True, help="AAAA-MM-DD")
     ap.add_argument("--out", help="pasta de trabalho (padrão: ~/marketing-drafts/<data>)")
-    ap.add_argument("--app-url", default=os.environ.get("MW_APP_URL", "https://app.magicwalls.com.br"))
+    ap.add_argument("--app-url", default=os.environ.get("MW_APP_URL", "https://www.magicwalls.com.br"))
     ap.add_argument("--api-url", default=os.environ.get("MW_API_URL", "https://api.magicwalls.com.br"))
     args = ap.parse_args(argv)
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):

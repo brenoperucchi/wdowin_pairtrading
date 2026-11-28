@@ -35,7 +35,7 @@ PROJECT = "magicwalls-marketing"
 GATEWAY_URL = os.environ.get("MW_GATEWAY_URL", "http://127.0.0.1:8080")
 KEY_FILE = pathlib.Path(os.environ.get("MW_GATEWAY_KEY_FILE", pathlib.Path.home() / ".config/magicwalls-marketing/gateway-key.json"))
 ALLOWED_ORIGINS = {
-    o.strip() for o in os.environ.get("MW_BRIDGE_ORIGINS", "http://127.0.0.1:8098,https://app.magicwalls.com.br").split(",") if o.strip()
+    o.strip() for o in os.environ.get("MW_BRIDGE_ORIGINS", "http://127.0.0.1:8098,https://www.magicwalls.com.br").split(",") if o.strip()
 }
 MAX_BODY_IN = 2200
 MAX_B = 1800

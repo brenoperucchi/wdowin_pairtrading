@@ -43,7 +43,7 @@ flowchart TD
         PUB --> CAPI["cloud_saas/app.py (Railway: api.magicwalls.com.br)"]
         CAPI --> REDIS["Upstash Redis (Sessão Única + Snapshots CORE/PRO)"]
         CAPI --> SUPA["Supabase PostgreSQL (6 Tabelas + RLS)"]
-        CAPI --> PAGES["Cloudflare Pages: app.magicwalls.com.br (dist-saas/)"]
+        CAPI --> PAGES["Cloudflare Pages: www.magicwalls.com.br (dist-saas/)"]
     end
 ```
 
@@ -128,7 +128,7 @@ Contém a estrutura de execução automatizada no MetaTrader 5 (conta live XP `2
 | [`core/carteira_v32_estrategias.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/core/carteira_v32_estrategias.py) | **Carteira V3.2** (`C1a_BRK_WIN`, `V1a_DIV_WDO`, `SYM_DIV_WIN`, `SYM_DIV_WDO`) em paper trading no `5176`. |
 | [`core/profit_mt5_flow_engine.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/core/profit_mt5_flow_engine.py) | Construção das barras M5 de fluxo real (`RTD/` + MT5 leitura + decomposição institucional/varejo). |
 | [`core/options_live_radar_engine.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/core/options_live_radar_engine.py) | Radar ao vivo de opções `BOVA11` (IV ATM, Skew 25$\Delta$, PCR). |
-| [`regime-dashboard/src/components/IntradayCompassPanel.jsx`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/regime-dashboard/src/components/IntradayCompassPanel.jsx) | Interface principal do cockpit para `5174`, `5176`, `5178` e SaaS (`app.magicwalls.com.br`). |
+| [`regime-dashboard/src/components/IntradayCompassPanel.jsx`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/regime-dashboard/src/components/IntradayCompassPanel.jsx) | Interface principal do cockpit para `5174`, `5176`, `5178` e SaaS (`www.magicwalls.com.br`). |
 | [`scripts/painel_publico.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/scripts/painel_publico.py) | Proxy HTTP **somente-leitura** em `127.0.0.1` servindo `dist-publico/` e filtrando estritamente rotas de leitura (`5199` modo `5178`; `5198` modo `5176`). Bloqueia `/api/restart`, `/api/live-calendar`, `/docs`, etc. |
 | [`config/cloudflared-magicwalls.yml`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/config/cloudflared-magicwalls.yml) | Túnel Cloudflare nomeado **`magicwalls`**: `walls.css-pro.com.br` -> `127.0.0.1:5199` e `roboswalls.css-pro.com.br` -> `127.0.0.1:5198`. |
 | [`keep_dashboards_alive.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/keep_dashboards_alive.py) | **Watchdog Permanente** (tarefa Windows `JumbaDashboardsWatchdog`, substitui o aposentado `ecosystem.config.js`). Supervisiona `8080`, `5174`, `5176`, `5178`, `5198`, `5199`, `cloudflared magicwalls` e `scripts/cloud_publisher.py`, com rotação de logs e carência de startup na `8080`. |
@@ -155,7 +155,7 @@ Arquitetura Push **Zero-SPOF no PC local**: clientes externos nunca se conectam 
 | [`cloud_saas/store.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/cloud_saas/store.py) & [`security.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/cloud_saas/security.py) | Camada **Upstash Redis REST** (sessão única `401 SESSION_REPLACED` + cache `core`/`pro`) e utilitários de HMAC, PBKDF2, JWT e alertas Telegram/webhook. |
 | [`cloud_saas/config.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/cloud_saas/config.py) & [`README_DEPLOY.md`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/cloud_saas/README_DEPLOY.md) | Configurações (`MW_*`) e guia completo de deploy (Supabase + Upstash + Railway/Fly + Cloudflare Pages). |
 | [`scripts/verify_cloud_connections.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/scripts/verify_cloud_connections.py) & [`scripts/criar_usuario_saas.py`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/scripts/criar_usuario_saas.py) | Verificador de conectividade cloud (Supabase + Upstash + Cloud API) e CLI de criação de usuários SaaS. |
-| [`regime-dashboard/build-saas.mjs`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/regime-dashboard/build-saas.mjs) | Build estático do frontend SaaS (`dist-saas/`) hospedado no **Cloudflare Pages** (`https://app.magicwalls.com.br`). |
+| [`regime-dashboard/build-saas.mjs`](file:///c:/Users/ryzen/Downloads/Antigravity/wdo%20win%20pair%20trading/regime-dashboard/build-saas.mjs) | Build estático do frontend SaaS (`dist-saas/`) hospedado no **Cloudflare Pages** (`https://www.magicwalls.com.br`). |
 
 ---
 

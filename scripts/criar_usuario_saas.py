@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Expira : {u.get('expires_at')}")
     if data.get("mt5_license_token"):
         print("  MT5    : Licença QUANT gerada no servidor (consulte o painel Admin para visualizar).")
-    print("\nAgora acesse https://app.magicwalls.com.br (ou https://magicwalls-app.pages.dev) com esse e-mail e senha.")
+    print("\nAgora acesse https://www.magicwalls.com.br (ou https://magicwalls-app.pages.dev) com esse e-mail e senha.")
     return 0
 
 

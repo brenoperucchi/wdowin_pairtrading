@@ -289,7 +289,7 @@ def _cmd_invite_create(
         f"[OK] Convite salvo: code={inv.get('code')} | dias={inv.get('trial_days')} | "
         f"max_uses={inv.get('max_uses')} | ativo={inv.get('is_active')}"
     )
-    print(f"     Link direto: https://app.magicwalls.com.br/?trial=1&invite={inv.get('code')}")
+    print(f"     Link direto: https://www.magicwalls.com.br/?trial=1&invite={inv.get('code')}")
     return 0
 
 

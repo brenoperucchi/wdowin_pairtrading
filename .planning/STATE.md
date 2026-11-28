@@ -4,7 +4,7 @@
 
 See: [`STATARB_2026_KNOWLEDGE.md`](../STATARB_2026_KNOWLEDGE.md), [`docs/MAPA_GERAL_DO_PROJETO.md`](../docs/MAPA_GERAL_DO_PROJETO.md), [`docs/PLANO_COMERCIAL_SAAS_MAGICWALLS.md`](../docs/PLANO_COMERCIAL_SAAS_MAGICWALLS.md) & [`.planning/PROJECT.md`](PROJECT.md). Documento de estado atualizado em **22/11/2026**.
 
-**Core value:** Ecossistema quantitativo completo para `WIN` e `WDO` na B3 combinando: (1) cálculo diário GEX/Walls (`gex/`), (2) execução automatizada no MetaTrader 5 com a carteira **Top 10 EAs** na XP (`2004051`), (3) cockpit analítico local em `127.0.0.1:8080` + painéis Vite `5174` / `5176` / `5178`, e (4) plataforma SaaS **MagicWalls** (`app.magicwalls.com.br` + `api.magicwalls.com.br`).
+**Core value:** Ecossistema quantitativo completo para `WIN` e `WDO` na B3 combinando: (1) cálculo diário GEX/Walls (`gex/`), (2) execução automatizada no MetaTrader 5 com a carteira **Top 10 EAs** na XP (`2004051`), (3) cockpit analítico local em `127.0.0.1:8080` + painéis Vite `5174` / `5176` / `5178`, e (4) plataforma SaaS **MagicWalls** (`www.magicwalls.com.br` + `api.magicwalls.com.br`).
 **Current focus:** Operação live da carteira **Top 10 MT5** com Monitor v4.20 (`Stop G 950 / W 400 / D 0` + push ligado) e reconciliação diária (`scripts/reconcile_mt5_vs_bt.py`), paper trading no painel `5176` (`ESP_DIV_V22_WIN` + Carteira V3.2) e operação/estabilização do SaaS MagicWalls em produção.
 
 ## Current Position
@@ -17,7 +17,7 @@ Last activity: **22/11/2026** — Consolidação operacional da infraestrutura, 
    - **Frontends Vite locais:** `5174` (Robôs MT5 / Carteiras), `5176` (Sniper Divergência `ESP_DIV_V22_WIN` + Carteira V3.2), `5178` (Gráfico Diário Manual WIN/WDO).
    - **Proxies públicos somente-leitura (`scripts/painel_publico.py`):** `127.0.0.1:5199` (modo `5178`) e `127.0.0.1:5198` (modo `5176`), expostos via `cloudflared` nomeado `magicwalls` (`config/cloudflared-magicwalls.yml` -> `walls.css-pro.com.br` e `roboswalls.css-pro.com.br`).
 2. **Plataforma SaaS MagicWalls (`cloud_saas/`):**
-   - **Frontend Edge (Cloudflare Pages):** `https://app.magicwalls.com.br` (build `regime-dashboard/build-saas.mjs` -> `dist-saas/`).
+   - **Frontend Edge (Cloudflare Pages):** `https://www.magicwalls.com.br` (build `regime-dashboard/build-saas.mjs` -> `dist-saas/`).
    - **Cloud API (Railway):** `https://api.magicwalls.com.br` (`cloud_saas/app.py`, FastAPI + JWT/entitlements server-side + sessões únicas).
    - **Dados & Cache:** **Supabase** (6 tabelas com RLS: `profiles`, `subscriptions`, `active_sessions`, `terms_acceptance`, `audit_logs`, `producer_heartbeats`) + **Upstash Redis** (sessões ativas e snapshots `core`/`pro`).
    - **Produtor Push (`scripts/cloud_publisher.py`):** lê `127.0.0.1:8080`, sanitiza payloads `core`/`pro`, assina via HMAC-SHA256 e publica na Cloud API; supervisionado automaticamente pelo watchdog `keep_dashboards_alive.py` (`--role primary --producer-id pc-local-01`).

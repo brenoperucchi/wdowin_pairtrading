@@ -1183,7 +1183,7 @@ function drawCtaScene(ctx, spec, brief, tLocal, options) {
 
     ctx.font = `600 ${isLand ? 28 : 30}px ${FONT_MONO}`;
     ctx.fillStyle = INK.onAccent;
-    ctx.fillText(fitText(ctx, options.ctaUrl || "app.magicwalls.com.br", urlW - 40), cx, urlY + urlH / 2);
+    ctx.fillText(fitText(ctx, options.ctaUrl || "www.magicwalls.com.br", urlW - 40), cx, urlY + urlH / 2);
 
     ctx.font = `500 ${isLand ? 20 : 22}px ${FONT_MONO}`;
     ctx.fillStyle = INK.accentInk;

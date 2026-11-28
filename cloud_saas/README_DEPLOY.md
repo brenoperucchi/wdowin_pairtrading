@@ -54,7 +54,7 @@ fly secrets set `
   SUPABASE_SERVICE_ROLE_KEY="<service-role-key>" `
   UPSTASH_REDIS_REST_URL="https://<endpoint>.upstash.io" `
   UPSTASH_REDIS_REST_TOKEN="<token>" `
-  MW_CORS_ORIGINS="https://app.magicwalls.com.br"
+  MW_CORS_ORIGINS="https://www.magicwalls.com.br"
 fly deploy -c cloud_saas/fly.toml --dockerfile cloud_saas/Dockerfile
 ```
 

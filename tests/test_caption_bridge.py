@@ -291,9 +291,9 @@ def test_http_unknown_origin_is_refused_without_calling_gateway(http_bridge):
 
 def test_http_preflight(http_bridge):
     mod, gw, url = http_bridge
-    req = urllib.request.Request(url + "/suggest", method="OPTIONS", headers={"Origin": "https://app.magicwalls.com.br", "Access-Control-Request-Method": "POST"})
+    req = urllib.request.Request(url + "/suggest", method="OPTIONS", headers={"Origin": "https://www.magicwalls.com.br", "Access-Control-Request-Method": "POST"})
     with urllib.request.urlopen(req, timeout=10) as r:
-        assert r.status == 204 and r.headers["Access-Control-Allow-Origin"] == "https://app.magicwalls.com.br"
+        assert r.status == 204 and r.headers["Access-Control-Allow-Origin"] == "https://www.magicwalls.com.br"
 
 
 def test_http_health_reports_key_state(http_bridge, env):

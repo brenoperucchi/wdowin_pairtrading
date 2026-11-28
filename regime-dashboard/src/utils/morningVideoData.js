@@ -583,7 +583,7 @@ export function buildMorningBriefFromCompass(compassData, targetDateIso = "", li
 export function buildMorningCaption(brief, options = {}) {
     const b = brief || normalizeMorningBrief(DEFAULT_FALLBACK_BRIEF);
     const stamp = options.stampLabel || "Pré-pregão · 08:30 BRT";
-    const ctaUrl = options.ctaUrl || "app.magicwalls.com.br";
+    const ctaUrl = options.ctaUrl || "www.magicwalls.com.br";
     const handle = options.handle || "@magicwallsb3";
 
     const winStars = b.win.magnetWall ? `${b.win.magnetWall.stars || 3}/3` : "3/3";

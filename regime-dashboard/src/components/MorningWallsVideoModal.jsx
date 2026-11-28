@@ -51,7 +51,7 @@ function loadVideoPrefs() {
             if (parsed.handle === "@magicwalls") parsed.handle = "@magicwallsb3";
             if (parsed.brandTitle === "MAGIC WALLS") parsed.brandTitle = "Magic Walls";
             if (parsed.ctaUrl === "magicwalls.com.br" || parsed.ctaUrl === "walls.css-pro.com.br") {
-                parsed.ctaUrl = "app.magicwalls.com.br";
+                parsed.ctaUrl = "www.magicwalls.com.br";
             }
             if (parsed.stampLabel === "PRÉ-PREGÃO · 08:30 BRT") {
                 parsed.stampLabel = "Pré-pregão · 08:30 BRT";
@@ -209,7 +209,7 @@ export default function MorningWallsVideoModal({
     const [sfxEnabled, setSfxEnabled] = useState(initialPrefs.sfxEnabled !== false);
     const [brandTitle, setBrandTitle] = useState(initialPrefs.brandTitle || "Magic Walls");
     const [handle, setHandle] = useState(initialPrefs.handle || "@magicwallsb3");
-    const [ctaUrl, setCtaUrl] = useState(initialPrefs.ctaUrl || "app.magicwalls.com.br");
+    const [ctaUrl, setCtaUrl] = useState(initialPrefs.ctaUrl || "www.magicwalls.com.br");
     const [stampLabel, setStampLabel] = useState(initialPrefs.stampLabel || "Pré-pregão · 08:30 BRT");
     const [publishDate, setPublishDate] = useState("");
 

@@ -29,7 +29,7 @@ Mantenha uma zona livre mínima de **`1 × h`** em todos os lados da marca, onde
 
 ---
 
-## 4. Paleta oficial (calibrada para `app.magicwalls.com.br`)
+## 4. Paleta oficial (calibrada para `www.magicwalls.com.br`)
 
 | Nome / Papel | HEX | RGB | CMYK (aprox.) | Pantone (aprox.)* | Contraste verificado |
 |---|---|---|---|---|---|

@@ -14,7 +14,7 @@ Referência completa: [`docs/PAINEL_5176_SNIPER_DIVERGENCIA_SMART_MONEY.md`](../
 
 ---
 
-## 2. Onda 2 — SaaS Resiliente (`app.magicwalls.com.br` / `api.magicwalls.com.br`)
+## 2. Onda 2 — SaaS Resiliente (`www.magicwalls.com.br` / `api.magicwalls.com.br`)
 Referência técnica: [`cloud_saas/README_DEPLOY.md`](../cloud_saas/README_DEPLOY.md) e [`docs/PLANO_COMERCIAL_SAAS_MAGICWALLS.md`](../docs/PLANO_COMERCIAL_SAAS_MAGICWALLS.md)
 
 - **2.1. Produtor Hot Standby (Zero SPOF do PC Local):**
