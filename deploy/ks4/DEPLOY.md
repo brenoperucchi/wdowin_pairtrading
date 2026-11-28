@@ -208,6 +208,55 @@ O rollback do servidor só existe depois de pelo menos um deploy feito pelo scri
 - No ks4: `ssh ks4 'tail -5 ~/deploy.log'` mostra o deploy registrado.
 - Admin pode ter até 10 sessões simultâneas; usuário comum tem 1 (o segundo login derruba o primeiro).
 
+## Instagram (Marketing) no servidor
+
+O módulo de Marketing publica no Instagram pela API da Meta. A configuração fica **só no servidor**,
+no `.env` do container (`/home/app/magicwalls-cloud/.env`, modo 600, dono `app`, fora do repositório).
+O container lê o arquivo ao subir, então toda mudança pede `systemctl --user restart magicwalls-cloud`.
+
+| Variável | Para quê |
+|---|---|
+| `MW_META_IG_USER_ID` | id da conta do Instagram (@magicwallsb3: `17841422373577562`; não é segredo) |
+| `MW_META_IG_TOKEN` | token da API da Meta (**segredo**; nunca imprima, commite ou cole em chat) |
+| `MW_PUBLIC_BASE_URL` | endereço de onde a Meta busca a imagem (`/m/<token>`); no ks4 é `https://www.magicwalls.com.br` (sem a variável o padrão é `https://api.magicwalls.com.br`) |
+| `MW_MARKETING_LIVE` | `1` liga a publicação **real**; ausente = tudo simulado (a tela mostra "Simulação") |
+| `MW_META_GRAPH_VERSION` (padrão `v26.0`), `MW_MARKETING_DAILY_LIMIT` (padrão 20), `MW_MARKETING_BOT_EMAILS` (contas de automação, só criam rascunho) | opcionais |
+
+**Estado em 28/11/2026 01:30.** `MW_META_IG_USER_ID`, `MW_META_IG_TOKEN` e `MW_PUBLIC_BASE_URL`
+estão no `.env` do ks4; `MW_MARKETING_LIVE` **não** está, então segue em simulação. O backup do
+`.env` de antes está em `~/magicwalls-cloud/.env.bak-20261128`.
+
+**Como colocar o token sem expô-lo** (de uma máquina que tenha o token num arquivo só com ele,
+modo 600; o arquivo do Breno é `~/.config/magicwalls-ig.env`):
+
+```bash
+cp -a ~/magicwalls-cloud/.env ~/magicwalls-cloud/.env.bak-$(date +%Y%m%d)   # no ks4, antes de mexer
+{ printf 'MW_META_IG_USER_ID=<id>\n'
+  printf 'MW_META_IG_TOKEN=%s\n' "$(tr -d '\r\n ' < ~/.config/magicwalls-ig.env)"
+  printf 'MW_PUBLIC_BASE_URL=https://www.magicwalls.com.br\n'
+} | ssh ks4 'cd ~/magicwalls-cloud && [ -n "$(tail -c1 .env)" ] && echo >> .env; cat >> .env; chmod 600 .env'
+ssh ks4 'systemctl --user restart magicwalls-cloud'
+```
+
+Se a variável já existir no `.env`, edite a linha em vez de acrescentar outra. Confira sem ver o
+valor: `ssh ks4 "podman exec magicwalls-cloud sh -c '[ -n \"\$MW_META_IG_TOKEN\" ] && echo sim'"`.
+
+**Ordem para ligar:**
+1. Configurar em simulação (como acima). A tela passa a mostrar o Instagram como configurado e
+   continua em "Simulação". O botão de testar o canal confere conta e token na Meta sem publicar.
+2. Antes do real, desligue a **chave geral** de publicações na tela e só a ligue na hora de publicar.
+3. Para publicar de verdade: acrescente `MW_MARKETING_LIVE=1` ao `.env` e reinicie. Cada post ainda
+   exige aprovação e confirmação de uma pessoa; contas de automação não aprovam nem publicam.
+
+**Cuidados.**
+- A Meta busca a imagem pela internet em `/m/<token>`, que a nginx do ks4 encaminha à API (só serve
+  com o post aprovado ou publicando). Se a Cloudflare barrar o robô da Meta, a primeira publicação
+  real falha; isso só se descobre publicando.
+- A API da Meta **não apaga** post; só se apaga pelo app do Instagram.
+- Não se sabe a validade do token atual (gerado em 21/11). Token de curta duração para de
+  funcionar sozinho; confira na Meta e troque o valor no `.env` quando vencer.
+- Reiniciar a API apaga os dias guardados em memória até o produtor reenviar; evite no pregão.
+
 ## Passo a passo manual (só se o script não puder ser usado)
 
 Equivale ao que o script faz; use quando precisar entender ou consertar algo. Rode a partir da raiz
