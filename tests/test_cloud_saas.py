@@ -278,9 +278,9 @@ class CloudSaasArchitectureTests(unittest.TestCase):
         ov = self.client.get("/api/v1/admin/overview", headers=self.admin_headers).json()
         self.assertEqual(ov["open_abuse_flags"], [])
 
+        # Admin não tem sessão única: o login mais antigo continua valendo (limite de sessões em test_admin_multi_session.py).
         r_old = self.client.get("/auth/me", headers={"Authorization": f"Bearer {tokens[0]}"})
-        self.assertEqual(r_old.status_code, 401)
-        self.assertEqual(r_old.json()["code"], "SESSION_REPLACED")
+        self.assertEqual(r_old.status_code, 200)
 
     def test_two_device_alternation_tolerance_and_cap(self) -> None:
         self._create_user("two@mw.com", "pro")

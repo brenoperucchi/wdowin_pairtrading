@@ -237,6 +237,18 @@ def _read_health_file(name: str, *, public: bool) -> dict:
         }
     return data
 
+# Quantas sessões simultâneas uma conta admin pode ter (painel, testes, celular). Passou disso, a mais antiga sai.
+_ADMIN_MAX_SESSIONS = 10
+
+
+def _session_ids(sess: dict) -> list:
+    """Sessões válidas de um registro "sess:{user}": a lista "sids" (admin) ou só o "sid" (usuário comum)."""
+    sids = sess.get("sids")
+    if sids:
+        return list(sids)
+    return [sess["sid"]] if sess.get("sid") else []
+
+
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
     cfg = settings or Settings.from_env()
     db = create_database(cfg)
@@ -374,7 +386,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                         "device_fp": db_sess.get("device_fp", ""),
                     }
                     store.set_json(f"sess:{user_id}", active_sess, ttl_sec=cfg.jwt_ttl_sec)
-            if not active_sess or active_sess.get("sid") != payload["sid"]:
+            # Usuário comum: uma sessão só (a mais nova). Conta admin: até _ADMIN_MAX_SESSIONS ao mesmo tempo, guardadas em "sids".
+            if not active_sess or payload["sid"] not in _session_ids(active_sess):
                 raise ApiRuleError(401, "SESSION_REPLACED", "Acesso iniciado em outro dispositivo.")
 
             _check_subscription_access(user)
@@ -607,7 +620,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 "Conta bloqueada preventivamente por excesso de trocas de dispositivo/IP no mesmo pregão.",
             )
 
-        if prev_sess and prev_sess.get("sid") and prev_sess.get("sid") != sid:
+        is_admin_login = str(user.get("plan") or "").lower() == "admin"
+        # Admin não derruba a própria outra sessão; os demais continuam com sessão única.
+        if not is_admin_login and prev_sess and prev_sess.get("sid") and prev_sess.get("sid") != sid:
             db.log_audit(
                 user_id=user["id"],
                 event_type="SESSION_REPLACED",
@@ -628,16 +643,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             details={"session_id": sid, "switches_today": abuse["switches"]},
         )
 
-        store.set_json(
-            f"sess:{user['id']}",
-            {
-                "sid": sid,
-                "ip": client_ip,
-                "device_fp": req.device_fp,
-                "created_at": int(time.time()),
-            },
-            ttl_sec=cfg.jwt_ttl_sec,
-        )
+        new_sess = {
+            "sid": sid,
+            "ip": client_ip,
+            "device_fp": req.device_fp,
+            "created_at": int(time.time()),
+        }
+        if is_admin_login:
+            new_sess["sids"] = ((_session_ids(prev_sess) if prev_sess else []) + [sid])[-_ADMIN_MAX_SESSIONS:]
+        store.set_json(f"sess:{user['id']}", new_sess, ttl_sec=cfg.jwt_ttl_sec)
 
         token = create_access_token(
             jwt_secret=cfg.jwt_secret,
@@ -685,8 +699,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     @app.post("/auth/logout")
     def logout(request: Request, user: dict = Depends(auth_any_no_terms)):
-        store.delete(f"sess:{user['id']}")
-        db.clear_active_session(user["id"], reason="USER_LOGOUT")
+        this_sid = getattr(request.state, "session_id", "")
+        current = store.get_json(f"sess:{user['id']}")
+        others = [s for s in _session_ids(current) if s != this_sid] if current else []
+        if str(user.get("plan") or "").lower() == "admin" and others:
+            # admin com outros navegadores logados: sai só este; os demais seguem
+            store.set_json(f"sess:{user['id']}", {**current, "sid": others[-1], "sids": others}, ttl_sec=cfg.jwt_ttl_sec)
+        else:
+            store.delete(f"sess:{user['id']}")
+            db.clear_active_session(user["id"], reason="USER_LOGOUT")
         db.log_audit(
             user_id=user["id"],
             event_type="LOGOUT",
