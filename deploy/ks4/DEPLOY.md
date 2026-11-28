@@ -92,6 +92,24 @@ versão do podman e `active`. Se pedir senha, der `Permission denied (publickey)
 passo 1 ou o 2 não está pronto, ou o IP está errado. Não tente contornar com root nem com outro
 usuário.
 
+Por que o IP de origem não fica neste repositório:
+- `www`, `app` e `api.magicwalls.com.br` passam pela Cloudflare, que esconde o IP real do ks4.
+  Quem souber esse IP consegue falar direto com o servidor, **sem passar pela Cloudflare**.
+- A nginx do ks4 limita as rotas de administração por visitante usando o cabeçalho
+  `CF-Connecting-IP`. Falando direto com o IP de origem, esse cabeçalho pode ser forjado e o
+  limite de taxa deixa de proteger. O limite é um freio contra tentativa casual, não proteção forte.
+- Por isso o IP vai por mensagem do Breno para quem precisa dele e não é commitado, nem colado em
+  PR, issue ou chat público.
+
+O que foi verificado no ks4 em 28/11/2026 (para quem for diagnosticar acesso):
+- O `sshd` escuta em `0.0.0.0:22` e `[::]:22`.
+- `PasswordAuthentication no` (só chave) e `PermitRootLogin yes` (login de root segue exclusivo
+  de quem administra o servidor; o deploy nunca usa root).
+- A porta 22 respondeu pelo IPv4 público a partir de uma rede comum. O IPv6 do servidor não foi
+  testado (a rede de teste não tinha rota IPv6); use o IPv4 que o Breno enviar.
+- A impressão digital ED25519 acima é a do host nesse dia. Se mudar sem aviso (reinstalação do
+  servidor ou ataque), pare e pergunte ao Breno antes de aceitar.
+
 Observações de segurança:
 - A chave privada nunca sai da máquina de quem a gerou, e o `.pub` é o único que circula.
 - O usuário `app` também administra os serviços de coleta do ks4, então a chave dá acesso a mais
@@ -257,6 +275,33 @@ Apague o diretório temporário do ks4 (`$D`, caminho literal impresso pelo `mkt
 - Use uma conta de teste própria para logar; o login de outra pessoa pode derrubar a sessão dela
   (usuário comum tem sessão única).
 - Testes: `python -m pytest tests/test_cloud_saas.py tests/test_admin_multi_session.py tests/test_admin_session.py tests/test_marketing.py tests/test_marketing_drafts.py` e, em `regime-dashboard/`, `npm test`.
+
+## Estado atual de produção e pendências (28/11/2026)
+
+**O que está no ar.** O commit `efa38d4` da branch `feature/marketing-admin` (API e front, deploy
+de 28/11 por volta de 00:25 BRT). O `main` do repositório do Miqueias ainda **não tem** esse
+código: o PR #2 (`miqueiasa1/wdowin_pairtrading`, branch `feature/marketing-admin` para `main`)
+espera revisão. Foi enviado por `origin` e `upstream`. No ks4 as imagens são `latest` (a de agora)
+e `previous` (a de antes da sessão múltipla do admin).
+
+**Risco enquanto o PR #2 não for integrado.** Quem rodar o deploy a partir do `main` antigo
+colocaria em produção o código **sem** as rotas por caminho (`/admin/marketing`...), sem a sessão
+múltipla do admin e sem o Marketing novo. A trava do `deploy.sh` (`MAIN_REF`) existe para isso e,
+até o merge, **bloqueia qualquer deploy a partir da branch**; só passa com `--force`. Depois do
+merge, o fluxo normal (acima) volta a valer sem `--force`.
+
+**Pendências de quem faz o quê**
+
+| Quem | O que falta |
+|---|---|
+| Miqueias | revisar e fazer o merge do PR #2 no `main`; gerar a chave SSH e mandar o `.pub` ao Breno |
+| Breno | enviar ao Miqueias o IP do ks4 em particular; adicionar a chave dele em `/home/app/.ssh/authorized_keys` (opcionalmente com `from="..."`) |
+| vps-12 / quem tem root | subir o `client_max_body_size` (hoje 10 MB) quando entrar vídeo; decidir se `app.magicwalls.com.br` redireciona para `www`; considerar fechar a origem do ks4 só aos IPs da Cloudflare (resolve o limite de taxa forjável) |
+| Ainda sem dono definido | persistência do store no ks4 (hoje é memória: cada restart apaga os dias guardados); limpeza dos `~/web-backup-*` antigos (o script só avisa) |
+
+**Quem faz o deploy hoje.** O Breno. O Miqueias pode passar a fazer o dele seguindo este guia
+depois de ter a chave autorizada. Se os dois fizerem deploy, avisem um ao outro antes (a trava do
+ks4 só evita deploys simultâneos, não conflito de versão), e use sempre o `main`.
 
 ## Regras de desenvolvimento que valem também no deploy
 
