@@ -1,0 +1,29 @@
+{
+  "business": "Magic Walls (Terminal Web SaaS GEX + Fluxo Smart Money WIN/WDO)",
+  "unit": "assinante/mês",
+  "price": 97.00,
+  "variable": [
+    {"label": "Gateway Asaas cartão (2,99% + R$0,49)", "cost": 3.39},
+    {"label": "Provisão reembolso garantia 7d (6%)", "cost": 5.82},
+    {"label": "Infra marginal + e-mail por assinante", "cost": 2.70}
+  ],
+  "fixed_monthly": [
+    {"label": "Supabase Pro (US$ 25)", "cost": 145},
+    {"label": "Cloud API Railway Pro (US$ 20)", "cost": 116},
+    {"label": "Upstash Redis Fixed (US$ 10)", "cost": 58},
+    {"label": "VPS Dedicada (amortização R$ 1.900 / 24m)", "cost": 79},
+    {"label": "Cloudflare Pages Free + domínio/e-mail", "cost": 40},
+    {"label": "Contabilidade online PJ (estimativa)", "cost": 190},
+    {"label": "Marketing (teto informado pelo fundador)", "cost": 2000}
+  ],
+  "startup": [
+    {"label": "Registro marca INPI (estimativa)", "cost": 400},
+    {"label": "Produção inicial playbook/templates IG", "cost": 300},
+    {"label": "Teste pago pré-lançamento 14 dias", "cost": 1000},
+    {"label": "Revisão jurídica CVM 20/LGPD (estimativa)", "cost": 1200}
+  ],
+  "days_per_month": 1,
+  "capacity_per_day": 1000,
+  "plan_per_day": 115,
+  "ramp_per_day": [6, 14, 24, 34, 46, 58, 70, 82, 92, 100, 108, 115]
+}

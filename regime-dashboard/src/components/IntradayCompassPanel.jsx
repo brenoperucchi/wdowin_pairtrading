@@ -296,24 +296,24 @@ function FluxoRealAsgChart({
         });
     };
     const [showAvwap, setShowAvwap] = useState(() => {
-        try { return window.localStorage.getItem("avwap_5176") !== "0"; } catch (e) { return true; }
+        try { return window.localStorage.getItem("avwap_5176_v2") === "1"; } catch (e) { return false; }
     });
     const toggleAvwap = () => {
         setShowAvwap(v => {
-            try { window.localStorage.setItem("avwap_5176", v ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
+            try { window.localStorage.setItem("avwap_5176_v2", v ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
             return !v;
         });
     };
     const [showNweLine, setShowNweLine] = useState(() => {
-        // 5176: Canal Gauss (NWE100) ligado por padrão nos dois ativos (lembra a escolha do usuário)
+        // 5176: Canal Gauss (NWE100) desligado por padrão (lembra a escolha do usuário)
         if (!isWallsFlowLocalhost()) return false;
-        try { return window.localStorage.getItem("canal_gauss_5176") !== "0"; } catch (e) { return true; }
+        try { return window.localStorage.getItem("canal_gauss_5176_v2") === "1"; } catch (e) { return false; }
     });
     // 5176 (12/11/2026, versão final): desenha só a NWE100 (L=100, bw 8, mult 3) = "Canal Gauss"
     const nweKind = "100";
     const toggleCanalGauss = () => {
         setShowNweLine(v => {
-            try { window.localStorage.setItem("canal_gauss_5176", v ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
+            try { window.localStorage.setItem("canal_gauss_5176_v2", v ? "0" : "1"); } catch (e) { /* armazenamento indisponível */ }
             return !v;
         });
     };
@@ -736,7 +736,9 @@ function FluxoRealAsgChart({
     const plotW = width - padL - padR;
 
     const innerPadL = isNarrow ? 10 : 14;
-    const effRightGap = isNarrow ? Math.min(rightGapPx, 16) : rightGapPx;
+    const baseRightGap = isNarrow ? Math.min(rightGapPx, 16) : rightGapPx;
+    const vpReserveW = showVolumeProfile ? Math.round(Math.max(28, Math.min(130, plotW * 0.18))) : 0;
+    const effRightGap = Math.min(Math.round(plotW * 0.55), baseRightGap + vpReserveW);
     const usableW = Math.max(isNarrow ? 140 : 180, plotW - innerPadL - effRightGap);
     const n = series.length;
     const totalSlots = Math.max(n - 1, 14);
@@ -2631,12 +2633,12 @@ function FluxoRealAsgChart({
                                 if (rawTargetPan < 0) {
                                     setPanOffsetRight(0);
                                     const extraGap = Math.round(-rawTargetPan * stepX);
-                                    setRightGapPx(Math.max(35, Math.min(480, dragState.startRightGap + extraGap)));
+                                    setRightGapPx(Math.max(12, Math.min(480, dragState.startRightGap + extraGap)));
                                 } else {
                                     setPanOffsetRight(Math.min(maxPan, rawTargetPan));
                                 }
                             } else {
-                                setRightGapPx(Math.max(35, Math.min(480, Math.round(dragState.startRightGap - dxSvg))));
+                                setRightGapPx(Math.max(12, Math.min(480, Math.round(dragState.startRightGap - dxSvg))));
                             }
 
                             if (dragState.type === "PAN_P1" && (!priceAutoScale || e.shiftKey)) {
@@ -3212,7 +3214,7 @@ function FluxoRealAsgChart({
                         if (bestPut) fallbackPutPrices.add(Number(bestPut.price));
                         let bestPair = null;
                         let bestDist = Infinity;
-                        const spotRef = Number(m5RawSeries?.[m5RawSeries.length - 1]?.close || 0);
+                        const spotRef = Number(lastPt?.close || 0);
                         for (let j = 0; j < wallOnly.length - 1; j += 1) {
                             const gp = getG(wallOnly[j]);
                             const gc = getG(wallOnly[j + 1]);
