@@ -547,7 +547,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             for ep_name, ep_val in tier_map.items():
                 if ep_val is None:
                     continue
-                _store_snapshot_with_etag(tier, ep_name, ep_val, ttl)
+                is_day_snapshot = ep_name.startswith(("etapa1_day_", "m1_series_day_"))
+                _store_snapshot_with_etag(tier, ep_name, ep_val, max(ttl, cfg.day_snapshot_ttl_sec) if is_day_snapshot else ttl)
                 stored_keys.append(f"{tier}:{ep_name}")
 
         store.set_json(
@@ -1107,6 +1108,24 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             or _etag_response(request, fallback_key, fallback_etag_key)
             or data
         )
+
+    @app.get("/api/compass/dates")
+    def get_compass_dates(user: dict = Depends(auth_core)):
+        """Pregões guardados no servidor, do mais novo ao mais antigo. Não depende do snapshot ao vivo,
+        então o usuário consulta dias anteriores mesmo quando o produtor está parado."""
+        tier = "pro" if PLAN_RANK.get(user["plan"].lower(), 0) >= PLAN_RANK["pro"] else "core"
+        cache_key = f"days_index:{tier}"
+        dates = store.get_json(cache_key)
+        if not isinstance(dates, list):
+            today = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-3))).date()
+            dates = []
+            for back in range(0, cfg.day_snapshot_ttl_sec // 86400 + 1):
+                d = (today - timedelta(days=back)).isoformat()
+                if store.get_bytes(f"snap:{tier}:etapa1_day_{d}") is not None:
+                    dates.append(d)
+            store.set_json(cache_key, dates, ttl_sec=30)
+        live = store.get_bytes(f"snap:{tier}:etapa1_lite") is not None or store.get_bytes(f"snap:{tier}:etapa1_full") is not None
+        return {"ok": True, "dates": dates, "live": live}
 
     @app.get("/api/compass/m1_series")
     def get_m1_series(

@@ -46,6 +46,8 @@ class Settings:
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     store_backend: str = "auto"
+    # Snapshots de dias anteriores (etapa1_day_*, m1_series_day_*) vivem mais que o ao vivo para o histórico
+    day_snapshot_ttl_sec: int = 2592000
     trial_mode: str = "open"
     trial_days: int = 15
     trial_max_active: int = 50
@@ -97,6 +99,7 @@ class Settings:
             snapshot_ttl_sec=_env_int("MW_SNAPSHOT_TTL_SEC", 604800),
             supabase_url=os.environ.get("SUPABASE_URL", "").strip().rstrip("/"),
             supabase_service_role_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
+            day_snapshot_ttl_sec=_env_int("MW_DAY_SNAPSHOT_TTL_SEC", 2592000),
             store_backend=(os.environ.get("MW_STORE_BACKEND", "auto").strip().lower() or "auto"),
             trial_mode=trial_mode,
             trial_days=trial_days,
