@@ -141,6 +141,12 @@ O dashboard cruza sinais probabilísticos com regras duras de regime estacionár
 
 ---
 
+## 🚀 Deploy em produção
+O deploy no ks4 (API em container e front estático) é feito pelo script `deploy/ks4/deploy.sh`.
+O passo a passo, o acesso SSH, as regras e o rollback estão em [deploy/ks4/DEPLOY.md](deploy/ks4/DEPLOY.md).
+
+---
+
 ## 📚 Documentação Adicional
 Consulte a pasta `.planning/` para documentação extensa:
 - [Estrutura do Projeto](.planning/codebase/STRUCTURE.md)
