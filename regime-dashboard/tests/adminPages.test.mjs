@@ -35,3 +35,18 @@ test("endereços: Gráficos volta ao caminho limpo, as outras usam ?mode=", () =
     assert.equal(hrefForPage(marketing, "/app/"), "/app/?mode=marketing");
     assert.equal(hrefForPage(logins, "/"), "/?mode=admin");
 });
+
+import { pageForMode, ADMIN_PAGES as PAGES } from "../src/admin/adminPages.js";
+test("registro: chaves e modos são únicos e toda tela tem rótulo (base para crescer a lista)", () => {
+    const keys = PAGES.map((p) => p.key), modes = PAGES.map((p) => p.mode);
+    assert.equal(new Set(keys).size, keys.length);
+    assert.equal(new Set(modes).size, modes.length);
+    for (const p of PAGES) assert.ok(p.label && typeof p.label === "string");
+});
+test("pageForMode acha a tela pelo ?mode= e ignora o vazio e o desconhecido", () => {
+    assert.equal(pageForMode("marketing").key, "marketing");
+    assert.equal(pageForMode("admin").key, "logins");
+    assert.equal(pageForMode(""), null);
+    assert.equal(pageForMode(null), null);
+    assert.equal(pageForMode("nada"), null);
+});

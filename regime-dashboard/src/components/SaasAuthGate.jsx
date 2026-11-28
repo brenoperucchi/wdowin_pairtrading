@@ -10,6 +10,9 @@ import {
 import ForensicWatermark from "./ForensicWatermark";
 import MagicWallsMark from "./MagicWallsMark";
 import SaasWelcomePortal from "./SaasWelcomePortal";
+import ThemeToggle from "./ThemeToggle";
+import AdminNav from "../admin/AdminNav";
+import { pageKeyFromSearch } from "../admin/adminPages";
 
 const FONT_SANS = "'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
 const FONT_MONO = "'IBM Plex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace";
@@ -685,23 +688,23 @@ export default function SaasAuthGate({ children }) {
             <div
                 data-testid="saas-session-bar"
                 style={{
-                    background: "#0a0c12",
-                    borderBottom: "1px solid rgba(238, 240, 245, 0.08)",
+                    background: "var(--mw-chrome, #0a0c12)",
+                    borderBottom: "1px solid var(--mw-hairline, rgba(238, 240, 245, 0.08))",
                     padding: "0 24px",
-                    minHeight: 32,
+                    minHeight: 34,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 12,
                     fontSize: 12,
                     fontFamily: FONT_MONO,
-                    color: "#a3a9b8",
+                    color: "var(--mw-text-2, #a3a9b8)",
                 }}
             >
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     <MagicWallsMark size={16} variant="small" />
-                    <span style={{ color: "#eef0f5", fontWeight: 500 }}>Magic Walls SaaS</span>
-                    <span style={{ color: "#848da2" }}>{authState.user.email}</span>
+                    <span style={{ color: "var(--mw-text-1, #eef0f5)", fontWeight: 500 }}>Magic Walls SaaS</span>
+                    <span style={{ color: "var(--mw-text-3, #848da2)" }}>{authState.user.email}</span>
                     {isTrialUser && (
                         <span
                             data-testid="saas-trial-badge"
@@ -734,11 +737,16 @@ export default function SaasAuthGate({ children }) {
                         </span>
                     )}
                 </div>
+                {/* Navegação de administração: a mesma barra nas três telas (Gráficos, Marketing, Logins) */}
+                <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", justifyContent: "center" }}>
+                    <AdminNav current={pageKeyFromSearch(window.location.search)} />
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#a3a9b8", fontWeight: 400 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--mw-text-2, #a3a9b8)", fontWeight: 400 }}>
                         <span style={{ width: 6, height: 6, borderRadius: "50%", background: feedColor }} />
                         Feed {feedLabel}
                     </span>
+                    <ThemeToggle />
                     <button
                         data-testid="saas-logout-btn"
                         onClick={handleLogout}

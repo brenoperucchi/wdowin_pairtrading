@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import AdminNav from "./AdminNav";
 import { adminCall } from "./adminApi";
 import { getStoredAuth } from "../utils/saasAuth";
 
@@ -112,7 +111,6 @@ export default function AdminLogins() {
                     <h1 style={{ fontSize: 22, margin: 0 }}>Logins</h1>
                     <span style={{ color: "var(--mw-text-2)", fontSize: 13, flex: 1, minWidth: 200 }}>Usuários, trials e convites. Só o plano admin chega aqui.</span>
                     <button type="button" className="mw-btn mw-btn-secondary" data-testid="logins-reload" onClick={load} disabled={busy}>Atualizar</button>
-                    <AdminNav current="logins" />
                 </header>
 
                 {error && <div style={{ ...card, color: "var(--mw-neg)" }} data-testid="logins-error" role="alert">{error}</div>}

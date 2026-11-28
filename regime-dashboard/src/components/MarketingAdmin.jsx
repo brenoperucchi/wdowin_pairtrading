@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { call, STATUS_LABEL } from "../marketing/marketingApi";
 import CardStudio from "../marketing/studio/CardStudio";
 import { StatusPill } from "../marketing/studio/PostStages";
-import AdminNav from "../admin/AdminNav";
 
 // Página administrativa de Marketing (somente plano admin). Abre em ?mode=marketing.
 // Uma aba por ativo (WIN, WDO); em cada uma o post anda por Criar, Aprovar e Enviar dentro do próprio card.
@@ -36,22 +35,9 @@ const TEXT = {
     approvalReset: (assets) => `A aprovação do ${assets.join(" e ")} foi desfeita porque o card mudou: aprove de novo.`,
     studioBusy: "Já existe um post deste caso que não pode mais ser alterado",
     actionError: "A ação não foi concluída",
-    themeLight: "Modo claro",
-    themeDark: "Modo escuro",
-    themeLabel: "Alternar entre modo claro e escuro",
 };
 
 const card = { background: "var(--mw-card)", border: "1px solid var(--mw-hairline)", borderRadius: 8, padding: 16 };
-const THEME_KEY = "mw_marketing_theme";
-
-function readTheme() {
-    try {
-        return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
-    } catch {
-        return "dark";
-    }
-}
-
 function Pill({ children, tone, testId, title }) {
     const colors = {
         ok: ["var(--mw-pos)", "var(--mw-pos-bg)"],
@@ -113,19 +99,6 @@ export default function MarketingAdmin() {
     const [message, setMessage] = useState("");
     const [busy, setBusy] = useState(false);
     const [loadError, setLoadError] = useState("");
-    const [theme, setTheme] = useState(readTheme);
-
-    const toggleTheme = () =>
-        setTheme((t) => {
-            const next = t === "dark" ? "light" : "dark";
-            try {
-                localStorage.setItem(THEME_KEY, next);
-            } catch {
-                /* sem armazenamento: o tema vale só nesta visita */
-            }
-            return next;
-        });
-
     const refreshList = useCallback(async () => {
         const [st, list] = await Promise.all([call("/status"), call("/posts")]);
         setState(st);
@@ -206,15 +179,11 @@ export default function MarketingAdmin() {
     const asset = tab === "HIST" ? null : tab;
 
     return (
-        <div data-mw-theme={theme} style={{ minHeight: "100vh", background: "var(--mw-bg)", color: "var(--mw-text-1)", padding: "20px 16px", colorScheme: theme }}>
+        <div style={{ minHeight: "100vh", background: "var(--mw-bg)", color: "var(--mw-text-1)", padding: "20px 16px" }}>
             <div style={{ maxWidth: 1180, margin: "0 auto", display: "grid", gap: 14 }}>
                 <header style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <h1 style={{ fontSize: 22, margin: 0 }}>{TEXT.title}</h1>
                     <span style={{ color: "var(--mw-text-2)", fontSize: 13, flex: 1, minWidth: 200 }}>{TEXT.subtitle}</span>
-                    <button type="button" className="mw-btn mw-btn-secondary" data-testid="theme-toggle" aria-label={TEXT.themeLabel} onClick={toggleTheme}>
-                        {theme === "dark" ? `☀ ${TEXT.themeLight}` : `☾ ${TEXT.themeDark}`}
-                    </button>
-                    <AdminNav current="marketing" />
                 </header>
 
                 {loadError && <div style={{ ...card, color: "var(--mw-neg)" }}>{loadError}</div>}

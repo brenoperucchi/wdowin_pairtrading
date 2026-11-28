@@ -1,5 +1,10 @@
 // Páginas da área administrativa e quem pode vê-las. Função pura: a regra de acesso fica testável.
 // A regra espelha o servidor (plano "admin"); o servidor continua sendo quem impõe o acesso de verdade.
+//
+// PARA ACRESCENTAR UMA TELA DE ADMINISTRAÇÃO:
+//   1. uma linha aqui (key, label, mode = valor de ?mode= na URL);
+//   2. o componente da tela em ADMIN_SCREENS, em src/admin/adminScreens.jsx.
+// A barra do topo (a mesma nas telas todas) e o roteamento do main.jsx saem desta lista; nada mais muda.
 
 export const ADMIN_PAGES = [
     { key: "charts", label: "Gráficos", mode: "" },
@@ -14,6 +19,10 @@ export function isAdminUser(user) {
 /** Páginas visíveis: usuário comum não vê nenhuma (só os gráficos, sem barra). */
 export function visibleAdminPages({ saasEnabled, user }) {
     return saasEnabled && isAdminUser(user) ? ADMIN_PAGES : [];
+}
+
+export function pageForMode(mode) {
+    return ADMIN_PAGES.find((p) => p.mode && p.mode === mode) || null;
 }
 
 export function pageKeyFromSearch(search) {
