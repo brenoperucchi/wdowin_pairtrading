@@ -1,0 +1,88 @@
+{
+ "n": 20,
+ "seed": 7,
+ "customer": {
+  "business": "Magic Walls (terminal web de GEX + Fluxo Smart Money para WIN e WDO na B3)",
+  "target": "Day traders pessoa física no Brasil (22 a 55 anos) que operam Mini-Índice (WIN) e/ou Mini-Dólar (WDO) na B3 pelo menos 3 dias por semana. Todos os valores de renda (anual) e preços de assinatura (mensal) estão em Reais brasileiros (R$ / BRL).",
+  "where": "Brasil (100% online · B3)",
+  "age": [
+   22,
+   55
+  ],
+  "segments": [
+   {
+    "name": "Trader iniciante / conta pequena (1-5 minicontratos)",
+    "share": 0.45,
+    "income": [
+     48000,
+     120000
+    ]
+   },
+   {
+    "name": "Trader intermediário recorrente (5-20 minicontratos)",
+    "share": 0.4,
+    "income": [
+     120000,
+     260000
+    ]
+   },
+   {
+    "name": "Trader experiente / mesa ou conta maior (20+ contratos)",
+    "share": 0.15,
+    "income": [
+     260000,
+     600000
+    ]
+   }
+  ],
+  "behaviours": [
+   {
+    "name": "Cético escaldado por gurus",
+    "share": 0.22,
+    "how": "Já gastou dinheiro com salas, indicadores e cursos que não se pagaram; desconfia de qualquer estatística bonita."
+   },
+   {
+    "name": "Fiel ao ProfitChart / setup atual",
+    "share": 0.2,
+    "how": "Opera tudo dentro do ProfitChart gratuito da corretora com poucos indicadores e resiste a abrir outra aba."
+   },
+   {
+    "name": "Caçador de edge técnico (fluxo e opções)",
+    "share": 0.18,
+    "how": "Estuda tape reading, GEX e estrutura de mercado; topa pagar por ferramenta séria se entender a mecânica."
+   },
+   {
+    "name": "Sensível a custo fixo mensal",
+    "share": 0.16,
+    "how": "Calcula cada assinatura em pontos de WIN/WDO e corta qualquer recorrência que não se pague rápido."
+   },
+   {
+    "name": "Testador serial de trials gratuitos",
+    "share": 0.14,
+    "how": "Cadastra no teste grátis de 15 dias por curiosidade, mas raramente converte se não sentir resultado imediato na semana 1."
+   },
+   {
+    "name": "Operador pragmático por prova ao vivo",
+    "share": 0.1,
+    "how": "Decide rápido se vir o painel funcionando no pregão real com regras claras de leitura."
+   }
+  ],
+  "objections": [
+   "Mais uma ferramenta cara para trader que promete demais e não se paga no mês",
+   "Já uso ProfitChart Pro de graça pela corretora — por que abrir outra aba no navegador?",
+   "Não entendo direito o que é Gamma/GEX nem como transformar isso em entrada e stop",
+   "Os números de 30 pregões parecem bons demais; quero ver funcionando ao vivo no pregão",
+   "Meu capital é pequeno; R$ 197/mês come grande parte do meu resultado",
+   "E se os níveis atrasarem antes da abertura das 9h ou o painel cair em dia volátil?",
+   "Não posso ficar olhando outra tela enquanto opero scalping no meu setup atual"
+  ],
+  "habits": [
+   "você abre a plataforma entre 08:40 e 08:55 antes da abertura do futuro",
+   "você opera principalmente entre 09:00 e 12:30 com pausas para almoço e Nova York",
+   "você acompanha perfis de mercado financeiro no Instagram e YouTube à noite",
+   "você evita deixar dados pessoais ou cartão em plataformas desconhecidas sem ver prova antes",
+   "você anota seu financeiro líquido descontando corretagem, emolumentos e plataformas"
+  ]
+ },
+ "pitch": "Magic Walls (@magicwallsb3), terminal web 100% no navegador para day traders de Mini-Índice (WIN) e Mini-Dólar (WDO) na B3 (desktop e celular, sem instalar nada nem conectar corretora).\nEntrega até 08h45 o mapa diário de exposição Gamma da B3 (Call Wall, Put Wall, MidWalls, FlipWall e Ímã GEX), Canal Gauss e Fluxo Smart Money com divergências M1/M5, com modo compacto + alerta sonoro e botão \"Copiar níveis em 1 clique\" para usar ao lado do ProfitChart, além de playbook de 8 minutos (software analítico/educacional CVM 20/2021; não envia ordens nem recomendações).\nInicialmente NÃO há trial gratuito: todo dia pela manhã antes das 09h publicamos no Instagram @magicwallsb3 o cálculo das Walls do dia e, após o pregão, o balanço transparente com o deslocamento máximo técnico em pontos e os stops do dia (mais histórico público aberto dos últimos 5 pregões no site, sem cadastro).\nOferta Lote Fundador: 40 vagas a R$ 79/mês (travado enquanto ativo; padrão R$ 97/mês depois), com garantia incondicional de 7 dias (reembolso em 1 clique para testar 5 pregões sem risco), cancelamento em 1 clique e crédito automático de +7 dias se os níveis atrasarem após 08h45 em pregão regular."
+}
