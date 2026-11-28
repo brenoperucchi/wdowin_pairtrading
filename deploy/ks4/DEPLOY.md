@@ -12,8 +12,9 @@ Atualizado em 28/11/2026.
   e envia por SSH. Por isso o que importa é o que está no `HEAD` de quem roda.
 - Só vai para produção código que já está em `upstream/main` (o `main` do repositório do
   Miqueias). O script recusa o resto. Exceção explícita: `--force`.
-- Para rodar de outra máquina é preciso **acesso SSH ao ks4**, que ainda não existe para o
-  Miqueias. Veja "Acesso SSH" abaixo; sem isso nada daqui funciona.
+- Para rodar de outra máquina é preciso **acesso SSH ao ks4** (usuário `app`, só por chave). O
+  Miqueias não precisa de Tailscale: o SSH do ks4 responde pela internet. Ainda falta ele gerar a
+  chave e o Breno autorizá-la; veja "Acesso SSH" abaixo. Sem isso nada daqui funciona.
 - Hoje quem faz o deploy é o Breno. Se o Miqueias quiser fazer o dele, siga este guia do começo.
 
 ```
@@ -38,50 +39,70 @@ caminho: `/`, `/admin`, `/admin/marketing`, `/admin/users`, `/manual`, `/morning
 
 ## Antes de tudo: acesso SSH ao ks4
 
-O ks4 é alcançado pela **Tailscale** (IP `100.97.32.125`), como usuário `app`, porta 22. Esse é o
-caminho usado pelo Breno e o único documentado aqui. O Miqueias precisa de duas coisas:
+O ks4 aceita SSH **pela internet**, na porta 22, usuário `app`, **somente com chave**
+(`PasswordAuthentication no`). Quem não está na Tailscale do Breno, como o Miqueias, usa esse
+caminho. Não use `www.magicwalls.com.br` como destino: esse nome passa pela Cloudflare, que não
+repassa SSH. Use o **endereço IP do servidor, que o Breno envia em particular** (ele não fica
+neste repositório; é o IP de origem que a Cloudflare esconde).
 
-1. **Estar na tailnet do Breno** (ou receber o nó ks4 compartilhado). Quem convida é o Breno, pelo
-   painel da Tailscale. Depois de aceitar, `tailscale status` na máquina dele deve listar o ks4 e
-   `ping 100.97.32.125` deve responder.
-2. **Ter uma chave pública autorizada** para o usuário `app`.
+O que é preciso:
 
-Passo a passo (na máquina de quem vai fazer deploy):
+1. **Uma chave SSH** gerada por quem vai fazer o deploy.
+2. **O Breno (ou o vps-12) autorizar a chave pública** no usuário `app` do ks4.
+3. **O IP do ks4**, passado em particular pelo Breno.
+
+Passo a passo, na máquina de quem vai fazer deploy:
 
 ```bash
-# 1. gerar uma chave (se ainda não tiver uma ed25519)
+# 1. gerar uma chave (ed25519, com senha de proteção)
 ssh-keygen -t ed25519 -C "miqueias-deploy-ks4" -f ~/.ssh/id_ed25519_ks4
 
-# 2. mandar a chave PÚBLICA ao Breno (nunca a privada):
+# 2. mandar ao Breno só a chave PÚBLICA (a linha que termina em .pub), nunca a privada:
 cat ~/.ssh/id_ed25519_ks4.pub
 ```
 
-O Breno (ou o vps-12, que administra o servidor) adiciona essa linha no ks4:
+O Breno adiciona essa linha no ks4 (como `app`, por exemplo pela Tailscale dele, ou como root):
 
 ```bash
-# no ks4, como root ou como app
 echo '<conteúdo do .pub>' >> /home/app/.ssh/authorized_keys
 chmod 600 /home/app/.ssh/authorized_keys
 ```
 
-Configuração local do SSH, para o script funcionar sem argumentos (o padrão do script é
-`DEPLOY_HOST=app@ks4`):
+Configuração local do SSH. O padrão do script é `DEPLOY_HOST=app@ks4`, então o nome `ks4` precisa
+existir no seu `~/.ssh/config`:
 
 ```
 # ~/.ssh/config
 Host ks4
-    HostName 100.97.32.125
+    HostName <IP-DO-KS4 que o Breno enviou>
     User app
     IdentityFile ~/.ssh/id_ed25519_ks4
+    IdentitiesOnly yes
+```
+
+Na **primeira conexão** o SSH mostra a impressão digital do servidor e pergunta se confia. Só
+responda `yes` se bater com esta (ED25519):
+
+```
+SHA256:kLm08AOeZnB3SufE0dtdx1sltyJD0gQ2ZuCxiQvmlvg
 ```
 
 Teste: `ssh ks4 'podman --version && systemctl --user is-active magicwalls-cloud'` deve imprimir a
-versão do podman e `active`. Se o ssh pedir senha ou der timeout, o passo 1 ou o 2 não está
-pronto. Não tente contornar com root nem com outro usuário.
+versão do podman e `active`. Se pedir senha, der `Permission denied (publickey)` ou timeout, o
+passo 1 ou o 2 não está pronto, ou o IP está errado. Não tente contornar com root nem com outro
+usuário.
+
+Observações de segurança:
+- A chave privada nunca sai da máquina de quem a gerou, e o `.pub` é o único que circula.
+- O usuário `app` também administra os serviços de coleta do ks4, então a chave dá acesso a mais
+  do que o deploy. Quem autoriza pode restringir por origem, colocando na linha do
+  `authorized_keys` o prefixo `from="<IP de quem vai conectar>" ` antes da chave.
+- Se o Miqueias entrar um dia na Tailscale do Breno, o `HostName` pode ser trocado pelo IP
+  tailnet do ks4 (o Breno informa); o resto do guia não muda.
 
 ## O que a máquina precisa ter
 
-- `git`, `ssh`, `curl`, `tar`
+- `git`, `ssh`, `curl`, `tar` (e a chave SSH autorizada, veja acima)
 - Node.js e npm (para o front; o script roda `npm ci` e `node build-saas.mjs`)
 - Python 3.12+ com as dependências do projeto, para os testes do servidor
   (`pip install -r cloud_saas/requirements.txt pytest`). Se o Python certo não for o `python3`
@@ -217,7 +238,7 @@ Apague o diretório temporário do ks4 (`$D`, caminho literal impresso pelo `mkt
 |---|---|
 | `ERRO: já existe um deploy em andamento` | trava ativa ou órfã. Veja quem: `ssh ks4 'cat ~/.mw-deploy.lock/info'`. Se ninguém está rodando: `ssh ks4 'rm -f ~/.mw-deploy.lock/info && rmdir ~/.mw-deploy.lock'` |
 | `o commit ... não está em upstream/main` | faça o merge no `main`, ou `--force` para hotfix (e avise o outro) |
-| `sem acesso SSH a app@ks4` | falta tailnet, chave autorizada ou o bloco `Host ks4`. Veja "Acesso SSH" |
+| `sem acesso SSH a app@ks4` | falta chave autorizada, IP errado no bloco `Host ks4` ou o bloco não existe. Veja "Acesso SSH" |
 | `pregão aberto ... reiniciar a API apaga os dias guardados` | espere depois das 18:40 BRT ou, em emergência, `--force` |
 | Teste de fumaça falhou | nada foi trocado; veja `podman logs mw-smoke` no ks4 e corrija o código |
 | `a API não ficou saudável; voltou para a imagem anterior` | a imagem nova subiu mas `/health` não respondeu em 30 s; o serviço já voltou. Veja `journalctl --user -u magicwalls-cloud -n 80` |
