@@ -45,9 +45,6 @@ function isWallsFlowLocalhost() {
     if (FORCE_WALLS_FLOW) return true;
     if (typeof window === "undefined") return false;
     const port = String(window.location.port || "");
-    const params = new URLSearchParams(window.location.search || "");
-    if (params.get("mode") === "walls_flow") return true;
-    if (params.get("mode") === "mt5") return false;
     return port === "5176";
 }
 

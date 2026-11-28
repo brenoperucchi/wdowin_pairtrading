@@ -37,14 +37,4 @@ export const STATUS_COLOR = {
     rejected: "var(--mw-text-3)",
 };
 
-/** Etapa em que o post está: 1 Criar, 2 Aprovar, 3 Enviar. */
-export function stepOfPost(post) {
-    if (!post) return 1;
-    if (post.status === "draft" || post.status === "rejected") return 2;
-    return 3;
-}
-
-/** O post do estúdio para um ativo e dia (ignora rejeitados: o estúdio cria outro no lugar). */
-export function findStudioPost(posts, asset, refDate) {
-    return (posts || []).find((p) => p.kind === "end_of_day" && p.asset === asset && p.ref_date === refDate && p.status !== "rejected") || null;
-}
+export { stepOfPost, findStudioPost, findPublishedPost, isOpenPost, countOpenPosts, openPostBadgeText } from "./postState";

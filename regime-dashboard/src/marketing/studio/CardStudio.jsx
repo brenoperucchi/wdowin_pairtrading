@@ -17,7 +17,7 @@ import {
     svgElementToPngBlob,
 } from "../../components/instagramCard";
 import { loadCardInputs } from "./cardInputs";
-import { API, findStudioPost, stepOfPost } from "../marketingApi";
+import { API, findPublishedPost, findStudioPost, isOpenPost, openPostBadgeText, stepOfPost } from "../marketingApi";
 import PostStages, { StatusPill } from "./PostStages";
 
 // Estúdio de card do Instagram dentro da tela de Marketing. Busca os dados do dia, calcula os sinais com a mesma
@@ -32,6 +32,7 @@ const T = {
     title: "Estúdio de card",
     hint: "Criar, aprovar e enviar acontecem neste card. Nada é publicado sem a sua confirmação.",
     steps: ["Criar", "Aprovar", "Enviar"],
+    publishedToday: "Este dia já tem um card publicado (veja no Histórico). Para criar outro, escolha outra data.",
     noDraft: "Sem rascunho",
     locked: "Imagem anexada ao rascunho. Para mudar o card, volte à etapa 1.",
     createNext: "Criar rascunho e ir para Aprovar →",
@@ -303,7 +304,7 @@ function ToneTab({ asset, tone, state, valid, anyLoading, used, height, onGenera
     );
 }
 
-function CardPanel({ asset, etapa1, prefs, onSave, disabled, posts, appState, run, version }) {
+function CardPanel({ asset, etapa1, prefs, onSave, disabled, posts, appState, run, version, viewPostId }) {
     const [inputs, setInputs] = useState({ key: "", status: "loading" });
     const [excluded, setExcluded] = useState(() => new Set());
     const [captionText, setCaptionText] = useState(null); // null = legenda automática
@@ -370,7 +371,14 @@ function CardPanel({ asset, etapa1, prefs, onSave, disabled, posts, appState, ru
     }, [ready, asset, dateInfo, built, prefs.handle]);
     const original = captionText ?? autoCaption;
     const caption = usedTab !== "original" && tones[usedTab]?.state === "ready" ? tones[usedTab].text : original;
-    const post = useMemo(() => findStudioPost(posts, asset, dateInfo.iso), [posts, asset, dateInfo.iso]);
+    // Abrir o Marketing mostra um formulário NOVO; só um post em aberto (rascunho, aprovado, publicando, falhou) é retomado.
+    // O post em que a pessoa está trabalhando fica na tela até recarregar, mesmo depois de publicado (a confirmação não some).
+    const [stickyId, setStickyId] = useState("");
+    const post = useMemo(() => findStudioPost(posts, asset, dateInfo.iso, viewPostId || stickyId), [posts, asset, dateInfo.iso, viewPostId, stickyId]);
+    useEffect(() => {
+        if (post && isOpenPost(post)) setStickyId(post.id);
+    }, [post]);
+    const publishedToday = useMemo(() => (post ? null : findPublishedPost(posts, asset, dateInfo.iso)), [post, posts, asset, dateInfo.iso]);
     const derived = stepOfPost(post);
     const pinKey = `${derived}:${post?.id || ""}`;
     const pinned = pin && pin.key === pinKey ? pin.n : null;
@@ -388,7 +396,7 @@ function CardPanel({ asset, etapa1, prefs, onSave, disabled, posts, appState, ru
     const isWdo = asset === "WDO";
     const failed = ready && (inputs.status === "sem_barras" || inputs.status === "erro_motor");
     const valid = ready && !failed && built.activeSignals.length > 0;
-    const canCreate = valid && !busy && !disabled;
+    const canCreate = valid && !busy && !disabled && !publishedToday;
 
     const cardProps = {
         bars: ready ? inputs.bars : [],
@@ -471,6 +479,22 @@ function CardPanel({ asset, etapa1, prefs, onSave, disabled, posts, appState, ru
                 <span style={{ flex: 1 }} />
                 {post ? <StatusPill status={post.status} testId={`status-${asset}`} /> : <span style={{ fontSize: 12, color: "var(--mw-text-3)", border: "1px solid var(--mw-hairline-strong)", borderRadius: 999, padding: "2px 9px" }} data-testid={`status-${asset}`}>{T.noDraft}</span>}
             </div>
+
+            {post && isOpenPost(post) && (
+                <div
+                    role="status"
+                    data-testid={`open-draft-${asset}`}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--mw-flip)", background: "var(--mw-flip-soft, rgba(212,162,89,0.12))", color: "var(--mw-flip)", fontSize: 13, fontWeight: 600 }}
+                >
+                    <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--mw-flip)", flex: "0 0 auto" }} />
+                    {openPostBadgeText(post)}
+                </div>
+            )}
+            {publishedToday && (
+                <div role="status" data-testid={`published-today-${asset}`} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--mw-hairline-strong)", color: "var(--mw-text-2)", fontSize: 13 }}>
+                    {T.publishedToday}
+                </div>
+            )}
 
             <StepBar asset={asset} step={step} derived={derived} onPick={setPinned} />
 
@@ -743,7 +767,7 @@ export default function CardStudio({ onSave, busy, posts, active, focus, appStat
                 ["WIN", "WDO"].map((a) => (
                     // os dois ficam montados (a aba inativa só some da tela): o que foi gerado/editado não se perde ao trocar de aba
                     <div key={a} style={{ display: active === a ? "block" : "none" }} data-testid={`asset-pane-${a}`}>
-                        <CardPanel asset={a} etapa1={etapa.data} prefs={prefs} onSave={onSave} disabled={busy} posts={posts} appState={appState} run={run} version={version} />
+                        <CardPanel asset={a} etapa1={etapa.data} prefs={prefs} onSave={onSave} disabled={busy} posts={posts} appState={appState} run={run} version={version} viewPostId={focus?.postId || ""} />
                     </div>
                 ))}
         </section>

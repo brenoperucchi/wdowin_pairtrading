@@ -15,6 +15,7 @@ import MagicWallsMark from "./components/MagicWallsMark";
 import { API_BASE, COMPASS_BASE, isManualChartMode, isWallsFlowMode } from "./apiBase";
 import { authFetch, canAccessMediaStudio, isSaasAuthEnabled } from "./utils/saasAuth";
 import { decideDay } from "./utils/storedDays";
+import { parseEnum, parseIsoDate, useUrlParam } from "./utils/urlState";
 import { simulateDayStatArbTradesJs, normalizeStatArbTrade } from "./utils/statArbDayTrades";
 
 const STRAT_LABELS = {
@@ -125,6 +126,9 @@ function fmtDateFullBr(dStr) {
     return `${d}/${m}/${y}`;
 }
 
+const WORKSPACE_TAB_FROM_URL = { cockpit: "COCKPIT", xray: "RAIO_X", "stat-arb": "STAT_ARB" };
+const WORKSPACE_TAB_TO_URL = { COCKPIT: "cockpit", RAIO_X: "xray", STAT_ARB: "stat-arb" };
+
 export default function App() {
 
     const [data, setData] = useState(null);
@@ -139,7 +143,11 @@ export default function App() {
     const [diData, setDiData] = useState(null);
     const [realtimeIafData, setRealtimeIafData] = useState([]);
     const [iafSmoothing, setIafSmoothing] = useState(3); // Default 3 periods
-    const [selectedDate, setSelectedDate] = useState("");  // "" = HOJE (live)
+    // O estado visível mora na URL (colar o endereço em outro navegador reproduz a tela):
+    //   ?date=AAAA-MM-DD (dia aberto; sem o parâmetro = ao vivo) | ?tab=cockpit|xray|stat-arb | ?asset=win|wdo|dual
+    const [dateParam, setDateParam] = useUrlParam("date");
+    const selectedDate = parseIsoDate(dateParam);  // "" = HOJE (ao vivo)
+    const setSelectedDate = useCallback((d) => setDateParam(d || ""), [setDateParam]);
     const [storedDates, setStoredDates] = useState([]);     // pregões guardados no servidor (mais novo primeiro)
     const [feedLive, setFeedLive] = useState(null);         // null = ainda não sabemos
     const autoDayRef = useRef("");                           // dia que o painel abriu sozinho
@@ -161,7 +169,9 @@ export default function App() {
     const indexChartRef = useRef(null);
     const flowAccelerationChartRef = useRef(null);
     const [showSetup, setShowSetup] = useState(false);
-    const [workspaceTab, setWorkspaceTab] = useState("COCKPIT"); // "COCKPIT" | "RAIO_X" | "STAT_ARB"
+    const [tabParam, setTabParam] = useUrlParam("tab");
+    const workspaceTab = WORKSPACE_TAB_FROM_URL[parseEnum(tabParam, Object.keys(WORKSPACE_TAB_FROM_URL), "cockpit")]; // "COCKPIT" | "RAIO_X" | "STAT_ARB"
+    const setWorkspaceTab = useCallback((id) => setTabParam(id === "COCKPIT" ? "" : WORKSPACE_TAB_TO_URL[id]), [setTabParam]);
     const [compassData, setCompassData] = useState(null);
     const [compassError, setCompassError] = useState(null);
     const btDaysRef = useRef(null);
@@ -169,7 +179,9 @@ export default function App() {
     const cachedPortfolioRef = useRef(null);
     const cachedPortfolioSigRef = useRef("");
     const [gexWalls, setGexWalls] = useState([]);
-    const [assetView, setAssetView] = useState(() => (typeof window !== "undefined" && window.innerWidth < 760 ? "WIN" : "DUAL"));
+    const [assetParam, setAssetParam] = useUrlParam("asset");
+    const assetView = parseEnum(assetParam, ["win", "wdo", "dual"], "dual").toUpperCase(); // tela estreita força WIN em effectiveAssetView
+    const setAssetView = useCallback((v) => setAssetParam(String(v).toLowerCase()), [setAssetParam]);
     const [dualLayout, setDualLayout] = useState("stacked"); // "stacked" | "split"
     const [winWidth, setWinWidth] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1440));
 
@@ -418,8 +430,9 @@ export default function App() {
         if (USE_FIREBASE || feedLive === null) return;
         const next = decideDay({ live: feedLive, dates: storedDates, selectedDate, autoDay: autoDayRef.current });
         autoDayRef.current = next.autoDay;
-        if (next.selectedDate !== selectedDate) setSelectedDate(next.selectedDate);
-    }, [feedLive, storedDates, selectedDate]);
+        // dia aberto sozinho pelo painel também vai para a URL, mas troca a entrada do histórico em vez de empilhar
+        if (next.selectedDate !== selectedDate) setDateParam(next.selectedDate, { replace: true });
+    }, [feedLive, storedDates, selectedDate, setDateParam]);
 
     // Simulação quando offline
     useEffect(() => {

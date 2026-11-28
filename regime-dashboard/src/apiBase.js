@@ -1,4 +1,5 @@
 import { getStoredAuth, isSaasAuthEnabled } from "./utils/saasAuth";
+import { routeKeyFromPathname } from "./routes";
 
 // Endereço do backend (server.py). Local: http://localhost:8080 (padrão).
 // Versão pública (link do túnel): build com VITE_API_BASE="" → caminhos relativos (/api/... ou /magicwall/api/...),
@@ -31,7 +32,7 @@ export const COMPASS_BASE = import.meta.env.VITE_COMPASS_BASE ?? API_BASE;
 // Versão pública do painel 5176: força o modo Walls & Fluxo (no local ele é detectado pela porta 5176).
 export const FORCE_WALLS_FLOW = import.meta.env.VITE_FORCE_WALLS_FLOW === "1";
 
-// Versão focada em operação manual (porta 5178, ?mode=manual ou VITE_MANUAL_ONLY=1):
+// Versão focada em operação manual (porta 5178, caminho /manual ou VITE_MANUAL_ONLY=1):
 // exibe apenas o gráfico diário WIN/WDO com Walls, Canal Gauss e Fluxo, sem marcações de trades ou históricos.
 export const MANUAL_ONLY = import.meta.env.VITE_MANUAL_ONLY === "1";
 
@@ -42,19 +43,13 @@ export function isManualChartMode() {
         if (plan === "core" || plan === "trial") return true;
     }
     if (typeof window === "undefined") return false;
-    const port = String(window.location.port || "");
-    const params = new URLSearchParams(window.location.search || "");
-    if (params.get("mode") === "manual") return true;
-    if (params.get("mode") === "walls_flow" || params.get("mode") === "mt5") return false;
-    return port === "5178";
+    if (routeKeyFromPathname(window.location.pathname) === "manual") return true;
+    return String(window.location.port || "") === "5178";
 }
 
 export function isWallsFlowMode() {
     if (FORCE_WALLS_FLOW) return true;
     if (typeof window === "undefined") return false;
-    const port = String(window.location.port || "");
-    const params = new URLSearchParams(window.location.search || "");
-    if (params.get("mode") === "walls_flow") return true;
-    if (params.get("mode") === "mt5" || params.get("mode") === "manual") return false;
-    return port === "5176";
+    if (routeKeyFromPathname(window.location.pathname) === "manual") return false;
+    return String(window.location.port || "") === "5176";
 }

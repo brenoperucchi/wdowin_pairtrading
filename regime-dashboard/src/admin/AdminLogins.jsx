@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { adminCall } from "./adminApi";
 import { getStoredAuth } from "../utils/saasAuth";
 
-// Administração de logins (somente plano admin). Abre em ?mode=admin.
+// Administração de logins (somente plano admin). Caminho /admin/users.
 // Consulta usuários, trials e convites; ações: estender trial, derrubar sessão, desbloquear e criar convite.
 // Criar usuário com senha e mudar plano continuam fora daqui (só pela chave administrativa).
 

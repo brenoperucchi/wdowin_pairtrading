@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { call, STATUS_LABEL } from "../marketing/marketingApi";
+import { parseEnum, useUrlParam } from "../utils/urlState";
+import { call, countOpenPosts, STATUS_LABEL } from "../marketing/marketingApi";
+import { OPEN_POSTS_EVENT } from "../marketing/useOpenPostCount";
 import CardStudio from "../marketing/studio/CardStudio";
 import { StatusPill } from "../marketing/studio/PostStages";
 
-// Página administrativa de Marketing (somente plano admin). Abre em ?mode=marketing.
+// Página administrativa de Marketing (somente plano admin). Caminho /admin/marketing; a aba vem da URL (?tab=win|wdo|history).
 // Uma aba por ativo (WIN, WDO); em cada uma o post anda por Criar, Aprovar e Enviar dentro do próprio card.
 // O servidor impõe as regras (aprovação, simulação, aviso fixo); aqui é só a interface.
+
+const TAB_FROM_URL = { win: "WIN", wdo: "WDO", history: "HIST" };
+const TAB_TO_URL = { WIN: "win", WDO: "wdo", HIST: "history" };
 
 const TEXT = {
     title: "Marketing",
@@ -56,7 +61,7 @@ function Pill({ children, tone, testId, title }) {
     );
 }
 
-function MainTab({ id, selected, onClick, children, count, disabled }) {
+function MainTab({ id, selected, onClick, children, count, disabled, open }) {
     return (
         <button
             type="button"
@@ -82,6 +87,14 @@ function MainTab({ id, selected, onClick, children, count, disabled }) {
             }}
         >
             {children}
+            {open > 0 && (
+                <span
+                    data-testid={`main-tab-${id}-open`}
+                    title="Há uma publicação em aberto neste ativo (não publicada nem cancelada)"
+                    aria-label="publicação em aberto"
+                    style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--mw-flip)", display: "inline-block" }}
+                />
+            )}
             {count != null && (
                 <span style={{ background: "var(--mw-accent)", color: "var(--mw-accent-on)", borderRadius: 999, fontSize: 11, fontWeight: 700, padding: "0 7px" }}>{count}</span>
             )}
@@ -93,7 +106,10 @@ export default function MarketingAdmin() {
     const [state, setState] = useState(null);
     const [posts, setPosts] = useState([]);
     const [version, setVersion] = useState(0); // sobe a cada ação: quem mostra detalhe de um post recarrega
-    const [tab, setTab] = useState("WIN"); // WIN | WDO | HIST
+    // A aba é a URL: ?tab=win | wdo | history (sem o parâmetro = win). Colar o endereço reabre a mesma aba.
+    const [tabParam, setTabParam] = useUrlParam("tab");
+    const tab = TAB_FROM_URL[parseEnum(tabParam, Object.keys(TAB_FROM_URL), "win")];
+    const setTab = (id) => setTabParam(TAB_TO_URL[id] === "win" ? "" : TAB_TO_URL[id]);
     const [filter, setFilter] = useState("");
     const [focus, setFocus] = useState(null);
     const [message, setMessage] = useState("");
@@ -103,6 +119,7 @@ export default function MarketingAdmin() {
         const [st, list] = await Promise.all([call("/status"), call("/posts")]);
         setState(st);
         setPosts(list.posts || []);
+        window.dispatchEvent(new CustomEvent(OPEN_POSTS_EVENT, { detail: countOpenPosts(list.posts || []) }));
     }, []);
 
     useEffect(() => {
@@ -169,7 +186,7 @@ export default function MarketingAdmin() {
     };
 
     const openFromHistory = (p) => {
-        setFocus({ date: p.ref_date, key: `${p.id}:${Date.now()}` });
+        setFocus({ date: p.ref_date, postId: p.id, key: `${p.id}:${Date.now()}` });
         setTab(p.asset);
         setMessage("");
     };
@@ -177,6 +194,7 @@ export default function MarketingAdmin() {
     const channelConfigured = state?.channels?.instagram?.configured;
     const shownPosts = filter ? posts.filter((p) => p.status === filter) : posts;
     const asset = tab === "HIST" ? null : tab;
+    const openByAsset = countOpenPosts(posts);
 
     return (
         <div style={{ minHeight: "100vh", background: "var(--mw-bg)", color: "var(--mw-text-1)", padding: "20px 16px" }}>
@@ -231,8 +249,8 @@ export default function MarketingAdmin() {
                 )}
 
                 <div role="tablist" aria-label="Seções" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--mw-hairline-strong)", alignItems: "flex-end" }}>
-                    <MainTab id="WIN" selected={tab === "WIN"} onClick={() => setTab("WIN")}>WIN</MainTab>
-                    <MainTab id="WDO" selected={tab === "WDO"} onClick={() => setTab("WDO")}>WDO</MainTab>
+                    <MainTab id="WIN" selected={tab === "WIN"} onClick={() => setTab("WIN")} open={openByAsset.WIN}>WIN</MainTab>
+                    <MainTab id="WDO" selected={tab === "WDO"} onClick={() => setTab("WDO")} open={openByAsset.WDO}>WDO</MainTab>
                     <MainTab id="VIDEO" selected={false} disabled>
                         Vídeo <span style={{ fontSize: 11, color: "var(--mw-text-3)", border: "1px solid var(--mw-hairline-strong)", borderRadius: 999, padding: "0 7px" }}>{TEXT.soon}</span>
                     </MainTab>

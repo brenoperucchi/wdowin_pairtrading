@@ -12,7 +12,8 @@ import MagicWallsMark from "./MagicWallsMark";
 import SaasWelcomePortal from "./SaasWelcomePortal";
 import ThemeToggle from "./ThemeToggle";
 import AdminNav from "../admin/AdminNav";
-import { pageKeyFromSearch } from "../admin/adminPages";
+import { pageKeyFromPathname } from "../admin/adminPages";
+import { hrefForRoute } from "../routes";
 
 const FONT_SANS = "'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
 const FONT_MONO = "'IBM Plex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace";
@@ -404,6 +405,9 @@ export default function SaasAuthGate({ children }) {
             // ignore
         }
         forceLogoutWithReason("");
+        // Sair leva à raiz: a URL deixa de apontar para uma tela protegida (/admin/...) que a próxima sessão talvez não possa abrir.
+        // Navegação completa, porque a tela é escolhida pelo caminho ao carregar.
+        window.location.assign(hrefForRoute("charts"));
     };
 
     if (checking) {
@@ -739,7 +743,7 @@ export default function SaasAuthGate({ children }) {
                 </div>
                 {/* Navegação de administração: a mesma barra nas três telas (Gráficos, Marketing, Logins) */}
                 <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", justifyContent: "center" }}>
-                    <AdminNav current={pageKeyFromSearch(window.location.search)} />
+                    <AdminNav current={pageKeyFromPathname(window.location.pathname)} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--mw-text-2, #a3a9b8)", fontWeight: 400 }}>

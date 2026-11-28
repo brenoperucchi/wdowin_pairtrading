@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ADMIN_PAGES, visibleAdminPages, pageKeyFromSearch, hrefForPage, isAdminUser } from "../src/admin/adminPages.js";
+import { ADMIN_PAGES, visibleAdminPages, pageKeyFromPathname, pageForPathname, hrefForPage, isAdminUser } from "../src/admin/adminPages.js";
+import { ROUTE_PATHS } from "../src/routes.js";
 
 test("administrador vê Gráficos, Marketing e Logins", () => {
     const pages = visibleAdminPages({ saasEnabled: true, user: { plan: "admin" } });
-    assert.deepEqual(pages.map((p) => p.key), ["charts", "marketing", "logins"]);
+    assert.deepEqual(pages.map((p) => p.key), ["charts", "marketing", "users"]);
 });
 
 test("usuário comum, sem login ou plano vazio não vê nenhuma página administrativa", () => {
@@ -22,31 +23,32 @@ test("plano admin é reconhecido sem depender de caixa ou espaços", () => {
     assert.equal(isAdminUser({ plan: "administrador" }), false);
 });
 
-test("a página atual vem do parâmetro mode; desconhecido cai em Gráficos", () => {
-    assert.equal(pageKeyFromSearch("?mode=marketing"), "marketing");
-    assert.equal(pageKeyFromSearch("?mode=admin"), "logins");
-    assert.equal(pageKeyFromSearch(""), "charts");
-    assert.equal(pageKeyFromSearch("?mode=qualquer"), "charts");
+test("a página atual vem do caminho da URL; /admin, /manual e desconhecido não destacam nada", () => {
+    assert.equal(pageKeyFromPathname("/admin/marketing"), "marketing");
+    assert.equal(pageKeyFromPathname("/admin/users"), "users");
+    assert.equal(pageKeyFromPathname("/admin/users/"), "users");
+    assert.equal(pageKeyFromPathname("/"), "charts");
+    assert.equal(pageKeyFromPathname("/admin"), "");
+    assert.equal(pageKeyFromPathname("/manual"), "");
+    assert.equal(pageKeyFromPathname("/qualquer"), "");
+    assert.equal(pageForPathname("/admin/marketing").label, "Marketing");
 });
 
-test("endereços: Gráficos volta ao caminho limpo, as outras usam ?mode=", () => {
-    const [charts, marketing, logins] = ADMIN_PAGES;
-    assert.equal(hrefForPage(charts, "/app/"), "/app/");
-    assert.equal(hrefForPage(marketing, "/app/"), "/app/?mode=marketing");
-    assert.equal(hrefForPage(logins, "/"), "/?mode=admin");
+test("endereços: cada página é o caminho dela, sem ?mode= nem outro parâmetro", () => {
+    const [charts, marketing, users] = ADMIN_PAGES;
+    assert.equal(hrefForPage(charts), "/");
+    assert.equal(hrefForPage(marketing), "/admin/marketing");
+    assert.equal(hrefForPage(users), "/admin/users");
+    for (const p of ADMIN_PAGES) assert.ok(!hrefForPage(p).includes("?"), p.key);
 });
 
-import { pageForMode, ADMIN_PAGES as PAGES } from "../src/admin/adminPages.js";
-test("registro: chaves e modos são únicos e toda tela tem rótulo (base para crescer a lista)", () => {
-    const keys = PAGES.map((p) => p.key), modes = PAGES.map((p) => p.mode);
+test("registro: chaves e rotas são únicas, toda rota existe e as de admin ficam sob /admin", () => {
+    const keys = ADMIN_PAGES.map((p) => p.key), routes = ADMIN_PAGES.map((p) => p.route);
     assert.equal(new Set(keys).size, keys.length);
-    assert.equal(new Set(modes).size, modes.length);
-    for (const p of PAGES) assert.ok(p.label && typeof p.label === "string");
-});
-test("pageForMode acha a tela pelo ?mode= e ignora o vazio e o desconhecido", () => {
-    assert.equal(pageForMode("marketing").key, "marketing");
-    assert.equal(pageForMode("admin").key, "logins");
-    assert.equal(pageForMode(""), null);
-    assert.equal(pageForMode(null), null);
-    assert.equal(pageForMode("nada"), null);
+    assert.equal(new Set(routes).size, routes.length);
+    for (const p of ADMIN_PAGES) {
+        assert.ok(p.label && typeof p.label === "string");
+        assert.ok(ROUTE_PATHS[p.route] !== undefined, `rota inexistente: ${p.route}`);
+        if (p.key !== "charts") assert.ok(ROUTE_PATHS[p.route].startsWith("/admin/"), p.key);
+    }
 });

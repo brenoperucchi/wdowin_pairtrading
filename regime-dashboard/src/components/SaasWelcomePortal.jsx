@@ -501,7 +501,7 @@ export default function SaasWelcomePortal({
         try {
             const p = new URLSearchParams(window.location.search || "");
             const invite = (p.get("invite") || "").trim().toUpperCase();
-            const openTrial = p.get("trial") === "1" || p.get("mode") === "trial" || Boolean(invite);
+            const openTrial = p.get("trial") === "1" || Boolean(invite);
             return {
                 openTrial,
                 invite,

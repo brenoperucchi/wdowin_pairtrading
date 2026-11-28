@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect, useMemo, memo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback, memo } from "react";
 import { API_BASE, COMPASS_BASE, FORCE_WALLS_FLOW, isManualChartMode } from "../apiBase";
 import { authFetch, canAccessMediaStudio } from "../utils/saasAuth";
 import InstagramCardModal from "./InstagramCardModal";
 import MorningWallsVideoModal from "./MorningWallsVideoModal";
 
 import { buildInstagramSignals, formatPtsLabel } from "../utils/instagramSignalMetrics";
+import { parseEnum, useUrlParam } from "../utils/urlState";
 import { MT5_TOP6_SET, WALLS_FLOW_6_IDS, filterSignalsForHost } from "../utils/signalFilters";
 
 // Cor única das LINHAS de divergência (compra e venda, preço e fluxo). O NÚMERO da operação mantém a cor da direção
@@ -189,9 +190,6 @@ function isWallsFlowLocalhost() {
     if (FORCE_WALLS_FLOW || isManualChartMode()) return true;
     if (typeof window === "undefined") return false;
     const port = String(window.location.port || "");
-    const params = new URLSearchParams(window.location.search || "");
-    if (params.get("mode") === "walls_flow" || params.get("mode") === "manual") return true;
-    if (params.get("mode") === "mt5") return false;
     return port === "5176" || port === "5178";
 }
 
@@ -267,7 +265,10 @@ function FluxoRealAsgChart({
     contractName = "",
 }) {
     const svgRef = useRef(null);
-    const [chartTf, setChartTf] = useState("M5"); // "M5" | "M1"
+    // M5 ou M1 vem da URL, um parâmetro por ativo (?tf_win=m1, ?tf_wdo=m1; sem o parâmetro = M5).
+    const [tfParam, setTfParam] = useUrlParam(`tf_${String(symKey).toLowerCase()}`);
+    const chartTf = parseEnum(tfParam, ["m1"], "") === "m1" ? "M1" : "M5"; // "M5" | "M1"
+    const setChartTf = useCallback((tf, opts) => setTfParam(tf === "M1" ? "m1" : "", opts), [setTfParam]);
     const [m1AssetData, setM1AssetData] = useState(null);
     const [m1Loading, setM1Loading] = useState(false);
     // "loading" | "ok" | "missing": o servidor só guarda M1 do pregão ao vivo; em outros dias (ou sem produtor) fica "missing"
@@ -398,7 +399,6 @@ function FluxoRealAsgChart({
         const dKey = String(sessionDate || "").trim();
         const cached = _M1_CHART_CACHE[dKey || "__LATEST__"];
         const cachedHasBars = Array.isArray(cached?.[symKey]?.m1_series) && cached[symKey].m1_series.length > 0;
-        setM1Notice(false);
         if (cachedHasBars) {
             setM1AssetData(cached[symKey]);
             setM1State("ok");
@@ -440,15 +440,19 @@ function FluxoRealAsgChart({
         };
     }, [sessionDate, symKey, chartTf]);
 
+    // O aviso "M1 indisponível" some ao trocar de dia ou de ativo, ou quando o M1 passa a existir (não ao voltar ao M5)
+    useEffect(() => { setM1Notice(false); }, [sessionDate, symKey]);
+    useEffect(() => { if (m1State === "ok") setM1Notice(false); }, [m1State]);
+
     // Estava em M1 e o dia trocado não tem 1 minuto: volta ao M5 e avisa (nunca fica uma janela M1 vazia)
     useEffect(() => {
         if (m1State === "missing" && chartTf === "M1") {
-            setChartTf("M5");
+            setChartTf("M5", { replace: true }); // a URL deixa de prometer um M1 que não existe, sem empilhar histórico
             setViewMode("HOJE");
             setPanOffsetRight(0);
             setM1Notice(true);
         }
-    }, [m1State, chartTf]);
+    }, [m1State, chartTf, setChartTf]);
 
     const useM1Active = chartTf === "M1" && Array.isArray(m1AssetData?.m1_series) && m1AssetData.m1_series.length > 0;
     // Sincroniza o fluxo do M1 com a série oficial M5 do Profit para que o Fluxo Smart Money / CVD / Janela
