@@ -25,6 +25,26 @@ const IconFilm = () => (
     </svg>
 );
 
+const IconFullscreen = ({ exit = false }) => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {exit ? (
+            <>
+                <polyline points="9 4 9 9 4 9" />
+                <polyline points="15 4 15 9 20 9" />
+                <polyline points="9 20 9 15 4 15" />
+                <polyline points="15 20 15 15 20 15" />
+            </>
+        ) : (
+            <>
+                <polyline points="4 9 4 4 9 4" />
+                <polyline points="20 9 20 4 15 4" />
+                <polyline points="4 15 4 20 9 20" />
+                <polyline points="20 15 20 20 15 20" />
+            </>
+        )}
+    </svg>
+);
+
 const IconChevLeft = () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <polyline points="15 18 9 12 15 6" />
@@ -370,15 +390,66 @@ function FluxoRealAsgChart({
     const tvMetricsRef = useRef(null);
     const chartBoxRef = useRef(null);
     const [viewport, setViewport] = useState(() => {
-        if (typeof window === "undefined") return { boxW: 1240, winH: 800, narrow: false };
+        if (typeof window === "undefined") return { boxW: 1240, winH: 800, narrow: false, chromeH: 56 };
         const w = Number(window.innerWidth) || 1240;
-        return { boxW: w, winH: Number(window.innerHeight) || 800, narrow: w < 560 };
+        return { boxW: w, winH: Number(window.innerHeight) || 800, narrow: w < 560, chromeH: 56 };
     });
+    // Tela cheia do gráfico (preço + Fluxo Smart Money no mesmo card). Usa a Fullscreen API; sem ela
+    // (iOS, por exemplo) cai para um card fixo cobrindo a janela. Esc sai nos dois casos.
+    const [isFull, setIsFull] = useState(false);
+    const [fullFallback, setFullFallback] = useState(false);
+    const toggleFullscreen = useCallback(() => {
+        const el = chartBoxRef.current;
+        if (typeof document === "undefined" || !el) return;
+        if (document.fullscreenElement) {
+            document.exitFullscreen?.();
+            return;
+        }
+        if (fullFallback) {
+            setFullFallback(false);
+            setIsFull(false);
+            return;
+        }
+        if (typeof el.requestFullscreen === "function") {
+            el.requestFullscreen().catch(() => { setFullFallback(true); setIsFull(true); });
+        } else {
+            setFullFallback(true);
+            setIsFull(true);
+        }
+    }, [fullFallback]);
+    useEffect(() => {
+        if (typeof document === "undefined") return undefined;
+        const onChange = () => {
+            const on = document.fullscreenElement === chartBoxRef.current;
+            setIsFull(on || fullFallback);
+        };
+        const onKey = (e) => {
+            if (e.key === "Escape" && fullFallback) { setFullFallback(false); setIsFull(false); }
+        };
+        const onError = () => { setFullFallback(true); setIsFull(true); };
+        document.addEventListener("fullscreenchange", onChange);
+        document.addEventListener("fullscreenerror", onError);
+        window.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("fullscreenchange", onChange);
+            document.removeEventListener("fullscreenerror", onError);
+            window.removeEventListener("keydown", onKey);
+        };
+    }, [fullFallback]);
     useEffect(() => {
         const measure = () => {
-            const boxW = (chartBoxRef.current && chartBoxRef.current.clientWidth) || window.innerWidth || 1240;
+            const box = chartBoxRef.current;
+            const boxW = (box && box.clientWidth) || window.innerWidth || 1240;
             const winH = window.innerHeight || 800;
-            setViewport({ boxW, winH, narrow: boxW < 560 });
+            let chromeH = 56;
+            if (box && svgRef.current) {
+                const bRect = box.getBoundingClientRect();
+                const sRect = svgRef.current.getBoundingClientRect();
+                if (sRect.top > bRect.top) chromeH = Math.round(sRect.top - bRect.top);
+            }
+            // O estado de tela cheia segue o que o navegador reporta (ele pode sair sem avisar, p. ex. no redimensionamento).
+            setIsFull(document.fullscreenElement === box || fullFallback);
+            setViewport({ boxW, winH, narrow: boxW < 560, chromeH });
         };
         measure();
         const raf = (typeof requestAnimationFrame !== "undefined") ? requestAnimationFrame(measure) : 0;
@@ -390,7 +461,7 @@ function FluxoRealAsgChart({
             if (ro) ro.disconnect();
             window.removeEventListener("resize", measure);
         };
-    }, [m5RawSeries?.length, isSideBySide]);
+    }, [m5RawSeries?.length, isSideBySide, isFull, fullFallback]);
 
 
     // Pré-carrega a série M1 em background assim que a data da sessão estiver disponível (troca M5 <-> M1 em 0ms)
@@ -712,11 +783,13 @@ function FluxoRealAsgChart({
 
     const isNarrow = !isSideBySide && viewport.narrow;
     const width = Math.max(320, Math.round(viewport.boxW || (wideMode ? 1240 : 900)));
-    const height = isSideBySide
-        ? 460
-        : isNarrow
-            ? 390
-            : (isWallsHost ? 510 : 544);
+    const height = isFull
+        ? Math.max(360, Math.round(viewport.winH - viewport.chromeH))
+        : isSideBySide
+            ? 460
+            : isNarrow
+                ? 390
+                : (isWallsHost ? 510 : 544);
     const padL = isNarrow ? 8 : 12;
     const padR = isNarrow ? 74 : (isSideBySide ? 78 : 94);
 
@@ -2061,6 +2134,7 @@ function FluxoRealAsgChart({
         <div
             ref={chartBoxRef}
             className="mw-card rb-fade-up mw-chart-card"
+            data-fullscreen={isFull ? "true" : "false"}
             style={{
                 minWidth: 0,
                 width: "100%",
@@ -2069,9 +2143,42 @@ function FluxoRealAsgChart({
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
+                position: "relative",
+                ...(isFull ? { background: "var(--mw-bg)" } : {}),
+                ...(fullFallback ? { position: "fixed", inset: 0, zIndex: 1000, width: "100vw", height: "100vh", borderRadius: 0 } : {}),
             }}
         >
             {embeddedHeader}
+
+            {/* Botão de tela cheia: fica dentro da área do gráfico (canto superior direito, sobre a coluna de preços) */}
+            <button
+                type="button"
+                data-testid="chart-fullscreen-btn"
+                onClick={toggleFullscreen}
+                aria-pressed={isFull}
+                aria-label={isFull ? "Sair da tela cheia" : "Tela cheia"}
+                title={isFull ? "Sair da tela cheia (Esc)" : "Tela cheia: gráfico e Fluxo Smart Money"}
+                style={{
+                    position: "absolute",
+                    top: (viewport.chromeH || 56) + 6,
+                    right: 8,
+                    zIndex: 5,
+                    width: 32,
+                    height: 28,
+                    padding: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    color: "#7dd3fc",
+                    background: "rgba(22,28,40,0.96)",
+                    border: "1px solid #7dd3fc",
+                    borderRadius: 5,
+                    boxShadow: "0 1px 6px rgba(0,0,0,0.55)",
+                }}
+            >
+                <IconFullscreen exit={isFull} />
+            </button>
 
             {/* ── Barra Superior Unificada Ink Azul ── */}
             <div
